@@ -30,6 +30,11 @@ export default function App() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'home' | 'unified' | 'pools' | 'send' | 'swap' | 'bridge' | 'ai-services' | 'history'>('home')
   
+  // Auto-scroll to top when switching tabs so user starts at the top of the tab
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [activeTab])
+  
   const { address, isConnected, connector } = useAccount()
   const { disconnect } = useDisconnect()
   const [connectedProvider, setConnectedProvider] = useState<any>(null)
@@ -152,10 +157,10 @@ export default function App() {
         />
 
         {/* Main Container */}
-        <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-8 flex flex-col gap-6">
+        <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 py-6 md:py-10 flex flex-col gap-6 min-h-[calc(100vh+80px)]">
           
           {/* Workspace Content */}
-          <section className="flex-1 min-w-0">
+          <section className="flex-1 min-w-0 flex flex-col min-h-[calc(100vh-60px)] pb-12">
 
             {/* Arcis Homepage / Overview Tab */}
             {activeTab === 'home' && (
@@ -170,74 +175,88 @@ export default function App() {
             
             {/* Unified Balance Tab */}
             {activeTab === 'unified' && (
-              <UnifiedBalance onNavigate={(tab) => setActiveTab(tab)} connector={connector} />
+              <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
+                <UnifiedBalance onNavigate={(tab) => setActiveTab(tab)} connector={connector} />
+              </div>
             )}
 
             {/* Pools & Yield Hub Tab */}
             {activeTab === 'pools' && (
-              <PoolsTab
-                walletAddress={walletAddress}
-                walletConnected={walletConnected}
-                provider={connectedProvider}
-              />
+              <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
+                <PoolsTab
+                  walletAddress={walletAddress}
+                  walletConnected={walletConnected}
+                  provider={connectedProvider}
+                />
+              </div>
             )}
 
             {/* AI Services (x402 Marketplace) Tab */}
             {activeTab === 'ai-services' && (
-              <MarketplaceTab
-                walletAddress={walletAddress}
-                walletConnected={walletConnected}
-              />
+              <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
+                <MarketplaceTab
+                  walletAddress={walletAddress}
+                  walletConnected={walletConnected}
+                />
+              </div>
             )}
 
             {/* Send Tab (Rendered inline) */}
             {activeTab === 'send' && (
-              <SendModal
-                isOpen={true}
-                isInline={true}
-                onClose={() => {}}
-                connectedAddress={walletAddress}
-                provider={connectedProvider}
-                currentChainId={5042002}
-                onSuccess={() => {
-                  refreshBalances()
-                }}
-              />
+              <div className="flex-1 flex flex-col items-center justify-start py-4 sm:py-8 min-h-[calc(100vh-80px)]">
+                <SendModal
+                  isOpen={true}
+                  isInline={true}
+                  onClose={() => {}}
+                  connectedAddress={walletAddress}
+                  provider={connectedProvider}
+                  currentChainId={5042002}
+                  onSuccess={() => {
+                    refreshBalances()
+                  }}
+                />
+              </div>
             )}
 
             {/* Swap Tab (Rendered inline) */}
             {activeTab === 'swap' && (
-              <SwapModal
-                isOpen={true}
-                isInline={true}
-                onClose={() => {}}
-                connectedAddress={walletAddress}
-                provider={connectedProvider}
-                currentChainId={5042002}
-                onSuccess={() => {
-                  refreshBalances()
-                }}
-              />
+              <div className="flex-1 flex flex-col items-center justify-start py-4 sm:py-8 min-h-[calc(100vh-80px)]">
+                <SwapModal
+                  isOpen={true}
+                  isInline={true}
+                  onClose={() => {}}
+                  connectedAddress={walletAddress}
+                  provider={connectedProvider}
+                  currentChainId={5042002}
+                  onSuccess={() => {
+                    refreshBalances()
+                  }}
+                />
+              </div>
             )}
 
             {/* Bridge Tab (Rendered inline) */}
             {activeTab === 'bridge' && (
-              <BridgeModal
-                isOpen={true}
-                isInline={true}
-                onClose={() => {}}
-                connectedAddress={walletAddress}
-                provider={connectedProvider}
-                currentChainId={5042002}
-                onSuccess={() => {
-                  refreshBalances()
-                }}
-              />
+              <div className="flex-1 flex flex-col items-center justify-start py-4 sm:py-8 min-h-[calc(100vh-80px)]">
+                <BridgeModal
+                  isOpen={true}
+                  isInline={true}
+                  onClose={() => {}}
+                  connectedAddress={walletAddress}
+                  provider={connectedProvider}
+                  currentChainId={5042002}
+                  onSuccess={() => {
+                    refreshBalances()
+                  }}
+                />
+              </div>
             )}
 
             {/* History Tab */}
             {activeTab === 'history' && (
-              <HistoryTable />
+              <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
+                <HistoryTable />
+              </div>
             )}
 
           </section>

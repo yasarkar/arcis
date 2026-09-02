@@ -52,9 +52,9 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
   return (
     <footer className="w-full border-t border-white/10 bg-slate-950/80 backdrop-blur-2xl mt-auto relative z-10">
       {/* Ambient Top Glow Line */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/40 to-transparent pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-5/6 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/40 to-transparent pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-12 md:py-16 flex flex-col gap-12">
+      <div className="w-full max-w-[1800px] 2xl:max-w-full mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-20 py-12 md:py-16 flex flex-col gap-12">
         
         {/* Top 4-Column Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-8 lg:gap-10">
@@ -156,7 +156,6 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
                   className="hover:text-white transition-colors inline-flex items-center gap-1"
                 >
                   <span>Explorer</span>
-                  <ExternalLink size={12} className="opacity-60" />
                 </a>
               </li>
               <li>
@@ -167,7 +166,6 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
                   className="hover:text-white transition-colors inline-flex items-center gap-1"
                 >
                   <span>Docs</span>
-                  <ExternalLink size={12} className="opacity-60" />
                 </a>
               </li>
               <li>
@@ -178,7 +176,6 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
                   className="hover:text-white transition-colors inline-flex items-center gap-1"
                 >
                   <span>Faucet</span>
-                  <ExternalLink size={12} className="opacity-60" />
                 </a>
               </li>
             </ul>
@@ -190,11 +187,11 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
               // SUBSCRIBE FOR UPDATES
             </div>
             
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
               Get the latest Arcis news, yield updates, and protocol releases delivered to your inbox.
             </p>
 
-            <form onSubmit={handleSubscribe} className="flex flex-col gap-2 mt-1">
+            <form onSubmit={handleSubscribe} className="flex flex-col gap-2 mt-1 max-w-sm">
               <div className="flex items-stretch overflow-hidden rounded-xl border border-white/10 focus-within:border-indigo-400/60 focus-within:ring-1 focus-within:ring-indigo-400/30 bg-slate-900/90 transition-all">
                 <div className="pl-3.5 pr-1 flex items-center text-slate-500 pointer-events-none">
                   <Mail size={14} />
@@ -229,7 +226,7 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
                 </p>
               )}
 
-              <p className="text-[11px] text-slate-500 leading-normal">
+              <p className="text-[11px] text-slate-500 leading-normal max-w-sm">
                 By subscribing, you agree to receive email updates from Arcis Protocol. Unsubscribe anytime.
               </p>
             </form>
@@ -238,16 +235,10 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
         </div>
 
         {/* Bottom Horizontal Bar */}
-        <div className="border-t border-white/5 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div>
+        <div className="border-t border-white/5 pt-8 grid grid-cols-1 md:grid-cols-3 items-center gap-4 text-xs text-slate-500">
+          <div className="hidden md:block"></div>
+          <div className="text-center">
             <span>© 2026 Arcis Protocol. Built on Arc Layer-1 for stablecoin-first financial flows.</span>
-          </div>
-          <div className="flex items-center gap-4 text-slate-400">
-            <span>Sub-Second Finality</span>
-            <span className="text-slate-600">•</span>
-            <span>Zero ETH Gas</span>
-            <span className="text-slate-600">•</span>
-            <span className="text-emerald-400 font-medium">All Systems Operational</span>
           </div>
         </div>
 

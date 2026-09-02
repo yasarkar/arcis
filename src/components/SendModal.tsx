@@ -856,7 +856,8 @@ export default function SendModal({
       style={{
         maxWidth: isInline ? 780 : 590,
         margin: isInline ? '0 auto' : undefined,
-        padding: '36px 42px',
+        padding: isInline ? '48px 48px' : '36px 42px',
+        minHeight: isInline ? 760 : undefined,
         borderRadius: '28px',
         boxShadow: isInline
           ? '0 0 0 1px rgba(255, 255, 255, 0.06), 0 20px 48px -12px rgba(0, 0, 0, 0.5)'

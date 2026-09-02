@@ -170,7 +170,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
   }
 
   return (
-    <div className="arc-animate-reveal" style={{ maxWidth: 860, margin: '0 auto', paddingTop: 16 }}>
+    <div className="arc-animate-reveal w-full flex-1 flex flex-col justify-start" style={{ maxWidth: 860, margin: '0 auto', paddingTop: 16, minHeight: 'calc(100vh - 100px)' }}>
 
       {/* ── HERO CARD (AAVE LUXURY GLASS CONTAINER) ── */}
       <div className="ub-hero-card" style={{ marginBottom: 24 }}>
