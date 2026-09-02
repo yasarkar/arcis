@@ -517,12 +517,12 @@ export default function SwapModal({
   if (!isOpen && !isInline) return null
   const content = (
     <div
-      className={`relative w-full ub-asset-card arc-animate-reveal ${isInline ? '' : 'overflow-y-auto max-h-[90vh]'}`}
+      className={`relative w-full ub-asset-card arc-animate-reveal flex flex-col ${isInline ? '' : 'overflow-y-auto max-h-[90vh]'}`}
       style={{
         maxWidth: isInline ? 780 : 590,
         margin: isInline ? '0 auto' : undefined,
-        padding: isInline ? '48px 48px' : '36px 42px',
-        minHeight: isInline ? 760 : undefined,
+        padding: isInline ? '36px 44px' : '32px 36px',
+        minHeight: isInline ? 630 : undefined,
         borderRadius: '28px',
         boxShadow: isInline
           ? '0 0 0 1px rgba(255, 255, 255, 0.06), 0 20px 48px -12px rgba(0, 0, 0, 0.5)'
@@ -594,13 +594,16 @@ export default function SwapModal({
       </div>
 
       {/* Swap Form */}
-      <form onSubmit={handleSwapExecution} className="space-y-5.5">
+      <form onSubmit={handleSwapExecution} className="flex-1 flex flex-col justify-between">
         {error && (
-          <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-center">
+          <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-center mb-4">
             <AlertTriangle className="w-4 h-4 shrink-0 font-bold" />
             <span>{error}</span>
           </div>
         )}
+
+        {/* Elements arranged along Y-axis with equal vertical spacing */}
+        <div className="flex-1 flex flex-col justify-between gap-4 sm:gap-5">
 
         {/* Chain Selector */}
         <div className="relative" onClick={(e) => e.stopPropagation()}>
@@ -1145,24 +1148,14 @@ export default function SwapModal({
             </div>
           </div>
         )}
+        </div>
 
-        {/* Submit Swap Button */}
+        {/* Submit Swap Button placed near the bottom of the body */}
         {!successData && (
-          <button
-            type="submit"
-            disabled={
-              isSwapping ||
-              isInsufficient ||
-              tokenIn === tokenOut ||
-              !!estimateError ||
-              isEstimating ||
-              (useCustomRecipient && !isValidEvmAddress(customRecipient)) ||
-              !!recipientError
-            }
-            className="w-full py-4 mt-4 rounded-full text-sm font-semibold tracking-wide text-white bg-blue-900 hover:bg-blue-800 transition-all flex items-center justify-center gap-2 cursor-pointer"
-            style={{
-              fontFamily: 'var(--font-app)',
-              cursor: (
+          <div className="mt-auto pt-6">
+            <button
+              type="submit"
+              disabled={
                 isSwapping ||
                 isInsufficient ||
                 tokenIn === tokenOut ||
@@ -1170,21 +1163,34 @@ export default function SwapModal({
                 isEstimating ||
                 (useCustomRecipient && !isValidEvmAddress(customRecipient)) ||
                 !!recipientError
-              ) ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {isSwapping ? (
-              <>
-                <RefreshCw className="w-4 h-4 arcis-spin" />
-                <span>{isCrossChain ? 'CROSS-CHAIN SWAPPING...' : 'SWAPPING...'}</span>
-              </>
-            ) : (
-              <>
-                <ArrowRightLeft className="w-4 h-4" />
-                <span>{isInsufficient ? 'INSUFFICIENT BALANCE' : isCrossChain ? 'CROSS-CHAIN SWAP' : 'SWAP'}</span>
-              </>
-            )}
-          </button>
+              }
+              className="w-full py-4 rounded-full text-sm font-semibold tracking-wide text-white bg-blue-900 hover:bg-blue-800 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg hover:shadow-blue-900/30 active:scale-[0.99]"
+              style={{
+                fontFamily: 'var(--font-app)',
+                cursor: (
+                  isSwapping ||
+                  isInsufficient ||
+                  tokenIn === tokenOut ||
+                  !!estimateError ||
+                  isEstimating ||
+                  (useCustomRecipient && !isValidEvmAddress(customRecipient)) ||
+                  !!recipientError
+                ) ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isSwapping ? (
+                <>
+                  <RefreshCw className="w-4 h-4 arcis-spin" />
+                  <span>{isCrossChain ? 'CROSS-CHAIN SWAPPING...' : 'SWAPPING...'}</span>
+                </>
+              ) : (
+                <>
+                  <ArrowRightLeft className="w-4 h-4" />
+                  <span>{isInsufficient ? 'INSUFFICIENT BALANCE' : isCrossChain ? 'CROSS-CHAIN SWAP' : 'SWAP'}</span>
+                </>
+              )}
+            </button>
+          </div>
         )}
         
         {/* Success Summary */}

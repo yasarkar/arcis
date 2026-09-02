@@ -852,7 +852,7 @@ export default function SendModal({
 
   const content = (
     <div
-      className="relative w-full ub-asset-card arc-animate-reveal"
+      className="relative w-full ub-asset-card arc-animate-reveal flex flex-col"
       style={{
         maxWidth: isInline ? 780 : 590,
         margin: isInline ? '0 auto' : undefined,
@@ -988,15 +988,16 @@ export default function SendModal({
       </div>
 
       {/* Body */}
-      <form onSubmit={handleSend} className="space-y-5.5">
+      <form onSubmit={handleSend} className="flex-1 flex flex-col justify-between">
         {error && (
-          <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-center">
+          <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-center mb-4">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        <div className="space-y-4.5">
+        {/* Elements arranged along Y-axis with equal vertical spacing */}
+        <div className="flex-1 flex flex-col justify-between gap-4 sm:gap-5">
           {/* Chain Selector */}
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <label className="block text-xs font-semibold tracking-wide text-slate-300 mb-1.5 ml-3" style={{ fontFamily: 'var(--font-app)' }}>
@@ -1444,11 +1445,10 @@ export default function SendModal({
               )}
             </div>
           )}
-        </div>
 
         {/* Arc Native Transaction Memo Droplist (Placed directly below Amount input) */}
         {selectedChain === 'Arc_Testnet' && sendMode === 'direct' && activeToken === 'USDC' && (
-          <div className="space-y-2.5 pt-2" ref={memoDropdownRef}>
+          <div className="space-y-2.5" ref={memoDropdownRef}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <label className="block text-xs font-semibold tracking-wide text-slate-300 ml-3" style={{ fontFamily: 'var(--font-app)' }}>
@@ -1874,34 +1874,38 @@ export default function SendModal({
             </div>
           </div>
         )}
+        </div>
 
+        {/* Send Button placed near the bottom of the body */}
         {!successReceipt && (
-          <button
-            type="submit"
-            disabled={isSending || isInsufficient}
-            className="w-full py-4 mt-4 rounded-full text-sm font-semibold bg-blue-900 hover:bg-blue-800 tracking-wide text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
-            style={{
-              fontFamily: 'var(--font-app)',
-              cursor: (isSending || isInsufficient) ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {isSending ? (
-              <>
-                <RefreshCw className="w-4 h-4 arcis-spin" />
-                <span>{isGaslessActive ? 'PROCESSING GASLESS SEND...' : 'PROCESSING SEND...'}</span>
-              </>
-            ) : isGaslessActive ? (
-              <>
-                <ArrowUpRight className="w-4 h-4" />
-                <span>SEND GASLESS</span>
-              </>
-            ) : (
-              <>
-                <ArrowUpRight className="w-4 h-4" />
-                <span>SEND</span>
-              </>
-            )}
-          </button>
+          <div className="mt-auto pt-6">
+            <button
+              type="submit"
+              disabled={isSending || isInsufficient}
+              className="w-full py-4 rounded-full text-sm font-semibold bg-blue-900 hover:bg-blue-800 tracking-wide text-white transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg hover:shadow-blue-900/30 active:scale-[0.99]"
+              style={{
+                fontFamily: 'var(--font-app)',
+                cursor: (isSending || isInsufficient) ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isSending ? (
+                <>
+                  <RefreshCw className="w-4 h-4 arcis-spin" />
+                  <span>{isGaslessActive ? 'PROCESSING GASLESS SEND...' : 'PROCESSING SEND...'}</span>
+                </>
+              ) : isGaslessActive ? (
+                <>
+                  <ArrowUpRight className="w-4 h-4" />
+                  <span>SEND GASLESS</span>
+                </>
+              ) : (
+                <>
+                  <ArrowUpRight className="w-4 h-4" />
+                  <span>SEND</span>
+                </>
+              )}
+            </button>
+          </div>
         )}
       </form>
 

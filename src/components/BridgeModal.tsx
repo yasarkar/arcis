@@ -436,12 +436,12 @@ export default function BridgeModal({
 
   const content = (
     <div
-      className="relative w-full ub-asset-card arc-animate-reveal overflow-hidden"
+      className={`relative w-full ub-asset-card arc-animate-reveal flex flex-col ${isInline ? '' : 'overflow-y-auto max-h-[90vh]'}`}
       style={{
         maxWidth: isInline ? 780 : 590,
         margin: isInline ? '0 auto' : undefined,
-        padding: isInline ? '48px 48px' : '36px 42px',
-        minHeight: isInline ? 760 : undefined,
+        padding: isInline ? '36px 44px' : '32px 36px',
+        minHeight: isInline ? 630 : undefined,
         borderRadius: '28px',
         boxShadow: isInline
           ? '0 0 0 1px rgba(255, 255, 255, 0.06), 0 20px 48px -12px rgba(0, 0, 0, 0.5)'
@@ -555,13 +555,16 @@ export default function BridgeModal({
         </button>
       </div>
 
-      <form onSubmit={handleTransfer} className="space-y-5.5">
+      <form onSubmit={handleTransfer} className="flex-1 flex flex-col justify-between">
         {error && (
-          <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-center">
+          <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-center mb-4">
             <AlertTriangle className="w-4 h-4 shrink-0 font-bold" />
             <span>{error}</span>
           </div>
         )}
+
+        {/* Elements arranged along Y-axis with equal vertical spacing */}
+        <div className="flex-1 flex flex-col justify-between gap-4 sm:gap-5">
         {/* Routing Inputs (Source & Destination) */}
         <div className="grid grid-cols-5 gap-3 sm:gap-3.5 items-center">
           {/* Source Chain */}
@@ -744,10 +747,8 @@ export default function BridgeModal({
           </div>
         </div>
 
-        {/* Recipient and Amount */}
-        <div className="space-y-4">
-          {/* Recipient Address */}
-          <div>
+        {/* Recipient Address */}
+        <div>
             <div className="flex items-center justify-between mb-1.5 px-3">
               <label className="block text-xs font-semibold tracking-wide text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
                 RECIPIENT ADDRESS
@@ -966,7 +967,6 @@ export default function BridgeModal({
               </p>
             )}
           </div>
-        </div>
 
         {/* Comprehensive Itemized Fee Breakdown Card */}
         {amount && parseFloat(amount) > 0 && (
@@ -1085,33 +1085,37 @@ export default function BridgeModal({
             </div>
           </div>
         )}
+        </div>
 
+        {/* Submit Bridge Button placed near the bottom of the body */}
         {!successReceipt && (
-          <button
-            type="submit"
-            disabled={isTransferring || isInsufficient}
-            className="w-full py-4 mt-4 rounded-full text-sm font-semibold tracking-wide text-white transition-all flex items-center justify-center gap-2 cursor-pointer"
-            style={{
-              fontFamily: 'var(--font-app)',
-              background: (isTransferring || isInsufficient)
-                ? 'rgba(152, 150, 255, 0.3)'
-                : 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-              boxShadow: (isTransferring || isInsufficient) ? 'none' : '0 6px 24px rgba(152, 150, 255, 0.3)',
-              cursor: (isTransferring || isInsufficient) ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {isTransferring ? (
-              <>
-                <RefreshCw className="w-4 h-4 arcis-spin" />
-                <span>{bridgeMode === 'direct' ? 'BRIDGING CCTP...' : 'TRANSFERRING FAST...'}</span>
-              </>
-            ) : (
-              <>
-                <Globe className="w-4 h-4" />
-                <span>{bridgeMode === 'direct' ? 'BRIDGE VIA CCTP' : 'FAST GATEWAY TRANSFER'}</span>
-              </>
-            )}
-          </button>
+          <div className="mt-auto pt-6">
+            <button
+              type="submit"
+              disabled={isTransferring || isInsufficient}
+              className="w-full py-4 rounded-full text-sm font-semibold tracking-wide text-white transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-[0.99]"
+              style={{
+                fontFamily: 'var(--font-app)',
+                background: (isTransferring || isInsufficient)
+                  ? 'rgba(152, 150, 255, 0.3)'
+                  : 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                boxShadow: (isTransferring || isInsufficient) ? 'none' : '0 6px 24px rgba(152, 150, 255, 0.3)',
+                cursor: (isTransferring || isInsufficient) ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isTransferring ? (
+                <>
+                  <RefreshCw className="w-4 h-4 arcis-spin" />
+                  <span>{bridgeMode === 'direct' ? 'BRIDGING CCTP...' : 'TRANSFERRING FAST...'}</span>
+                </>
+              ) : (
+                <>
+                  <Globe className="w-4 h-4" />
+                  <span>{bridgeMode === 'direct' ? 'BRIDGE VIA CCTP' : 'FAST GATEWAY TRANSFER'}</span>
+                </>
+              )}
+            </button>
+          </div>
         )}
       </form>
 
