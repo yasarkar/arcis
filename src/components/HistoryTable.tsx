@@ -763,10 +763,10 @@ export default function HistoryTable() {
         {filteredHistory.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center p-6 min-h-[280px]">
             <Clock className="w-10 h-10 text-slate-600 mb-3" />
-            <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>NO TRANSACTIONS RECORDED</h4>
+            <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>NO TRANSACTIONS</h4>
             <p className="text-xs text-slate-500 max-w-xs mt-1" style={{ fontFamily: 'var(--font-app)' }}>
               {history.length === 0
-                ? 'Transactions initiated on this client (Send, Swap, or CCTP Bridge) will show up here.'
+                ? 'Transactions initiated on this client (Send, Swap, or Cross-chain Bridge) will show up here.'
                 : 'No transactions match the selected filters.'}
             </p>
           </div>

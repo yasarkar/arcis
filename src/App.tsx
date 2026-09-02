@@ -6,6 +6,7 @@ import { useModularWallet } from './hooks/useModularWallet'
 import CircleAuthModal from './components/CircleAuthModal'
 import FaucetModal from './components/FaucetModal'
 import UnifiedBalance from './components/UnifiedBalance'
+import HomePage from './components/home/HomePage'
 import Header from './components/Header'
 import HistoryTable from './components/HistoryTable'
 import PoolsTab from './components/pools/PoolsTab'
@@ -26,7 +27,7 @@ function AutoChainSwitchWatcher() {
 
 export default function App() {
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<'unified' | 'pools' | 'send' | 'swap' | 'bridge' | 'ai-services' | 'history'>('unified')
+  const [activeTab, setActiveTab] = useState<'home' | 'unified' | 'pools' | 'send' | 'swap' | 'bridge' | 'ai-services' | 'history'>('home')
   
   const { address, isConnected, connector } = useAccount()
   const { disconnect } = useDisconnect()
@@ -154,6 +155,17 @@ export default function App() {
           
           {/* Workspace Content */}
           <section className="flex-1 min-w-0">
+
+            {/* Arcis Homepage / Overview Tab */}
+            {activeTab === 'home' && (
+              <HomePage
+                onNavigate={(tab) => setActiveTab(tab)}
+                onOpenCircleAuth={() => setIsCircleAuthOpen(true)}
+                onOpenFaucet={() => setIsFaucetOpen(true)}
+                walletConnected={walletConnected}
+                walletAddress={walletAddress}
+              />
+            )}
             
             {/* Unified Balance Tab */}
             {activeTab === 'unified' && (

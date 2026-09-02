@@ -22,7 +22,7 @@ import { arcTestnet } from '../config/arcChain'
 import { getExplorerAddressUrl } from '../config/sendConfig'
 import { useMultiChainWallet } from '../hooks/useMultiChainWallet'
 
-type TabType = 'unified' | 'send' | 'swap' | 'bridge' | 'pools' | 'ai-services' | 'history'
+type TabType = 'home' | 'unified' | 'send' | 'swap' | 'bridge' | 'pools' | 'ai-services' | 'history'
 
 interface HeaderProps {
   activeTab: TabType
@@ -64,6 +64,7 @@ export default function Header({
   const [copiedSol, setCopiedSol] = useState<boolean>(false)
   const [copiedInj, setCopiedInj] = useState<boolean>(false)
   const tabs = [
+    { id: 'home' as const, label: 'Overview', icon: Sparkles },
     { id: 'unified' as const, label: 'Unified Balance', icon: Coins },
     { id: 'send' as const, label: 'Send', icon: ArrowUpRight },
     { id: 'swap' as const, label: 'Swap', icon: ArrowRightLeft },
@@ -90,9 +91,9 @@ export default function Header({
         <div className="flex items-center justify-start flex-1 min-w-0">
           <button
             type="button"
-            onClick={() => setActiveTab('unified')}
+            onClick={() => setActiveTab('home')}
             className="flex items-center gap-3 cursor-pointer group focus:outline-none transition-transform active:scale-95"
-            title="Go to Unified Balance"
+            title="Arcis Protocol Overview"
           >
             <img
               src={customLogo}
