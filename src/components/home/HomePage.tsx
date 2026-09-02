@@ -577,47 +577,6 @@ export default function HomePage({
           })}
         </div>
       </section>
-
-      {/* ── 6. DEVELOPER RESOURCES & FOOTER BANNER ── */}
-      <section className="w-full rounded-3xl p-8 md:p-12 border border-white/10 bg-gradient-to-r from-indigo-950/40 via-purple-950/40 to-slate-950/60 flex flex-col md:flex-row items-center justify-between gap-8 text-center md:text-left">
-        <div className="flex flex-col gap-2 max-w-xl">
-          <div className="text-xs font-mono text-sky-400 uppercase tracking-widest">// START BUILDING ON ARC</div>
-          <h3 className="text-2xl sm:text-3xl font-bold text-white">
-            Arc Testnet Üzerinde Geliştirmeye Başlayın
-          </h3>
-          <p className="text-xs sm:text-sm text-slate-300">
-            Doğrulanmış Solidity akıllı kontratlarımız, Circle SDK'larımız ve açık kaynaklı araçlarımız ile merkeziyetsiz finansın geleceğini inşa edin.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <a
-            href={arcTestnet.blockExplorers?.default?.url || 'https://testnet.arcscan.app'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-5 py-3 rounded-full text-xs sm:text-sm font-medium border border-white/20 bg-white/10 hover:bg-white/20 text-white flex items-center gap-2 transition cursor-pointer"
-          >
-            <span>ArcScan Explorer</span>
-            <ExternalLink className="w-4 h-4" />
-          </a>
-
-          <a
-            href="https://docs.arc.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-5 py-3 rounded-full text-xs sm:text-sm font-medium border border-sky-400/40 bg-sky-950/40 hover:bg-sky-900/50 text-sky-200 flex items-center gap-2 transition cursor-pointer"
-          >
-            <span>Arc Documentation</span>
-            <ExternalLink className="w-4 h-4" />
-          </a>
-        </div>
-      </section>
-
-      {/* Legal & Regulatory Disclaimer matching Arc standards */}
-      <div className="text-[11px] text-slate-500 leading-relaxed border-t border-white/5 pt-8 text-center max-w-4xl mx-auto">
-        Arcis Protocol is deployed on Arc Testnet (Chain ID: 5042002). Arc testnet is offered for testing and evaluation purposes. All product features, smart contracts, and liquidity mechanics are subject to continuous upgrades prior to mainnet launch.
-      </div>
-
     </div>
   )
 }
