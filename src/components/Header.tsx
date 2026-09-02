@@ -186,7 +186,7 @@ export default function Header({
               className="hidden md:flex ub-action-btn"
               style={{ padding: '6px 12px', fontSize: 11 }}
             >
-              <span>{arcTestnet.blockExplorers?.default?.name || 'Arcscan'}</span>
+              <span>Explorer</span>
               <ExternalLink size={10} style={{ opacity: 0.6 }} />
             </a>
           </div>
