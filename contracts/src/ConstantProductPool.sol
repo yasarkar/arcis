@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20Like} from "./interfaces/IERC20Like.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// @notice ArcFlow USDC / cirBTC Constant-Product Pool (x * y = k).
+/// @notice Arcis USDC / cirBTC Constant-Product Pool (x * y = k).
 /// @dev Tokens: USDC (6 dec) and cirBTC (8 dec). Arc-specific: no WETH adapter.
 contract ConstantProductPool is ReentrancyGuard {
     IERC20Like public immutable tokenA; // USDC (6 decimals)
@@ -23,7 +23,7 @@ contract ConstantProductPool is ReentrancyGuard {
     uint256 public accumulatedFeeA;
     uint256 public accumulatedFeeB;
 
-    string public constant name = "ArcFlow USDC-cirBTC LP";
+    string public constant name = "Arcis USDC-cirBTC LP";
     string public constant symbol = "af-USDC-BTC";
     uint8 public constant decimals = 18;
 

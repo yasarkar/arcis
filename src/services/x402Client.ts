@@ -1,13 +1,11 @@
-// src/services/x402Client.ts
 // x402 Client Engine: Handles HTTP 402 challenge negotiation, nanopayment authorization, and response caching
-
 import type { x402Service, x402ExecutionResult, x402PaymentChallenge } from '../types/marketplace'
 import { DEFAULT_DEMO_PAYER_ADDRESS } from '../config/servicesRegistry'
 import { arcTestnet } from '../config/arcChain'
 
 // Session Key & Budget state stored in memory / localStorage
-const SESSION_BUDGET_KEY = 'arcflow_x402_session_budget'
-const SESSION_SPENT_KEY = 'arcflow_x402_session_spent'
+const SESSION_BUDGET_KEY = 'arcis_x402_session_budget'
+const SESSION_SPENT_KEY = 'arcis_x402_session_spent'
 
 export interface SessionBudgetState {
   enabled: boolean

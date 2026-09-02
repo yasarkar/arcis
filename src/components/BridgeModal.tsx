@@ -139,7 +139,7 @@ export default function BridgeModal({
 
   const activeBalance = bridgeMode === 'direct' ? sourceWalletBalance : sourceGatewayBalance
   
-  // Custom Platform Fee configuration from ArcFlow Treasury Fee Engine (Dynamic per speed tier)
+  // Custom Platform Fee configuration from Arcis Treasury Fee Engine (Dynamic per speed tier)
   const platformFeeAmount = getBridgeProtocolFee(speedTier)
   const platformFeeEnabled = platformFeeAmount > 0
   const requiredDebit = amount ? parseFloat(amount) + (bridgeMode === 'direct' ? platformFeeAmount : 0) : 0
@@ -986,11 +986,11 @@ export default function BridgeModal({
               </span>
             </div>
 
-            {/* Platform Custom Fee (ArcFlow Platform Fee) */}
+            {/* Platform Custom Fee (Arcis Platform Fee) */}
             {platformFeeEnabled && bridgeMode === 'direct' && (
               <div className="flex items-center justify-between text-slate-300 border-t border-white/[0.04] pt-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[var(--purple-1)] font-medium">ArcFlow Platform Fee:</span>
+                  <span className="text-[var(--purple-1)] font-medium">Arcis Platform Fee:</span>
                   <a
                     href={TREASURY_EXPLORER_URL}
                     target="_blank"
@@ -1101,7 +1101,7 @@ export default function BridgeModal({
           >
             {isTransferring ? (
               <>
-                <RefreshCw className="w-4 h-4 arcflow-spin" />
+                <RefreshCw className="w-4 h-4 arcis-spin" />
                 <span>{bridgeMode === 'direct' ? 'BRIDGING CCTP...' : 'TRANSFERRING FAST...'}</span>
               </>
             ) : (

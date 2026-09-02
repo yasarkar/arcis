@@ -22,7 +22,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           initialChain={arcTestnet}
           modalSize="wide"
           appInfo={{
-            appName: 'ArcFlow',
+            appName: 'Arcis',
             learnMoreUrl: 'https://testnet.arcscan.app',
           }}
           showRecentTransactions={true}

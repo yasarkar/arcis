@@ -15,9 +15,9 @@ export function usePrivacy() {
       }
     };
 
-    window.addEventListener('arcflow_privacy_changed', handlePrivacyChange);
+    window.addEventListener('arcis_privacy_changed', handlePrivacyChange);
     return () => {
-      window.removeEventListener('arcflow_privacy_changed', handlePrivacyChange);
+      window.removeEventListener('arcis_privacy_changed', handlePrivacyChange);
     };
   }, []);
 

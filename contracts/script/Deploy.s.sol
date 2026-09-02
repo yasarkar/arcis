@@ -9,7 +9,7 @@ import {SessionKeyModule} from "../src/SessionKeyModule.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Script, console2} from "forge-std/Script.sol";
 
-/// @notice ArcFlow deployment script — Arc Testnet & Mainnet.
+/// @notice Arcis deployment script — Arc Testnet & Mainnet.
 /// @dev Deploys pool contracts + YieldVault + SessionKeyModule.
 contract Deploy is Script {
     function run() external {
@@ -27,9 +27,9 @@ contract Deploy is Script {
         // 1) Deploy Core Liquidity Pools & Yield Vault
         StableSwapPool stablePool = new StableSwapPool(usdc, eurc, 12); // 0.12% fee
         ConstantProductPool cpPool = new ConstantProductPool(usdc, cirbtc, 25); // 0.25% fee
-        YieldVault yieldVault = new YieldVault(IERC20(usdc), "ArcFlow USDC Yield", "af-USDC", 100); // 1% fee
+        YieldVault yieldVault = new YieldVault(IERC20(usdc), "Arcis USDC Yield", "af-USDC", 100); // 1% fee
 
-        console2.log("=== ArcFlow Smart Contracts Deployed ===");
+        console2.log("=== Arcis Smart Contracts Deployed ===");
         console2.log("Deployer:", deployer);
         console2.log("StableSwapPool (USDC/EURC):", address(stablePool));
         console2.log("ConstantProductPool (USDC/cirBTC):", address(cpPool));

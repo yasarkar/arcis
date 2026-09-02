@@ -1,6 +1,6 @@
 // api/cache.ts
 //
-// Redis cache layer with 30s TTL support for ArcFlow Pool & Position states.
+// Redis cache layer with 30s TTL support for Arcis Pool & Position states.
 // Connects to Redis (via REDIS_URL or local redis://127.0.0.1:6379)
 // with a graceful in-memory TTL fallback if Redis server is not currently running.
 

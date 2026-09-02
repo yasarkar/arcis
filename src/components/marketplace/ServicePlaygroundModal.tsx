@@ -379,7 +379,7 @@ export default function ServicePlaygroundModal({
                   <div className="p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 via-cyan-500/10 to-indigo-500/10 border border-emerald-500/30 flex items-center gap-3">
                     <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                     <p className="text-xs text-slate-300">
-                      Bu mikro-çağrıdan tahsil edilen <strong className="text-emerald-300 font-mono">0.00005 USDC</strong> (%1), ArcFlow <strong className="text-cyan-300">YieldVault (af-USDC)</strong> havuzuna doğrudan getiri olarak yönlendirildi!
+                      Bu mikro-çağrıdan tahsil edilen <strong className="text-emerald-300 font-mono">0.00005 USDC</strong> (%1), Arcis <strong className="text-cyan-300">YieldVault (af-USDC)</strong> havuzuna doğrudan getiri olarak yönlendirildi!
                     </p>
                   </div>
                 )}

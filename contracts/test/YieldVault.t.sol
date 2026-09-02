@@ -18,7 +18,7 @@ contract YieldVaultTest is Test {
 
     function setUp() public {
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        vault = new YieldVault(usdc, "ArcFlow USDC Yield", "af-USDC", 100); // 1% fee
+        vault = new YieldVault(usdc, "Arcis USDC Yield", "af-USDC", 100); // 1% fee
         usdc.mint(depositor, 10_000 * DEC6);
     }
 

@@ -1,11 +1,11 @@
 // src/config/treasuryConfig.ts
-// Centralized ArcFlow Treasury & Protocol Fee Configuration.
+// Centralized Arcis Treasury & Protocol Fee Configuration.
 // Governs dynamic protocol fees across Send, Swap, and Bridge modules,
 // scaled by the user's selected Speed & Priority tier (Standard / Fast / Turbo).
 
 import type { SpeedTier } from './feeTiers'
 
-// Global ArcFlow Protocol Treasury Address (Default developer / protocol treasury)
+// Global Arcis Protocol Treasury Address (Default developer / protocol treasury)
 export const TREASURY_ADDRESS = import.meta.env.VITE_TREASURY_ADDRESS
 
 export const TREASURY_EXPLORER_URL = `https://testnet.arcscan.app/address/${TREASURY_ADDRESS}`
@@ -13,7 +13,7 @@ export const TREASURY_EXPLORER_URL = `https://testnet.arcscan.app/address/${TREA
 // Revenue sharing model according to Circle AppKit & Arc documentation
 export const REVENUE_SHARE_LABEL = '90% Dev / 10% Arc'
 export const REVENUE_SHARE_TOOLTIP =
-  'Circle AppKit Revenue Sharing: 90% of the protocol fee goes to the ArcFlow Treasury and 10% supports the Arc Network ecosystem.'
+  'Circle AppKit Revenue Sharing: 90% of the protocol fee goes to the Arcis Treasury and 10% supports the Arc Network ecosystem.'
 
 export interface ModuleProtocolFeeConfig {
   send: Record<SpeedTier, { valueUsdc: number; label: string; description: string }>

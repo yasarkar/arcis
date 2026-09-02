@@ -1,9 +1,6 @@
-// src/components/pools/PoolCard.tsx
-//
-// Minimal & Informative Pool Card for ArcFlow Pools & Yield Hub.
+// Minimal & Informative Pool Card for Arcis Pools & Yield Hub.
 // Features a clean layout, streamlined metrics, live APY badge,
 // user position overview, and collapsible technical details.
-
 import { useState } from 'react'
 import {
   Unlock,
@@ -11,8 +8,6 @@ import {
   ExternalLink,
   Plus,
   Minus,
-  Gift,
-  Bot,
   Zap,
   Globe,
   TrendingUp,
@@ -21,7 +16,6 @@ import {
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
-import CircleTokenIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import ArcLogo from '../../assets/Arc-Icon.svg'
 import { POOL_RISK_LEVELS, type PoolConfig } from '../../config/poolsConfig'

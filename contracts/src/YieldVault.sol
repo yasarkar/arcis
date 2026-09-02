@@ -7,7 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-/// @notice ArcFlow USDC Yield Vault (ERC-4626).
+/// @notice Arcis USDC Yield Vault (ERC-4626).
 /// @dev Assets are USDC (6 decimals) on Arc. Yield is distributed in real USDC
 ///      by the platform owner via `distributeYield`, which raises totalAssets and
 ///      therefore the value of every vault share — no fake APY simulation.

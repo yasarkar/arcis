@@ -1,5 +1,5 @@
 // api/copilot.ts
-// Secure Server-Side AI Copilot Orchestrator for ArcFlow
+// Secure Server-Side AI Copilot Orchestrator for Arcis
 // Interacts with OpenAI / OpenRouter GPT-4o-mini without exposing API keys to the client browser.
 
 import { arcTestnet } from '../src/config/arcChain'
@@ -43,8 +43,8 @@ export async function POST(req: Request) {
     // Format portfolio summary for prompt
     const portfolioText = formatPortfolioForPrompt(portfolio)
 
-    const systemPrompt = `You are Arco, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of ArcFlow Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
-ArcFlow features:
+    const systemPrompt = `You are Arcis, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
+Arcis features:
 - Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~$0.0084 USDC per tx)
 - Speed: <500ms deterministic sub-second finality
 - Supported Tokens: USDC, EURC, WETH, WBTC, af-USDC
@@ -93,7 +93,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         type: 'function',
         function: {
           name: 'execute_deposit_yield',
-          description: 'Deposit USDC into ArcFlow Real-Yield vault earning 8.42% APY',
+          description: 'Deposit USDC into Arcis Real-Yield vault earning 8.42% APY',
           parameters: {
             type: 'object',
             properties: {
@@ -161,8 +161,8 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
     }
 
     if (isOpenRouter) {
-      headers['HTTP-Referer'] = 'https://arcflow.io'
-      headers['X-Title'] = 'ArcFlow Protocol'
+      headers['HTTP-Referer'] = 'https://arcis.finance'
+      headers['X-Title'] = 'Arcis Protocol'
     }
 
     const cleanHistory = (chatHistory || [])

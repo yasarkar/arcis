@@ -1,5 +1,5 @@
 // src/services/soundService.ts
-// Ultra-low latency Web Audio API Sound Synthesizer & Haptic Feedback Engine for ArcFlow
+// Ultra-low latency Web Audio API Sound Synthesizer & Haptic Feedback Engine for Arcis
 
 export type SoundType = 'success' | 'error' | 'cancel' | 'send' | 'pop' | 'faucet'
 
@@ -8,7 +8,7 @@ class SoundService {
   private isMuted: boolean = false
 
   constructor() {
-    const saved = localStorage.getItem('arcflow_copilot_sfx_enabled')
+    const saved = localStorage.getItem('arcis_copilot_sfx_enabled')
     // Default to enabled (true)
     this.isMuted = saved !== null ? saved === 'false' : false
   }
@@ -36,7 +36,7 @@ class SoundService {
 
   public setEnabled(enabled: boolean): void {
     this.isMuted = !enabled
-    localStorage.setItem('arcflow_copilot_sfx_enabled', String(enabled))
+    localStorage.setItem('arcis_copilot_sfx_enabled', String(enabled))
   }
 
   public toggle(): boolean {

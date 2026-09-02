@@ -1,5 +1,5 @@
 // src/components/copilot/ArcCopilotDrawer.tsx
-// Floating Resizable AI Copilot Mini-Window for Arco (Anchored Above Floating Widget)
+// Floating Resizable AI Copilot Mini-Window for Arcis (Anchored Above Floating Widget)
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -197,7 +197,7 @@ export default function ArcCopilotDrawer({
   // Resizable window state (width and height)
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>(() => {
     try {
-      const saved = localStorage.getItem('arcflow_arco_window_size_v2')
+      const saved = localStorage.getItem('arcis_window_size_v2') || localStorage.getItem('arcflow_arco_window_size_v2')
       if (saved) {
         const parsed = JSON.parse(saved)
         return {
@@ -254,7 +254,7 @@ export default function ArcCopilotDrawer({
     if (isDragging) {
       setIsDragging(false)
       try {
-        localStorage.setItem('arcflow_arco_window_size_v2', JSON.stringify(windowSize))
+        localStorage.setItem('arcis_window_size_v2', JSON.stringify(windowSize))
       } catch (e) { }
     }
   }, [isDragging, windowSize])
@@ -349,9 +349,9 @@ export default function ArcCopilotDrawer({
 
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-extrabold text-white tracking-wide">Ask Arco</h3>
+              <h3 className="text-sm font-extrabold text-white tracking-wide">Ask Arcis</h3>
             </div>
-            <p className="text-[10px] text-slate-400">ArcFlow Assistant</p>
+            <p className="text-[10px] text-slate-400">Arcis Assistant</p>
           </div>
         </div>
 
@@ -676,7 +676,7 @@ export default function ArcCopilotDrawer({
                   <span className="w-2 h-2 rounded-full bg-indigo-400 typing-dot-4" />
                 </div>
                 <span className="text-cyan-200 text-xs font-semibold tracking-wide">
-                  Arco is preparing the answer...
+                  Arcis is preparing the answer...
                 </span>
               </div>
 
@@ -793,7 +793,7 @@ export default function ArcCopilotDrawer({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Enter your OpenAI API key to enable GPT-4o-mini structured intent execution. If empty, Arco automatically runs on our built-in zero-latency local NLP engine.
+              Enter your OpenAI API key to enable GPT-4o-mini structured intent execution. If empty, Arcis automatically runs on our built-in zero-latency local NLP engine.
             </p>
 
             <div className="space-y-1.5">

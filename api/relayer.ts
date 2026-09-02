@@ -128,7 +128,7 @@ export async function GET(req: Request) {
     return Response.json({
       success: true,
       address,
-      sponsoredBy: 'ArcFlow Protocol',
+      sponsoredBy: 'Arcis Protocol',
       relayerAddress: relayerAccount.address,
       relayerBalanceUsdc: relayerBalanceFormatted,
       dailyLimit: quota.limit,

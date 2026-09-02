@@ -1,6 +1,4 @@
-// src/components/pools/GatewayRebalanceWizard.tsx
-//
-// Interactive Cross-Chain Liquidity Rebalance Wizard for ArcFlow.
+// Interactive Cross-Chain Liquidity Rebalance Wizard for Arcis.
 // Scans idle USDC across 12+ networks and aggregates funds into Arc Testnet via Circle Gateway in <500ms.
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -452,7 +450,7 @@ export default function GatewayRebalanceWizard({
             >
               {isProcessing ? (
                 <>
-                  <RefreshCw size={15} className="arcflow-spin" />
+                  <RefreshCw size={15} className="arcis-spin" />
                   <span>CONSOLIDATING VIA GATEWAY (&lt;500MS)...</span>
                 </>
               ) : (

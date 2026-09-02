@@ -4,8 +4,10 @@
 import type { InjectiveWalletProvider } from '../types/multiChainWallet'
 
 const STORAGE_KEYS = {
-  ADDRESS: 'arcflow_injective_wallet_address',
-  PROVIDER: 'arcflow_injective_wallet_provider',
+  ADDRESS: 'arcis_injective_wallet_address',
+  PROVIDER: 'arcis_injective_wallet_provider',
+  LEGACY_ADDRESS: 'arcflow_injective_wallet_address',
+  LEGACY_PROVIDER: 'arcflow_injective_wallet_provider',
 }
 
 export const INJECTIVE_TESTNET_CHAIN_ID = 'injective-888'
@@ -97,8 +99,11 @@ export function isInjectiveWalletInstalled(providerType: InjectiveWalletProvider
 
 export function getStoredInjectiveWallet(): { address: string; provider: InjectiveWalletProvider } | null {
   try {
-    const address = localStorage.getItem(STORAGE_KEYS.ADDRESS)
-    const provider = (localStorage.getItem(STORAGE_KEYS.PROVIDER) as InjectiveWalletProvider) || 'keplr'
+    const address = localStorage.getItem(STORAGE_KEYS.ADDRESS) || localStorage.getItem(STORAGE_KEYS.LEGACY_ADDRESS)
+    const provider =
+      (localStorage.getItem(STORAGE_KEYS.PROVIDER) as InjectiveWalletProvider) ||
+      (localStorage.getItem(STORAGE_KEYS.LEGACY_PROVIDER) as InjectiveWalletProvider) ||
+      'keplr'
     if (address) {
       return { address, provider }
     }
@@ -121,6 +126,8 @@ export function clearStoredInjectiveWallet(): void {
   try {
     localStorage.removeItem(STORAGE_KEYS.ADDRESS)
     localStorage.removeItem(STORAGE_KEYS.PROVIDER)
+    localStorage.removeItem(STORAGE_KEYS.LEGACY_ADDRESS)
+    localStorage.removeItem(STORAGE_KEYS.LEGACY_PROVIDER)
   } catch {
     // ignore
   }

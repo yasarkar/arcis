@@ -1,5 +1,5 @@
 // src/components/copilot/CopilotSlashMenu.tsx
-// Cybernetic Glassmorphic Slash Command Palette for Ask Arco Copilot
+// Cybernetic Glassmorphic Slash Command Palette for Ask Arcis Copilot
 
 import React, { useEffect, useRef } from 'react'
 import { Terminal, Command, CornerDownLeft, Sparkles } from 'lucide-react'
@@ -40,7 +40,7 @@ export const CopilotSlashMenu: React.FC<CopilotSlashMenuProps> = ({
         <div className="px-3.5 py-2 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-[11px] font-bold text-cyan-300">
             <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Arco Commands</span>
+            <span>Arcis Commands</span>
           </div>
         </div>
 

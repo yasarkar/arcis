@@ -1,7 +1,5 @@
-// src/services/tokenPriceService.ts
-// Multi-Tier Dynamic Token Price Oracle & Cache for ArcFlow and Ask Arco Copilot
+// Multi-Tier Dynamic Token Price Oracle & Cache for Arcis and Ask Arcis Copilot
 // 1. In-Memory Micro Cache (0ms) -> 2. Redis Cache (30s TTL) -> 3. Live Oracle/DEX API -> 4. Safe Static Fallback
-
 import { redisCache } from './redisCacheService'
 
 export interface TokenPriceMap {
@@ -20,7 +18,7 @@ export const DEFAULT_TOKEN_PRICES: TokenPriceMap = {
   AFUSDC: 1.0842,
 }
 
-const CACHE_KEY = 'arcflow:token_prices:v1'
+const CACHE_KEY = 'arcis:token_prices:v1'
 const CACHE_TTL_SECONDS = 30
 const CACHE_TTL_MS = CACHE_TTL_SECONDS * 1000
 

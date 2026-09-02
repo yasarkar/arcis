@@ -56,7 +56,7 @@ export const GaslessBadge: React.FC<GaslessBadgeProps> = ({
             ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(99, 102, 241, 0.15) 100%)'
             : undefined,
         }}
-        title="ArcFlow Gasless Quick-Start Details"
+        title="Arcis Gasless Quick-Start Details"
       >
         {/* Animated Glow Pill */}
         <div className="relative flex items-center justify-center">
@@ -153,7 +153,7 @@ export const GaslessBadge: React.FC<GaslessBadgeProps> = ({
 
           {/* Value Prop Description */}
           <p className="text-[11px] text-slate-300 leading-relaxed">
-            ArcFlow Relayer transfers USDC on your behalf via off-chain{' '}
+            Arcis Relayer transfers USDC on your behalf via off-chain{' '}
             <strong className="text-white">EIP-712 authorization</strong>. Zero native gas is deducted from your wallet balance.
           </p>
 

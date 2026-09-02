@@ -148,7 +148,7 @@ export default function SessionKeyModal({
               <h3 className="text-base font-extrabold text-white flex items-center gap-2">
                 <span>Autonomous Session Keys</span>
               </h3>
-              <p className="text-xs text-slate-400">DeFi transactions with Arco in a single click</p>
+              <p className="text-xs text-slate-400">DeFi transactions with Arcis in a single click</p>
             </div>
           </div>
           <button
@@ -373,7 +373,7 @@ export default function SessionKeyModal({
                 <span>Zero-Popup Auto-Execution</span>
               </span>
               <p className="text-[10px] text-slate-400">
-                Execute matching Ask Arco commands directly in chat without confirmation popups
+                Execute matching Ask Arcis commands directly in chat without confirmation popups
               </p>
             </div>
             <button

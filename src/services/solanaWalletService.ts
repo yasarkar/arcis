@@ -1,11 +1,9 @@
-// src/services/solanaWalletService.ts
 // Solana Browser Wallet Adapter Service for Phantom, Solflare, Backpack, and OKX
-
 import type { SolanaWalletProvider } from '../types/multiChainWallet'
 
 const STORAGE_KEYS = {
-  ADDRESS: 'arcflow_solana_wallet_address',
-  PROVIDER: 'arcflow_solana_wallet_provider',
+  ADDRESS: 'arcis_solana_wallet_address',
+  PROVIDER: 'arcis_solana_wallet_provider',
 }
 
 export const SOLANA_WALLET_INSTALL_URLS: Record<SolanaWalletProvider, string> = {

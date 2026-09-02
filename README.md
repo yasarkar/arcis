@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌊 ArcFlow Protocol
+# 🌊 Arcis Protocol
 ### Next-Generation Stablecoin Liquidity, Real-Yield Vaults & AI Agentic Settlement on Arc L1
 
 [![Network: Arc Testnet](https://img.shields.io/badge/Network-Arc%20Testnet%20(5042002)-0052FF?style=for-the-badge&logo=ethereum&logoColor=white)](https://testnet.arcscan.app)
@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 <p align="center">
-  <strong>ArcFlow</strong> is a high-performance decentralized finance (DeFi) protocol and liquidity engine purpose-built for <strong>Arc</strong> — Circle's Layer-1 blockchain where <strong>USDC is the native gas token</strong> with sub-second deterministic finality.
+  <strong>Arcis</strong> is a high-performance decentralized finance (DeFi) protocol and liquidity engine purpose-built for <strong>Arc</strong> — Circle's Layer-1 blockchain where <strong>USDC is the native gas token</strong> with sub-second deterministic finality.
 </p>
 
 <p align="center">
@@ -30,11 +30,11 @@
 
 ## 📌 Executive Summary
 
-Modern DeFi is hindered by volatile gas tokens, slow cross-chain bridges, impermanent loss, and inflationary "farm-and-dump" reward tokens. **ArcFlow** completely reimagines on-chain capital efficiency and user experience by leveraging Arc's native USDC architecture and Circle's cross-chain stack.
+Modern DeFi is hindered by volatile gas tokens, slow cross-chain bridges, impermanent loss, and inflationary "farm-and-dump" reward tokens. **Arcis** completely reimagines on-chain capital efficiency and user experience by leveraging Arc's native USDC architecture and Circle's cross-chain stack.
 
 ```
                                   ╔═════════════════════════════════════════╗
-                                  ║         ArcFlow Unified Interface       ║
+                                  ║          Arcis Unified Interface        ║
                                   ╚═════════════════════════════════════════╝
                                                        │
          ┌─────────────────────┬───────────────────────┼───────────────────────┬─────────────────────┐
@@ -68,7 +68,7 @@ Modern DeFi is hindered by volatile gas tokens, slow cross-chain bridges, imperm
 ```mermaid
 flowchart TB
     subgraph ClientLayer["Frontend & Auth Layer"]
-        UI["ArcFlow React 18 / Vite DApp"]
+        UI["Arcis React 18 / Vite DApp"]
         Wagmi["Wagmi / Viem Web3 Connectors"]
         UCW["Circle User-Controlled Wallets (Social / WebAuthn / OTP)"]
         UI --> Wagmi
@@ -140,7 +140,7 @@ All contracts are compiled with Solidity `0.8.24` via Foundry and deployed to **
 ## 🔬 Mathematical & Economic Models
 
 ### 1. StableSwap Invariant ($x + y = k$)
-For pegged stablecoin foreign exchange (e.g. USDC/EURC), ArcFlow implements a constant-sum model with fixed fee deductions:
+For pegged stablecoin foreign exchange (e.g. USDC/EURC), Arcis implements a constant-sum model with fixed fee deductions:
 $$\Delta y = \Delta x \cdot (1 - \phi)$$
 where $\phi = 0.0012$ (12 bps). 
 * **Zero Impermanent Loss**: Ideal for correlated fiat assets.
@@ -148,7 +148,7 @@ where $\phi = 0.0012$ (12 bps).
 $$\text{Shares}_{\text{minted}} = \frac{(\Delta A + \Delta B) \cdot \text{TotalLP}}{R_A + R_B}$$
 
 ### 2. Constant-Product AMM ($x \cdot y = k$)
-For volatile pairs (USDC/cirBTC and USDC/tcirBTC), ArcFlow maintains an invariant product curve:
+For volatile pairs (USDC/cirBTC and USDC/tcirBTC), Arcis maintains an invariant product curve:
 $$(x + \Delta x \cdot (1 - \phi)) \cdot (y - \Delta y) = k$$
 where $\phi = 0.0025$ (25 bps). The output amount received is:
 $$\Delta y = \frac{y \cdot \Delta x \cdot (1 - \phi)}{x + \Delta x \cdot (1 - \phi)}$$
@@ -166,7 +166,7 @@ This immediately appreciates the redemption value of every minted `af-USDC` shar
 ## 🏊 Liquidity Pools & Vault Catalog
 
 ```
-ArcFlow Pools & Vaults Hub
+Arcis Pools & Vaults Hub
 ├── 💱 Liquidity Pools (AMM)
 │   ├── USDC–EURC Stable Pool        → 6.15% FX APR | Zero IL | 1-Click Zap
 │   └── USDC–tcirBTC Test Pool       → 12.80% APR   | Mintable Faucet BTC
@@ -187,13 +187,13 @@ ArcFlow Pools & Vaults Hub
 
 ## 🤖 ERC-8183 & ERC-8004 AI Agent Hub
 
-ArcFlow introduces the first **Yield-Generating Escrow Mechanism** for the Agentic Economy on Arc L1.
+Arcis introduces the first **Yield-Generating Escrow Mechanism** for the Agentic Economy on Arc L1.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Sponsor as Protocol Sponsor / User
-    participant Escrow as ArcFlow Bounty Escrow (ERC-8183)
+    participant Escrow as Arcis Bounty Escrow (ERC-8183)
     participant Vault as Real-Yield Vault (ERC-4626)
     participant Agent as Autonomous AI Agent (ERC-8004)
 
@@ -213,7 +213,7 @@ sequenceDiagram
     end
 ```
 
-### Active Autonomous Agents in ArcFlow:
+### Active Autonomous Agents in Arcis:
 1. **ArcSentinel-v4** (`0x8004A7...1B89` | Rep: 99): Continuous Multi-Chain FX Arbitrage Sentinel monitoring USDC/EURC rate deviations between Arc Testnet and Base Sepolia.
 2. **GatewayProver-01** (`0x8004B9...2B99` | Rep: 97): Sub-second finality verifier ensuring <500ms burn-and-mint settlement across 9 EVM testnets.
 3. **FluxOptimizer-AI** (`0x8004C8...8901` | Rep: 95): High-frequency DEX liquidity guard maintaining StableSwap slippage below 0.05%.
@@ -222,7 +222,7 @@ sequenceDiagram
 
 ## 🌐 Cross-Chain Gateway & Multi-Network Engine
 
-ArcFlow is connected to **13+ blockchain networks** using Circle Gateway's sub-second attestation layer and CCTP v2.
+Arcis is connected to **13+ blockchain networks** using Circle Gateway's sub-second attestation layer and CCTP v2.
 
 ```
                                ┌───────────────────────────┐
@@ -300,8 +300,8 @@ ArcFlow is connected to **13+ blockchain networks** using Circle Gateway's sub-s
 ### 2. Clone & Install Dependencies
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/arcflow-protocol.git
-cd arcflow-protocol
+git clone https://github.com/your-username/arcis-protocol.git
+cd arcis-protocol
 
 # Install frontend dependencies
 npm install
@@ -369,7 +369,7 @@ forge verify-contract <CONTRACT_ADDRESS> src/StableSwapPool.sol:StableSwapPool \
 ## 📁 Repository Structure
 
 ```
-arcflow-protocol/
+arcis-protocol/
 ├── contracts/                       # Foundry Smart Contract Suite
 │   ├── src/
 │   │   ├── StableSwapPool.sol       # Constant-Sum AMM (USDC/EURC)
@@ -404,7 +404,7 @@ arcflow-protocol/
 
 ## 🔒 Security & Best Practices
 
-1. **Native USDC Decimal Alignment**: Arc utilizes 18 decimals for native balance lookups and 6 decimals for ERC-20 interface interactions. ArcFlow contracts enforce rigorous 6-decimal fixed-point precision across all mathematical curves.
+1. **Native USDC Decimal Alignment**: Arc utilizes 18 decimals for native balance lookups and 6 decimals for ERC-20 interface interactions. Arcis contracts enforce rigorous 6-decimal fixed-point precision across all mathematical curves.
 2. **Reentrancy Protection**: Critical state-mutating functions (`addLiquidity`, `removeLiquidity`, `swap`, `redeem`) implement OpenZeppelin's `ReentrancyGuard`.
 3. **Nonpayable Guarding**: Explicit `receive()` and `fallback()` functions reject unexpected native transfers to prevent unbacked token lockups.
 4. **SafeERC20 Compliance**: All token movements utilize OpenZeppelin `SafeERC20` wrappers to guard against non-standard ERC-20 returns.

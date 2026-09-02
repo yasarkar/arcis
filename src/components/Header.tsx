@@ -15,7 +15,7 @@ import {
   Fingerprint,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
-import customLogo from '../assets/ArcFlow-Icon.svg'
+import customLogo from '../assets/Arcis-Icon.svg'
 import walletIcon from '../assets/Wallet-Icon.svg'
 import circleTokenIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import { arcTestnet } from '../config/arcChain'
@@ -96,7 +96,7 @@ export default function Header({
           >
             <img
               src={customLogo}
-              alt="ArcFlow Logo"
+              alt="Arcis Logo"
               className="h-8 md:h-9 w-auto object-contain transition-all duration-200 group-hover:brightness-110 group-hover:scale-105"
             />
           </button>

@@ -502,7 +502,7 @@ export default function InlineActionCard({
               if (onOpenSessionSettings) {
                 onOpenSessionSettings()
               } else {
-                window.dispatchEvent(new CustomEvent('arcflow_open_session_modal'))
+                window.dispatchEvent(new CustomEvent('arcis_open_session_modal'))
               }
             }}
             className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:brightness-110 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-amber-500/20 active:scale-[0.99] select-none"

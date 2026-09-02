@@ -1,6 +1,4 @@
-// src/services/redisCacheService.ts
-//
-// Redis cache service for ArcFlow frontend with 30-second TTL.
+// Redis cache service for Arcis frontend with 30-second TTL.
 // Stores and retrieves on-chain pool states, user positions, and balances.
 // Integrates with /api/cache (Redis backend with in-memory TTL fallback).
 

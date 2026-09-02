@@ -1,5 +1,5 @@
 // src/components/copilot/CopilotRobotWidget.tsx
-// Floating Cybernetic "Ask Arco" Pill Widget in Bottom-Right Corner
+// Floating Cybernetic "Ask Arcis" Pill Widget in Bottom-Right Corner
 
 import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -40,11 +40,11 @@ export default function CopilotRobotWidget({
       >    
       </div>
 
-      {/* "Ask Arco" Capsule Pill Button */}
+      {/* "Ask Arcis" Capsule Pill Button */}
       <button
         onClick={onClick}
         type="button"
-        aria-label="Toggle Arco AI Copilot"
+        aria-label="Toggle Arcis AI Copilot"
         className={`relative group p-0.5 rounded-full transition-all duration-300 cursor-pointer focus:outline-none ${
           isOpen ? 'scale-95' : 'hover:scale-105 active:scale-95'
         }`}
@@ -77,10 +77,10 @@ export default function CopilotRobotWidget({
             />
           </div>
 
-          {/* Right: "Ask Arco" Text & AI Badge */}
+          {/* Right: "Ask Arcis" Text & AI Badge */}
           <div className="flex items-center gap-2">
             <span className="text-xs md:text-sm font-extrabold text-white tracking-wide group-hover:text-cyan-200 transition font-sans">
-              Ask Arco
+              Ask Arcis
             </span>
           </div>
         </div>

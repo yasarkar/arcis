@@ -1,5 +1,5 @@
 # ==============================================================================
-# ArcFlow Protocol - Production Docker Container
+# Arcis Protocol - Production Docker Container
 # Multi-stage build for minimal image size and fast startup
 # ==============================================================================
 

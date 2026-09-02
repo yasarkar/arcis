@@ -117,7 +117,7 @@ export default function App() {
     setPreferredAuthSource(null)
   }
 
-  // ArcFlow AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
+  // Arcis AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
   const copilot = useArcCopilot(walletAddress, connectedProvider)
 
   return (
@@ -237,7 +237,7 @@ export default function App() {
           isAnalyzing={copilot.isAnalyzing}
         />
 
-        {/* ArcFlow AI Copilot Side Drawer */}
+        {/* Arcis AI Copilot Side Drawer */}
         <ArcCopilotDrawer
           isOpen={copilot.isOpen}
           onClose={() => copilot.setIsOpen(false)}

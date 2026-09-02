@@ -1,6 +1,6 @@
 // src/hooks/useContinuousYieldStream.ts
 //
-// High-Frequency Real-Time Continuous Yield Streamer for ArcFlow.
+// High-Frequency Real-Time Continuous Yield Streamer for Arcis.
 // Simulates sub-second per-millisecond on-chain yield accrual on Arc Testnet,
 // delivering a live ticking stream of earned USDC rewards.
 

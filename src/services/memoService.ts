@@ -53,7 +53,7 @@ export function generateMemoId(text?: string): `0x${string}` {
   if (text && text.trim().length > 0) {
     return keccak256(stringToHex(text.trim()))
   }
-  const entropy = `arcflow-memo-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+  const entropy = `arcis-memo-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
   return keccak256(stringToHex(entropy))
 }
 

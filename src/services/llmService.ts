@@ -1,5 +1,5 @@
 // src/services/llmService.ts
-// Intelligent LLM Intent Engine & Tool Calling for ArcFlow Arco Copilot
+// Intelligent LLM Intent Engine & Tool Calling for Arcis AI Copilot
 // Supports OpenAI GPT-4o-mini with seamless, zero-latency Local NLP Fallback
 
 import type { CopilotActionPayload, CopilotMessage } from '../types/marketplace'
@@ -170,15 +170,16 @@ export function extractSwapTokens(prompt: string): { fromTok: string; toTok: str
 }
 
 export function getOpenAIApiKey(): string {
-  const localKey = localStorage.getItem('arcflow_openai_api_key')
+  const localKey = localStorage.getItem('arcis_openai_api_key') || localStorage.getItem('arcflow_openai_api_key')
   return localKey ? localKey.trim() : ''
 }
 
 export function setOpenAIApiKey(key: string): void {
   if (!key.trim()) {
+    localStorage.removeItem('arcis_openai_api_key')
     localStorage.removeItem('arcflow_openai_api_key')
   } else {
-    localStorage.setItem('arcflow_openai_api_key', key.trim())
+    localStorage.setItem('arcis_openai_api_key', key.trim())
   }
 }
 
@@ -186,7 +187,7 @@ export function setOpenAIApiKey(key: string): void {
  * Main query processor: Tries secure backend /api/copilot endpoint; otherwise uses resilient Local NLP engine.
  * Incorporates dynamic real-time token pricing, live portfolio snapshot, and multi-turn chat history.
  */
-export async function queryArcoLLM(
+export async function queryArcisLLM(
   userPrompt: string,
   walletAddress?: string,
   chatHistory?: CopilotMessage[],
@@ -261,6 +262,8 @@ export async function queryArcoLLM(
   }
 }
 
+export const queryArcoLLM = queryArcisLLM
+
 /**
  * Calls OpenAI GPT-4o-mini API with Chief DeFi Strategist system prompt, structured function calling tools, live pricing, and portfolio awareness.
  */
@@ -276,8 +279,8 @@ async function callGPT4oMini(
   const port = portfolio || (await getLivePortfolioSnapshot(walletAddress))
   const portfolioText = formatPortfolioForPrompt(port)
 
-  const systemPrompt = `You are Arco, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of ArcFlow Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
-ArcFlow features:
+  const systemPrompt = `You are Arcis, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
+Arcis features:
 - Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~$${SPEED_TIERS.fast.arcGas.estimatedCostUsdc} USDC per tx)
 - Speed: <500ms deterministic sub-second finality
 - Supported Tokens: USDC, EURC, WETH, WBTC, af-USDC
@@ -326,7 +329,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       type: 'function',
       function: {
         name: 'execute_deposit_yield',
-        description: 'Deposit USDC into ArcFlow Real-Yield vault earning 8.42% APY',
+        description: 'Deposit USDC into Arcis Real-Yield vault earning 8.42% APY',
         parameters: {
           type: 'object',
           properties: {
@@ -395,8 +398,8 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
   }
 
   if (isOpenRouter) {
-    headers['HTTP-Referer'] = 'https://arcflow.io'
-    headers['X-Title'] = 'ArcFlow Protocol'
+    headers['HTTP-Referer'] = 'https://arcis.finance'
+    headers['X-Title'] = 'Arcis Protocol'
   }
 
   // Build multi-turn chat history messages sequence
@@ -1133,7 +1136,7 @@ ${recipient ? 'Click below to review and send.' : 'Please provide a valid recipi
   return {
     message: `I have analyzed your request: "${prompt}"
 
-<strong>ArcFlow Autonomous Intelligence:</strong>
+<strong>Arcis Autonomous Intelligence:</strong>
 You can issue direct commands like:
 • <strong>Swap:</strong> "Swap 250 USDC to WETH"
 • <strong>Yield:</strong> "Deposit 1,000 USDC into yield vault"

@@ -1,8 +1,8 @@
 // src/components/pools/PoolsTab.tsx
 //
-// Master Pools & Yield Hub view for ArcFlow (Phase 4 Enhanced).
+// Master Pools & Yield Hub view for Arcis (Phase 4 Enhanced).
 // Combines USYC RWA Vault, Circle Gateway Cross-Chain Settlement Vault,
-// ArcFlow Real-Yield Staking, DEX Liquidity Pools, ERC-8183 AI Agent Bounty Hub,
+// Arcis Real-Yield Staking, DEX Liquidity Pools, ERC-8183 AI Agent Bounty Hub,
 // 1-Click Zap, Auto-Rebalance Wizard, and live Arc Testnet state.
 import { useState, useMemo, useRef, useEffect } from 'react'
 import {
@@ -555,7 +555,7 @@ export default function PoolsTab({
     <div className="arc-animate-reveal w-full max-w-[1400px] mx-auto pt-1">
       {/* ── Two-Column Desktop Layout ── */}
       <div className="flex flex-col lg:flex-row gap-6 items-start">
-        {/* ── Left Column: Sticky ArcFlow Pools & Yield Hub Card ── */}
+        {/* ── Left Column: Sticky Arcis Pools & Yield Hub Card ── */}
         <div className="w-full lg:w-[380px] xl:w-[410px] lg:shrink-0 lg:sticky lg:top-[88px] z-20">
           <PoolsHeroStats
             totalTvlUsd={totalTvlUsd}
@@ -779,7 +779,7 @@ export default function PoolsTab({
                 style={{ padding: '7px 10px', borderRadius: 99 }}
                 title="Refresh Vault Balances"
               >
-                <RefreshCw size={13} className={isBalancesLoading ? 'arcflow-spin' : ''} />
+                <RefreshCw size={13} className={isBalancesLoading ? 'arcis-spin' : ''} />
               </button>
             </div>
           </div>

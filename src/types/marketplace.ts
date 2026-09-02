@@ -1,6 +1,4 @@
-// src/types/marketplace.ts
-// Data structures for x402 AI Services Marketplace & ArcFlow AI Copilot
-
+// Data structures for x402 AI Services Marketplace & Arcis AI Copilot
 export type ServiceCategory = 
   | 'All'
   | 'Arbitrage'

@@ -35,9 +35,9 @@ export const arcTestnetChain = arcTestnet
 export const ARC_TESTNET_USDC = ARC_TOKENS.USDC as Hex
 
 const STORAGE_KEYS = {
-  CREDENTIAL: 'arcflow_modular_passkey_credential_v1',
-  USERNAME: 'arcflow_modular_passkey_username_v1',
-  MSCA_ADDRESS: 'arcflow_modular_msca_address_v1',
+  CREDENTIAL: 'arcis_modular_passkey_credential_v1',
+  USERNAME: 'arcis_modular_passkey_username_v1',
+  MSCA_ADDRESS: 'arcis_modular_msca_address_v1',
 }
 
 
@@ -98,7 +98,14 @@ const credentialStore = new Map<string, string>()
 function getStorageItem(key: string): string | null {
   const val = credentialStore.get(key)
   if (val) return val
-  try { return localStorage.getItem(key) } catch { return null }
+  try {
+    const item = localStorage.getItem(key)
+    if (item) return item
+    if (key.startsWith('arcis_')) {
+      return localStorage.getItem(key.replace('arcis_', 'arcflow_'))
+    }
+    return null
+  } catch { return null }
 }
 
 function setStorageItem(key: string, value: string): void {
@@ -158,7 +165,7 @@ export async function registerPasskey(username: string): Promise<{
       return { success: false, error: envSupport.reason }
     }
 
-    const safeUsername = username.trim() || `arcflow_user_${Math.floor(Math.random() * 10000)}`
+    const safeUsername = username.trim() || `arcis_user_${Math.floor(Math.random() * 10000)}`
     const passkeyTransport = getPasskeyTransport()
     const credential = await toWebAuthnCredential({
       transport: passkeyTransport as any, mode: WebAuthnMode.Register, username: safeUsername,
@@ -190,7 +197,7 @@ export async function loginPasskey(): Promise<{
     }
 
     let credential = getStoredCredential()
-    const existingUsername = getStoredUsername() || 'ArcFlow Passkey User'
+    const existingUsername = getStoredUsername() || 'Arcis Passkey User'
     if (!credential) {
       try {
         const passkeyTransport = getPasskeyTransport()

@@ -143,7 +143,7 @@ export default function SwapModal({
   // Speed & Network Execution Priority
   const [speedTier, setSpeedTier] = useState<SpeedTier>('fast')
 
-  // Custom Platform Fee from ArcFlow Treasury Fee Engine (Dynamic per speed tier)
+  // Custom Platform Fee from Arcis Treasury Fee Engine (Dynamic per speed tier)
   const platformFeeBps = getSwapProtocolFeeBps(speedTier)
   const platformFeePercent = getSwapProtocolFeePercent(speedTier)
   const platformFeeAmount = amountIn ? calculateSwapProtocolFeeAmount(speedTier, amountIn) : null
@@ -1093,7 +1093,7 @@ export default function SwapModal({
               {platformFeeEnabled && platformFeeAmount && (
                 <div className="flex justify-between items-center text-slate-300">
                   <div className="flex items-center gap-1.5">
-                    <span>ArcFlow Platform Fee ({platformFeePercent}):</span>
+                    <span>Arcis Platform Fee ({platformFeePercent}):</span>
                     <a
                       href={TREASURY_EXPLORER_URL}
                       target="_blank"
@@ -1174,7 +1174,7 @@ export default function SwapModal({
           >
             {isSwapping ? (
               <>
-                <RefreshCw className="w-4 h-4 arcflow-spin" />
+                <RefreshCw className="w-4 h-4 arcis-spin" />
                 <span>{isCrossChain ? 'CROSS-CHAIN SWAPPING...' : 'SWAPPING...'}</span>
               </>
             ) : (

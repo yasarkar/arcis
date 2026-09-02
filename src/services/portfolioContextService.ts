@@ -1,5 +1,5 @@
 // src/services/portfolioContextService.ts
-// Live Portfolio Context & DeFi Strategist Engine for ArcFlow and Ask Arco Copilot
+// Live Portfolio Context & DeFi Strategist Engine for Arcis and Ask Arcis Copilot
 // Gathers real-time multi-chain balances, Vault positions, Gateway liquidity, and Session limits
 
 import { createPublicClient, http, erc20Abi, formatUnits, type Hex } from 'viem'
@@ -46,8 +46,8 @@ export function invalidatePortfolioCache(): void {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('arcflow_session_key_updated', invalidatePortfolioCache)
-  window.addEventListener('arcflow_portfolio_updated', invalidatePortfolioCache)
+  window.addEventListener('arcis_session_key_updated', invalidatePortfolioCache)
+  window.addEventListener('arcis_portfolio_updated', invalidatePortfolioCache)
 }
 
 const publicClient = createPublicClient({

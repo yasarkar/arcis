@@ -168,7 +168,7 @@ function resolveWalletConnectProjectId(): { projectId: string; isConfigured: boo
   if (!isValidFormat) {
     if (typeof window !== 'undefined') {
       console.warn(
-        `%c[ArcFlow Wagmi Config] ⚠️ VITE_WALLETCONNECT_PROJECT_ID is not configured in .env!\n` +
+        `%c[Arcis Wagmi Config] ⚠️ VITE_WALLETCONNECT_PROJECT_ID is not configured in .env!\n` +
         `• Mobile QR code linking and WalletConnect modal require a valid project ID.\n` +
         `• Direct browser extensions (MetaMask, Rabby, Coinbase) will continue to work normally.\n` +
         `• You can generate a free Project ID at: https://cloud.walletconnect.com`,
@@ -193,7 +193,7 @@ export const walletConnectProjectId = resolvedWc.projectId
 export const isWalletConnectConfigured = resolvedWc.isConfigured
 
 export const config = getDefaultConfig({
-  appName: 'ArcFlow Mini App',
+  appName: 'Arcis Mini App',
   projectId: walletConnectProjectId,
   wallets: [
     {

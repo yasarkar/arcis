@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20Like} from "./interfaces/IERC20Like.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// @notice ArcFlow USDC / EURC StableSwap Pool (Constant-Sum Market Maker).
+/// @notice Arcis USDC / EURC StableSwap Pool (Constant-Sum Market Maker).
 /// @dev Designed for Arc Testnet: both tokens use 6 decimals. All pool math is
 ///      performed in 6-decimal units. No WETH adapter needed on Arc.
 contract StableSwapPool is ReentrancyGuard {
@@ -23,7 +23,7 @@ contract StableSwapPool is ReentrancyGuard {
     uint256 public unclaimedFeeA;
     uint256 public unclaimedFeeB;
 
-    string public constant name = "ArcFlow USDC-EURC LP";
+    string public constant name = "Arcis USDC-EURC LP";
     string public constant symbol = "af-USDC-EURC";
     uint8 public constant decimals = 18;
 

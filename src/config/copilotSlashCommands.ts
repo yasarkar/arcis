@@ -1,4 +1,4 @@
-// Slash Commands Configuration for Ask Arco Copilot
+// Slash Commands Configuration for Ask Arcis Copilot
 export interface SlashCommandItem {
   id: string
   command: string // e.g. '/strategy'
@@ -111,10 +111,10 @@ export const COPILOT_SLASH_COMMANDS: SlashCommandItem[] = [
     id: 'slash-help',
     command: '/help',
     title: 'Help & Documentation',
-    description: 'ArcFlow protocol capabilities and documentation',
+    description: 'Arcis protocol capabilities and documentation',
     syntax: '/help',
     category: 'Tools',
     icon: '❓',
-    templatePrompt: 'What is ArcFlow and what makes it unique on Arc L1?',
+    templatePrompt: 'What is Arcis and what makes it unique on Arc L1?',
   },
 ]

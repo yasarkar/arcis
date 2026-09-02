@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 /// @title SessionKeyModule — ERC-6900 Executor Module for Circle MSCA
 /// @notice Stores on-chain session keys with USDC spend limits and validates
 ///         user operations signed by authorized session keys.
-/// @dev Designed for ArcFlow / Circle Modular Smart Contract Accounts (MSCA)
+/// @dev Designed for Arcis / Circle Modular Smart Contract Accounts (MSCA)
 ///      on Arc Testnet (5042002). Implements IERC6900Executor and IERC6900Module.
 ///
 /// Session keys are secp256k1 EOAs generated client-side. Only the MSCA owner

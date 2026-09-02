@@ -1,7 +1,4 @@
-// src/components/copilot/CopilotTokenIcon.tsx
-// Unified token and network icon components for Arco Copilot
-
-import React from 'react'
+// Unified token and network icon components for Arcis Copilot
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'

@@ -1,5 +1,5 @@
 // api/health.ts
-// ArcFlow Protocol Healthcheck & System Status Endpoint
+// Arcis Protocol Healthcheck & System Status Endpoint
 
 import { createPublicClient, http, formatUnits, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -105,7 +105,7 @@ export async function GET(req: Request) {
   return Response.json(
     {
       status: isHealthy ? 'healthy' : 'degraded',
-      service: 'ArcFlow Protocol API Gateway',
+      service: 'Arcis Protocol API Gateway',
       version: '0.1.0',
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: Date.now(),

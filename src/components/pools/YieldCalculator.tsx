@@ -1,6 +1,6 @@
 // src/components/pools/YieldCalculator.tsx
 //
-// Interactive Yield & ROI Simulator for ArcFlow.
+// Interactive Yield & ROI Simulator for Arcis.
 // Allows users to simulate compounding interest across USYC, Real-Yield, and LP pools.
 
 import { useState } from 'react'
@@ -12,7 +12,7 @@ import {
   Activity,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
-import { ARCFLOW_POOLS, type PoolConfig } from '../../config/poolsConfig'
+import { ARCIS_POOLS, type PoolConfig } from '../../config/poolsConfig'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
 
 interface YieldCalculatorProps {
@@ -27,14 +27,14 @@ export default function YieldCalculator({
   onSelectPoolToDeposit,
 }: YieldCalculatorProps) {
   const [principal, setPrincipal] = useState<string>('5000')
-  const defaultPoolId = ARCFLOW_POOLS.length > 0 ? ARCFLOW_POOLS[0].id : ''
+  const defaultPoolId = ARCIS_POOLS.length > 0 ? ARCIS_POOLS[0].id : ''
   const [selectedPoolId, setSelectedPoolId] = useState<string>(defaultPoolId)
   const [compoundFreq] = useState<'daily' | 'monthly' | 'yearly'>('daily')
 
   if (!isOpen) return null
 
   const principalNum = Math.max(0, parseFloat(principal) || 0)
-  const selectedPool = ARCFLOW_POOLS.find((p) => p.id === selectedPoolId) || ARCFLOW_POOLS[0]
+  const selectedPool = ARCIS_POOLS.find((p) => p.id === selectedPoolId) || ARCIS_POOLS[0]
 
   const { formattedYield: simLiveYield, yieldPerSecond: simYieldPerSec } = useContinuousYieldStream(
     principalNum,
@@ -265,7 +265,7 @@ export default function YieldCalculator({
               gap: 8,
             }}
           >
-            {ARCFLOW_POOLS.map((p) => {
+            {ARCIS_POOLS.map((p) => {
               const isSelected = selectedPoolId === p.id
               const shortName = p.isLpPool && p.tokens.length >= 2
                 ? `${p.tokens[0].symbol} / ${p.tokens[1].symbol}`

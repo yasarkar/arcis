@@ -1,6 +1,6 @@
 // src/config/poolsConfig.ts
 //
-// ArcFlow Pools & Yield — Testnet-first configuration (Phase 5 rewrite).
+// Arcis Pools & Yield — Testnet-first configuration (Phase 5 rewrite).
 // 3 clear categories: Liquidity, Vault, Cross-Chain.
 
 import { ARC_TOKENS } from './arcChain'
@@ -167,7 +167,7 @@ export const AGENT_BOUNTIES_LIST: AgentBountyTask[] = [
     targetCompletionDate: 'Active Escrow (Continuous)',
     aprReward: 16.4,
     category: 'Arbitrage',
-    escrowYieldVault: 'ArcFlow Real-Yield Vault (ERC-4626)',
+    escrowYieldVault: 'Arcis Real-Yield Vault (ERC-4626)',
     accumulatedYieldUsdc: 42.60,
     yieldApr: 8.42,
     yieldBeneficiary: 'Sponsor Cash-Back',
@@ -187,7 +187,7 @@ export const AGENT_BOUNTIES_LIST: AgentBountyTask[] = [
     aprReward: 14.8,
     category: 'Security',
     proofHash: '0x80041a87e2b4f910cd1e4832bf6e3a9c7710a91e5c2b9a4c871029e18b820a4b',
-    escrowYieldVault: 'ArcFlow Real-Yield Vault (ERC-4626)',
+    escrowYieldVault: 'Arcis Real-Yield Vault (ERC-4626)',
     accumulatedYieldUsdc: 31.45,
     yieldApr: 8.42,
     yieldBeneficiary: 'Agent Bonus',
@@ -206,7 +206,7 @@ export const AGENT_BOUNTIES_LIST: AgentBountyTask[] = [
     targetCompletionDate: 'Active Escrow (Continuous)',
     aprReward: 15.2,
     category: 'Liquidity',
-    escrowYieldVault: 'ArcFlow Real-Yield Vault (ERC-4626)',
+    escrowYieldVault: 'Arcis Real-Yield Vault (ERC-4626)',
     accumulatedYieldUsdc: 58.20,
     yieldApr: 8.42,
     yieldBeneficiary: 'Sponsor Cash-Back',
@@ -227,7 +227,7 @@ export const POOL_CONTRACTS = {
 }
 
 // ── Master Pools Directory ───────────────────────────────────────────────────
-export const ARCFLOW_POOLS: PoolConfig[] = [
+export const ARCIS_POOLS: PoolConfig[] = [
   {
     id: 'usdc-eurc-stable-pool',
     name: 'USDC / EURC Stable Pool',
@@ -254,7 +254,7 @@ export const ARCFLOW_POOLS: PoolConfig[] = [
       { step: 4, title: 'Zero IL', desc: 'Stable fiat pegs eliminate impermanent loss.' },
     ],
     tags: ['StableSwap', 'FX Market', 'Zero IL', '1-Click Zap'],
-    isLpPool: true, lpTokenName: 'ArcFlow USDC-EURC LP', lpTokenSymbol: 'af-USDC-EURC',
+    isLpPool: true, lpTokenName: 'Arcis USDC-EURC LP', lpTokenSymbol: 'af-USDC-EURC',
     supportsZap: true, exchangeRate: 1.082, feeTierPercent: 0.12,
     reserves: { tokenA: 266000, tokenB: 245841, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Zero (Stable)',
@@ -285,7 +285,7 @@ export const ARCFLOW_POOLS: PoolConfig[] = [
       { step: 4, title: 'Reset Anytime', desc: 'No real value — perfect for learning.' },
     ],
     tags: ['Testnet', 'Faucet', 'Practice', 'No Real Value'],
-    isLpPool: true, lpTokenName: 'ArcFlow USDC-tcirBTC LP', lpTokenSymbol: 'af-USDC-tcBTC',
+    isLpPool: true, lpTokenName: 'Arcis USDC-tcirBTC LP', lpTokenSymbol: 'af-USDC-tcBTC',
     supportsZap: true, exchangeRate: 96500, feeTierPercent: 0.25,
     reserves: { tokenA: 25000, tokenB: 0.259, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Medium',
@@ -307,7 +307,7 @@ export const ARCFLOW_POOLS: PoolConfig[] = [
     contractAddress: POOL_CONTRACTS.YIELD_VAULT,
     depositTokenSymbol: 'USDC', rewardTokenSymbol: 'USDC',
     isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    yieldOrigin: 'ArcFlow Protocol Revenue Share',
+    yieldOrigin: 'Arcis Protocol Revenue Share',
     yieldOriginDetails: '90% of protocol fees from Send, Swap, and Bridge transactions are paid to vault depositors.',
     gasBenefitNote: 'Zero token inflation. Rewards are paid in 100% real USDC cash.',
     howItWorksSteps: [
@@ -348,6 +348,8 @@ export const ARCFLOW_POOLS: PoolConfig[] = [
     supportsZap: true,
   },
 ]
+
+export const ARCFLOW_POOLS = ARCIS_POOLS
 
 // ── Contract ABIs ────────────────────────────────────────────────────────────
 export const ERC20_ABI = [

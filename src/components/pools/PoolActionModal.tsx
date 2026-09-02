@@ -1,6 +1,6 @@
 // src/components/pools/PoolActionModal.tsx
 //
-// Interactive Deposit, Withdraw & AMM Swap modal for ArcFlow Pools & Yield Hub (Phase 5 Enhanced).
+// Interactive Deposit, Withdraw & AMM Swap modal for Arcis Pools & Yield Hub (Phase 5 Enhanced).
 // Supports Standard Deposit/Redeem, Cross-Chain 1-Click Gateway Zap (<500ms sub-second teleportation),
 // 1-Click Single-Token Zap to LP, Dual-Asset (50/50) Deposit, Slippage tolerance controls,
 // LP Withdraw options, and on-chain Pool AMM Swapping (USDC ↔ tcirBTC / EURC).
@@ -1424,7 +1424,7 @@ export default function PoolActionModal({
           >
             {isProcessing ? (
               <>
-                <RefreshCw size={15} className="arcflow-spin" />
+                <RefreshCw size={15} className="arcis-spin" />
                 <span>
                   {depositSource === 'crosschain'
                     ? 'TELEPORTING VIA CIRCLE GATEWAY (<500MS)...'

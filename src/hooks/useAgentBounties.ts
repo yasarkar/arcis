@@ -1,17 +1,18 @@
 // src/hooks/useAgentBounties.ts
 //
 // React hook for ERC-8183 / ERC-8004 AI Agent Bounty & Yield-Generating Escrow Pools.
-// Routes idle escrowed USDC into ArcFlow Real-Yield Vault (ERC-4626) to earn 8.42% APY while agents work.
+// Routes idle escrowed USDC into Arcis Real-Yield Vault (ERC-4626) to earn 8.42% APY while agents work.
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { AGENT_BOUNTIES_LIST, DEFAULT_AGENT_BOUNTY_ADDRESS, type AgentBountyTask } from '../config/poolsConfig'
 
-const STORAGE_KEY = 'arcflow_agent_bounties_state_v2'
+const STORAGE_KEY = 'arcis_agent_bounties_state_v2'
+const LEGACY_STORAGE_KEY = 'arcflow_agent_bounties_state_v2'
 
 export function useAgentBounties(walletAddress: string) {
   const [bounties, setBounties] = useState<AgentBountyTask[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
+      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY)
       if (saved) return JSON.parse(saved)
     } catch (e) {
       console.warn('Failed to load agent bounties from localStorage:', e)
@@ -21,7 +22,7 @@ export function useAgentBounties(walletAddress: string) {
 
   const [userSponsored, setUserSponsored] = useState<Record<string, number>>(() => {
     try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_user_${walletAddress}`)
+      const saved = localStorage.getItem(`${STORAGE_KEY}_user_${walletAddress}`) || localStorage.getItem(`${LEGACY_STORAGE_KEY}_user_${walletAddress}`)
       if (saved) return JSON.parse(saved)
     } catch (e) {}
     return {
@@ -32,7 +33,7 @@ export function useAgentBounties(walletAddress: string) {
 
   const [claimedYields, setClaimedYields] = useState<Record<string, number>>(() => {
     try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_claimed_${walletAddress}`)
+      const saved = localStorage.getItem(`${STORAGE_KEY}_claimed_${walletAddress}`) || localStorage.getItem(`${LEGACY_STORAGE_KEY}_claimed_${walletAddress}`)
       if (saved) return JSON.parse(saved)
     } catch (e) {}
     return {}
@@ -153,7 +154,7 @@ export function useAgentBounties(walletAddress: string) {
         targetCompletionDate: 'Active Escrow (Continuous)',
         aprReward: 15.0,
         category,
-        escrowYieldVault: 'ArcFlow Real-Yield Vault (ERC-4626)',
+        escrowYieldVault: 'Arcis Real-Yield Vault (ERC-4626)',
         accumulatedYieldUsdc: 0.15,
         yieldApr: 8.42,
         yieldBeneficiary,

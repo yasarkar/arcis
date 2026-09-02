@@ -1,6 +1,10 @@
-import { DEFAULT_PRIVACY_SETTINGS, PrivacySettings, PrivacyLevel } from '../types/privacy';
+import { 
+  DEFAULT_PRIVACY_SETTINGS, 
+  PrivacySettings, 
+  PrivacyLevel } 
+  from '../types/privacy';
 
-const STORAGE_KEY = 'arcflow_privacy_settings';
+const STORAGE_KEY = 'arcis_privacy_settings';
 
 export const privacyService = {
   /**
@@ -23,7 +27,7 @@ export const privacyService = {
   setPrivacySettings(settings: PrivacySettings): void {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-      window.dispatchEvent(new CustomEvent('arcflow_privacy_changed', { detail: settings }));
+      window.dispatchEvent(new CustomEvent('arcis_privacy_changed', { detail: settings }));
     } catch (e) {
       console.error('Failed to save privacy settings:', e);
     }

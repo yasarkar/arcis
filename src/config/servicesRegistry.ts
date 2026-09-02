@@ -24,7 +24,7 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     priceUsdc: 0.005,
     latencyMs: 125,
     successRate: 99.9,
-    endpointUrl: 'https://api.arcflow.io/v1/alpha/arbitrage-sentinel',
+    endpointUrl: 'https://api.arcis.finance/v1/alpha/arbitrage-sentinel',
     method: 'POST',
     tags: ['Arbitrage', 'DEX Spreads', 'Flash-Exec', 'Alpha'],
     provider: {
@@ -110,11 +110,11 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     priceUsdc: 0.002,
     latencyMs: 95,
     successRate: 99.95,
-    endpointUrl: 'https://api.arcflow.io/v1/liquidity/slippage-optimizer',
+    endpointUrl: 'https://api.arcis.finance/v1/liquidity/slippage-optimizer',
     method: 'POST',
     tags: ['Liquidity', 'Slippage', 'Multi-Hop', 'Smart Routing'],
     provider: {
-      name: 'ArcFlow Core Routing Engine',
+      name: 'Arcis Core Routing Engine',
       address: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
       isVerified: true,
       reputationScore: 100,
@@ -189,7 +189,7 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     priceUsdc: 0.008,
     latencyMs: 160,
     successRate: 99.7,
-    endpointUrl: 'https://api.arcflow.io/v1/yield/flash-loan-radar',
+    endpointUrl: 'https://api.arcis.finance/v1/yield/flash-loan-radar',
     method: 'POST',
     tags: ['Flash-Loan', 'Liquidations', 'Zero-Capital', 'Yield'],
     provider: {
@@ -257,7 +257,7 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     priceUsdc: 0.004,
     latencyMs: 110,
     successRate: 99.98,
-    endpointUrl: 'https://api.arcflow.io/v1/security/mev-shield',
+    endpointUrl: 'https://api.arcis.finance/v1/security/mev-shield',
     method: 'POST',
     tags: ['MEV', 'Security', 'Anti-Sandwich', 'Simulation'],
     provider: {
@@ -299,7 +299,7 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
         bundleType: 'Flashbots/ArcPrivateRelayer',
         adjustedMaxSlippagePct: 0.08,
         mevProtectionScore: '100% SECURE',
-        relayerSubmissionUrl: 'https://relayer.arcflow.io/v1/private-tx',
+        relayerSubmissionUrl: 'https://relayer.arcis.finance/v1/private-tx',
       },
     },
   },
@@ -312,7 +312,7 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     priceUsdc: 0.003,
     latencyMs: 130,
     successRate: 99.85,
-    endpointUrl: 'https://api.arcflow.io/v1/indexer/gateway-flow',
+    endpointUrl: 'https://api.arcis.finance/v1/indexer/gateway-flow',
     method: 'GET',
     tags: ['Gateway', 'Cross-Chain', 'Whale Alert', 'Indexer'],
     provider: {
@@ -374,7 +374,7 @@ curl -X ${service.method} "${service.endpointUrl}" \\
 export function generateTypescriptCode(service: x402Service, payload: Record<string, any>): string {
   return `import { createPublicClient, http } from 'viem'
 
-// ArcFlow x402 Client Execution
+// Arcis x402 Client Execution
 async function call${service.name.replace(/[^a-zA-Z0-9]/g, '')}() {
   const endpoint = "${service.endpointUrl}";
   const payload = ${JSON.stringify(payload, null, 2)};
@@ -413,7 +413,7 @@ export function generatePythonCode(service: x402Service, payload: Record<string,
   return `import requests
 import json
 
-# ArcFlow x402 Nanopayment LangChain / Python Tool Integration
+# Arcis x402 Nanopayment LangChain / Python Tool Integration
 def execute_${service.id.replace(/-/g, '_')}():
     url = "${service.endpointUrl}"
     headers = {
@@ -428,7 +428,7 @@ def execute_${service.id.replace(/-/g, '_')}():
     
     if response.status_code == 200:
         alpha_data = response.json()
-        print("✅ Received Alpha Data from ArcFlow x402 Hub:")
+        print("✅ Received Alpha Data from Arcis x402 Hub:")
         print(json.dumps(alpha_data, indent=2))
         return alpha_data
     else:

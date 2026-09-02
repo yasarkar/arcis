@@ -1,5 +1,5 @@
 // server.ts
-// ArcFlow Protocol Standalone Production Express Server
+// Arcis Protocol Standalone Production Express Server
 // Serves static SPA build from dist/ and handles all /api/* backend services
 
 import express, { type Request as ExpRequest, type Response as ExpResponse, type NextFunction } from 'express'
@@ -144,7 +144,7 @@ if (fs.existsSync(distPath)) {
   app.get('/', (_req, res) => {
     res.status(200).send(`
       <div style="font-family: system-ui, sans-serif; padding: 40px; text-align: center;">
-        <h2>⚡ ArcFlow Protocol API Server Running</h2>
+        <h2>⚡ Arcis Protocol API Server Running</h2>
         <p>Frontend bundle is not built yet. Run <code>npm run build</code> to generate the SPA distribution.</p>
         <p><a href="/api/health">Check /api/health</a></p>
       </div>
@@ -169,7 +169,7 @@ app.use((err: any, _req: ExpRequest, res: ExpResponse, _next: NextFunction) => {
 app.listen(PORT, () => {
   console.log(`
   ╔════════════════════════════════════════════════════════════════╗
-  ║                ⚡ ArcFlow Production Server ⚡                 ║
+  ║                 ⚡ Arcis Production Server ⚡                  ║
   ╠════════════════════════════════════════════════════════════════╣
   ║  • Server URL:      http://localhost:${PORT}                    ║
   ║  • Healthcheck:     http://localhost:${PORT}/api/health         ║

@@ -96,7 +96,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
                 </span>
               </div>
               <span className="text-[11px] text-slate-400">
-                ArcFlow On-Chain Verified Invoice
+                Arcis On-Chain Verified Invoice
               </span>
             </div>
           </div>

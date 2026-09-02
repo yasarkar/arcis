@@ -4,7 +4,7 @@
 // Displays Total Value Locked, Average APY, User Staked Assets, Claimable Rewards,
 // Capital Efficiency, and Quick Actions (Auto-Rebalancer, Yield Calculator, Claim All).
 import { TrendingUp, Gift, Zap, Layers, Bot, Activity } from 'lucide-react'
-import { ARCFLOW_POOLS } from '../../config/poolsConfig'
+import { ARCIS_POOLS } from '../../config/poolsConfig'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
 
 interface PoolsHeroStatsProps {
@@ -188,7 +188,7 @@ export default function PoolsHeroStats({
             fontFamily: 'var(--font-app)',
           }}
         >
-          <span>Active across {ARCFLOW_POOLS.length} pools on Arc Network</span>
+          <span>Active across {ARCIS_POOLS.length} pools on Arc Network</span>
         </div>
       </div>
 

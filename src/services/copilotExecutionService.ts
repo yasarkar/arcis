@@ -1,5 +1,4 @@
-// src/services/copilotExecutionService.ts
-// Direct Real On-Chain Inline Execution Engine for ArcFlow Arco AI Copilot
+// Direct Real On-Chain Inline Execution Engine for Arcis AI Copilot
 // Executes real DEX swaps, pool deposits, bridges, and faucets on Arc Testnet (5042002)
 // Leverages Circle Modular Wallets & Autonomous Session Keys for Zero-Popup Headless Execution
 import { type Hex, parseUnits } from 'viem'
@@ -193,7 +192,7 @@ export async function executeDirectCopilotAction(
       })
 
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('arcflow_portfolio_updated'))
+        window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
       }
 
       if (onProgress) onProgress('confirmed')
@@ -536,7 +535,7 @@ export async function executeDirectCopilotAction(
     })
 
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('arcflow_portfolio_updated'))
+      window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
     }
 
     if (onProgress) onProgress('confirmed')
@@ -670,7 +669,7 @@ export async function executeDirectCopilotAction(
       })
 
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('arcflow_portfolio_updated'))
+        window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
       }
 
       if (onProgress) onProgress('confirmed')
@@ -814,7 +813,7 @@ export async function executeDirectCopilotAction(
       })
 
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('arcflow_portfolio_updated'))
+        window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
       }
 
       if (onProgress) onProgress('confirmed')
@@ -890,7 +889,7 @@ export async function executeDirectCopilotAction(
       })
 
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('arcflow_portfolio_updated'))
+        window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
       }
 
       if (onProgress) onProgress('confirmed')

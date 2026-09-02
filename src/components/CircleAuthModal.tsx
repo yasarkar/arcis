@@ -16,7 +16,7 @@ import {
   Smartphone,
 } from 'lucide-react'
 import circleTokenIcon from '../assets/Token-Icon/CIRCLE Token.svg'
-import arcLogo from '../assets/ArcFlow-Icon.svg'
+import arcLogo from '../assets/Arcis-Icon.svg'
 import googleLogo from '../assets/Social-Login-Icon/google-logo.svg.svg'
 import appleLogo from '../assets/Social-Login-Icon/apple-logo.svg.svg'
 import facebookLogo from '../assets/Social-Login-Icon/facebook-logo.svg.svg'
@@ -149,7 +149,7 @@ export default function CircleAuthModal({
   const handlePasskeyRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!onRegisterPasskey) return
-    const uname = passkeyName.trim() || `arcflow_user_${Math.floor(Math.random() * 10000)}`
+    const uname = passkeyName.trim() || `arcis_user_${Math.floor(Math.random() * 10000)}`
     setStatusMessage({ text: 'Yeni biyometrik Passkey ve Circle Smart Account oluşturuluyor...' })
     const res = await onRegisterPasskey(uname)
     if (res.success && res.address) {
@@ -288,7 +288,7 @@ export default function CircleAuthModal({
         {/* Modal Top Header Branding */}
         <div className="px-6 pt-6 pb-2 md:px-7 md:pt-7">
           <div className="flex items-center justify-between mb-4">
-            <img src={arcLogo} alt="ArcFlow Logo" className="h-10 w-auto object-contain" />
+            <img src={arcLogo} alt="Arcis Logo" className="h-10 w-auto object-contain" />
           </div>
 
           {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && (

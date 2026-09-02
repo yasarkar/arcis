@@ -75,7 +75,7 @@ export async function getGaslessQuota(address: string): Promise<GaslessQuota> {
     return {
       success: false,
       address: '',
-      sponsoredBy: 'ArcFlow Protocol',
+      sponsoredBy: 'Arcis Protocol',
       relayerAddress: '',
       dailyLimit: DEFAULT_GASLESS_DAILY_LIMIT,
       usedCount: 0,
@@ -93,7 +93,7 @@ export async function getGaslessQuota(address: string): Promise<GaslessQuota> {
     return {
       success: false,
       address,
-      sponsoredBy: 'ArcFlow Protocol',
+      sponsoredBy: 'Arcis Protocol',
       relayerAddress: '',
       dailyLimit: DEFAULT_GASLESS_DAILY_LIMIT,
       usedCount: 0,
@@ -106,7 +106,7 @@ export async function getGaslessQuota(address: string): Promise<GaslessQuota> {
     return {
       success: true,
       address,
-      sponsoredBy: 'ArcFlow Protocol',
+      sponsoredBy: 'Arcis Protocol',
       relayerAddress: '',
       dailyLimit: DEFAULT_GASLESS_DAILY_LIMIT,
       usedCount: 0,
@@ -181,7 +181,7 @@ export async function sendGaslessUsdcTransfer({
   const r = sig.r
   const s = sig.s
 
-  // 3. Submit to ArcFlow Relayer
+  // 3. Submit to Arcis Relayer
   const response = await fetch('/api/relayer', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

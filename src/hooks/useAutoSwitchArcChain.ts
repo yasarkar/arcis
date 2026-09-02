@@ -82,7 +82,9 @@ export function useAutoSwitchArcChain() {
     if (hasAttemptedThisSession.current) return
 
     // Check if user already declined in this browser tab
-    const alreadyDeclined = sessionStorage.getItem('arcflow_auto_switch_declined')
+    const alreadyDeclined =
+      sessionStorage.getItem('arcis_auto_switch_declined') ||
+      sessionStorage.getItem('arcflow_auto_switch_declined')
     if (alreadyDeclined === 'true') return
 
     hasAttemptedThisSession.current = true
@@ -92,7 +94,7 @@ export function useAutoSwitchArcChain() {
       try {
         const res = await switchToArcTestnet()
         if (!res.success && res.error?.includes('iptal')) {
-          sessionStorage.setItem('arcflow_auto_switch_declined', 'true')
+          sessionStorage.setItem('arcis_auto_switch_declined', 'true')
         }
       } catch (e) {
         console.warn('[useAutoSwitchArcChain] Auto-switch notice:', e)

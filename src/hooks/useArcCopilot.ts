@@ -1,11 +1,11 @@
 // src/hooks/useArcCopilot.ts
-// Hook for managing ArcFlow AI Copilot (Autonomous Agent Orchestrator & Knowledge Hub)
+// Hook for managing Arcis AI Copilot (Autonomous Agent Orchestrator & Knowledge Hub)
 
 import { useState, useCallback, useEffect } from 'react'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { ARC_SERVICES_REGISTRY } from '../config/servicesRegistry'
 import { executeX402Call } from '../services/x402Client'
-import { queryArcoLLM } from '../services/llmService'
+import { queryArcisLLM } from '../services/llmService'
 import { getLivePortfolioSnapshot } from '../services/portfolioContextService'
 import {
   getSessionKeyConfig,
@@ -40,8 +40,8 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
     questions: [
       {
         id: 'gs-1',
-        title: 'What is ArcFlow and what makes it unique on Arc L1?',
-        prompt: 'What is ArcFlow and what makes it unique on Arc L1?',
+        title: 'What is Arcis and what makes it unique on Arc L1?',
+        prompt: 'What is Arcis and what makes it unique on Arc L1?',
       },
       {
         id: 'gs-2',
@@ -55,8 +55,8 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'gs-4',
-        title: 'What are the core features I can use on ArcFlow?',
-        prompt: 'What are the core features I can use on ArcFlow?',
+        title: 'What are the core features I can use on Arcis?',
+        prompt: 'What are the core features I can use on Arcis?',
       },
       {
         id: 'gs-5',
@@ -71,8 +71,8 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
     questions: [
       {
         id: 'sw-1',
-        title: 'How do token swaps work on ArcFlow?',
-        prompt: 'How do token swaps work on ArcFlow DEX router?',
+        title: 'How do token swaps work on Arcis?',
+        prompt: 'How do token swaps work on Arcis DEX router?',
       },
       {
         id: 'sw-2',
@@ -82,7 +82,7 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       {
         id: 'sw-3',
         title: 'How does split-routing eliminate price impact & slippage?',
-        prompt: 'How does split-routing and concentrated liquidity reduce slippage on ArcFlow?',
+        prompt: 'How does split-routing and concentrated liquidity reduce slippage on Arcis?',
       },
       {
         id: 'sw-4',
@@ -154,7 +154,7 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       {
         id: 'arb-4',
         title: 'How can developers list & monetize their own AI models?',
-        prompt: 'How can developers list and monetize their own AI models on ArcFlow?',
+        prompt: 'How can developers list and monetize their own AI models on Arcis?',
       },
       {
         id: 'arb-5',
@@ -174,8 +174,8 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'sp-3',
-        title: 'What fees does ArcFlow charge on sends (Standard / Fast / Turbo)?',
-        prompt: 'What fees does ArcFlow charge on sends (Standard / Fast / Turbo)?',
+        title: 'What fees does Arcis charge on sends (Standard / Fast / Turbo)?',
+        prompt: 'What fees does Arcis charge on sends (Standard / Fast / Turbo)?',
       },
       {
         id: 'sp-4',
@@ -226,8 +226,8 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
     questions: [
       {
         id: 'faq-1',
-        title: 'Is ArcFlow non-custodial and secure?',
-        prompt: 'Is ArcFlow non-custodial and secure?',
+        title: 'Is Arcis non-custodial and secure?',
+        prompt: 'Is Arcis non-custodial and secure?',
       },
       {
         id: 'faq-2',
@@ -241,13 +241,13 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'faq-4',
-        title: "How does ArcFlow's APS privacy encryption protect my transactions?",
-        prompt: "How does ArcFlow's APS privacy encryption protect my transactions?",
+        title: "How does Arcis's APS privacy encryption protect my transactions?",
+        prompt: "How does Arcis's APS privacy encryption protect my transactions?",
       },
       {
         id: 'faq-5',
-        title: "How does ArcFlow's 90/10 revenue share support Arc & developers?",
-        prompt: "How does ArcFlow's 90/10 revenue share support Arc & developers?",
+        title: "How does Arcis's 90/10 revenue share support Arc & developers?",
+        prompt: "How does Arcis's 90/10 revenue share support Arc & developers?",
       },
     ],
   },
@@ -291,12 +291,14 @@ export const QUICK_PROMPTS = [
   },
 ]
 
-export const createArcoWelcomeMessage = (): CopilotMessage => ({
+export const createArcisWelcomeMessage = (): CopilotMessage => ({
   id: 'welcome-' + Date.now(),
   role: 'assistant',
-  content: "Hey! I'm Arco 👋 Ask me anything about ArcFlow, DEX arbitrage opportunities, pool liquidity depth, slippage optimization, cross-chain Gateway flows, and more.",
+  content: "Hey! I'm Arcis 👋 Ask me anything about Arcis, DEX arbitrage opportunities, pool liquidity depth, slippage optimization, cross-chain Gateway flows, and more.",
   timestamp: Date.now(),
 })
+
+export const createArcoWelcomeMessage = createArcisWelcomeMessage
 
 /**
  * Detects if a user query is an action, transaction command, portfolio strategy request,
@@ -472,6 +474,7 @@ export function isActionOrStrategyIntent(query: string): boolean {
 
   const isPureSendFaq =
     p.includes('what are transaction memos') ||
+    p.includes('what fees does arcis charge') ||
     p.includes('what fees does arcflow charge') ||
     p.includes('how does gasless sending work')
 
@@ -486,7 +489,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
   const [isOpen, setIsOpen] = useState<boolean>(false)
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false)
   const [currentSteps, setCurrentSteps] = useState<CopilotStepLog[]>([])
-  const [messages, setMessages] = useState<CopilotMessage[]>([createArcoWelcomeMessage()])
+  const [messages, setMessages] = useState<CopilotMessage[]>([createArcisWelcomeMessage()])
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(getSessionKeyConfig())
 
   useEffect(() => {
@@ -683,7 +686,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
     portfolioSnapshot?: any
   ): Promise<void> => {
     try {
-      const llmResult = await queryArcoLLM(queryText, walletAddress, messages, portfolioSnapshot)
+      const llmResult = await queryArcisLLM(queryText, walletAddress, messages, portfolioSnapshot)
       const assistantMsgId = 'assistant-' + Date.now()
       const action = llmResult.actionPayload
 
@@ -832,12 +835,12 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
 
     if (
       q.includes('what makes it unique on arc l1') ||
-      (q.includes('what is arcflow') && !q.includes('terms') && !q.includes('features'))
+      ((q.includes('what is arcis') || q.includes('what is arcflow')) && !q.includes('terms') && !q.includes('features'))
     ) {
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `ArcFlow Protocol is a next-generation decentralized capital and DeFi operating system built natively on Arc L1.
+        content: `Arcis Protocol is a next-generation decentralized capital and DeFi operating system built natively on Arc L1.
 
 It combines ultra-low latency execution, unified cross-chain liquidity, and an autonomous AI agent marketplace into a single frictionless ecosystem.
 
@@ -868,7 +871,7 @@ Earn sustainable 8.42% APY compound real-yield powered by institutional borrowin
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Getting started on ArcFlow is instant, gas-abstracted, and free. You do not need any ETH or external native tokens.
+        content: `Getting started on Arcis is instant, gas-abstracted, and free. You do not need any ETH or external native tokens.
 
 <strong>Step-by-Step Guide:</strong>
 
@@ -915,6 +918,7 @@ x402 AI agents can execute thousands of rapid micro-transactions without risk of
       }
       addMessage(assistantMsg)
     } else if (
+      q.includes('core features i can use on arcis') ||
       q.includes('core features i can use on arcflow') ||
       q.includes('core features') ||
       q.includes('main modules')
@@ -922,7 +926,7 @@ x402 AI agents can execute thousands of rapid micro-transactions without risk of
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `ArcFlow delivers a comprehensive suite of high-performance DeFi modules:
+        content: `Arcis delivers a comprehensive suite of high-performance DeFi modules:
 
 <strong>Core Ecosystem Modules:</strong>
 
@@ -961,7 +965,7 @@ Arc L1 solves this with sub-second deterministic finality:
 Transactions are included in blocks and finalized in under 500 milliseconds, giving sandwich bots zero time window to attack.
 
 • <strong>Private Relayer Routing:</strong>
-ArcFlow routes swap calls directly to block builders through encrypted private relayer tunnels.
+Arcis routes swap calls directly to block builders through encrypted private relayer tunnels.
 
 • <strong>Price Certainty:</strong>
 The quoted price on your screen matches the exact on-chain execution price with zero unexpected slippage.`,
@@ -975,12 +979,12 @@ The quoted price on your screen matches the exact on-chain execution price with 
     // ─────────────────────────────────────────────────────────────
     else if (
       q.includes('how do token swaps work') ||
-      (q.includes('token swaps work') && q.includes('arcflow'))
+      (q.includes('token swaps work') && (q.includes('arcis') || q.includes('arcflow')))
     ) {
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Swapping tokens on ArcFlow is designed to be frictionless, instant, and gas-predictable.
+        content: `Swapping tokens on Arcis is designed to be frictionless, instant, and gas-predictable.
 
 <strong>Step-by-Step Swap Process:</strong>
 
@@ -988,7 +992,7 @@ The quoted price on your screen matches the exact on-chain execution price with 
 Choose your input asset (e.g. USDC) and your target output asset (e.g. WETH, EURC, WBTC).
 
 2. <strong>Automated Route Calculation:</strong>
-The ArcFlow Smart Router queries all Arc L1 liquidity pools in parallel (<50ms) to compute the route with the highest output and lowest price impact.
+The Arcis Smart Router queries all Arc L1 liquidity pools in parallel (<50ms) to compute the route with the highest output and lowest price impact.
 
 3. <strong>One-Click Confirmation:</strong>
 Sign the transaction with your connected wallet. With Arc L1 sub-second finality (<500ms), your swap completes and balances update in real time.
@@ -1011,7 +1015,7 @@ All network fees (~$0.005 USDC) are paid directly in USDC with no need to mainta
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `ArcFlow features transparent, institutional-grade low-cost fee structures:
+        content: `Arcis features transparent, institutional-grade low-cost fee structures:
 
 <strong>Fee Architecture:</strong>
 
@@ -1039,7 +1043,7 @@ No opaque relayer markups or predatory MEV slippage tolerances are applied.`,
         role: 'assistant',
         content: `When executing large trades, routing 100% of an order through a single liquidity pool can cause severe price slippage.
 
-<strong>How ArcFlow Split-Routing Solves Slippage:</strong>
+<strong>How Arcis Split-Routing Solves Slippage:</strong>
 
 1. <strong>Multi-Pool Liquidity Scanning:</strong>
 The router analyzes concentrated liquidity ticks on both ArcSwap V3 and Aerodrome Arc simultaneously.
@@ -1065,7 +1069,7 @@ By preventing liquidity exhaustion in any single pool, price impact is compresse
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `ArcFlow supports primary decentralized liquidity pairs on Arc L1:
+        content: `Arcis supports primary decentralized liquidity pairs on Arc L1:
 
 <strong>Supported Assets:</strong>
 
@@ -1082,7 +1086,7 @@ Wrapped Ethereum for decentralized layer-1 asset exposure.
 Wrapped Bitcoin for premier digital store of value trading.
 
 • <strong>af-USDC:</strong>
-ArcFlow Real-Yield Vault interest-bearing share token earning 8.42% APY.`,
+Arcis Real-Yield Vault interest-bearing share token earning 8.42% APY.`,
         timestamp: Date.now(),
         actionPayload: {
           type: 'trade',
@@ -1099,7 +1103,7 @@ ArcFlow Real-Yield Vault interest-bearing share token earning 8.42% APY.`,
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `EIP-3009 (TransferWithAuthorization) allows you to trade on ArcFlow even if you have zero native gas balance in your wallet.
+        content: `EIP-3009 (TransferWithAuthorization) allows you to trade on Arcis even if you have zero native gas balance in your wallet.
 
 <strong>How Gasless Swaps Work:</strong>
 
@@ -1107,7 +1111,7 @@ ArcFlow Real-Yield Vault interest-bearing share token earning 8.42% APY.`,
 You sign an EIP-712 structured authorization message in your wallet. This step does not execute an on-chain transaction or consume any gas.
 
 2. <strong>Relayer Broadcast:</strong>
-The ArcFlow relayer picks up your signed payload and submits it to the Arc L1 consensus engine.
+The Arcis relayer picks up your signed payload and submits it to the Arc L1 consensus engine.
 
 3. <strong>Automatic Gas Settlement:</strong>
 The tiny $0.005 USDC gas fee is paid by the relayer and automatically reconciled from the output swap amount upon execution.`,
@@ -1126,7 +1130,7 @@ The tiny $0.005 USDC gas fee is paid by the relayer and automatically reconciled
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `The ArcFlow YieldVault (af-USDC) generates sustainable real yield compliant with ERC-4626 standards:
+        content: `The Arcis YieldVault (af-USDC) generates sustainable real yield compliant with ERC-4626 standards:
 
 <strong>Yield Composition (8.42% APY):</strong>
 
@@ -1154,7 +1158,7 @@ Interest accrues on-chain every single second. As the pool expands, each af-USDC
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `ArcFlow generates pure Real Yield without inflationary token emissions:
+        content: `Arcis generates pure Real Yield without inflationary token emissions:
 
 <strong>Revenue Pillars:</strong>
 
@@ -1238,7 +1242,7 @@ You can redeem af-USDC for the underlying principal and all earned yield at any 
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `Comparing ArcFlow's Yield & Pools:
+          content: `Comparing Arcis's Yield & Pools:
 
 • <strong>USDC Real-Yield Vault (8.42% APY):</strong>
 Single-asset USDC deposit earning institutional borrower interest + protocol fees. Zero impermanent loss — the flagship 'set & forget' option.
@@ -1368,7 +1372,7 @@ An optimal cross-DEX cycle on Arc L1 has been detected for a 25,000 USDC trade:
 • <strong>Estimated Net Profit:</strong> +$${r2.data?.bestRoute?.netProfitUsdc} USDC (${r2.data?.bestRoute?.netProfitPct}%)
 
 <strong>MEV Shielding:</strong>
-Execution is secured via private ArcFlow relayer tunnels to ensure zero sandwich exploitation.`,
+Execution is secured via private Arcis relayer tunnels to ensure zero sandwich exploitation.`,
         timestamp: Date.now(),
         steps: [...steps],
         totalCostUsdc: totalCost,
@@ -1428,7 +1432,7 @@ Output: Institutional USDC migration metrics across 13+ chains.`,
 Wrap any Python (FastAPI/LangChain) or Node.js service with Circle x402 HTTP validation headers.
 
 2. <strong>Register in Service Registry:</strong>
-Publish your endpoint schema, query parameters, and per-call USDC price to the ArcFlow registry contract.
+Publish your endpoint schema, query parameters, and per-call USDC price to the Arcis registry contract.
 
 3. <strong>Receive Instant Streaming Revenue:</strong>
 Every AI agent or user query triggers an automated on-chain USDC payment directly into your developer wallet.`,
@@ -1495,11 +1499,11 @@ Use the Send tab and pick a preset (Invoice, Freelance, AI Agent, Rent, Gift, E-
           },
         }
         addMessage(assistantMsg)
-      } else if (q.includes('fees does arcflow charge')) {
+      } else if (q.includes('fees does arcis charge') || q.includes('fees does arcflow charge')) {
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `ArcFlow Send Fees (Speed & Priority Tiers):
+          content: `Arcis Send Fees (Speed & Priority Tiers):
 
 • <strong>Standard (Eco):</strong> 0 USDC platform fee — only the ~$0.00042 L1 USDC gas cost, settling in 1-2 seconds.
 
@@ -1507,7 +1511,7 @@ Use the Send tab and pick a preset (Invoice, Freelance, AI Agent, Rent, Gift, E-
 
 • <strong>Turbo (Instant):</strong> 0.010 USDC platform fee — highest-priority execution with sub-second settlement.
 
-All network gas is paid directly in USDC — no ETH wallet balance is ever required. 90% of protocol fees go to the ArcFlow Treasury and 10% supports the Arc ecosystem.`,
+All network gas is paid directly in USDC — no ETH wallet balance is ever required. 90% of protocol fees go to the Arcis Treasury and 10% supports the Arc ecosystem.`,
           timestamp: Date.now(),
           actionPayload: {
             type: 'send',
@@ -1523,7 +1527,7 @@ All network gas is paid directly in USDC — no ETH wallet balance is ever requi
           content: `Gasless Sending on Arc:
 
 • <strong>EIP-3009 TransferWithAuthorization:</strong>
-ArcFlow signs a gasless USDC authorization off-chain so a relayer can execute the transfer on your behalf.
+Arcis signs a gasless USDC authorization off-chain so a relayer can execute the transfer on your behalf.
 
 • <strong>Zero Native Balance Needed:</strong>
 You can send USDC without holding ETH or any helper gas token — the sponsored relayer covers the network fee.
@@ -1715,12 +1719,12 @@ Use the Send or Bridge tab to move your unified balance between chains.`,
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `ArcFlow Security & Custody Architecture:
+        content: `Arcis Security & Custody Architecture:
 
 <strong>Security Pillars:</strong>
 
 • <strong>Non-Custodial Smart Contracts:</strong>
-You maintain 100% control of your private keys and assets at all times. Neither ArcFlow nor relayers have access to user funds.
+You maintain 100% control of your private keys and assets at all times. Neither Arcis nor relayers have access to user funds.
 
 • <strong>Audited ERC Standards:</strong>
 Vaults comply strictly with ERC-4626 tokenized vault standards with built-in emergency recovery logic.
@@ -1803,7 +1807,7 @@ Reduces cumulative transaction fees by up to 78% compared to executing individua
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `ArcFlow APS Privacy Encryption:
+          content: `Arcis APS Privacy Encryption:
 
 <strong>APS (Arc Privacy Shield):</strong>
 An optional post-quantum privacy layer that encrypts your transaction metadata on-chain when enabled.
@@ -1829,10 +1833,10 @@ Look for the privacy lock badge (APS) in the app to lock or unlock encryption on
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `ArcFlow 90/10 Revenue Share:
+          content: `Arcis 90/10 Revenue Share:
 
 • <strong>90% to Protocol Developers:</strong>
-The majority of every protocol fee (from Send, Swap, and Bridge) flows into the ArcFlow Treasury to fund the roadmap and contributors.
+The majority of every protocol fee (from Send, Swap, and Bridge) flows into the Arcis Treasury to fund the roadmap and contributors.
 
 • <strong>10% to the Arc Ecosystem:</strong>
 A fixed share supports the Arc Network ecosystem per the Circle AppKit revenue-sharing model.
@@ -1840,7 +1844,7 @@ A fixed share supports the Arc Network ecosystem per the Circle AppKit revenue-s
 • <strong>Transparent Treasury:</strong>
 The treasury address is public and verifiable on ArcScan, so you can inspect every inbound fee in real time.
 
-This model keeps ArcFlow sustainable while rewarding builders on Arc L1.`,
+This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
           timestamp: Date.now(),
         }
         addMessage(assistantMsg)
@@ -1859,7 +1863,7 @@ This model keeps ArcFlow sustainable while rewarding builders on Arc L1.`,
   }
 
   const clearChat = () => {
-    setMessages([createArcoWelcomeMessage()])
+    setMessages([createArcisWelcomeMessage()])
   }
 
   return {

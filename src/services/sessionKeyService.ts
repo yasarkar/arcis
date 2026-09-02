@@ -1,14 +1,12 @@
-// src/services/sessionKeyService.ts
-// Circle Modular Wallets & Autonomous Session Key State Manager for ArcFlow
+// Circle Modular Wallets & Autonomous Session Key State Manager for Arcis
 // Implements secure in-memory + scoped sessionStorage key isolation (NEVER plain in persistent localStorage)
-
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import type { SessionKeyConfig, SessionActionType, SessionTimeRemaining } from '../types/sessionKey'
 import { getStoredMscaAddress } from './modularWalletService'
 
-const SESSION_KEY_METADATA_STORAGE = 'arcflow_autonomous_session_meta_v2'
-const SESSION_STORAGE_PRIV_KEY = 'arcflow_ephemeral_priv_key_v2'
-export const SESSION_KEY_UPDATED_EVENT = 'arcflow_session_key_updated'
+const SESSION_KEY_METADATA_STORAGE = 'arcis_autonomous_session_meta_v2'
+const SESSION_STORAGE_PRIV_KEY = 'arcis_ephemeral_priv_key_v2'
+export const SESSION_KEY_UPDATED_EVENT = 'arcis_session_key_updated'
 
 export const DEFAULT_SESSION_KEY_CONFIG = {
   durationHours: 24,

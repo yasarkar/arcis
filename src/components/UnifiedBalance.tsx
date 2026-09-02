@@ -215,7 +215,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
                 <span>Sync</span>
                 <RefreshCw
                   size={13}
-                  className={`sync-icon ${(loading || walletLoading) ? 'arcflow-spin' : ''}`}
+                  className={`sync-icon ${(loading || walletLoading) ? 'arcis-spin' : ''}`}
                 />
               </button>
             )}
@@ -291,7 +291,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
 
             {walletLoading && (
               <span style={{ fontSize: 11, color: 'var(--secondary-colors--sky-sync)', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-app)' }}>
-                <RefreshCw size={11} className="arcflow-spin" /> Refreshing Wallet Balances...
+                <RefreshCw size={11} className="arcis-spin" /> Refreshing Wallet Balances...
               </span>
             )}
           </div>

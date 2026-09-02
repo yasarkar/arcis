@@ -238,7 +238,7 @@ export default function SendModal({
   const isZeroGasDetected = isArcUsdc && (parseFloat(nativeBalance) === 0 || parseFloat(usdcWalletBalance) > 0)
   const isGaslessActive = isArcUsdc && isGaslessMode && (gaslessQuota ? gaslessQuota.remainingQuota > 0 : true)
 
-  // Dynamic ArcFlow Protocol Fee based on selected speedTier (0.000 / 0.005 / 0.010 USDC)
+  // Dynamic Arcis Protocol Fee based on selected speedTier (0.000 / 0.005 / 0.010 USDC)
   const sendProtocolFee = (selectedChain === 'Arc_Testnet' && tokenSymbol === 'USDC' && sendMode === 'direct' && !isGaslessActive) ? getSendProtocolFee(speedTier) : 0
   const totalSendDebit = amount ? parseFloat(amount) + sendProtocolFee : 0
   const isInsufficient = amount ? totalSendDebit > parseFloat(activeBalance) : false
@@ -737,7 +737,7 @@ export default function SendModal({
               setSuccessReceipt({
                 txHash,
                 explorerUrl,
-                gasFee: '$0.00 (ArcFlow Sponsored EIP-3009)',
+                gasFee: '$0.00 (Arcis Sponsored EIP-3009)',
                 blockNumber: gaslessResult.blockNumber || 'Sub-second Finalized',
                 isGasless: true,
                 remainingQuota: gaslessResult.remainingQuota,
@@ -1382,7 +1382,7 @@ export default function SendModal({
                   }}
                 />
                 {isInspectingCustomToken && (
-                  <RefreshCw className="w-4 h-4 arcflow-spin text-[var(--purple-1)] absolute right-3.5 top-1/2 -translate-y-1/2" />
+                  <RefreshCw className="w-4 h-4 arcis-spin text-[var(--purple-1)] absolute right-3.5 top-1/2 -translate-y-1/2" />
                 )}
                 {!isInspectingCustomToken && customTokenResult && (
                   <ShieldCheck className="w-4 h-4 text-emerald-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
@@ -1692,7 +1692,7 @@ export default function SendModal({
                   {isGaslessActive ? (
                     <span className="flex items-center gap-1 bg-emerald-500/10 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/25 text-[11px]">
                       <ShieldCheck className="w-3 h-3 shrink-0" />
-                      $0.00 (Sponsored by ArcFlow)
+                      $0.00 (Sponsored by Arcis)
                     </span>
                   ) : isEstimating ? (
                     <span className="flex items-center gap-1">
@@ -1708,11 +1708,11 @@ export default function SendModal({
               </div>
             )}
 
-            {/* ArcFlow Platform Fee */}
+            {/* Arcis Platform Fee */}
             {selectedChain === 'Arc_Testnet' && tokenSymbol === 'USDC' && sendMode === 'direct' && (
               <div className="flex justify-between items-center border-t border-white/[0.06] pt-2 text-slate-300">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[var(--purple-1)] font-medium">ArcFlow Platform Fee:</span>
+                  <span className="text-[var(--purple-1)] font-medium">Arcis Platform Fee:</span>
                   {isGaslessActive ? (
                     <span className="text-[9px] bg-emerald-500/15 text-emerald-300 px-1.5 py-0.2 rounded-full border border-emerald-500/30 font-mono">
                       ⚡ Quick-Start Free
@@ -1843,7 +1843,7 @@ export default function SendModal({
                     {gaslessStage === 'finalizing' ? '✓' : '2'}
                   </div>
                   <span className={gaslessStage === 'relaying' ? 'text-white font-semibold' : 'text-slate-400'}>
-                    2. ArcFlow Relayer Verification
+                    2. Arcis Relayer Verification
                   </span>
                 </div>
                 <span className="text-[10px] font-mono text-slate-400">
@@ -1886,7 +1886,7 @@ export default function SendModal({
           >
             {isSending ? (
               <>
-                <RefreshCw className="w-4 h-4 arcflow-spin" />
+                <RefreshCw className="w-4 h-4 arcis-spin" />
                 <span>{isGaslessActive ? 'PROCESSING GASLESS SEND...' : 'PROCESSING SEND...'}</span>
               </>
             ) : isGaslessActive ? (

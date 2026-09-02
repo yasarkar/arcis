@@ -1,7 +1,7 @@
 // src/components/pools/AgentBountyHubModal.tsx
 //
-// Interactive AI Agent Bounty & Yield-Generating Escrow Hub for ArcFlow (ERC-8183 & ERC-8004).
-// Automatically routes idle escrow capital into ArcFlow Real-Yield Vault (ERC-4626) at 8.42% APY.
+// Interactive AI Agent Bounty & Yield-Generating Escrow Hub for Arcis (ERC-8183 & ERC-8004).
+// Automatically routes idle escrow capital into Arcis Real-Yield Vault (ERC-4626) at 8.42% APY.
 // Supports crowdfunding sponsorship, proof verification, sponsor cash-back dividend claims, and task creation.
 
 import React, { useState } from 'react'
@@ -236,7 +236,7 @@ export default function AgentBountyHubModal({
             Yield-Generating Agent Escrows
           </h2>
           <p style={{ margin: '4px 0 0 0', fontSize: 13, color: 'var(--fp-3)', fontFamily: 'var(--font-app)', lineHeight: 1.4 }}>
-            Bounty funds locked in escrow never sit idle — they automatically generate <strong>8.42% APY</strong> in the ArcFlow Real-Yield Vault while autonomous AI agents execute tasks.
+            Bounty funds locked in escrow never sit idle — they automatically generate <strong>8.42% APY</strong> in the Arcis Real-Yield Vault while autonomous AI agents execute tasks.
           </p>
         </div>
 
@@ -934,7 +934,7 @@ export default function AgentBountyHubModal({
               >
                 <option value="Sponsor Cash-Back">Sponsor Cash-Back (Yield distributed proportionally to task sponsors)</option>
                 <option value="Agent Bonus">Agent Bonus (Yield added to agent payout upon successful proof verification)</option>
-                <option value="Protocol Revenue">Protocol Revenue Share (Yield auto-routed to ArcFlow Vault LPs)</option>
+                <option value="Protocol Revenue">Protocol Revenue Share (Yield auto-routed to Arcis Vault LPs)</option>
               </select>
             </div>
 
@@ -961,7 +961,7 @@ export default function AgentBountyHubModal({
             >
               {isProcessing ? (
                 <>
-                  <RefreshCw size={15} className="arcflow-spin" />
+                  <RefreshCw size={15} className="arcis-spin" />
                   <span>CREATING YIELD-GENERATING ESCROW ON ARC...</span>
                 </>
               ) : (

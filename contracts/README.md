@@ -1,6 +1,6 @@
-# ⚡ ArcFlow Smart Contracts (Foundry)
+# ⚡ Arcis Smart Contracts (Foundry)
 
-This repository contains the core Solidity smart contracts for the **ArcFlow Protocol** on **Arc L1**:
+This repository contains the core Solidity smart contracts for the **Arcis Protocol** on **Arc L1**:
 - **`StableSwapPool.sol`**: Low-slippage stableswap pool for USDC / EURC pairs.
 - **`ConstantProductPool.sol`**: Standard $xy=k$ AMM pool for volatile pairs (e.g. USDC / cirBTC).
 - **`YieldVault.sol`**: ERC-4626 compliant single-asset USDC real-yield vault with `af-USDC` share tokens.

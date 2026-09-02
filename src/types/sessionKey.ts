@@ -1,5 +1,5 @@
 // src/types/sessionKey.ts
-// Data structures for Circle Modular Wallets & Autonomous Session Keys in ArcFlow
+// Data structures for Circle Modular Wallets & Autonomous Session Keys in Arcis
 
 export type SessionActionType = 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet'
 

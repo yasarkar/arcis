@@ -1,6 +1,6 @@
 // src/hooks/usePoolsData.ts
 //
-// ArcFlow Pools & Yield — Real on-chain testnet data hook (Phase 5 rewrite).
+// Arcis Pools & Yield — Real on-chain testnet data hook (Phase 5 rewrite).
 // Reads real reserves / vault state from Arc Testnet contracts and submits
 // real transactions via the connected wallet provider.
 
@@ -17,7 +17,7 @@ import {
 } from 'viem'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import {
-  ARCFLOW_POOLS,
+  ARCIS_POOLS,
   POOL_CONTRACTS,
   STABLE_SWAP_ABI,
   CONSTANT_PRODUCT_ABI,
@@ -72,7 +72,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         return { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000', tcirbtc: '0.0000' }
       }
 
-      const cacheKey = `arcflow:pools:balances:${walletAddress}`
+      const cacheKey = `arcis:pools:balances:${walletAddress}`
       const cached = await redisCache.get<any>(cacheKey)
       if (cached) {
         return cached
@@ -154,7 +154,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
   } = useQuery({
     queryKey: ['onchainPoolState', walletAddress],
     queryFn: async () => {
-      const cacheKey = 'arcflow:pools:state'
+      const cacheKey = 'arcis:pools:state'
       const cached = await redisCache.get<Record<string, any>>(cacheKey)
       if (cached) {
         return cached
@@ -246,7 +246,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     queryFn: async () => {
       if (!isAddressValid) return {}
       const targetAddr = walletAddress as `0x${string}`
-      const cacheKey = `arcflow:pools:positions:${walletAddress}`
+      const cacheKey = `arcis:pools:positions:${walletAddress}`
 
       // Check cache only if it contains active positions
       const cached = await redisCache.get<Record<string, UserPoolPosition>>(cacheKey)
@@ -355,7 +355,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
               const userBRaw = (reserveB * lpRaw) / totalLp
               userA = parseFloat(formatUnits(userARaw, 6))
               userB = parseFloat(formatUnits(userBRaw, 6))
-              const exchangeRate = ARCFLOW_POOLS.find((p) => p.id === 'usdc-eurc-stable-pool')?.exchangeRate || 1.082
+              const exchangeRate = ARCIS_POOLS.find((p) => p.id === 'usdc-eurc-stable-pool')?.exchangeRate || 1.082
               stakedUsd = userA + userB * exchangeRate
               poolSharePct = parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(4))
             } else {
@@ -382,7 +382,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       }
 
       // 3. ConstantProductPool (USDC / tcirBTC LP)
-      const tcirBtcPool = ARCFLOW_POOLS.find((p) => p.id === 'usdc-tcirbtc-pool' || p.id === 'usdc-cirbtc-pool')
+      const tcirBtcPool = ARCIS_POOLS.find((p) => p.id === 'usdc-tcirbtc-pool' || p.id === 'usdc-cirbtc-pool')
       const cpAddress = tcirBtcPool?.contractAddress || POOL_CONTRACTS.CONSTANT_PRODUCT_POOL_TCIRBTC || POOL_CONTRACTS.CONSTANT_PRODUCT_POOL
       if (isDeployed(cpAddress)) {
         try {
@@ -463,7 +463,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
   // ── Aggregate pool metrics (live reserves override static TVL) ────────────
   const poolsWithUserStats = useMemo(() => {
-    return ARCFLOW_POOLS.map((pool) => {
+    return ARCIS_POOLS.map((pool) => {
       let tvlUsd = pool.tvlUsd
       if (pool.id === 'usdc-eurc-stable-pool' && onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]) {
         const s = onchainPoolState[POOL_CONTRACTS.STABLE_SWAP_POOL]
@@ -567,9 +567,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
   // ── Invalidate Redis & React Query Caches Helper ────────────────────────
   const invalidatePoolCaches = useCallback(async () => {
     await Promise.all([
-      redisCache.del('arcflow:pools:state'),
-      walletAddress ? redisCache.del(`arcflow:pools:balances:${walletAddress}`) : Promise.resolve(),
-      walletAddress ? redisCache.del(`arcflow:pools:positions:${walletAddress}`) : Promise.resolve(),
+      redisCache.del('arcis:pools:state'),
+      walletAddress ? redisCache.del(`arcis:pools:balances:${walletAddress}`) : Promise.resolve(),
+      walletAddress ? redisCache.del(`arcis:pools:positions:${walletAddress}`) : Promise.resolve(),
     ])
     refetchOnchainBalances()
     refetchPoolState()
@@ -583,7 +583,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
   // ── Standard deposit (Yield Vault & Gateway Settlement Pool) ────────────
   const depositToPool = useCallback(
     async (poolId: string, amountStr: string, _provider?: any): Promise<{ txHash: string }> => {
-      const pool = ARCFLOW_POOLS.find((p) => p.id === poolId)
+      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool) throw new Error('Pool not found')
 
       // Handle Circle Gateway Settlement Pool deposit
@@ -635,7 +635,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       inputAmountStr: string,
       _slippage: number = 0.5
     ): Promise<{ txHash: string; lpMinted: string; poolShare: number }> => {
-      const pool = ARCFLOW_POOLS.find((p) => p.id === poolId)
+      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool || !pool.isLpPool) throw new Error('Pool does not support LP Zap')
 
       const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
@@ -701,7 +701,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       amountBStr: string,
       _slippage: number = 0.5
     ): Promise<{ txHash: string; lpMinted: string; poolShare: number }> => {
-      const pool = ARCFLOW_POOLS.find((p) => p.id === poolId)
+      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool || !pool.isLpPool) throw new Error('Pool is not an LP pool')
 
       const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
@@ -750,7 +750,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       payoutMode: 'standard' | 'dual' | 'usdc' = 'standard',
       _provider?: any
     ): Promise<{ txHash: string }> => {
-      const pool = ARCFLOW_POOLS.find((p) => p.id === poolId)
+      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool) throw new Error('Pool not found')
 
       const walletClient = await getWalletClient()
@@ -865,7 +865,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
   // ── Faucet: Mint test cirBTC / tcirBTC tokens ─────────────────────────────
   const faucetMint = useCallback(
     async (poolId: string): Promise<{ txHash: string }> => {
-      const pool = ARCFLOW_POOLS.find((p) => p.id === poolId)
+      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool?.isFaucetToken || !pool.faucetTokenAddress) {
         throw new Error('Pool does not support faucet minting')
       }
@@ -902,7 +902,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       amountInStr: string,
       minOutStr?: string
     ): Promise<{ txHash: string; amountOut: string }> => {
-      const pool = ARCFLOW_POOLS.find((p) => p.id === poolId)
+      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool || !pool.isLpPool) throw new Error('Pool does not support swapping')
 
       const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
