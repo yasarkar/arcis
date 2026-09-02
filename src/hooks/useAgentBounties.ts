@@ -1,5 +1,3 @@
-// src/hooks/useAgentBounties.ts
-//
 // React hook for ERC-8183 / ERC-8004 AI Agent Bounty & Yield-Generating Escrow Pools.
 // Routes idle escrowed USDC into Arcis Real-Yield Vault (ERC-4626) to earn 8.42% APY while agents work.
 
@@ -151,10 +149,10 @@ export function useAgentBounties(walletAddress: string) {
         escrowLockedUsdc: reward,
         sponsorCount: 1,
         status: 'in_progress',
-        targetCompletionDate: 'Active Escrow (Continuous)',
+        targetCompletionDate: 'Active Escrow',
         aprReward: 15.0,
         category,
-        escrowYieldVault: 'Arcis Real-Yield Vault (ERC-4626)',
+        escrowYieldVault: 'Arcis Real-Yield Vault',
         accumulatedYieldUsdc: 0.15,
         yieldApr: 8.42,
         yieldBeneficiary,
