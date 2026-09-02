@@ -1,0 +1,904 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-dark: #07080d;
+  --color-brand-card: #0f111a;
+  --color-brand-card-light: #161926;
+  --color-brand-border: #1e2235;
+  --color-brand-border-focus: #3b4261;
+  --color-brand-primary: #6366f1;
+  --color-brand-secondary: #a855f7;
+  --color-brand-accent: #06b6d4;
+  
+  --font-display: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-brand-dark);
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.06) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.06) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.04) 0px, transparent 50%);
+    background-attachment: fixed;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-brand-dark);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-brand-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-border-focus);
+}
+
+/* Premium card styling utilities */
+.glass-panel {
+  background: rgba(15, 17, 26, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.glow-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glow-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.25);
+  box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.15);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ─── Arc & Aave Official Design System Tokens ─── */
+:root {
+  /* Fonts */
+  --fonts--space-grotesk: 'Space Grotesk', system-ui, sans-serif;
+  --fonts--dm-sans: 'DM Sans', system-ui, sans-serif;
+  --fonts--space-mono: 'Space Mono', monospace;
+  --font-app: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Font Weights */
+  --font-weight--light: 300;
+  --font-weight--regular: 400;
+  --font-weight--medium: 500;
+  --font-weight--semibold: 600;
+  --font-weight--bold: 700;
+
+  /* Colors — Blockchain-themed Arc Palette */
+  --base-colors--black: #000000;
+  --base-colors--white: #ffffff;
+  --primary-colors--protocol-navy: #1b3158;
+  --primary-colors--validator-blue: #2f578c;
+  --primary-colors--cipher-violet: #412c5c;
+  --primary-colors--quantum-plum: #664c88;
+  --secondary-colors--static-ether: #d5e0e7;
+  --secondary-colors--sky-sync: #acc6e9;
+  --secondary-colors--hash-cloud: #ddd6dd;
+  --secondary-colors--consensus-mauve: #908290;
+  --secondary-colors--blockstream-gold: #e9a13f;
+  --secondary-colors--token-sand: #ffcc6f;
+  --secondary-colors--burnt-block: #702718;
+  --secondary-colors--miner-clay: #c0827a;
+  --secondary-colors--gray-700: #41464c;
+  --light-details: #5b636b;
+
+  /* Aave Specific Tokens */
+  --fp-0: #252228;
+  --fp-1: #272228;
+  --fp-2: rgba(255, 255, 255, 0.9);
+  --fp-3: rgba(255, 255, 255, 0.65);
+  --fp-4: rgba(255, 255, 255, 0.45);
+  --purple-1: #9896ff;
+  --purple-2: #978eff;
+  --purple-8: #e5e5ff;
+  --earned-green: #01d062;
+  --gho-1: #28d358;
+  --usdc-1: #2775ca;
+
+  /* Motion Curves */
+  --ease-out-smooth: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-in-out-smooth: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* ─── Arc Utility Classes ─── */
+
+/* Eyebrow Label with Space Mono and wide tracking */
+.arc-eyebrow {
+  font-family: var(--fonts--space-mono);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 2.72px;
+  text-transform: uppercase;
+  color: var(--secondary-colors--sky-sync);
+}
+
+/* H1 / Large Statistics Counter in Space Grotesk */
+.arc-display-hero {
+  font-family: var(--fonts--space-grotesk);
+  font-weight: 300;
+  letter-spacing: -2.67px;
+  line-height: 1.05;
+  color: var(--base-colors--white);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Arc Card with subtle protocol navy border & shadow */
+.arc-card {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(47, 87, 140, 0.35);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.37), 0px 2px 8px rgba(22, 28, 35, 0.1);
+  transition: border-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+}
+
+.arc-card:hover {
+  border-color: rgba(172, 198, 233, 0.4);
+  box-shadow: 0px 4px 24px rgba(47, 87, 140, 0.25);
+}
+
+/* Arc Webflow Buttons (4px border-radius standard) */
+.arc-btn {
+  font-family: var(--fonts--space-mono);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  border-radius: 15px;
+  padding: 10px 18px;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.arc-btn-primary {
+  background-color: var(--base-colors--white);
+  color: var(--base-colors--black);
+  border: 1px solid var(--base-colors--white);
+}
+
+.arc-btn-primary:hover:not(:disabled) {
+  background-color: var(--secondary-colors--sky-sync);
+  border-color: var(--secondary-colors--sky-sync);
+  color: var(--base-colors--black);
+  box-shadow: 0 4px 12px rgba(172, 198, 233, 0.3);
+}
+
+.arc-btn-secondary {
+  background-color: var(--secondary-colors--sky-sync);
+  color: var(--base-colors--black);
+  border: 1px solid var(--secondary-colors--sky-sync);
+}
+
+.arc-btn-secondary:hover:not(:disabled) {
+  background-color: #cdddf2;
+  border-color: #cdddf2;
+}
+
+.arc-btn-ghost {
+  background-color: transparent;
+  color: var(--secondary-colors--sky-sync);
+  border: 1px solid rgba(172, 198, 233, 0.25);
+}
+
+.arc-btn-ghost:hover:not(:disabled) {
+  background-color: rgba(172, 198, 233, 0.1);
+  border-color: var(--secondary-colors--sky-sync);
+  color: var(--base-colors--white);
+}
+
+/* Scroll reveal entrance animation (Section 6.1) */
+@keyframes arc-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.arc-animate-reveal {
+  animation: arc-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ─── ArcFlow Legacy Utilities ─── */
+
+.arcflow-card {
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  padding: 28px 32px;
+}
+
+.arcflow-label {
+  font-family: var(--fonts--space-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2.72px;
+  color: var(--secondary-colors--sky-sync);
+}
+
+.arcflow-hero-balance {
+  font-family: var(--fonts--space-grotesk);
+  font-size: clamp(2.75rem, 6vw, 4rem);
+  font-weight: 400;
+  color: #ffffff;
+  letter-spacing: -2px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.arcflow-hero-balance .unit {
+  font-size: 0.4em;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.05em;
+  margin-left: 0.3em;
+}
+
+.arcflow-progress-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.arcflow-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.arcflow-asset-row {
+  padding: 16px 0;
+  transition: background 0.2s ease;
+}
+
+.arcflow-asset-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.arcflow-chain-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@keyframes arcflow-spin {
+  to { transform: rotate(360deg); }
+}
+.arcflow-spin {
+  animation: arcflow-spin 1s linear infinite;
+}
+
+/* ═══════════════════════════════════════════════════════
+   UNIFIED BALANCE v2 — AAVE LUXURY DESIGN SYSTEM
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Hero Card ── */
+.ub-hero-card {
+  position: relative;
+  background: linear-gradient(
+    145deg,
+    rgba(22, 25, 42, 0.85) 0%,
+    rgba(17, 19, 32, 0.9) 60%,
+    rgba(12, 14, 24, 0.95) 100%
+  );
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 20px 48px -12px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+  border-radius: 28px;
+  padding: 36px 40px 32px;
+  overflow: hidden;
+  transition: transform 0.3s var(--ease-out-smooth), border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+@supports (corner-shape: superellipse(1.25)) {
+  .ub-hero-card {
+    corner-shape: superellipse(1.25);
+  }
+}
+
+.ub-hero-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 70% 50% at 20% 0%,
+    rgba(152, 150, 255, 0.12) 0%,
+    transparent 65%
+  );
+  pointer-events: none;
+}
+
+.ub-hero-card:hover {
+  border-color: rgba(152, 150, 255, 0.25);
+  box-shadow: 
+    0 0 0 1px rgba(152, 150, 255, 0.15),
+    0 24px 56px -12px rgba(0, 0, 0, 0.55),
+    0 4px 16px rgba(152, 150, 255, 0.08);
+}
+
+/* ── Live Indicator Badge ── */
+.ub-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-app);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--earned-green);
+  background: rgba(1, 208, 98, 0.07);
+  border: 1px solid rgba(1, 208, 98, 0.22);
+  border-radius: 99px;
+  padding: 4px 10px 4px 12px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 12px rgba(1, 208, 98, 0.08);
+}
+
+/* ── Live ECG Heartbeat Waveform ── */
+.ub-ecg-svg {
+  display: inline-block;
+  height: 14px;
+  width: 42px;
+  overflow: visible;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.ub-ecg-path-bg {
+  stroke: rgba(1, 208, 98, 0.22);
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ub-ecg-path-pulse {
+  stroke: var(--earned-green);
+  stroke-width: 1.75;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: ub-ecg-heartbeat 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  filter: drop-shadow(0 0 4px rgba(1, 208, 98, 0.85));
+}
+
+@keyframes ub-ecg-heartbeat {
+  0% {
+    stroke-dashoffset: 60;
+    opacity: 0.2;
+  }
+  25% {
+    opacity: 1;
+  }
+  55% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  80%, 100% {
+    stroke-dashoffset: -60;
+    opacity: 0.2;
+  }
+}
+
+/* ── Quick Action Capsule Buttons ── */
+.ub-quick-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ub-action-btn {
+  font-family: var(--font-app);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border-radius: 99px;
+  padding: 7px 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--base-colors--white);
+  backdrop-filter: blur(12px);
+  transition: all 0.2s var(--ease-out-smooth);
+  will-change: transform;
+}
+
+.ub-action-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: scale(1.02);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.ub-action-btn:active {
+  transform: scale(0.98);
+}
+
+.ub-action-btn .sync-icon {
+  transition: transform 0.5s var(--ease-out-smooth);
+}
+
+.ub-action-btn:hover .sync-icon {
+  transform: rotate(180deg);
+}
+
+/* ── Stat Strip ── */
+.ub-stat-strip {
+  display: flex;
+  align-items: center;
+  background: rgba(18, 21, 35, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 20px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.3s ease;
+}
+
+@supports (corner-shape: superellipse(1.25)) {
+  .ub-stat-strip {
+    corner-shape: superellipse(1.25);
+  }
+}
+
+.ub-stat-strip:hover {
+  border-color: rgba(152, 150, 255, 0.2);
+}
+
+.ub-stat-item {
+  flex: 1;
+  padding: 14px 20px;
+  text-align: center;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ub-stat-item:last-child {
+  border-right: none;
+}
+
+.ub-stat-label {
+  font-family: var(--font-app);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--secondary-colors--sky-sync);
+  margin-bottom: 4px;
+  opacity: 0.8;
+}
+
+.ub-stat-value {
+  font-family: var(--fonts--space-grotesk);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--base-colors--white);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Asset List Card ── */
+.ub-asset-card {
+  background: linear-gradient(
+    145deg,
+    rgba(20, 23, 38, 0.8) 0%,
+    rgba(15, 17, 30, 0.85) 60%,
+    rgba(11, 13, 22, 0.9) 100%
+  );
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 28px;
+  padding: 32px;
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 16px 40px -10px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+@supports (corner-shape: superellipse(1.25)) {
+  .ub-asset-card {
+    corner-shape: superellipse(1.25);
+  }
+}
+
+.ub-asset-card:hover {
+  border-color: rgba(152, 150, 255, 0.2);
+}
+
+/* ── Asset Row v2 ── */
+.ub-asset-row {
+  padding: 14px 16px;
+  border-radius: 16px;
+  transition: all 0.2s var(--ease-out-smooth);
+  cursor: default;
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.ub-asset-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+.ub-chain-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease;
+  clip-path: circle(50% at 50% 50%);
+  background: transparent;
+}
+
+.ub-chain-icon svg,
+.ub-chain-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  clip-path: circle(50% at 50% 50%);
+  display: block;
+}
+
+.ub-asset-row:hover .ub-chain-icon {
+  transform: scale(1.08);
+}
+
+/* ── Percentage Badge ── */
+.ub-pct-badge {
+  font-family: var(--fonts--space-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: rgba(152, 150, 255, 0.1);
+  color: var(--purple-1);
+  border: 1px solid rgba(152, 150, 255, 0.25);
+  white-space: nowrap;
+}
+
+/* ── Progress Bar v2 ── */
+.ub-progress-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.ub-progress-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.8s var(--ease-out-smooth);
+  position: relative;
+  overflow: hidden;
+}
+
+.ub-progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  animation: ub-shimmer 2.5s infinite;
+}
+
+@keyframes ub-shimmer {
+  0%  { left: -100%; }
+  60%, 100% { left: 150%; }
+}
+
+/* ── Skeleton Loading ── */
+.ub-skeleton {
+  display: inline-block;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.05) 75%
+  );
+  background-size: 200% 100%;
+  animation: ub-skeleton-wave 1.6s ease-in-out infinite;
+}
+
+@keyframes ub-skeleton-wave {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Error Tooltip ── */
+.ub-error-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #f87171;
+  font-family: var(--fonts--space-mono);
+  font-size: 10px;
+  cursor: help;
+}
+
+.ub-error-tooltip::after {
+  content: attr(data-tip);
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: rgba(30, 10, 10, 0.95);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.ub-error-tooltip:hover::after {
+  opacity: 1;
+}
+
+/* ── Chain Icon Ring ── */
+.ub-chain-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ub-asset-row:hover .ub-chain-icon {
+  border-color: rgba(172, 198, 233, 0.25);
+  box-shadow: 0 0 10px rgba(172, 198, 233, 0.08);
+}
+
+/* ── Empty State ── */
+.ub-empty-state {
+  text-align: center;
+  padding: 48px 24px;
+}
+
+.ub-empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+
+.ub-empty-text {
+  font-family: var(--fonts--space-mono);
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--primary-colors--white);
+}
+
+/* ── APS Golden Orbit & Morphing Privacy Button ── */
+@keyframes aps-orbit-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-aps-orbit {
+  animation: aps-orbit-spin 2.5s linear infinite;
+  transform-origin: center;
+}
+
+.aps-gold-glow {
+  filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.75)) drop-shadow(0 0 12px rgba(255, 165, 0, 0.4));
+}
+
+/* ── APS Hover Chevron Stream Animation ── */
+@keyframes aps-chevron-stream {
+  0% {
+    transform: translateX(-12px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.9;
+  }
+  65% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateX(14px);
+    opacity: 0;
+  }
+}
+
+.aps-chevron-flow-1 {
+  animation: aps-chevron-stream 1.1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0s;
+}
+
+.aps-chevron-flow-2 {
+  animation: aps-chevron-stream 1.1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0.36s;
+}
+
+.aps-chevron-flow-3 {
+  animation: aps-chevron-stream 1.1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 0.72s;
+}
+
+/* ── Broadcast Toast Left Animation ── */
+@keyframes slideInLeft {
+  0% {
+    transform: translateX(-100%) scale(0.92);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Copilot Drawer Right Animation ── */
+@keyframes slideInRight {
+  0% {
+    transform: translateX(100%) scale(0.92);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ── Dynamic APY Trending Arrow ── */
+@keyframes apy-arrow-float {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translateY(-2px) scale(1.15);
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(1, 208, 98, 0.7));
+  }
+}
+
+.arcflow-apy-arrow-dynamic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: apy-arrow-float 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 4s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+/* ── Chat Typing Dots Animation ── */
+@keyframes typingDot {
+  0%, 100% {
+    transform: translateY(0) scale(0.85);
+    opacity: 0.35;
+    box-shadow: 0 0 0px rgba(6, 182, 212, 0);
+  }
+  50% {
+    transform: translateY(-6px) scale(1.3);
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(6, 182, 212, 0.9), 0 0 14px rgba(99, 102, 241, 0.7);
+  }
+}
+
+.typing-dot-1 {
+  animation: typingDot 1.1s infinite ease-in-out;
+  animation-delay: 0s;
+}
+.typing-dot-2 {
+  animation: typingDot 1.1s infinite ease-in-out;
+  animation-delay: 0.16s;
+}
+.typing-dot-3 {
+  animation: typingDot 1.1s infinite ease-in-out;
+  animation-delay: 0.32s;
+}
+.typing-dot-4 {
+  animation: typingDot 1.1s infinite ease-in-out;
+  animation-delay: 0.48s;
+}
+
+
