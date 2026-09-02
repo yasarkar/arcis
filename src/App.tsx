@@ -8,6 +8,7 @@ import FaucetModal from './components/FaucetModal'
 import UnifiedBalance from './components/UnifiedBalance'
 import HomePage from './components/home/HomePage'
 import Header from './components/Header'
+import Footer from './components/Footer'
 import HistoryTable from './components/HistoryTable'
 import PoolsTab from './components/pools/PoolsTab'
 import SendModal from './components/SendModal'
@@ -267,14 +268,11 @@ export default function App() {
           onOpenFaucet={() => setIsFaucetOpen(true)}
         />
 
-        {/* Footer */}
-        <footer className="border-t border-brand-border mt-auto py-6 bg-brand-card/40">
-          <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-            <div>
-              <span>© 2026 Arc Mini-App. Designed for stablecoin-first user experiences.</span>
-            </div>
-          </div>
-        </footer>
+        {/* Global Professional Footer */}
+        <Footer
+          onNavigate={(tab) => setActiveTab(tab)}
+          onOpenFaucet={() => setIsFaucetOpen(true)}
+        />
 
         {/* Circle User-Controlled Wallets & Passkey Auth Modal */}
         <CircleAuthModal

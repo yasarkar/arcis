@@ -1,5 +1,3 @@
-// src/components/pools/AgentBountyHubModal.tsx
-//
 // Interactive AI Agent Bounty & Yield-Generating Escrow Hub for Arcis (ERC-8183 & ERC-8004).
 // Automatically routes idle escrow capital into Arcis Real-Yield Vault (ERC-4626) at 8.42% APY.
 // Supports crowdfunding sponsorship, proof verification, sponsor cash-back dividend claims, and task creation.

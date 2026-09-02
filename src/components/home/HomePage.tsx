@@ -61,29 +61,50 @@ export default function HomePage({
     setOpenFaqIndex(openFaqIndex === idx ? null : idx)
   }
 
-  const protocolMetrics = [
-    { label: 'CHAIN NETWORK', value: 'Arc Testnet', sub: 'Chain ID: 5042002', icon: Activity, color: '#38bdf8' },
-    { label: 'BLOCK FINALITY', value: '< 1.0s', sub: 'Deterministic Finality', icon: Zap, color: '#a855f7' },
-    { label: 'NATIVE GAS ASSET', value: 'USDC Only', sub: '0x3600...0000 (Zero ETH)', icon: Coins, color: '#22c55e' },
-    { label: 'CROSS-CHAIN GATEWAY', value: '13+ Chains', sub: '<500ms Burn & Mint', icon: Globe, color: '#6366f1' },
-    { label: 'SMART ACCOUNTS', value: 'WebAuthn MSCA', sub: 'Biometric Passkey / Gasless', icon: KeyRound, color: '#06b6d4' },
-    { label: 'REAL-YIELD MODEL', value: 'ERC-4626 Vault', sub: '100% Protocol Volume Fees', icon: Layers, color: '#f59e0b' },
+  const keyMetrics = [
+    {
+      value: '< 1.0s',
+      label: 'Block Finality',
+      desc: 'Sub-second deterministic settlement',
+      icon: Zap,
+      color: '#a855f7',
+    },
+    {
+      value: 'Native USDC',
+      label: 'Gas Engine',
+      desc: 'Zero ETH needed for fees',
+      icon: Coins,
+      color: '#22c55e',
+    },
+    {
+      value: '13+ Chains',
+      label: 'Unified Balance',
+      desc: 'Instant cross-chain liquidity',
+      icon: Globe,
+      color: '#38bdf8',
+    },
+    {
+      value: '100% Real',
+      label: 'Protocol Yield',
+      desc: 'Compounding fee dividends',
+      icon: Layers,
+      color: '#f59e0b',
+    },
   ]
 
   const corePillars = [
     {
       id: 'unified',
-      ref: '//01. MULTI-CHAIN LIQUIDITY NEXUS',
-      title: '13+ Zincirde Tek Birleşik Bakiye',
-      headline: 'Parçalanmış Likiditeye ve Köprü Çilesine Kesin Çözüm',
+      title: 'Unified Balance Across 13+ Chains',
+      headline: 'The Ultimate Solution to Fragmented Liquidity and Bridge Friction',
       description:
-        'Circle Gateway ve CCTP entegrasyonu ile Ethereum, Base, Arbitrum, Solana, Avalanche ve Arc Testnet üzerindeki tüm USDC bakiyelerinizi tek bir havuzda birleştirin. <500ms yakma-basma hızıyla zincirler arası bekleme olmadan doğrudan dilediğiniz ağda harcayın.',
+        'Aggregate your USDC balances across Ethereum, Base, Arbitrum, Solana, Avalanche, and Arc Testnet into a single unified vault powered by Circle Gateway and CCTP. Spend or transfer instantly (<500ms burn-and-mint) on any supported chain with zero waiting periods.',
       bullets: [
-        'Anında Birleşik Bakiye: Farklı cüzdan ve ağlardaki USDC tek çatı altında.',
-        'Sıfır İkincil Token Riski: Sentetik veya sarılmış (wrapped) token değil, doğrudan native USDC.',
-        'Sub-Second Cross-Chain Settlement: Gateway izin istemeyen mint mekanizması.',
+        'Instant Unified Balance: Consolidate scattered USDC across all your wallets and networks.',
+        'Zero Secondary Token Risk: Direct native USDC settlement without synthetic or wrapped tokens.',
+        'Sub-Second Cross-Chain Settlement: Permissionless Gateway burn-and-mint architecture.',
       ],
-      ctaText: 'Birleşik Bakiyeyi Başlat',
+      ctaText: 'Launch Unified Balance',
       actionTab: 'unified' as TabType,
       image: unifiedMultichainImg,
       accentColor: 'rgba(56, 189, 248, 0.25)',
@@ -91,17 +112,16 @@ export default function HomePage({
     },
     {
       id: 'native-gas',
-      ref: '//02. NATIVE USDC GAS ENGINE',
-      title: 'Sıfır ETH, Sıfır Volatilite: Doğrudan USDC ile Gaz',
-      headline: 'Dalgalı Gas Maliyetlerine Son Veren İlk Kurumsal L1 Blokzinciri',
+      title: 'Zero ETH, Zero Volatility: Native USDC Gas Engine',
+      headline: 'The First Institutional L1 Blockchain Eliminating Gas Price Volatility',
       description:
-        'Arc blokzincirinde gaz ücretleri ETH yerine yerel olarak USDC (0x3600...0000) ile ödenir. Cüzdanınızda ETH bulundurma zorunluluğunu unutun. Tüm transferler, kontrat çağrıları ve takaslar mikro-kuruşluk sabit ve öngörülebilir USDC ücretleriyle gerçekleşir.',
+        'On Arc L1, transaction fees are paid natively in USDC (0x3600...0000) instead of volatile native tokens like ETH. Never worry about holding ETH for gas. Every transfer, contract call, and swap executes with predictable, sub-penny USDC transaction fees.',
       bullets: [
-        'Tahmin Edilebilir Muhasebe: Şirketler ve kullanıcılar için sabit bütçelenebilir gas.',
-        '18 Dec Native Gas & 6 Dec ERC-20 Çift Motor Mimarisi.',
-        '1 saniyenin altında geri dönülemez kesinlik (sub-second deterministic finality).',
+        'Predictable Accounting: Fixed, forecastable gas fees for enterprises and retail users alike.',
+        'Dual Gas Engine: 18 Dec Native Gas & 6 Dec ERC-20 dual precision architecture.',
+        'Sub-Second Deterministic Finality: Irreversible on-chain settlement in under 1 second.',
       ],
-      ctaText: 'Hızlı Transfer Yap',
+      ctaText: 'Send Instant Transfer',
       actionTab: 'send' as TabType,
       image: nativeGasImg,
       accentColor: 'rgba(34, 197, 94, 0.25)',
@@ -109,17 +129,16 @@ export default function HomePage({
     },
     {
       id: 'passkey-msca',
-      ref: '//03. BIOMETRIC PASSKEYS & MSCA',
-      title: 'Tohum Kelimesiz, Biyometrik Web3 Girişi',
-      headline: 'FaceID & TouchID ile Saniyeler İçinde Gazsız Akıllı Hesap',
+      title: 'Seedless Biometric Web3: FaceID & TouchID Login',
+      headline: 'Gasless Modular Smart Accounts Created in Seconds',
       description:
-        'Circle Modular Wallets ve ERC-6900 MSCA mimarisi ile tohum kelime (seed phrase) not alma veya kaybetme korkusu olmadan, donanım seviyesinde biyometrik güvenlikle giriş yapın. Circle Gas Station paymaster ile işlemlerinizi gaz ücreti ödemeden imzalayın.',
+        'Experience seamless Web3 onboarding with Circle Modular Wallets and ERC-6900 MSCA architecture. Log in using your device\'s biometric sensors (FaceID, TouchID, Windows Hello) with zero seed phrase loss risk. Sign transactions with zero gas fees via Circle Gas Station paymaster.',
       bullets: [
-        'WebAuthn / FIDO2 Donanım Enklav Koruması: Cihazınızın Secure Enclave çipiyle imzalama.',
-        'Circle Gas Station Paymaster: Kullanıcı dostu tamamen sponsorsuz (gasless) işlemler.',
-        'Sosyal Giriş (Google / Apple) ve MPC Kullanıcı Kontrollü Cüzdan Alternatifi.',
+        'WebAuthn / FIDO2 Hardware Enclave Security: Private keys secured within device hardware chips.',
+        'Circle Gas Station Paymaster: 100% gas-sponsored transactions for frictionless UX.',
+        'Flexible Social Login: MPC User-Controlled Wallets via Google or Apple authentication.',
       ],
-      ctaText: 'Passkey Girişi Yap',
+      ctaText: 'Connect with Passkey',
       customAction: onOpenCircleAuth,
       image: passkeyVaultImg,
       accentColor: 'rgba(6, 182, 212, 0.25)',
@@ -127,17 +146,16 @@ export default function HomePage({
     },
     {
       id: 'real-yield',
-      ref: '//04. DUAL-AMM & REAL-YIELD VAULTS',
-      title: 'Sıfır Kaymalı FX ve Enflasyonsuz Gerçek Getiri',
-      headline: 'Protokol İşlem Ücretlerinin %90\'ını Saf USDC Olarak Dağıtan ERC-4626 Kasası',
+      title: 'Zero-Slippage FX & Non-Inflationary Real Yield',
+      headline: 'ERC-4626 Vault Distributing 90% of Protocol Fees in Pure USDC Dividends',
       description:
-        'Çift AMM modelimiz, sabit varlıklar (USDC/EURC) için Sabit-Toplam (x + y = k) mekanizması ile sıfır kaymalı döviz takası sağlarken, piyasa varlıkları için Sabit-Çarpım (x * y = k) havuzları sunar. Üretilen tüm ücretler YieldVault (af-USDC) kasasında enflasyonsuz reel getiri olarak birikir.',
+        'Our dual-AMM architecture provides Constant-Sum (x + y = k) zero-slippage swaps for stablecoin pairs (USDC/EURC) and Constant-Product (x * y = k) liquidity for market assets. 90% of all protocol fees compound directly into the YieldVault (af-USDC) as real, non-inflationary yields.',
       bullets: [
-        'Constant-Sum Zero Slippage: Kararlı kur paritelerinde tam 1:1 sermaye verimliliği.',
-        'ERC-4626 Standart af-USDC Kasası: Otomatik bileşik getiri ve saf USDC temettüleri.',
-        'Sıfır Enflasyonist Baskı: Değersiz farm tokenları yerine gerçek platform hacmi getirisi.',
+        'Constant-Sum Zero Slippage: 1:1 capital efficiency on stable FX pairs without price impact.',
+        'ERC-4626 af-USDC Vault: Auto-compounding real yields paid purely in USDC dividends.',
+        'Zero Token Inflation: Sustainable yield generated entirely from real protocol volume.',
       ],
-      ctaText: 'Havuzları & Kasayı Gör',
+      ctaText: 'Explore Pools & Vault',
       actionTab: 'pools' as TabType,
       image: realYieldImg,
       accentColor: 'rgba(245, 158, 11, 0.25)',
@@ -145,17 +163,16 @@ export default function HomePage({
     },
     {
       id: 'ai-agents',
-      ref: '//05. AUTONOMOUS AGENTIC ECONOMY',
-      title: 'Ajanlar İçin Otonom Mikro-Ödemeler & x402',
-      headline: 'Yapay Zeka Ajanlarının Zincir İçi Sözleşme Yaptığı ve Ödeme Aldığı Platform',
+      title: 'Autonomous AI Agent Economy & x402 Micropayments',
+      headline: 'On-Chain Identity, Job Escrows, and Real-Time Settlement for Autonomous Agents',
       description:
-        'HTTP 402 ve ERC-8183 / ERC-8004 protokolleri ile yapay zeka ajanları API çağrıları satın alabilir, veri kaynaklarına anlık ödeme yapabilir ve kontrat tabanlı görevleri otonom tamamlayabilir. Arcis AI Copilot ile doğal dilde doğrudan zincir içi işlem yönetimi gerçekleştirin.',
+        'Empower autonomous AI agents with on-chain identity (ERC-8004), verifiable job contracts (ERC-8183), and sub-penny micropayments via the HTTP 402 protocol. Execute natural-language on-chain operations and smart contract actions with Arcis AI Copilot.',
       bullets: [
-        'x402 Pay-Per-Call API Protokolü: Kredi kartı veya üyelik gerektirmeden çağrı başına USDC mikro-ödeme.',
-        'Yield-Generating Escrow: Ajan görevleri yürütülürken emanet havuzu ERC-4626 kasasında getiri üretir.',
-        'Arcis AI Copilot: Doğal dille transfer, arbitraj ve takas yürüten otonom yapay zeka orkestratörü.',
+        'x402 Pay-Per-Call Protocol: Pay-as-you-go USDC micropayments without API keys or subscriptions.',
+        'Yield-Generating Escrow: Idle bounty and escrow funds earn vault yields during job execution.',
+        'Arcis AI Copilot: Autonomous on-chain AI orchestrator for natural language transfers and swaps.',
       ],
-      ctaText: 'AI Servislerini Keşfet',
+      ctaText: 'Explore AI Services',
       actionTab: 'ai-services' as TabType,
       image: agentSettlementImg,
       accentColor: 'rgba(168, 85, 247, 0.25)',
@@ -163,17 +180,16 @@ export default function HomePage({
     },
     {
       id: 'cross-chain-bridge',
-      ref: '//06. UNIVERSAL ECOSYSTEM BRIDGES',
-      title: 'EVM, Solana ve Injective Arasında Evrensel Köprü',
-      headline: 'Farklı Kripto Ekosistemleri Tek Bir Akıcı Terminalde Buluşuyor',
+      title: 'Universal Bridge Across EVM, Solana & Injective',
+      headline: 'Connecting Leading Ecosystems into a Single Seamless Terminal',
       description:
-        'Circle CCTP ve yerel adaptörler ile Solana Phantom, Injective Keplr ve EVM MetaMask/RainbowKit cüzdanlarınızı aynı anda bağlayın. Ekosistemler arasında kayıpsız, güvenli ve anlık çapraz transfer ve takas gerçekleştirin.',
+        'Connect Solana Phantom, Injective Keplr, and EVM wallets (MetaMask, Rainbow) simultaneously. Move USDC effortlessly across distinct blockchain ecosystems with direct Circle CCTP validator attestation and optimal route execution.',
       bullets: [
-        'Doğrudan Circle CCTP v2 Doğrulayıcı Güvencesi.',
-        'Solana SPL Token ve EVM ERC-20 Varlıkları Tek Arayüzde.',
-        'Kayıp Önleme ve Otomatik En Uygun Rota Yönlendirmesi.',
+        'Native Circle CCTP v2 Protocol: Zero wrapped-token bridge risks.',
+        'Unified Multi-Ecosystem Interface: Manage EVM, Solana SPL, and Injective from one place.',
+        'Slippage Protection: Automated best-execution routing across all chains.',
       ],
-      ctaText: 'Köprü & Takasa Git',
+      ctaText: 'Bridge & Swap Tokens',
       actionTab: 'bridge' as TabType,
       image: heroNexusImg,
       accentColor: 'rgba(99, 102, 241, 0.25)',
@@ -182,35 +198,63 @@ export default function HomePage({
   ]
 
   const comparisonRows = [
-    { feature: 'Yerel Gaz Para Birimi', legacy: 'Volatil ETH, SOL, MATIC (Sürekli bakiye gerektirir)', arcis: 'Doğrudan Yerel USDC (0x3600...0000), Sıfır ETH' },
-    { feature: 'İşlem Kesinliği & Hız', legacy: '12-60 saniye çoklu blok onayı ve re-org riski', arcis: '< 1.0 Saniye Deterministik Geri Dönülemez Kesinlik' },
-    { feature: 'Çoklu Zincir Likiditesi', legacy: 'Parçalanmış havuzlar, sarılmış köprü tokenları (Wrapped)', arcis: 'Circle Gateway ile 13+ Ağda Tek Birleşik Bakiye (<500ms)' },
-    { feature: 'Cüzdan Giriş & Güvenlik', legacy: '12-24 tohum kelime, phishing ve anahtar kaybetme riski', arcis: 'Biyometrik WebAuthn Passkey (FaceID/TouchID) + MSCA' },
-    { feature: 'İşlem Ücreti Sponsorluğu', legacy: 'Kullanıcı her zaman kendi gasını ödemek zorundadır', arcis: 'Circle Gas Station Paymaster ile Tamamen Gazsız Deneyim' },
-    { feature: 'Getiri Mekanizması', legacy: 'Enflasyonist, değeri hızla eriyen yönetim tokenları', arcis: 'ERC-4626 Gerçek Getiri (%90 Protokol Ücreti Saf USDC)' },
-    { feature: 'Yapay Zeka & Ajan Desteği', legacy: 'Manuel cüzdan onayları, API anahtarı bağımlılıkları', arcis: 'ERC-8183 / ERC-8004 & x402 Otomatik Mikro-Ödemeler' },
+    {
+      feature: 'Native Gas Currency',
+      legacy: 'Volatile ETH, SOL, MATIC (Requires constant native token balance)',
+      arcis: 'Native USDC (0x3600...0000), Zero ETH Required',
+    },
+    {
+      feature: 'Settlement & Finality Speed',
+      legacy: '12–60s multi-block confirmations with re-organization risks',
+      arcis: '< 1.0s Sub-Second Deterministic Finality',
+    },
+    {
+      feature: 'Cross-Chain Liquidity',
+      legacy: 'Fragmented liquidity pools, wrapped tokens, slow bridging',
+      arcis: '13+ Chains Unified Balance via Circle Gateway (<500ms)',
+    },
+    {
+      feature: 'Wallet Onboarding & Security',
+      legacy: '12–24 seed phrases, high risk of phishing and key loss',
+      arcis: 'Biometric WebAuthn Passkeys (FaceID/TouchID) + MSCA',
+    },
+    {
+      feature: 'Gas Fee Sponsorship',
+      legacy: 'Users must always hold and pay native gas for each tx',
+      arcis: 'Circle Gas Station Paymaster for 100% Gasless UX',
+    },
+    {
+      feature: 'Yield Mechanism',
+      legacy: 'Inflationary farm tokens with rapidly depreciating value',
+      arcis: 'ERC-4626 Real Yield (90% Protocol Volume Fees in Pure USDC)',
+    },
+    {
+      feature: 'AI & Agent Integration',
+      legacy: 'Manual wallet confirmations, centralized API keys',
+      arcis: 'ERC-8183 / ERC-8004 & x402 Automated USDC Micropayments',
+    },
   ]
 
   const faqItems = [
     {
-      q: 'Arc L1 nedir ve USDC nasıl yerel gaz belirteci olarak kullanılır?',
-      a: 'Arc, Circle tarafından kurumsal ve finansal akışlar için özel geliştirilmiş bir Layer-1 blokzinciridir. Geleneksel blokzincirlerde gaz için ETH veya AVAX gerekirken, Arc L1 motorunda gaz ücretleri yerel olarak doğrudan USDC (0x3600...0000) ile ödenir. Bu sayede işletmeler ve kullanıcılar kuruşluk ve sabit maliyetlerle işlem yapabilir.'
+      q: 'What is Arc L1 and how does it use USDC as native gas?',
+      a: 'Arc is a purpose-built Layer-1 blockchain engineered by Circle for enterprise financial flows. Unlike traditional blockchains that require ETH or SOL for gas, Arc\'s execution engine uses native USDC (0x3600...0000) directly for transaction fees. This allows developers and businesses to operate with predictable, sub-penny costs without price volatility.'
     },
     {
-      q: 'Unified Balance (Birleşik Bakiye) nasıl çalışır?',
-      a: 'Circle Gateway ve Unified Balance Kit sayesinde; Ethereum, Base, Arbitrum, Solana, Avalanche ve Arc Testnet üzerindeki USDC fonlarınız tek bir havuzda birleştirilir. Cüzdanınızdaki fonları köprülemek zorunda kalmadan, izin istemeyen yakma-basma mimarisiyle dilediğiniz ağda 500 milisaniyenin altında harcayabilirsiniz.'
+      q: 'How does Unified Balance work across multiple blockchains?',
+      a: 'Powered by Circle Gateway and the Unified Balance Kit, your USDC across Ethereum, Base, Arbitrum, Solana, Avalanche, and Arc Testnet is aggregated into a single spendable pool. You can spend or transfer your funds on any connected chain in under 500ms using permissionless burn-and-mint settlement, without traditional bridging delays.'
     },
     {
-      q: 'Passkey (Biyometrik) giriş tohum kelimelerden neden daha güvenlidir?',
-      a: 'Passkey teknolojisi FIDO2 / WebAuthn standartlarını kullanır. Özel anahtar telefonunuzun veya bilgisayarınızın Secure Enclave çipinde donanımsal olarak saklanır ve asla dışarı sızdırılamaz. Tohum kelime kopyalama, kaybetme veya phishing yoluyla çalınma riski tamamen ortadan kalkar.'
+      q: 'Why are Biometric Passkeys safer than seed phrases?',
+      a: 'Passkeys leverage the FIDO2 / WebAuthn open standard. Your private keys are securely generated and stored inside your device\'s hardware enclave (such as Apple Secure Enclave or Windows TPM) and never leave the device. This completely eliminates phishing attacks, clipboard hijacking, and seed phrase loss.'
     },
     {
-      q: 'ERC-4626 Yield Vault kasasında getiri nasıl üretilir?',
-      a: 'Arcis üzerindeki tüm transfer, swap ve köprü işlemlerinden alınan küçük protokol ücretlerinin %90\'ı doğrudan YieldVault kasasına saf USDC olarak aktarılır. Hiçbir enflasyonist farm tokenı basılmaz; getiriniz gerçek protokol kullanım hacminden beslenir ve af-USDC hisseniz üzerinden otomatik olarak katlanır.'
+      q: 'How is yield generated in the ERC-4626 Yield Vault?',
+      a: '90% of all platform fees collected from transfers, stablecoin FX swaps, and cross-chain actions are routed directly to the YieldVault. No inflationary reward tokens are minted; all returns represent genuine protocol volume compounding directly into your af-USDC share value.'
     },
     {
-      q: 'Testnet USDC ve Arc Testnet fonlarını nasıl alabilirim?',
-      a: 'Üst menüdeki veya bu sayfadaki "Faucet" butonuna tıklayarak Circle Faucet API üzerinden ücretsiz testnet USDC, EURC ve test varlıkları talep edebilirsiniz. Cüzdan adresinizi girip butona basmanız yeterlidir.'
+      q: 'Where can I obtain Testnet USDC and Arc Testnet funds?',
+      a: 'Click the "Testnet Faucet" button in the navigation or on this page to request free testnet USDC, EURC, and native Arc gas tokens directly via the Circle Faucet API.'
     }
   ]
 
@@ -232,47 +276,40 @@ export default function HomePage({
           
           {/* Left Column: Messaging & CTAs */}
           <div className="lg:col-span-7 flex flex-col gap-6 text-left">
-            
-            {/* Technical Eyebrow Tag */}
-            <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-sky-400/30 bg-sky-950/40 w-fit backdrop-blur-md">
-              <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
-              <span className="arc-eyebrow text-xs tracking-widest text-sky-300 font-mono font-medium">
-                ARC.RUNTIME | TESTNET 5042002
-              </span>
-            </div>
 
             {/* Main Welcome Heading */}
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] text-white">
               Build & Scale <br />
               <span className="text-gradient">Real-World Finance</span> <br />
-              on Arc L1.
+              on Arc
             </h1>
 
             {/* Motto / Slogan */}
             <p className="text-base sm:text-lg md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl">
-              <strong className="text-white font-semibold">Arcis</strong>, Circle'ın yerel USDC gas mimarisine sahip Arc blokzinciri üzerinde inşa edilmiş, 
-              <span className="text-sky-300 font-medium"> 13+ zincirde tek birleşik bakiye</span>, 
-              <span className="text-purple-300 font-medium"> %100 gerçek getirili kasalar</span> ve 
-              <span className="text-cyan-300 font-medium"> otonom AI ajan ödemeleri</span> sunan yeni nesil finansal işletim sistemidir.
+              <strong className="text-white font-semibold">Arcis</strong> is the next-generation economic operating system built on Arc 
+              Circle's blockchain with native USDC gas delivering 
+              <span className="text-sky-300 font-medium"> unified liquidity across 13+ chains</span>, 
+              <span className="text-purple-300 font-medium"> 100% real-yield vaults</span>, and 
+              <span className="text-cyan-300 font-medium"> autonomous AI agent settlement</span>.
             </p>
 
             {/* Fast Bullet Points */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs sm:text-sm text-slate-300">
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Sub-Second Deterministik Kesinlik (&lt;1s)</span>
+                <span>Sub-Second Deterministic Finality (&lt;1.0s)</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Sıfır ETH — Tüm Gaz Yerel USDC</span>
+                <span>Zero ETH — Native USDC Gas Engine</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Biyometrik Passkey ile Tohumsuz Giriş</span>
+                <span>Seedless Biometric Passkeys (WebAuthn)</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>x402 Ajan Mikro-Ödemeleri ve Copilot</span>
+                <span>x402 Agent Micropayments & AI Copilot</span>
               </div>
             </div>
 
@@ -283,38 +320,14 @@ export default function HomePage({
                 onClick={() => onNavigate('unified')}
                 className="arc-btn arc-btn-primary px-6 py-3.5 rounded-full text-sm font-semibold flex items-center gap-2 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:scale-105 active:scale-95 transition-all cursor-pointer"
               >
-                <span>DApp'i Başlat (Unified Balance)</span>
+                <span>DApp</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-
-              {onOpenCircleAuth && (
-                <button
-                  type="button"
-                  onClick={onOpenCircleAuth}
-                  className="px-5 py-3.5 rounded-full text-sm font-medium border border-cyan-400/40 bg-cyan-950/30 hover:bg-cyan-900/40 text-cyan-200 hover:text-white flex items-center gap-2 transition-all cursor-pointer backdrop-blur-sm"
-                >
-                  <KeyRound className="w-4 h-4 text-cyan-400" />
-                  <span>Passkey Girişi</span>
-                </button>
-              )}
-
-              {onOpenFaucet && (
-                <button
-                  type="button"
-                  onClick={onOpenFaucet}
-                  className="px-5 py-3.5 rounded-full text-sm font-medium border border-white/15 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white flex items-center gap-2 transition-all cursor-pointer backdrop-blur-sm"
-                  title="Testnet USDC ve Token İste"
-                >
-                  <Droplets className="w-4 h-4 text-sky-400" />
-                  <span>Testnet Faucet</span>
-                </button>
-              )}
-
               <a
                 href="#features-showcase"
                 className="px-4 py-3.5 text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
               >
-                <span>Özellikleri Keşfet</span>
+                <span>Explore Features</span>
                 <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
               </a>
             </div>
@@ -330,48 +343,40 @@ export default function HomePage({
                 className="w-full h-auto object-cover transform group-hover:scale-105 transition-transform duration-700"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
-              
-              {/* Floating Overlay Badge */}
-              <div className="absolute bottom-4 left-4 right-4 p-3.5 rounded-xl backdrop-blur-xl bg-black/60 border border-white/10 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
-                    <Database className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-white">Arcis Protocol Engine</div>
-                    <div className="text-[10px] text-emerald-400 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Deterministic L1 Finality Active
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs font-mono font-bold text-sky-300">USDC Gas</div>
-                  <div className="text-[10px] text-slate-400">Sub-penny fees</div>
-                </div>
-              </div>
             </div>
           </div>
 
         </div>
       </section>
 
-      {/* ── 2. LIVE PROTOCOL & NETWORK METRICS TICKER ── */}
+      {/* ── 2. KEY PROTOCOL HIGHLIGHTS (CLEAN & CLEAR) ── */}
       <section className="w-full">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-          {protocolMetrics.map((m, idx) => {
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
+          {keyMetrics.map((m, idx) => {
             const Icon = m.icon
             return (
               <div
                 key={idx}
-                className="arc-card p-4 flex flex-col gap-2 rounded-2xl border border-white/5 bg-slate-900/60 hover:border-white/15 transition-all group"
+                className="p-5 sm:p-6 rounded-2xl border border-white/8 bg-slate-900/50 backdrop-blur-xl flex flex-col justify-between gap-3 hover:border-white/15 hover:bg-slate-900/70 transition-all duration-200"
               >
-                <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-[10px] font-mono tracking-wider uppercase text-slate-400">{m.label}</span>
-                  <Icon className="w-4 h-4 transition-transform group-hover:scale-110" style={{ color: m.color }} />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">{m.label}</span>
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center"
+                    style={{ backgroundColor: `${m.color}15`, border: `1px solid ${m.color}30` }}
+                  >
+                    <Icon className="w-4 h-4" style={{ color: m.color }} />
+                  </div>
                 </div>
-                <div className="text-base sm:text-lg font-bold text-white tracking-tight">{m.value}</div>
-                <div className="text-[11px] text-slate-400 truncate">{m.sub}</div>
+
+                <div>
+                  <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                    {m.value}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1 font-normal">
+                    {m.desc}
+                  </div>
+                </div>
               </div>
             )
           })}
@@ -383,16 +388,11 @@ export default function HomePage({
         
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto flex flex-col gap-3">
-          <div className="inline-flex items-center justify-center gap-2 text-xs font-mono text-sky-400 tracking-widest uppercase">
-            <span>&#123;</span>
-            <span>CORE ARCHITECTURE & PILLARS</span>
-            <span>&#125;</span>
-          </div>
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight">
-            Gerçek Dünya Finansını Zincir Üstüne Taşıyan Mimari
+            Purpose-Built Architecture for Real-World Finance
           </h2>
           <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
-            Kurumsal ölçekte stablecoin akışları, çapraz zincir birleşik likidite ve otonom ajan koordinasyonu için Arc L1 altyapısının sağladığı tüm yetenekleri keşfedin.
+            Explore institutional-grade stablecoin flows, cross-chain unified liquidity, and autonomous agent orchestration powered by Arc.
           </p>
         </div>
 
@@ -416,12 +416,6 @@ export default function HomePage({
                   {/* Text Column */}
                   <div className={`lg:col-span-7 flex flex-col gap-5 text-left ${isReversed ? 'lg:order-2' : 'lg:order-1'}`}>
                     
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-sky-400/90 tracking-wider">
-                        {pillar.ref}
-                      </span>
-                    </div>
-
                     <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-snug">
                       {pillar.title}
                     </h3>
@@ -497,14 +491,11 @@ export default function HomePage({
       {/* ── 4. TECHNICAL COMPARISON MATRIX ── */}
       <section className="w-full flex flex-col gap-8">
         <div className="text-center max-w-2xl mx-auto flex flex-col gap-2">
-          <div className="inline-flex items-center justify-center gap-2 text-xs font-mono text-purple-400 tracking-widest uppercase">
-            <span>// ARCHITECTURE COMPARISON</span>
-          </div>
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-            Neden Arc L1 ve Arcis Protocol?
+            Why Arc L1 and Arcis Protocol?
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            Geleneksel DeFi ağları ile Circle'ın yerel USDC zincirindeki Arcis Protokolünün teknik karşılaştırması.
+            A technical architectural comparison between legacy DeFi networks and Arcis on Arc L1.
           </p>
         </div>
 
@@ -512,8 +503,8 @@ export default function HomePage({
           <table className="w-full text-left text-xs sm:text-sm">
             <thead>
               <tr className="border-b border-white/10 bg-white/5 text-slate-300 font-mono">
-                <th className="py-4 px-4 sm:px-6 font-semibold">ÖZELLİK / STANDART</th>
-                <th className="py-4 px-4 sm:px-6 font-semibold text-rose-300">GELENEKSEL L1 / L2 AĞLARI</th>
+                <th className="py-4 px-4 sm:px-6 font-semibold">FEATURE</th>
+                <th className="py-4 px-4 sm:px-6 font-semibold text-rose-300">LEGACY L1 / L2</th>
                 <th className="py-4 px-4 sm:px-6 font-semibold text-emerald-300">ARCIS ON ARC L1</th>
               </tr>
             </thead>
@@ -541,11 +532,8 @@ export default function HomePage({
       {/* ── 5. FREQUENTLY ASKED QUESTIONS (FAQ) ── */}
       <section className="w-full max-w-4xl mx-auto flex flex-col gap-6">
         <div className="text-center flex flex-col gap-2">
-          <div className="text-xs font-mono text-cyan-400 tracking-widest uppercase">
-            <span>// FREQUENTLY ASKED QUESTIONS</span>
-          </div>
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white">
-            Sıkça Sorulan Sorular
+            FAQ
           </h2>
         </div>
 
