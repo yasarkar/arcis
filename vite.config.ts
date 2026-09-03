@@ -62,6 +62,11 @@ function apiPlugin(): Plugin {
               const mod = await server.ssrLoadModule('/api/x402.ts')
               if (req.method === 'GET') handler = mod.GET
               else if (req.method === 'POST') handler = mod.POST
+            } else if (pathname === '/api/history') {
+              const mod = await server.ssrLoadModule('/api/history.ts')
+              if (req.method === 'GET') handler = mod.GET
+              else if (req.method === 'POST') handler = mod.POST
+              else if (req.method === 'DELETE') handler = mod.DELETE
             }
 
             if (handler) {
