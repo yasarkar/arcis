@@ -195,16 +195,21 @@ export async function createViemAdapter(provider: any): Promise<any> {
 export async function estimateGas(
   provider: any,
   chain: string,
-  token: string,
-  recipientAddress: string,
-  amount: string
+  token: string = 'USDC',
+  recipientAddress?: string,
+  amount: string = '1'
 ) {
   const adapter = await createViemAdapter(provider)
+  const isSolana = chain.toLowerCase().includes('solana')
+  const defaultRecipient = isSolana
+    ? '11111111111111111111111111111111'
+    : '0x000000000000000000000000000000000000dEaD'
+
   const sendParams: SendParams = {
     from: { adapter, chain: chain as Blockchain },
-    to: recipientAddress,
-    amount,
-    token: token as any
+    to: recipientAddress || defaultRecipient,
+    amount: amount || '1',
+    token: (token || 'USDC') as any
   }
   return kit.estimateSend(sendParams)
 }

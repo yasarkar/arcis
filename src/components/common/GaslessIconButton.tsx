@@ -45,7 +45,7 @@ export const GaslessIconButton: React.FC<GaslessIconButtonProps> = ({
 
   return (
     <div
-      className={`relative inline-flex items-center select-none ${className}`}
+      className={`relative inline-flex items-center select-none ${showTooltip ? 'z-50' : 'z-20'} ${className}`}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
@@ -60,13 +60,13 @@ export const GaslessIconButton: React.FC<GaslessIconButtonProps> = ({
           disabled ? 'opacity-40 cursor-not-allowed' : 'active:scale-95 hover:scale-105'
         } ${
           isActive
-            ? 'text-emerald-400 bg-emerald-500/15 border border-emerald-400/40 shadow-[0_0_14px_rgba(16,185,129,0.3)]'
+            ? 'text-indigo-300 bg-indigo-500/20 border border-indigo-400/40 shadow-[0_0_14px_rgba(99,102,241,0.35)]'
             : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] hover:border-white/[0.15]'
         }`}
       >
-        {/* Subtle emerald glow orb behind icon when active */}
+        {/* Subtle indigo glow orb behind icon when active */}
         {isActive && (
-          <span className="absolute inset-0 rounded-full bg-emerald-500/20 blur-md pointer-events-none animate-pulse" />
+          <span className="absolute inset-0 rounded-full bg-indigo-500/25 blur-md pointer-events-none animate-pulse" />
         )}
 
         {/* Zap Icon with micro-transition */}
@@ -74,7 +74,7 @@ export const GaslessIconButton: React.FC<GaslessIconButtonProps> = ({
           {isActive ? (
             <Zap
               size={iconSizes[size]}
-              className="text-emerald-400 fill-emerald-400 transition-colors"
+              className="text-indigo-400 fill-indigo-400 transition-colors"
             />
           ) : (
             <Zap
@@ -88,23 +88,23 @@ export const GaslessIconButton: React.FC<GaslessIconButtonProps> = ({
       {/* Floating Micro Tooltip */}
       {showTooltip && (
         <div
-          className={`absolute z-[150] pointer-events-none px-3 py-2 rounded-xl text-[11px] font-sans font-medium whitespace-nowrap shadow-2xl backdrop-blur-xl border transition-all duration-150 animate-fade-in ${
+          className={`absolute z-[999] pointer-events-none px-3.5 py-2.5 rounded-xl text-[11px] font-sans font-medium whitespace-nowrap shadow-2xl backdrop-blur-2xl border transition-all duration-150 animate-fade-in ${
             tooltipPosClasses[tooltipPosition]
           } ${
             isActive
-              ? 'bg-[#0a151b]/95 text-white border-emerald-500/35 shadow-[0_4px_20px_rgba(0,0,0,0.5)]'
-              : 'bg-[#0f131f]/95 text-slate-300 border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.5)]'
+              ? 'bg-[#0f1224]/95 text-white border-indigo-500/40 shadow-[0_8px_32px_rgba(0,0,0,0.6)]'
+              : 'bg-[#0f131f]/95 text-slate-300 border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.6)]'
           }`}
         >
           <div className="flex items-center gap-1.5 font-bold">
-            <Zap className={`w-3.5 h-3.5 ${isActive ? 'text-emerald-400 fill-emerald-400' : 'text-slate-400'}`} />
-            <span>{isActive ? '0-Gas Quick-Start (Active)' : 'Standard Gas Mode'}</span>
+            <Zap className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-400 fill-indigo-400' : 'text-slate-400'}`} />
+            <span>{isActive ? '0-Gas Quick-Start' : 'Standard Gas Mode'}</span>
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
             {isActive ? (
               <>
-                <span className="text-emerald-300 font-semibold">{remainingQuota}/{dailyLimit} Free sends left</span>
-                <span>• Subsidized (EIP-3009)</span>
+                <span className="text-indigo-300 font-semibold">{remainingQuota}/{dailyLimit} Free sends left</span>
+                <span>• Sponsored Network Gas</span>
               </>
             ) : (
               <span>Click to activate free sponsored sends</span>

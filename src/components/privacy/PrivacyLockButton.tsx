@@ -41,7 +41,7 @@ export const PrivacyLockButton: React.FC<PrivacyLockButtonProps> = ({
 
   return (
     <div
-      className={`relative inline-flex items-center select-none ${className}`}
+      className={`relative inline-flex items-center select-none ${showTooltip ? 'z-50' : 'z-20'} ${className}`}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
@@ -86,7 +86,7 @@ export const PrivacyLockButton: React.FC<PrivacyLockButtonProps> = ({
       {/* Floating Micro Tooltip */}
       {showTooltip && (
         <div
-          className={`absolute z-[150] pointer-events-none px-3 py-1.5 rounded-lg text-[11px] font-sans font-medium whitespace-nowrap shadow-2xl backdrop-blur-xl border transition-all duration-150 animate-fade-in ${
+          className={`absolute z-[999] pointer-events-none px-3 py-1.5 rounded-lg text-[11px] font-sans font-medium whitespace-nowrap shadow-2xl backdrop-blur-xl border transition-all duration-150 animate-fade-in ${
             tooltipPosClasses[tooltipPosition]
           } ${
             isPrivate
