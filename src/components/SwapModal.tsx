@@ -474,6 +474,7 @@ export default function SwapModal({
             tokenSymbol: tokenIn,
             sourceChain: fromChain,
             recipient: effectiveRecipient,
+            userAddress: connectedAddress,
             status: 'success',
             amountIn,
             amountOut: estimatedOutput,
