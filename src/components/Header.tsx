@@ -272,7 +272,6 @@ export default function Header({
               <button
                 onClick={onDisconnectUcw}
                 className="text-[11px] text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
-                title="Circle Cüzdanını Kapat"
               >
                 Çıkış
               </button>
@@ -297,7 +296,6 @@ export default function Header({
                 onClick={onOpenCircleAuth}
                 type="button"
                 className="ub-action-btn flex items-center justify-center gap-1.5"
-                title="Passkey (FaceID) veya Circle Cüzdanı ile Giriş Yap"
                 style={{ padding: '6px 13px' }}
               >
                 <img src={circleTokenIcon} alt="Circle Logo Icon" className="w-4 h-4 object-contain transition-transform hover:scale-110" />
