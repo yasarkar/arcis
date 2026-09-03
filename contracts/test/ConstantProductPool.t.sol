@@ -105,4 +105,31 @@ contract ConstantProductPoolTest is Test {
         (bool ok,) = address(pool).call{value: 1}("");
         assertFalse(ok, "native deposit must revert");
     }
+
+    /// @notice Proves ConstantProduct LP tokens are composable ERC-20 tokens.
+    function test_ERC20Composability() public {
+        approveAll();
+        vm.prank(alice);
+        uint256 lp = pool.addLiquidity(100_000 * DEC6, 1 * DEC8);
+
+        // Alice transfers LP to Bob
+        vm.prank(alice);
+        pool.transfer(bob, lp / 2);
+        assertEq(pool.balanceOf(bob), lp / 2);
+
+        // Bob approves Alice
+        vm.prank(bob);
+        pool.approve(alice, lp / 4);
+
+        // Alice transfers from Bob to herself
+        vm.prank(alice);
+        pool.transferFrom(bob, alice, lp / 4);
+        assertEq(pool.balanceOf(bob), lp / 4);
+
+        // Bob withdraws remaining LP
+        vm.prank(bob);
+        (uint256 outA, uint256 outB) = pool.removeLiquidity(lp / 4);
+        assertGt(outA, 0);
+        assertGt(outB, 0);
+    }
 }

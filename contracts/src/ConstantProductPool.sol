@@ -2,18 +2,18 @@
 pragma solidity ^0.8.24;
 
 import {IERC20Like} from "./interfaces/IERC20Like.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @notice Arcis USDC / cirBTC Constant-Product Pool (x * y = k).
 /// @dev Tokens: USDC (6 dec) and cirBTC (8 dec). Arc-specific: no WETH adapter.
-contract ConstantProductPool is ReentrancyGuard {
+///      LP shares are fully compliant OpenZeppelin ERC-20 tokens.
+contract ConstantProductPool is ERC20, ReentrancyGuard {
     IERC20Like public immutable tokenA; // USDC (6 decimals)
     IERC20Like public immutable tokenB; // cirBTC (8 decimals)
 
     uint256 public reserveA;
     uint256 public reserveB;
-    uint256 public totalLp;
-    mapping(address => uint256) public balanceOf;
 
     /// @notice Swap fee in basis points (e.g. 25 = 0.25%).
     uint256 public immutable swapFeeBps;
@@ -22,10 +22,6 @@ contract ConstantProductPool is ReentrancyGuard {
     uint256 public unclaimedFeeB;
     uint256 public accumulatedFeeA;
     uint256 public accumulatedFeeB;
-
-    string public constant name = "Arcis USDC-cirBTC LP";
-    string public constant symbol = "af-USDC-BTC";
-    uint8 public constant decimals = 18;
 
     error ZeroAmount();
     error InvalidFeeBps();
@@ -40,7 +36,9 @@ contract ConstantProductPool is ReentrancyGuard {
     event LiquidityRemoved(address indexed provider, uint256 lpAmount, uint256 amountA, uint256 amountB);
     event Swapped(address indexed user, address tokenIn, uint256 amountIn, uint256 amountOut);
 
-    constructor(address _tokenA, address _tokenB, uint256 _swapFeeBps) {
+    constructor(address _tokenA, address _tokenB, uint256 _swapFeeBps)
+        ERC20("Arcis USDC-cirBTC LP", "af-USDC-BTC")
+    {
         if (_tokenA == address(0) || _tokenB == address(0)) revert ZeroAddress();
         if (_swapFeeBps > 1000) revert InvalidFeeBps();
         tokenA = IERC20Like(_tokenA);
@@ -52,25 +50,28 @@ contract ConstantProductPool is ReentrancyGuard {
         revert("native deposits not allowed");
     }
 
+    /// @notice Returns total LP supply (kept for backward compatibility with frontend).
+    function totalLp() external view returns (uint256) {
+        return totalSupply();
+    }
+
     /// @notice Add 50/50 USDC + cirBTC liquidity.
-    function addLiquidity(uint256 amountAIn, uint256 amountBIn) external returns (uint256 lpShares) {
+    function addLiquidity(uint256 amountAIn, uint256 amountBIn) external nonReentrant returns (uint256 lpShares) {
         if (amountAIn == 0 || amountBIn == 0) revert ZeroAmount();
 
-        uint256 r0 = reserveA;
-        uint256 r1 = reserveB;
+        uint256 total = totalSupply();
 
-        if (r0 == 0 && r1 == 0) {
+        if (total == 0) {
             lpShares = _sqrt(amountAIn * amountBIn);
-            totalLp = lpShares;
         } else {
-            uint256 lpA = (amountAIn * totalLp) / r0;
-            uint256 lpB = (amountBIn * totalLp) / r1;
+            uint256 lpA = (amountAIn * total) / reserveA;
+            uint256 lpB = (amountBIn * total) / reserveB;
             lpShares = lpA < lpB ? lpA : lpB;
-            if (lpShares == 0) revert ZeroAmount();
-            totalLp += lpShares;
         }
 
-        balanceOf[msg.sender] += lpShares;
+        if (lpShares == 0) revert ZeroAmount();
+
+        _mint(msg.sender, lpShares);
 
         _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
         _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
@@ -83,23 +84,17 @@ contract ConstantProductPool is ReentrancyGuard {
 
     function removeLiquidity(uint256 lpAmount) external nonReentrant returns (uint256 outA, uint256 outB) {
         if (lpAmount == 0) revert ZeroAmount();
-        if (lpAmount > totalLp) revert NotEnoughLP();
-        if (lpAmount > balanceOf[msg.sender]) revert NotEnoughLP();
+        uint256 total = totalSupply();
+        if (lpAmount > total) revert NotEnoughLP();
+        if (lpAmount > balanceOf(msg.sender)) revert NotEnoughLP();
 
-        uint256 feeA = (unclaimedFeeA * lpAmount) / totalLp;
-        uint256 feeB = (unclaimedFeeB * lpAmount) / totalLp;
-        unclaimedFeeA -= feeA;
-        unclaimedFeeB -= feeB;
-        accumulatedFeeA += feeA;
-        accumulatedFeeB += feeB;
+        outA = (reserveA * lpAmount) / total;
+        outB = (reserveB * lpAmount) / total;
 
-        outA = (reserveA * lpAmount) / totalLp;
-        outB = (reserveB * lpAmount) / totalLp;
+        _burn(msg.sender, lpAmount);
 
         reserveA -= outA;
         reserveB -= outB;
-        totalLp -= lpAmount;
-        balanceOf[msg.sender] -= lpAmount;
 
         _safeTransfer(tokenA, msg.sender, outA);
         _safeTransfer(tokenB, msg.sender, outB);
@@ -129,6 +124,7 @@ contract ConstantProductPool is ReentrancyGuard {
             reserveA += amountIn;
             reserveB -= amountOut;
             unclaimedFeeA += fee;
+            accumulatedFeeA += fee;
         } else if (tokenIn == address(tokenB) && tokenOut == address(tokenA)) {
             // cirBTC -> USDC
             amountOut = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee);
@@ -140,6 +136,7 @@ contract ConstantProductPool is ReentrancyGuard {
             reserveB += amountIn;
             reserveA -= amountOut;
             unclaimedFeeB += fee;
+            accumulatedFeeB += fee;
         } else {
             revert InvalidTokenPair();
         }

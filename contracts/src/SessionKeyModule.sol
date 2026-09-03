@@ -123,9 +123,33 @@ contract SessionKeyModule {
         if (!sk.active) revert SessionKeyNotActive();
         if (block.timestamp > sk.validUntil) revert SessionKeyExpired();
 
-        uint128 txValue = uint128(value);
-        if (txValue > sk.maxPerTxWei) revert ExceedsMaxPerTx();
-        if (sk.spentWei + txValue > sk.maxSpendWei) revert ExceedsMaxSpend();
+        uint256 effectiveSpend = value;
+
+        // Decode ERC-20 token transfer / approve amounts from calldata (e.g. USDC on Arc)
+        if (data.length >= 68) {
+            bytes4 selector = bytes4(data[:4]);
+            // transfer(address,uint256) -> 0xa9059cbb
+            // approve(address,uint256) -> 0x095ea7b3
+            if (selector == 0xa9059cbb || selector == 0x095ea7b3) {
+                uint256 tokenAmount;
+                assembly {
+                    tokenAmount := calldataload(add(data.offset, 36))
+                }
+                effectiveSpend += tokenAmount;
+            }
+            // transferFrom(address,address,uint256) -> 0x23b872dd
+            else if (selector == 0x23b872dd && data.length >= 100) {
+                uint256 tokenAmount;
+                assembly {
+                    tokenAmount := calldataload(add(data.offset, 68))
+                }
+                effectiveSpend += tokenAmount;
+            }
+        }
+
+        if (effectiveSpend > type(uint128).max || effectiveSpend > sk.maxPerTxWei) revert ExceedsMaxPerTx();
+        uint128 txValue = uint128(effectiveSpend);
+        if (uint256(sk.spentWei) + txValue > sk.maxSpendWei) revert ExceedsMaxSpend();
 
         sk.spentWei += txValue;
         emit SessionSpent(sessionKey, txValue);

@@ -2,18 +2,20 @@
 pragma solidity ^0.8.24;
 
 import {IERC20Like} from "./interfaces/IERC20Like.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/// @notice Arcis USDC / EURC StableSwap Pool (Constant-Sum Market Maker).
-/// @dev Designed for Arc Testnet: both tokens use 6 decimals. All pool math is
-///      performed in 6-decimal units. No WETH adapter needed on Arc.
-contract StableSwapPool is ReentrancyGuard {
+/// @notice Arcis USDC / EURC StableSwap Pool (Curve Amplified Invariant Market Maker).
+/// @dev Designed for Arc Testnet: both tokens use 6 decimals.
+///      Implements standard Curve Stableswap 2-pool invariant to ensure near-zero slippage
+///      around 1:1 peg while preventing pool-draining exploits when imbalanced.
+///      LP shares are fully compliant OpenZeppelin ERC-20 tokens.
+contract StableSwapPool is ERC20, ReentrancyGuard {
     uint256 public immutable swapFeeBps;
+    uint256 public constant A = 100; // Curve Amplification Coefficient
 
-    uint256 public reserveA; // USDC
-    uint256 public reserveB; // EURC
-    uint256 public totalLp;
-    mapping(address => uint256) public balanceOf;
+    uint256 public reserveA; // USDC (6 decimals)
+    uint256 public reserveB; // EURC (6 decimals)
 
     IERC20Like public immutable tokenA;
     IERC20Like public immutable tokenB;
@@ -22,10 +24,6 @@ contract StableSwapPool is ReentrancyGuard {
     uint256 public accumulatedFeeB;
     uint256 public unclaimedFeeA;
     uint256 public unclaimedFeeB;
-
-    string public constant name = "Arcis USDC-EURC LP";
-    string public constant symbol = "af-USDC-EURC";
-    uint8 public constant decimals = 18;
 
     error ZeroAmount();
     error InvalidFeeBps();
@@ -40,7 +38,9 @@ contract StableSwapPool is ReentrancyGuard {
     event LiquidityRemoved(address indexed provider, uint256 lpAmount, uint256 amountA, uint256 amountB);
     event Swapped(address indexed user, address tokenIn, uint256 amountIn, uint256 amountOut);
 
-    constructor(address _tokenA, address _tokenB, uint256 _swapFeeBps) {
+    constructor(address _tokenA, address _tokenB, uint256 _swapFeeBps)
+        ERC20("Arcis USDC-EURC LP", "af-USDC-EURC")
+    {
         if (_tokenA == address(0) || _tokenB == address(0)) revert ZeroAddress();
         if (_swapFeeBps > 1000) revert InvalidFeeBps();
 
@@ -53,24 +53,30 @@ contract StableSwapPool is ReentrancyGuard {
         revert("native deposits not allowed");
     }
 
-    function addLiquidity(uint256 amountAIn, uint256 amountBIn) external returns (uint256 lpShares) {
+    /// @notice Returns total LP supply (kept for backward compatibility with frontend).
+    function totalLp() external view returns (uint256) {
+        return totalSupply();
+    }
+
+    /// @notice Add dual liquidity into the Stableswap pool.
+    function addLiquidity(uint256 amountAIn, uint256 amountBIn) external nonReentrant returns (uint256 lpShares) {
         if (amountAIn == 0 || amountBIn == 0) revert ZeroAmount();
 
-        uint256 r0 = reserveA;
-        uint256 r1 = reserveB;
+        uint256 total = totalSupply();
 
-        if (r0 == 0 && r1 == 0) {
-            lpShares = _sqrt(amountAIn * amountBIn);
-            totalLp = lpShares;
+        if (total == 0) {
+            uint256 d0 = _getD(amountAIn, amountBIn);
+            lpShares = d0 * 1e12; // Scale 6-decimal D to 18-decimal ERC20 LP tokens
         } else {
-            uint256 lpA = (amountAIn * totalLp) / r0;
-            uint256 lpB = (amountBIn * totalLp) / r1;
-            lpShares = lpA < lpB ? lpA : lpB;
-            if (lpShares == 0) revert ZeroAmount();
-            totalLp += lpShares;
+            uint256 d0 = _getD(reserveA, reserveB);
+            uint256 d1 = _getD(reserveA + amountAIn, reserveB + amountBIn);
+            if (d1 <= d0) revert ZeroAmount();
+            lpShares = ((d1 - d0) * total) / d0;
         }
 
-        balanceOf[msg.sender] += lpShares;
+        if (lpShares == 0) revert ZeroAmount();
+
+        _mint(msg.sender, lpShares);
 
         _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
         _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
@@ -81,25 +87,20 @@ contract StableSwapPool is ReentrancyGuard {
         return lpShares;
     }
 
+    /// @notice Remove liquidity proportionally and burn LP shares.
     function removeLiquidity(uint256 lpAmount) external nonReentrant returns (uint256 outA, uint256 outB) {
         if (lpAmount == 0) revert ZeroAmount();
-        if (lpAmount > totalLp) revert NotEnoughLP();
-        if (lpAmount > balanceOf[msg.sender]) revert NotEnoughLP();
+        uint256 total = totalSupply();
+        if (lpAmount > total) revert NotEnoughLP();
+        if (lpAmount > balanceOf(msg.sender)) revert NotEnoughLP();
 
-        uint256 feeA = (unclaimedFeeA * lpAmount) / totalLp;
-        uint256 feeB = (unclaimedFeeB * lpAmount) / totalLp;
-        unclaimedFeeA -= feeA;
-        unclaimedFeeB -= feeB;
-        accumulatedFeeA += feeA;
-        accumulatedFeeB += feeB;
+        outA = (reserveA * lpAmount) / total;
+        outB = (reserveB * lpAmount) / total;
 
-        outA = (reserveA * lpAmount) / totalLp;
-        outB = (reserveB * lpAmount) / totalLp;
+        _burn(msg.sender, lpAmount);
 
         reserveA -= outA;
         reserveB -= outB;
-        totalLp -= lpAmount;
-        balanceOf[msg.sender] -= lpAmount;
 
         _safeTransfer(tokenA, msg.sender, outA);
         _safeTransfer(tokenB, msg.sender, outB);
@@ -108,6 +109,7 @@ contract StableSwapPool is ReentrancyGuard {
         return (outA, outB);
     }
 
+    /// @notice Execute token swap using the Curve Stableswap invariant.
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut)
         external
         nonReentrant
@@ -115,25 +117,37 @@ contract StableSwapPool is ReentrancyGuard {
     {
         if (amountIn == 0) revert ZeroAmount();
         uint256 fee = (amountIn * swapFeeBps) / 10000;
-        uint256 afterFee = amountIn - fee;
+        uint256 amountInAfterFee = amountIn - fee;
 
         if (tokenIn == address(tokenA) && tokenOut == address(tokenB)) {
-            amountOut = (afterFee * reserveB) / reserveA;
-            if (amountOut > reserveB) revert InvalidReserves();
+            uint256 d = _getD(reserveA, reserveB);
+            uint256 y = _getY(reserveA + amountInAfterFee, d);
+            if (y >= reserveB) revert InvalidReserves();
+            amountOut = reserveB - y;
+
             if (amountOut < minOut) revert SlippageExceeded();
+
             _safeTransferFrom(tokenA, msg.sender, address(this), amountIn);
             _safeTransfer(tokenB, msg.sender, amountOut);
+
             reserveA += amountIn;
             reserveB -= amountOut;
+            accumulatedFeeA += fee;
             unclaimedFeeA += fee;
         } else if (tokenIn == address(tokenB) && tokenOut == address(tokenA)) {
-            amountOut = (afterFee * reserveA) / reserveB;
-            if (amountOut > reserveA) revert InvalidReserves();
+            uint256 d = _getD(reserveB, reserveA);
+            uint256 y = _getY(reserveB + amountInAfterFee, d);
+            if (y >= reserveA) revert InvalidReserves();
+            amountOut = reserveA - y;
+
             if (amountOut < minOut) revert SlippageExceeded();
+
             _safeTransferFrom(tokenB, msg.sender, address(this), amountIn);
             _safeTransfer(tokenA, msg.sender, amountOut);
+
             reserveB += amountIn;
             reserveA -= amountOut;
+            accumulatedFeeB += fee;
             unclaimedFeeB += fee;
         } else {
             revert InvalidTokenPair();
@@ -143,17 +157,59 @@ contract StableSwapPool is ReentrancyGuard {
         return amountOut;
     }
 
-    function _sqrt(uint256 y) internal pure returns (uint256 z) {
-        if (y > 3) {
-            z = y;
-            uint256 x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
+    // ─────────────────────────────────────────────────────────────
+    //  CURVE STABLESWAP MATHEMATICAL ENGINE (2-POOL)
+    // ─────────────────────────────────────────────────────────────
+    /// @dev Calculates invariant D given balances x and y.
+    function _getD(uint256 x, uint256 y) internal pure returns (uint256) {
+        uint256 s = x + y;
+        if (s == 0) return 0;
+
+        uint256 d = s;
+        uint256 Ann = A * 4; // A * n^n for n=2 is A * 4
+
+        for (uint256 i = 0; i < 255; ++i) {
+            uint256 dP = d;
+            dP = (dP * d) / (x * 2);
+            dP = (dP * d) / (y * 2);
+
+            uint256 dPrev = d;
+            uint256 num = (Ann * s + dP * 2) * d;
+            uint256 den = (Ann - 1) * d + dP * 3;
+            d = num / den;
+
+            if (d > dPrev) {
+                if (d - dPrev <= 1) return d;
+            } else {
+                if (dPrev - d <= 1) return d;
             }
-        } else if (y != 0) {
-            z = 1;
         }
+        return d;
+    }
+
+    /// @dev Calculates output balance y given new input balance x and invariant D.
+    function _getY(uint256 x, uint256 d) internal pure returns (uint256) {
+        uint256 Ann = A * 4;
+        uint256 c = d;
+        uint256 s = x;
+
+        c = (c * d) / (x * 2);
+        c = (c * d) / (Ann * 2);
+
+        uint256 b = s + d / Ann;
+        uint256 y = d;
+
+        for (uint256 i = 0; i < 255; ++i) {
+            uint256 yPrev = y;
+            y = (y * y + c) / (2 * y + b - d);
+
+            if (y > yPrev) {
+                if (y - yPrev <= 1) return y;
+            } else {
+                if (yPrev - y <= 1) return y;
+            }
+        }
+        return y;
     }
 
     function _safeTransfer(IERC20Like token, address to, uint256 value) internal {

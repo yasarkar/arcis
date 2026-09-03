@@ -109,4 +109,60 @@ contract StableSwapPoolTest is Test {
         (bool ok,) = address(pool).call{value: 1}("");
         assertFalse(ok, "native deposit must revert");
     }
+
+    /// @notice Proves that the drain attack exploit is impossible with Curve invariant.
+    function test_DrainAttackFails() public {
+        approveAll();
+        // Alice seeds the pool with 50,000 USDC and 50,000 EURC
+        vm.prank(alice);
+        pool.addLiquidity(50_000 * DEC6, 50_000 * DEC6);
+
+        address attacker = makeAddr("attacker");
+        usdc.mint(attacker, 45_000 * DEC6);
+        vm.startPrank(attacker);
+        usdc.approve(address(pool), type(uint256).max);
+        eurc.approve(address(pool), type(uint256).max);
+
+        // Step 1: Attacker dumps 45,000 USDC (90% of pool) to skew the reserves
+        uint256 eurcReceived = pool.swap(address(usdc), address(eurc), 45_000 * DEC6, 0);
+        assertGt(eurcReceived, 0, "Should receive EURC");
+
+        // Step 2: Attacker attempts to reverse swap to extract free money
+        uint256 usdcReturned = pool.swap(address(eurc), address(usdc), eurcReceived, 0);
+
+        // Attacker must have LESS than the starting 45,000 USDC due to slippage & fee
+        assertLt(
+            usdcReturned,
+            45_000 * DEC6,
+            "Drain exploit prevented: Attacker must suffer net loss on roundtrip skew"
+        );
+        vm.stopPrank();
+    }
+
+    /// @notice Proves LP tokens are composable ERC-20 tokens (transfer, approve, transferFrom, withdraw).
+    function test_ERC20Composability() public {
+        approveAll();
+        vm.prank(alice);
+        uint256 lp = pool.addLiquidity(10_000 * DEC6, 10_000 * DEC6);
+
+        // Alice transfers half her LP shares to Bob
+        vm.prank(alice);
+        pool.transfer(bob, lp / 2);
+        assertEq(pool.balanceOf(bob), lp / 2);
+
+        // Bob approves Alice to spend his LP
+        vm.prank(bob);
+        pool.approve(alice, lp / 4);
+
+        // Alice transfersFrom Bob to herself
+        vm.prank(alice);
+        pool.transferFrom(bob, alice, lp / 4);
+        assertEq(pool.balanceOf(bob), lp / 4);
+
+        // Bob can withdraw his remaining LP shares directly
+        vm.prank(bob);
+        (uint256 outA, uint256 outB) = pool.removeLiquidity(lp / 4);
+        assertGt(outA, 0);
+        assertGt(outB, 0);
+    }
 }
