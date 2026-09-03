@@ -29,7 +29,7 @@ import {
 import { NetworkIcon } from '@web3icons/react/dynamic'
 
 // Visual Artwork Assets
-import heroNexusImg from '../../assets/hero/arcis_hero_nexus.jpg'
+import heroNexusImg from '../../assets/hero/arcis_unified_multichain.jpg'
 import unifiedMultichainImg from '../../assets/hero/arcis_unified_multichain.jpg'
 import nativeGasImg from '../../assets/hero/arcis_native_gas.jpg'
 import passkeyVaultImg from '../../assets/hero/arcis_passkey_vault.jpg'
@@ -95,35 +95,35 @@ export default function HomePage({
     color: string
     silhouetteType: MetricSilhouetteType
   }> = [
-    {
-      value: '< 1.0s',
-      label: 'Block Finality',
-      desc: 'Sub-second deterministic settlement',
-      color: '#a855f7',
-      silhouetteType: 'speed',
-    },
-    {
-      value: 'Native USDC',
-      label: 'Gas Engine',
-      desc: 'Zero ETH needed for fees',
-      color: '#2775ca',
-      silhouetteType: 'usdc',
-    },
-    {
-      value: '13+ Chains',
-      label: 'Unified Balance',
-      desc: 'Instant cross-chain liquidity',
-      color: '#38bdf8',
-      silhouetteType: 'multichain',
-    },
-    {
-      value: '100% Real',
-      label: 'Protocol Yield',
-      desc: 'Compounding fee dividends',
-      color: '#f59e0b',
-      silhouetteType: 'yield',
-    },
-  ]
+      {
+        value: '< 1.0s',
+        label: 'Block Finality',
+        desc: 'Sub-second deterministic settlement',
+        color: '#a855f7',
+        silhouetteType: 'speed',
+      },
+      {
+        value: 'Native USDC',
+        label: 'Gas Engine',
+        desc: 'Zero ETH needed for fees',
+        color: '#2775ca',
+        silhouetteType: 'usdc',
+      },
+      {
+        value: '13+ Chains',
+        label: 'Unified Balance',
+        desc: 'Instant cross-chain liquidity',
+        color: '#38bdf8',
+        silhouetteType: 'multichain',
+      },
+      {
+        value: '100% Real',
+        label: 'Protocol Yield',
+        desc: 'Compounding fee dividends',
+        color: '#f59e0b',
+        silhouetteType: 'yield',
+      },
+    ]
 
   const renderMetricSilhouette = (type: MetricSilhouetteType) => {
     switch (type) {
@@ -460,7 +460,7 @@ export default function HomePage({
 
   return (
     <div className="w-full flex flex-col gap-16 md:gap-24 pb-20 animate-fade-in text-slate-100">
-      
+
       {/* ── 1. HERO BANNER SECTION ── */}
       <section className="relative w-full rounded-3xl overflow-hidden border border-white/10 p-6 md:p-12 lg:p-16 transition-all"
         style={{
@@ -472,10 +472,10 @@ export default function HomePage({
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-indigo-500/20 rounded-full blur-[140px] pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-cyan-500/20 rounded-full blur-[140px] pointer-events-none" />
 
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
-          
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-center">
+
           {/* Left Column: Messaging & CTAs */}
-          <div className="lg:col-span-7 flex flex-col gap-6 text-left">
+          <div className="lg:col-span-6 xl:col-span-6 flex flex-col gap-6 text-left">
 
             {/* Main Welcome Heading */}
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] text-white">
@@ -486,10 +486,10 @@ export default function HomePage({
 
             {/* Motto / Slogan */}
             <p className="text-base sm:text-lg md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl">
-              <strong className="text-white font-semibold">Arcis</strong> is the next-generation economic operating system built on Arc 
-              Circle's blockchain with native USDC gas delivering 
-              <span className="text-sky-300 font-medium"> unified liquidity across 13+ chains</span>, 
-              <span className="text-purple-300 font-medium"> 100% real-yield vaults</span>, and 
+              <strong className="text-white font-semibold">Arcis</strong> is the next-generation economic operating system built on Arc
+              Circle's blockchain with native USDC gas delivering
+              <span className="text-sky-300 font-medium"> unified liquidity across 13+ chains</span>,
+              <span className="text-purple-300 font-medium"> 100% real-yield vaults</span>, and
               <span className="text-cyan-300 font-medium"> autonomous AI agent settlement</span>.
             </p>
 
@@ -534,15 +534,24 @@ export default function HomePage({
 
           </div>
 
-          {/* Right Column: Hero Visual Artwork */}
-          <div className="lg:col-span-5 relative flex justify-center items-center">
-            <div className="relative w-full max-w-lg rounded-2xl overflow-hidden border border-white/15 shadow-2xl group">
+          {/* Right Column: Hero Visual Artwork (Larger, Borderless, Feathered & Dispersed) */}
+          <div className="lg:col-span-6 xl:col-span-6 relative flex justify-center items-center py-4 lg:py-0">
+
+            {/* Ambient Color Dispersion Layers (Görselin renklerini dışarıya yumuşakça dağıtan hareler) */}
+            <div className="absolute -inset-4 md:-inset-8 bg-gradient-to-tr from-blue-600/30 via-sky-500/25 to-indigo-600/30 rounded-full blur-[80px] md:blur-[110px] opacity-75 pointer-events-none -z-10 animate-pulse-slow" />
+            <div className="absolute inset-0 bg-sky-400/20 rounded-full blur-[140px] opacity-60 pointer-events-none -z-10" />
+
+            {/* Borderless Image Container with Radial Feather Mask */}
+            <div className="relative w-full max-w-xl lg:max-w-2xl xl:max-w-3xl group flex justify-center">
               <img
                 src={heroNexusImg}
                 alt="Arcis Economic Operating System Nexus"
-                className="w-full h-auto object-cover transform group-hover:scale-105 transition-transform duration-700"
+                className="w-full h-auto object-cover transform group-hover:scale-[1.02] transition-transform duration-700 ease-out"
+                style={{
+                  WebkitMaskImage: 'radial-gradient(ellipse 88% 84% at 50% 50%, rgba(0,0,0,1) 48%, rgba(0,0,0,0.85) 68%, rgba(0,0,0,0) 100%)',
+                  maskImage: 'radial-gradient(ellipse 88% 84% at 50% 50%, rgba(0,0,0,1) 48%, rgba(0,0,0,0.85) 68%, rgba(0,0,0,0) 100%)',
+                }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
             </div>
           </div>
 
@@ -631,7 +640,7 @@ export default function HomePage({
 
       {/* ── 3. CORE PILLARS & INTERACTIVE FEATURE SHOWCASE ── */}
       <section id="features-showcase" className="w-full flex flex-col gap-16 md:gap-20 scroll-mt-24">
-        
+
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto flex flex-col gap-3">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight">
@@ -658,10 +667,10 @@ export default function HomePage({
                 />
 
                 <div className={`grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-12 items-center ${isReversed ? 'lg:flex-row-reverse' : ''}`}>
-                  
+
                   {/* Text Column */}
                   <div className={`lg:col-span-7 flex flex-col gap-5 text-left ${isReversed ? 'lg:order-2' : 'lg:order-1'}`}>
-                    
+
                     <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-snug">
                       {pillar.title}
                     </h3>
