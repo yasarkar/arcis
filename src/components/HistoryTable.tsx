@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useAccount } from 'wagmi'
 import {
   ArrowUpRight,
   ArrowRightLeft,
@@ -16,7 +17,7 @@ import {
   ChevronRight,
   FileText
 } from 'lucide-react'
-import { getHistory, HistoryItem } from '../utils/history'
+import { getHistory, fetchHistory, HistoryItem } from '../utils/history'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
@@ -291,9 +292,17 @@ const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   World_Chain_Sepolia: 'World Sepolia'
 }
 
-export default function HistoryTable() {
+interface HistoryTableProps {
+  walletAddress?: string
+}
+
+export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) {
+  const { address: wagmiAddress } = useAccount()
+  const activeWalletAddress = (walletAddress || wagmiAddress || '').toLowerCase()
+
   const { isPrivate: globalPrivate, settings } = usePrivacy()
   const [history, setHistory] = useState<HistoryItem[]>([])
+  const [isLoading, setIsLoading] = useState(false)
   const [filter, setFilter] = useState<'all' | 'send' | 'swap' | 'bridge' | 'memo'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -347,26 +356,46 @@ export default function HistoryTable() {
     return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
+  // Load transactions from server environment filtered by active wallet
   useEffect(() => {
-    // Initial load
-    setHistory(getHistory())
+    let isMounted = true
+    setIsLoading(true)
 
-    // Listen for custom events to automatically reload
+    // Immediate in-memory render
+    setHistory(getHistory(activeWalletAddress))
+
+    // Asynchronous server-side fetch
+    fetchHistory(activeWalletAddress)
+      .then((items) => {
+        if (isMounted) {
+          setHistory(items)
+          setIsLoading(false)
+        }
+      })
+      .catch((err) => {
+        console.warn('[HistoryTable] Error fetching server transactions:', err)
+        if (isMounted) setIsLoading(false)
+      })
+
+    // Listen for custom events to automatically reload from server
     const handleUpdate = () => {
-      setHistory(getHistory())
+      fetchHistory(activeWalletAddress).then((items) => {
+        if (isMounted) setHistory(items)
+      })
     }
     window.addEventListener('arc_history_updated', handleUpdate)
 
     // Interval to refresh relative time strings every 15 seconds
     const interval = setInterval(() => {
-      setTimeTicker(prev => prev + 1)
+      setTimeTicker((prev) => prev + 1)
     }, 15000)
 
     return () => {
+      isMounted = false
       window.removeEventListener('arc_history_updated', handleUpdate)
       clearInterval(interval)
     }
-  }, [])
+  }, [activeWalletAddress])
 
   // Close filter dropdowns on outside click
   useEffect(() => {
@@ -716,7 +745,7 @@ export default function HistoryTable() {
       }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/[0.08]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-white/[0.08]">
         <div className="flex items-center gap-3">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
@@ -1379,8 +1408,27 @@ export default function HistoryTable() {
                   </tr>
                 ))}
 
-                {/* Fill empty placeholder rows if paginated items are less than 5 */}
-                {paginatedHistory.length < 5 && Array.from({ length: 5 - paginatedHistory.length }).map((_, idx) => (
+                {/* Empty State when no transactions exist */}
+                {filteredHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-5 py-12 text-center">
+                      <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
+                        <Clock className="w-8 h-8 text-slate-600 mb-1" />
+                        <p className="text-sm font-semibold text-slate-300">
+                          {activeWalletAddress ? 'No transactions found for this wallet' : 'No transactions recorded on server'}
+                        </p>
+                        <p className="text-xs text-slate-500 max-w-sm">
+                          {activeWalletAddress
+                            ? `Transactions performed by or received by ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)} will appear here once executed.`
+                            : 'Perform a send, swap, or bridge transaction to view your server-persisted transaction history.'}
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Fill empty placeholder rows if paginated items are less than 5 but greater than 0 */}
+                {paginatedHistory.length > 0 && paginatedHistory.length < 5 && Array.from({ length: 5 - paginatedHistory.length }).map((_, idx) => (
                   <tr key={`filler-${idx}`} className="h-[52px]">
                     <td colSpan={5} className="px-5 py-3.5">&nbsp;</td>
                   </tr>

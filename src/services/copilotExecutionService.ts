@@ -1,7 +1,7 @@
 // Direct Real On-Chain Inline Execution Engine for Arcis AI Copilot
 // Executes real DEX swaps, pool deposits, bridges, and faucets on Arc Testnet (5042002)
 // Leverages Circle Modular Wallets & Autonomous Session Keys for Zero-Popup Headless Execution
-import { type Hex, parseUnits } from 'viem'
+import { type Hex, parseUnits, encodeFunctionData } from 'viem'
 import type { CopilotActionPayload } from '../types/marketplace'
 import type { InlineExecutionReceipt, ExecutionProgressState } from '../types/sessionKey'
 import {
@@ -10,7 +10,7 @@ import {
   getSessionKeyConfig,
 } from './sessionKeyService'
 import { createViemAdapter, createHeadlessSessionAdapter, sendToken } from './sendService'
-import { getSwapEstimate, executeSwap } from './swapService'
+import { getSwapEstimate, executeSwap, resolveArcNativeRoute } from './swapService'
 import { executeBridge } from './bridgeService'
 import {
   getStoredMscaAddress,
@@ -19,7 +19,7 @@ import {
   getModularPublicClient,
   arcTestnetChain,
 } from './modularWalletService'
-import { POOL_CONTRACTS } from '../config/poolsConfig'
+import { POOL_CONTRACTS, STABLE_SWAP_ABI, ERC20_ABI, YIELD_VAULT_ABI } from '../config/poolsConfig'
 import { ARC_METADATA } from '../config/arcChain'
 import { SPEED_TIERS } from '../config/feeTiers'
 import { resolveCanonicalChainKey, getChainDisplayName } from '../config/chainMeta'
@@ -132,9 +132,15 @@ export async function executeDirectCopilotAction(
       if (onProgress) onProgress('signing')
       if (onProgress) onProgress('broadcasting')
 
-      // Step 2: Send real on-chain transaction
+      // Step 2: Send real on-chain swap transaction
       let realTxHash = ''
-      if (sessionConfig.ephemeralPrivateKey) {
+      const arcRoute = resolveArcNativeRoute(fromTok, toTok)
+      const decIn = arcRoute ? arcRoute.decIn : 6
+      const decOut = arcRoute ? arcRoute.decOut : 6
+      const amountInUnits = parseUnits(amountIn.toString(), decIn)
+      const minOutUnits = parseUnits(estimatedOutput, decOut) * 98n / 100n // 2% slippage protection
+
+      if (sessionConfig.ephemeralPrivateKey && arcRoute) {
         try {
           const { privateKeyToAccount } = await import('viem/accounts')
           const { createWalletClient, http } = await import('viem')
@@ -145,28 +151,52 @@ export async function executeDirectCopilotAction(
             transport: http(ARC_METADATA.rpcHttpUrl),
           })
 
-          realTxHash = await walletClient.sendTransaction({
-            to: activeWallet as Hex,
-            value: BigInt(0),
-            data: '0x',
+          const approveTx = await walletClient.writeContract({
+            address: arcRoute.tokenInAddr,
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [arcRoute.poolAddress, amountInUnits],
+          })
+          await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch(() => {})
+
+          realTxHash = await walletClient.writeContract({
+            address: arcRoute.poolAddress,
+            abi: STABLE_SWAP_ABI,
+            functionName: 'swap',
+            args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, amountInUnits, minOutUnits],
           })
 
           // Wait for on-chain inclusion
-          await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 10000 }).catch(() => {})
+          await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch(() => {})
         } catch (e: any) {
-          console.warn('[copilotExecutionService] Direct sendTransaction warning:', e)
+          console.warn('[copilotExecutionService] Ephemeral session swap execution warning:', e)
         }
       }
 
-      if (!realTxHash) {
-        // Fallback to modular user operation
-        const call = createModularUsdcTransferCall(activeWallet as Hex, amountIn)
+      if (!realTxHash && arcRoute) {
+        // Modular smart account batch user operation (approve + swap)
+        const approveCall = {
+          to: arcRoute.tokenInAddr as Hex,
+          data: encodeFunctionData({
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [arcRoute.poolAddress, amountInUnits],
+          }),
+        }
+        const swapCall = {
+          to: arcRoute.poolAddress as Hex,
+          data: encodeFunctionData({
+            abi: STABLE_SWAP_ABI,
+            functionName: 'swap',
+            args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, amountInUnits, minOutUnits],
+          }),
+        }
         const userOpRes = await sendModularUserOperation({
-          calls: [call],
+          calls: [approveCall, swapCall],
           paymaster: true,
         })
         if (!userOpRes.success || !userOpRes.txHash) {
-          throw new Error(userOpRes.error || 'Arc Testnet üzerinde işlem onaylanamadı.')
+          throw new Error(userOpRes.error || 'Arc Testnet üzerinde havuz takası onaylanamadı.')
         }
         realTxHash = userOpRes.txHash
       }
@@ -184,6 +214,7 @@ export async function executeDirectCopilotAction(
         tokenSymbol: fromTok,
         sourceChain: 'Arc_Testnet',
         recipient: activeWallet,
+        userAddress: activeWallet,
         status: 'success',
         amountIn: amountIn.toString(),
         amountOut: estimatedOutput,
@@ -290,6 +321,7 @@ export async function executeDirectCopilotAction(
           tokenSymbol: fromTok,
           sourceChain: 'Arc_Testnet',
           recipient: activeWallet,
+          userAddress: activeWallet,
           status: 'success',
           amountIn: amountIn.toString(),
           amountOut: quote.estimatedOutput,
@@ -367,6 +399,7 @@ export async function executeDirectCopilotAction(
           tokenSymbol: 'USDC',
           sourceChain: 'Arc_Testnet',
           recipient: activeWallet,
+          userAddress: activeWallet,
           status: 'success',
         })
 
@@ -454,6 +487,8 @@ export async function executeDirectCopilotAction(
     let realTxHash = ''
     const effectiveProvider = provider || (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
 
+    const amountUnits = parseUnits(amount.toString(), 6)
+
     // A. Ephemeral Session Key Execution
     if (sessionConfig.ephemeralPrivateKey) {
       try {
@@ -466,12 +501,21 @@ export async function executeDirectCopilotAction(
           transport: http(ARC_METADATA.rpcHttpUrl),
         })
 
-        realTxHash = await walletClient.sendTransaction({
-          to: POOL_CONTRACTS.YIELD_VAULT,
-          value: parseUnits(amount.toString(), 6),
-          data: '0x',
+        const approveTx = await walletClient.writeContract({
+          address: POOL_CONTRACTS.USDC,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
         })
-        await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 10000 }).catch(() => {})
+        await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch(() => {})
+
+        realTxHash = await walletClient.writeContract({
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'deposit',
+          args: [amountUnits, activeWallet as Hex],
+        })
+        await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch(() => {})
       } catch (e) {
         console.warn('[copilotExecutionService] Ephemeral private key vault deposit error:', e)
       }
@@ -480,12 +524,24 @@ export async function executeDirectCopilotAction(
     // B. Passkey MSCA Execution
     if (!realTxHash && activeMsca) {
       try {
-        const userOpCall = createModularUsdcTransferCall(
-          POOL_CONTRACTS.YIELD_VAULT,
-          amount
-        )
+        const approveCall = {
+          to: POOL_CONTRACTS.USDC as Hex,
+          data: encodeFunctionData({
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
+          }),
+        }
+        const depositCall = {
+          to: POOL_CONTRACTS.YIELD_VAULT as Hex,
+          data: encodeFunctionData({
+            abi: YIELD_VAULT_ABI,
+            functionName: 'deposit',
+            args: [amountUnits, activeWallet as Hex],
+          }),
+        }
         const opRes = await sendModularUserOperation({
-          calls: [userOpCall],
+          calls: [approveCall, depositCall],
           paymaster: true,
         })
         if (opRes.success && opRes.txHash) {
@@ -506,19 +562,39 @@ export async function executeDirectCopilotAction(
           transport: custom(effectiveProvider),
         })
 
-        realTxHash = await walletClient.sendTransaction({
-          to: POOL_CONTRACTS.YIELD_VAULT,
-          value: parseUnits(amount.toString(), 6),
-          data: '0x',
+        const approveTx = await walletClient.writeContract({
+          address: POOL_CONTRACTS.USDC,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
         })
-        await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 10000 }).catch(() => {})
+        await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch(() => {})
+
+        realTxHash = await walletClient.writeContract({
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'deposit',
+          args: [amountUnits, activeWallet as Hex],
+        })
+        await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch(() => {})
       } catch (e: any) {
         console.warn('[copilotExecutionService] EOA vault transaction error:', e)
       }
     }
 
     if (!realTxHash) {
-      realTxHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`
+      if (onProgress) onProgress('failed')
+      return {
+        id: `rcpt_err_${Date.now()}`,
+        actionType: 'deposit',
+        title: `Deposit Failed: ${amount} USDC`,
+        status: 'FAILED',
+        txHash: '',
+        gasUsdc: 0,
+        settlementLatencyMs: Date.now() - startTime,
+        timestamp: Date.now(),
+        errorMessage: 'Arc Testnet Real-Yield Vault yatırımı onaylanamadı. Cüzdan bakiyenizi veya token izninizi kontrol edin.',
+      }
     }
 
     const durationMs = Date.now() - startTime
@@ -531,6 +607,7 @@ export async function executeDirectCopilotAction(
       tokenSymbol: 'USDC',
       sourceChain: 'Arc_Testnet',
       recipient: POOL_CONTRACTS.YIELD_VAULT, // Real-Yield Vault
+      userAddress: activeWallet,
       status: 'success',
     })
 
@@ -665,6 +742,7 @@ export async function executeDirectCopilotAction(
         sourceChain: sourceChainKey,
         destChain: destChainKey,
         recipient: activeWallet,
+        userAddress: activeWallet,
         status: 'success',
       })
 
@@ -809,6 +887,7 @@ export async function executeDirectCopilotAction(
         tokenSymbol,
         sourceChain: 'Arc_Testnet',
         recipient,
+        userAddress: activeWallet,
         status: 'success',
       })
 
@@ -885,6 +964,7 @@ export async function executeDirectCopilotAction(
         tokenSymbol,
         sourceChain: 'Arc_Testnet',
         recipient,
+        userAddress: activeWallet,
         status: 'success',
       })
 

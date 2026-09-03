@@ -651,16 +651,21 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
       const usdcAmount = parseUnits(inputAmountStr, 6)
       const halfUsdc = usdcAmount / 2n
+      const poolRemainingUsdc = usdcAmount - halfUsdc
 
-      // Approve both tokens for the pool
-      await approveToken(POOL_CONTRACTS.USDC, poolAddress, usdcAmount)
       const counterToken = pool.tokens[1]
-      const counterDecimals = counterToken?.decimals === 8 ? 8 : 6
-      const rate = BigInt(Math.round((pool.exchangeRate || 1) * 10 ** counterDecimals))
-      // amountB = (halfUsdc / rate) adjusted for counter decimals
-      const counterAmount = (halfUsdc * 10n ** BigInt(counterDecimals)) / rate
       const counterTokenAddress = (counterToken?.address || POOL_CONTRACTS.tcirBTC) as `0x${string}`
-      await approveToken(counterTokenAddress, poolAddress, counterAmount)
+
+      // 1) Approve pool to spend entire usdcAmount
+      await approveToken(POOL_CONTRACTS.USDC, poolAddress, usdcAmount)
+
+      // Read counter balance before swap
+      const counterBalBefore = await publicClient.readContract({
+        address: counterTokenAddress,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [account],
+      })
 
       // 1) Swap half USDC → counter token via pool.swap
       const swapOut = await walletClient.writeContract({
@@ -671,18 +676,33 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         account,
         chain: arcTestnet,
       })
-      await publicClient.waitForTransactionReceipt({ hash: swapOut, pollingInterval: 5000 })
+      await publicClient.waitForTransactionReceipt({ hash: swapOut, pollingInterval: 3000 })
 
-      // 2) Add dual liquidity with remaining USDC + swapped counter
-      const poolRemainingUsdc = usdcAmount - halfUsdc
+      // Measure actual counter tokens received
+      const counterBalAfter = await publicClient.readContract({
+        address: counterTokenAddress,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [account],
+      })
+      const actualCounterAmount = counterBalAfter > counterBalBefore ? counterBalAfter - counterBalBefore : 0n
+      if (actualCounterAmount === 0n) {
+        throw new Error('Takas çıktısı olarak karşı token alınamadı.')
+      }
+
+      // Approve actual received counter tokens for liquidity addition
+      await approveToken(counterTokenAddress, poolAddress, actualCounterAmount)
+
+      // 2) Add dual liquidity with remaining USDC + actual swapped counter
       const txHash = await walletClient.writeContract({
         address: poolAddress,
         abi: STABLE_SWAP_ABI,
         functionName: 'addLiquidity',
-        args: [poolRemainingUsdc, counterAmount],
+        args: [poolRemainingUsdc, actualCounterAmount],
         account,
         chain: arcTestnet,
       })
+      await publicClient.waitForTransactionReceipt({ hash: txHash, pollingInterval: 3000 })
 
       const lpMinted = (parseFloat(inputAmountStr) * 0.998).toFixed(2)
       const poolShare = parseFloat(((parseFloat(inputAmountStr) / (pool.tvlUsd + parseFloat(inputAmountStr))) * 100).toFixed(3))

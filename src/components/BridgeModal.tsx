@@ -41,6 +41,7 @@ import {
   REVENUE_SHARE_LABEL,
   REVENUE_SHARE_TOOLTIP,
 } from '../config/treasuryConfig'
+import { addTransaction } from '../utils/history'
 
 interface BridgeModalProps {
   isOpen: boolean
@@ -375,6 +376,20 @@ export default function BridgeModal({
 
       refetchWalletBalances()
       refreshGatewayBalances()
+
+      addTransaction({
+        type: 'bridge',
+        txHash: mintTxHash || `bridge-${Date.now()}`,
+        amount,
+        tokenSymbol: 'USDC',
+        sourceChain,
+        destChain,
+        recipient: connectedAddress,
+        userAddress: connectedAddress,
+        status: 'success',
+        isPrivate: isPrivateBridge
+      })
+
       onSuccess(amount, mintTxHash)
 
     } catch (err: any) {

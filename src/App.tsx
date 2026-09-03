@@ -255,7 +255,7 @@ export default function App() {
             {/* History Tab */}
             {activeTab === 'history' && (
               <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
-                <HistoryTable />
+                <HistoryTable walletAddress={walletAddress} />
               </div>
             )}
 

@@ -21,6 +21,7 @@ import * as faucetHandler from './api/faucet'
 import * as cacheHandler from './api/cache'
 import * as copilotHandler from './api/copilot'
 import * as x402Handler from './api/x402'
+import * as historyHandler from './api/history'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -120,6 +121,11 @@ app.use('/api/x402', (req, res, next) => {
   if (req.method === 'POST') return adapt(x402Handler.POST)(req, res, next)
   next()
 })
+
+// Transaction History Service (Connected Wallet History)
+app.get('/api/history', adapt(historyHandler.GET))
+app.post('/api/history', adapt(historyHandler.POST))
+app.delete('/api/history', adapt(historyHandler.DELETE))
 
 // ─────────────────────────────────────────────────────────────
 // 4. STATIC FRONTEND SPA SERVING

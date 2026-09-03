@@ -628,6 +628,7 @@ export default function SendModal({
             tokenSymbol: 'USDC (Gateway)',
             sourceChain: selectedChain,
             recipient,
+            userAddress: connectedAddress,
             status: 'success',
             isPrivate: isPrivateSend
           })
@@ -686,6 +687,7 @@ export default function SendModal({
               tokenSymbol: displayToken,
               sourceChain: selectedChain,
               recipient,
+              userAddress: connectedAddress,
               status: 'success',
               isPrivate: isPrivateSend,
               memo: memoText.trim(),
@@ -767,6 +769,7 @@ export default function SendModal({
                 tokenSymbol: 'USDC (Gasless)',
                 sourceChain: selectedChain,
                 recipient,
+                userAddress: connectedAddress,
                 status: 'success',
                 isPrivate: isPrivateSend,
               })
@@ -815,6 +818,7 @@ export default function SendModal({
               tokenSymbol: displayToken,
               sourceChain: selectedChain,
               recipient,
+              userAddress: connectedAddress,
               status: 'success',
               isPrivate: isPrivateSend
             })
