@@ -35,6 +35,7 @@ import nativeGasImg from '../../assets/hero/arcis_native_gas.jpg'
 import passkeyVaultImg from '../../assets/hero/arcis_passkey_vault.jpg'
 import realYieldImg from '../../assets/hero/arcis_real_yield.jpg'
 import agentSettlementImg from '../../assets/hero/arcis_agent_settlement.jpg'
+import usdcTokenImg from '../../assets/Token-Icon/USDC Token.svg'
 
 import { arcTestnet } from '../../config/arcChain'
 
@@ -61,36 +62,235 @@ export default function HomePage({
     setOpenFaqIndex(openFaqIndex === idx ? null : idx)
   }
 
-  const keyMetrics = [
+  type MetricSilhouetteType = 'speed' | 'usdc' | 'multichain' | 'yield'
+
+  // Scattered crypto raindrops (Solana, Ethereum, Injective, Base, Arbitrum, Monad, Avalanche, Polygon, etc.)
+  const cryptoRainDrops = [
+    // Left zone
+    { chain: 'solana', left: '3%', duration: 4.6, delay: -1.2, drift: -4, size: 32 },
+    { chain: 'ethereum', left: '10%', duration: 5.8, delay: -3.7, drift: 3, size: 34 },
+    { chain: 'injective', left: '18%', duration: 4.1, delay: -0.6, drift: -2, size: 30 },
+    { chain: 'base', left: '25%', duration: 5.2, delay: -2.5, drift: 4, size: 28 },
+    { chain: 'monad', left: '33%', duration: 4.4, delay: -4.3, drift: -3, size: 30 },
+
+    // Middle zone
+    { chain: 'arbitrum-one', left: '41%', duration: 3.8, delay: -1.5, drift: 2, size: 32 },
+    { chain: 'optimism', left: '49%', duration: 5.0, delay: -3.1, drift: -4, size: 28 },
+    { chain: 'hyper-evm', left: '56%', duration: 4.5, delay: -0.9, drift: 3, size: 30 },
+    { chain: 'polygon', left: '63%', duration: 4.2, delay: -2.2, drift: -2, size: 32 },
+    { chain: 'avalanche', left: '70%', duration: 5.5, delay: -4.0, drift: 4, size: 34 },
+
+    // Right zone
+    { chain: 'solana', left: '77%', duration: 4.3, delay: -1.8, drift: -3, size: 36 },
+    { chain: 'injective', left: '83%', duration: 5.1, delay: -0.4, drift: 2, size: 32 },
+    { chain: 'ethereum', left: '89%', duration: 4.0, delay: -2.8, drift: -4, size: 34 },
+    { chain: 'sei-network', left: '94%', duration: 5.3, delay: -3.5, drift: 1, size: 28 },
+    { chain: 'unichain', left: '98%', duration: 4.7, delay: -1.1, drift: -2, size: 30 },
+  ]
+
+  const keyMetrics: Array<{
+    value: string
+    label: string
+    desc: string
+    color: string
+    silhouetteType: MetricSilhouetteType
+  }> = [
     {
       value: '< 1.0s',
       label: 'Block Finality',
       desc: 'Sub-second deterministic settlement',
-      icon: Zap,
       color: '#a855f7',
+      silhouetteType: 'speed',
     },
     {
       value: 'Native USDC',
       label: 'Gas Engine',
       desc: 'Zero ETH needed for fees',
-      icon: Coins,
-      color: '#22c55e',
+      color: '#2775ca',
+      silhouetteType: 'usdc',
     },
     {
       value: '13+ Chains',
       label: 'Unified Balance',
       desc: 'Instant cross-chain liquidity',
-      icon: Globe,
       color: '#38bdf8',
+      silhouetteType: 'multichain',
     },
     {
       value: '100% Real',
       label: 'Protocol Yield',
       desc: 'Compounding fee dividends',
-      icon: Layers,
       color: '#f59e0b',
+      silhouetteType: 'yield',
     },
   ]
+
+  const renderMetricSilhouette = (type: MetricSilhouetteType) => {
+    switch (type) {
+      case 'speed':
+        return (
+          <svg
+            viewBox="0 0 140 140"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-full h-full"
+          >
+            <defs>
+              <linearGradient id="speedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#a855f7" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="#c084fc" stopOpacity="0.2" />
+              </linearGradient>
+            </defs>
+            {/* Rotating speed dial ring */}
+            <g className="animate-chrono-spin" style={{ transformOrigin: '70px 70px' }}>
+              <circle cx="70" cy="70" r="58" stroke="#a855f7" strokeWidth="1.5" strokeDasharray="4 6" opacity="0.4" />
+              <circle cx="70" cy="70" r="46" stroke="#c084fc" strokeWidth="1" strokeDasharray="2 4" opacity="0.4" />
+              <path d="M70 14 V22 M70 118 V126 M14 70 H22 M118 70 H126" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" opacity="0.45" />
+            </g>
+            {/* Speed pulse Arc Arch & Lightning */}
+            <g className="animate-speed-pulse" style={{ transformOrigin: '70px 70px' }}>
+              {/* Arc L1 Arch Icon silhouette */}
+              <path
+                d="M70 32 C75.5 32 80.5 36.8 84 45.5 C85.8 50 87.1 55.5 87.9 61.5 C88 62 88.5 65 88.6 70 H88.5 C87.8 69.4 79.8 63 66.5 65 C66.7 62.7 67 60.5 67.4 58.4 C72.6 58.2 77.2 58.8 80.7 59.6 C80 55.1 78.9 51 77.5 47.5 C75.3 41.8 72.4 38.3 70 38.3 C67.5 38.3 64.6 41.8 62.4 47.5 C61.8 48.9 61.3 50.4 60.9 52 C60.3 54.2 59.8 56.5 59.4 59 C58.8 62.6 58.4 66.5 58.3 70.5 H51.4 C51.7 61 53.3 52 56 45.5 C59.5 36.8 64.5 32 70 32 Z"
+                fill="url(#speedGrad)"
+                opacity="0.5"
+              />
+              {/* Dynamic lightning beam */}
+              <path
+                d="M74 38 L52 74 H68 L64 104 L88 66 H72 L76 38 Z"
+                fill="url(#speedGrad)"
+                opacity="0.85"
+              />
+            </g>
+            <circle cx="98" cy="48" r="2.5" fill="#c084fc" opacity="0.8" />
+            <circle cx="42" cy="94" r="2" fill="#a855f7" opacity="0.6" />
+            <circle cx="106" cy="88" r="1.5" fill="#e9d5ff" opacity="0.7" />
+          </svg>
+        )
+
+      case 'usdc':
+        return (
+          <div className="relative w-full h-full flex items-center justify-center">
+            {/* Glowing counter-rotating gas orbit rings in USDC Blue tones */}
+            <svg
+              viewBox="0 0 140 140"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              className="absolute inset-0 w-full h-full"
+            >
+              {/* Outer Gas Ring - Clockwise (USDC Royal Blue) */}
+              <g className="animate-orbit-cw" style={{ transformOrigin: '70px 70px' }}>
+                <circle cx="70" cy="70" r="62" stroke="#2775ca" strokeWidth="1.5" strokeDasharray="5 7" opacity="0.5" />
+                <path d="M70 8 A62 62 0 0 1 132 70" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+                <circle cx="132" cy="70" r="3.5" fill="#3b82f6" opacity="0.95" />
+              </g>
+
+              {/* Inner Gas Ring - Counter Clockwise (Electric Blue) */}
+              <g className="animate-orbit-ccw" style={{ transformOrigin: '70px 70px' }}>
+                <circle cx="70" cy="70" r="48" stroke="#60a5fa" strokeWidth="1" strokeDasharray="3 5" opacity="0.45" />
+                <path d="M70 118 A48 48 0 0 1 22 70" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
+                <circle cx="22" cy="70" r="3" fill="#93c5fd" opacity="0.95" />
+              </g>
+            </svg>
+            {/* Authentic Levitating USDC Token Image with Blue Glow */}
+            <img
+              src={usdcTokenImg}
+              alt="Native USDC Background"
+              className="w-20 h-20 sm:w-24 sm:h-24 object-contain filter drop-shadow-[0_0_24px_rgba(39,117,202,0.8)] drop-shadow-[0_0_12px_rgba(59,130,246,0.55)] animate-float-coin"
+            />
+          </div>
+        )
+
+      case 'multichain':
+        return (
+          <svg
+            viewBox="0 0 140 140"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-full h-full"
+          >
+            <defs>
+              <linearGradient id="chainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="#818cf8" stopOpacity="0.3" />
+              </linearGradient>
+            </defs>
+            <ellipse cx="70" cy="70" rx="58" ry="24" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="4 6" transform="rotate(-30 70 70)" opacity="0.4" />
+            <ellipse cx="70" cy="70" rx="58" ry="24" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="4 6" transform="rotate(30 70 70)" opacity="0.4" />
+            <circle cx="70" cy="70" r="54" stroke="#38bdf8" strokeWidth="1" strokeDasharray="2 6" opacity="0.3" />
+            {/* Gateway Hub */}
+            <circle cx="70" cy="70" r="14" fill="url(#chainGrad)" opacity="0.6" />
+            <circle cx="70" cy="70" r="6" fill="#ffffff" opacity="0.95" />
+            {/* Interconnected spoke lines */}
+            <line x1="70" y1="70" x2="114" y2="44" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="2 3" opacity="0.6" />
+            <line x1="70" y1="70" x2="26" y2="96" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="2 3" opacity="0.6" />
+            <line x1="70" y1="70" x2="114" y2="96" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="2 3" opacity="0.6" />
+            <line x1="70" y1="70" x2="26" y2="44" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="2 3" opacity="0.6" />
+            <line x1="70" y1="70" x2="70" y2="16" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="2 3" opacity="0.6" />
+            <line x1="70" y1="70" x2="70" y2="124" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="2 3" opacity="0.6" />
+            {/* Blockchain node vertices */}
+            <circle cx="114" cy="44" r="7" fill="#38bdf8" opacity="0.85" />
+            <circle cx="26" cy="96" r="6.5" fill="#818cf8" opacity="0.75" />
+            <circle cx="114" cy="96" r="6.5" fill="#60a5fa" opacity="0.75" />
+            <circle cx="26" cy="44" r="6" fill="#38bdf8" opacity="0.75" />
+            <circle cx="70" cy="16" r="5.5" fill="#a78bfa" opacity="0.8" />
+            <circle cx="70" cy="124" r="5" fill="#38bdf8" opacity="0.75" />
+            <circle cx="70" cy="70" r="19" stroke="#38bdf8" strokeWidth="1" opacity="0.5" />
+          </svg>
+        )
+
+      case 'yield':
+        return (
+          <svg
+            viewBox="0 0 140 140"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-full h-full"
+          >
+            <defs>
+              <linearGradient id="yieldAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.45" />
+                <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.0" />
+              </linearGradient>
+              <linearGradient id="yieldLineGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="#f59e0b" stopOpacity="1" />
+              </linearGradient>
+            </defs>
+            {/* Staggered Dividend Equalizer bars */}
+            <rect x="22" y="90" width="8" height="26" rx="2" fill="#f59e0b" style={{ transformOrigin: '26px 116px', animation: 'yieldBarWave 2.4s ease-in-out infinite', animationDelay: '0.0s' }} />
+            <rect x="36" y="80" width="8" height="36" rx="2" fill="#f59e0b" style={{ transformOrigin: '40px 116px', animation: 'yieldBarWave 2.4s ease-in-out infinite', animationDelay: '0.2s' }} />
+            <rect x="50" y="68" width="8" height="48" rx="2" fill="#f59e0b" style={{ transformOrigin: '54px 116px', animation: 'yieldBarWave 2.4s ease-in-out infinite', animationDelay: '0.4s' }} />
+            <rect x="64" y="58" width="8" height="58" rx="2" fill="#f59e0b" style={{ transformOrigin: '68px 116px', animation: 'yieldBarWave 2.4s ease-in-out infinite', animationDelay: '0.6s' }} />
+            <rect x="78" y="46" width="8" height="70" rx="2" fill="#f59e0b" style={{ transformOrigin: '82px 116px', animation: 'yieldBarWave 2.4s ease-in-out infinite', animationDelay: '0.8s' }} />
+            <rect x="92" y="32" width="8" height="84" rx="2" fill="#f59e0b" style={{ transformOrigin: '96px 116px', animation: 'yieldBarWave 2.4s ease-in-out infinite', animationDelay: '1.0s' }} />
+            {/* Compounding Curve with glow */}
+            <path
+              d="M18 106 C40 102 60 90 76 66 C88 48 104 32 118 20 L118 116 L18 116 Z"
+              fill="url(#yieldAreaGrad)"
+            />
+            <path
+              d="M18 106 C40 102 60 90 76 66 C88 48 104 32 118 20"
+              stroke="url(#yieldLineGrad)"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className="animate-yield-curve"
+            />
+            {/* Twinkling Yield Peak & Sparkles */}
+            <g className="animate-yield-sparkle" style={{ transformOrigin: '118px 20px' }}>
+              <circle cx="118" cy="20" r="5" fill="#f59e0b" />
+              <circle cx="118" cy="20" r="9" stroke="#f59e0b" strokeWidth="1.5" opacity="0.7" />
+            </g>
+            <g className="animate-yield-sparkle" style={{ transformOrigin: '124px 16px', animationDelay: '0.7s' }}>
+              <path d="M124 10 L126 14 L130 16 L126 18 L124 22 L122 18 L118 16 L122 14 Z" fill="#fbbf24" opacity="0.95" />
+            </g>
+            <g className="animate-yield-sparkle" style={{ transformOrigin: '42px 50px', animationDelay: '1.3s' }}>
+              <path d="M42 46 L43 49 L46 50 L43 51 L42 54 L41 51 L38 50 L41 49 Z" fill="#fde68a" opacity="0.8" />
+            </g>
+          </svg>
+        )
+    }
+  }
 
   const corePillars = [
     {
@@ -115,7 +315,7 @@ export default function HomePage({
       title: 'Zero ETH, Zero Volatility: Native USDC Gas Engine',
       headline: 'The First Institutional L1 Blockchain Eliminating Gas Price Volatility',
       description:
-        'On Arc L1, transaction fees are paid natively in USDC (0x3600...0000) instead of volatile native tokens like ETH. Never worry about holding ETH for gas. Every transfer, contract call, and swap executes with predictable, sub-penny USDC transaction fees.',
+        'On Arc L1, transaction fees are paid natively in USDC instead of volatile native tokens like ETH. Never worry about holding ETH for gas. Every transfer, contract call, and swap executes with predictable, sub-penny USDC transaction fees.',
       bullets: [
         'Predictable Accounting: Fixed, forecastable gas fees for enterprises and retail users alike.',
         'Dual Gas Engine: 18 Dec Native Gas & 6 Dec ERC-20 dual precision architecture.',
@@ -353,27 +553,73 @@ export default function HomePage({
       <section className="w-full">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5">
           {keyMetrics.map((m, idx) => {
-            const Icon = m.icon
             return (
               <div
                 key={idx}
-                className="p-5 sm:p-6 rounded-2xl border border-white/8 bg-slate-900/50 backdrop-blur-xl flex flex-col justify-between gap-3 hover:border-white/15 hover:bg-slate-900/70 transition-all duration-200"
+                className="relative overflow-hidden group p-5 sm:p-6 rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur-xl flex flex-col justify-between gap-4 hover:border-white/25 hover:bg-slate-900/80 transition-all duration-300 hover:shadow-2xl hover:-translate-y-0.5"
+                style={{
+                  boxShadow: '0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06)'
+                }}
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">{m.label}</span>
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: `${m.color}15`, border: `1px solid ${m.color}30` }}
-                  >
-                    <Icon className="w-4 h-4" style={{ color: m.color }} />
+                {/* Top Border Gradient Accent */}
+                <div
+                  className="absolute top-0 left-0 right-0 h-[1.5px] opacity-40 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                  style={{
+                    background: `linear-gradient(90deg, transparent 0%, ${m.color} 50%, transparent 100%)`
+                  }}
+                />
+
+                {/* Bottom-Right Ambient Color Glow */}
+                <div
+                  className="absolute -right-6 -bottom-6 w-32 h-32 rounded-full blur-[45px] pointer-events-none opacity-20 group-hover:opacity-45 transition-opacity duration-500"
+                  style={{ backgroundColor: m.color }}
+                />
+
+                {/* Background Silhouette / Visual */}
+                {m.silhouetteType === 'multichain' ? (
+                  <>
+                    {/* Ambient orbital constellation backdrop */}
+                    <div className="absolute -right-2 -bottom-2 sm:-right-3 sm:-bottom-3 w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 pointer-events-none select-none z-0 opacity-15 flex items-center justify-center">
+                      {renderMetricSilhouette('multichain')}
+                    </div>
+
+                    {/* Scattered Raindrop Shower of Chain Icons (Left, Center, Right) */}
+                    <div className="absolute inset-0 pointer-events-none select-none z-0 overflow-hidden">
+                      {cryptoRainDrops.map((drop, idx) => (
+                        <div
+                          key={`drop-${idx}-${drop.chain}`}
+                          className="absolute top-0 animate-crypto-rain flex items-center justify-center rounded-full bg-slate-950/80 border border-sky-400/30 shadow-[0_2px_10px_rgba(56,189,248,0.25)] backdrop-blur-[2px]"
+                          style={{
+                            left: drop.left,
+                            width: drop.size,
+                            height: drop.size,
+                            animationDuration: `${drop.duration}s`,
+                            animationDelay: `${drop.delay}s`,
+                            ['--drift-x' as string]: `${drop.drift}px`,
+                          }}
+                        >
+                          <NetworkIcon name={drop.chain} size={Math.round(drop.size * 0.65)} variant="branded" />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="absolute -right-2 -bottom-2 sm:-right-3 sm:-bottom-3 w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 pointer-events-none select-none z-0 transition-all duration-500 ease-out group-hover:scale-110 group-hover:opacity-40 opacity-20 sm:opacity-25 flex items-center justify-center">
+                    {renderMetricSilhouette(m.silhouetteType)}
                   </div>
+                )}
+
+                {/* Card Header & Badge */}
+                <div className="relative z-10 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{m.label}</span>
                 </div>
 
-                <div>
-                  <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                {/* Card Value & Description */}
+                <div className="relative z-10">
+                  <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight drop-shadow-md">
                     {m.value}
                   </div>
-                  <div className="text-xs text-slate-400 mt-1 font-normal">
+                  <div className="text-xs text-slate-300 mt-1 font-normal leading-relaxed drop-shadow-sm">
                     {m.desc}
                   </div>
                 </div>

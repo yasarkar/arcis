@@ -66,6 +66,157 @@
   -webkit-text-fill-color: transparent;
 }
 
+/* Crypto Raindrop Shower Animation for 13+ Chains card */
+@keyframes cryptoRainDrop {
+  0% {
+    transform: translate3d(0, -44px, 0) scale(0.85);
+    opacity: 0;
+  }
+  12% {
+    opacity: var(--drop-opacity, 0.42);
+  }
+  84% {
+    opacity: var(--drop-opacity, 0.42);
+  }
+  100% {
+    transform: translate3d(var(--drift-x, -4px), 230px, 0) scale(1);
+    opacity: 0;
+  }
+}
+
+.animate-crypto-rain {
+  animation-name: cryptoRainDrop;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+  transition: filter 0.3s ease;
+}
+
+.group:hover .animate-crypto-rain {
+  --drop-opacity: 0.95;
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+}
+
+/* Card 1: Speed Chronometer Spin & Energy Pulse */
+@keyframes chronoSweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes speedPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+    filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.7));
+  }
+}
+
+.animate-chrono-spin {
+  animation: chronoSweep 22s linear infinite;
+  will-change: transform;
+}
+
+.animate-speed-pulse {
+  animation: speedPulse 2.4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* Card 2: Levitating Coin & Gas Rings */
+@keyframes floatLevitate {
+  0%, 100% {
+    transform: translateY(0px) rotate(6deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+@keyframes orbitSpinClockwise {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbitSpinCounter {
+  0% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.animate-float-coin {
+  animation: floatLevitate 4.2s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-orbit-cw {
+  animation: orbitSpinClockwise 18s linear infinite;
+  will-change: transform;
+}
+
+.animate-orbit-ccw {
+  animation: orbitSpinCounter 13s linear infinite;
+  will-change: transform;
+}
+
+/* Card 4: Dividend Equalizer & Yield Sparkle */
+@keyframes yieldBarWave {
+  0%, 100% {
+    transform: scaleY(0.7);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scaleY(1.06);
+    opacity: 0.9;
+  }
+}
+
+@keyframes sparkleTwinkle {
+  0%, 100% {
+    transform: scale(0.75) rotate(0deg);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.25) rotate(45deg);
+    opacity: 1;
+    filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.9));
+  }
+}
+
+@keyframes yieldCurveGlow {
+  0%, 100% {
+    opacity: 0.75;
+    filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.3));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.8));
+  }
+}
+
+.animate-yield-sparkle {
+  animation: sparkleTwinkle 2.6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-yield-curve {
+  animation: yieldCurveGlow 3.2s ease-in-out infinite;
+  will-change: opacity, filter;
+}
+
 /* ─── Arc & Aave Official Design System Tokens ─── */
 :root {
   /* Fonts */
