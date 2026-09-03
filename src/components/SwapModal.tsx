@@ -1,19 +1,15 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X,
   ArrowRightLeft,
   AlertTriangle,
-  RefreshCw,
-  ShieldCheck,
   Settings,
-  ExternalLink,
-  ArrowUpDown,
-  ChevronDown,
+  Wallet,
   Clipboard,
   Check,
-  Wallet,
-  Edit3
+  Edit3,
+  ChevronDown,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -23,7 +19,6 @@ import { formatWalletError } from '../utils/errorUtils'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { createViemAdapter } from '../services/sendService'
 import { getSwapEstimate, executeSwap, getSupportedSwapChains } from '../services/swapService'
-import { BRIDGE_CHAIN_DISPLAY_NAMES } from '../types/bridge'
 import { getDisplayTokenSymbol } from '../utils/tokenUtils'
 import { addTransaction } from '../utils/history'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
@@ -42,6 +37,18 @@ import {
 } from '../config/treasuryConfig'
 import { getChainIconId } from '../config/swapConfig'
 import { getExplorerTxUrl } from '../config/sendConfig'
+import {
+  FintechCard,
+  AssetInputPanel,
+  DirectionSwitchButton,
+  TokenSelectorModal,
+  ChainSelectorModal,
+  TransactionBreakdown,
+  FintechActionButton,
+  SwapSuccessReceipt,
+  type TokenItem,
+  type BreakdownItem,
+} from './fintech'
 
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
@@ -74,14 +81,11 @@ export default function SwapModal({
 
   // Dynamic Chain Selector
   const [selectedChain, setSelectedChain] = useState('Arc_Testnet')
-  const [chainSearch, setChainSearch] = useState('Arc Testnet')
-  const [showChainDropdown, setShowChainDropdown] = useState(false)
+  const [showChainModal, setShowChainModal] = useState(false)
 
-  // Custom token dropdown states & refs
-  const [showTokenInDropdown, setShowTokenInDropdown] = useState(false)
-  const [showTokenOutDropdown, setShowTokenOutDropdown] = useState(false)
-  const tokenInRef = useRef<HTMLDivElement>(null)
-  const tokenOutRef = useRef<HTMLDivElement>(null)
+  // Token Selector Modals
+  const [showTokenInModal, setShowTokenInModal] = useState(false)
+  const [showTokenOutModal, setShowTokenOutModal] = useState(false)
 
   // Routing State
   const fromChain = selectedChain
@@ -92,12 +96,12 @@ export default function SwapModal({
   const [amountIn, setAmountIn] = useState('')
   const [allowanceStrategy] = useState<'permit' | 'approve'>('approve')
 
-  // Advanced Settings Toggle
+  // Settings & Slippage
   const [showSettings, setShowSettings] = useState(false)
   const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>('0.5')
   const [customSlippage, setCustomSlippage] = useState('')
 
-  // Custom Recipient Address State (send-to-different-address)
+  // Custom Recipient Address
   const [useCustomRecipient, setUseCustomRecipient] = useState(false)
   const [customRecipient, setCustomRecipient] = useState('')
   const [recipientError, setRecipientError] = useState<string | null>(null)
@@ -113,14 +117,14 @@ export default function SwapModal({
     }
   }, [isEditingRecipient])
 
-  const formatAddress = (addr: string) => addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : ''
+  const formatAddress = (addr: string) => (addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : '')
 
   // Swap Execution States
   const [isSwapping, setIsSwapping] = useState(false)
   const [successData, setSuccessData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Dynamic Quote & Estimate States
+  // Quote & Estimate States
   const [estimatedOutput, setEstimatedOutput] = useState<string>('')
   const [stopLimit, setStopLimit] = useState<string>('')
   const [rate, setRate] = useState<string>('')
@@ -129,7 +133,7 @@ export default function SwapModal({
 
   const getTokenDisplaySymbol = getDisplayTokenSymbol
 
-  // Calculate slippage tolerance based on settings
+  // Slippage tolerance calculation
   const slippageTolerance = useMemo(() => {
     if (selectedSlippageType === 'custom') {
       const val = parseFloat(customSlippage)
@@ -143,20 +147,19 @@ export default function SwapModal({
   // Speed & Network Execution Priority
   const [speedTier, setSpeedTier] = useState<SpeedTier>('fast')
 
-  // Custom Platform Fee from Arcis Treasury Fee Engine (Dynamic per speed tier)
+  // Treasury Platform Fee
   const platformFeeBps = getSwapProtocolFeeBps(speedTier)
   const platformFeePercent = getSwapProtocolFeePercent(speedTier)
   const platformFeeAmount = amountIn ? calculateSwapProtocolFeeAmount(speedTier, amountIn) : null
   const platformFeeEnabled = true
 
-  // Custom Recipient Address validation
+  // Validation
   const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
   const recipientIsValid = useCustomRecipient ? isValidEvmAddress(customRecipient) : false
-  const recipientIsOwnAddress = useCustomRecipient && connectedAddress && customRecipient.toLowerCase() === connectedAddress.toLowerCase()
+  const recipientIsOwnAddress =
+    useCustomRecipient && connectedAddress && customRecipient.toLowerCase() === connectedAddress.toLowerCase()
 
-  // Effective recipient: custom address if valid & toggle on, otherwise the connected wallet
   const effectiveRecipient = useCustomRecipient && recipientIsValid ? customRecipient : connectedAddress
-
   const supportedChains = useMemo(() => getSupportedSwapChains(), [])
 
   // Reset modal state on open
@@ -180,25 +183,9 @@ export default function SwapModal({
       setCustomRecipient('')
       setRecipientError(null)
       setSelectedChain('Arc_Testnet')
-      setChainSearch('Arc Testnet')
-      setShowChainDropdown(false)
+      setShowChainModal(false)
     }
   }, [isOpen])
-
-  // Close dropdowns on click outside
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      setShowChainDropdown(false)
-      if (tokenInRef.current && !tokenInRef.current.contains(e.target as Node)) {
-        setShowTokenInDropdown(false)
-      }
-      if (tokenOutRef.current && !tokenOutRef.current.contains(e.target as Node)) {
-        setShowTokenOutDropdown(false)
-      }
-    }
-    window.addEventListener('click', handleOutsideClick)
-    return () => window.removeEventListener('click', handleOutsideClick)
-  }, [])
 
   // Close Settings modal on ESC key
   useEffect(() => {
@@ -227,48 +214,47 @@ export default function SwapModal({
     }
   }
 
-  // Load wallet testnet balances to enforce balance check
+  // Load wallet balances
   const { walletBalances, refetch: refetchWalletBalances } = useWalletTestnetBalances(connectedAddress)
   const usdcWalletBalance = walletBalances[fromChain]?.usdc || '0.00'
   const eurcWalletBalance = walletBalances[fromChain]?.eurc || '0.00'
   const cirbtcWalletBalance = walletBalances[fromChain]?.cirbtc || '0.00000'
 
-  // Dynamic balance for selected tokenIn (USDC, EURC, cirBTC, etc.)
-  const [tokenInBalance, setTokenInBalance] = useState('0.00')
+  // Dynamic balance for selected tokenIn
+  const tokenInBalance = useMemo(() => {
+    if (!connectedAddress) return tokenIn === 'cirBTC' ? '0.00000' : '0.00'
+    if (tokenIn === 'USDC') return usdcWalletBalance
+    if (tokenIn === 'EURC') return eurcWalletBalance
+    if (tokenIn === 'cirBTC') return cirbtcWalletBalance
+    return '0.00'
+  }, [connectedAddress, tokenIn, usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance])
 
-  useEffect(() => {
-    if (!connectedAddress) {
-      setTokenInBalance(tokenIn === 'cirBTC' ? '0.00000' : '0.00')
-      return
-    }
+  const tokenOutBalance = useMemo(() => {
+    if (!connectedAddress) return tokenOut === 'cirBTC' ? '0.00000' : '0.00'
+    if (tokenOut === 'USDC') return usdcWalletBalance
+    if (tokenOut === 'EURC') return eurcWalletBalance
+    if (tokenOut === 'cirBTC') return cirbtcWalletBalance
+    return '0.00'
+  }, [connectedAddress, tokenOut, usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance])
 
-    if (tokenIn === 'USDC') {
-      setTokenInBalance(usdcWalletBalance)
-      return
-    }
+  const isInsufficient = amountIn ? parseFloat(amountIn) > parseFloat(tokenInBalance) : false
+  const isCrossChain = fromChain !== toChain
 
-    if (tokenIn === 'EURC') {
-      setTokenInBalance(eurcWalletBalance)
-      return
-    }
-
-    if (tokenIn === 'cirBTC') {
-      setTokenInBalance(cirbtcWalletBalance)
-      return
-    }
-
-    setTokenInBalance(tokenIn === 'cirBTC' ? '0.00000' : '0.00')
-  }, [connectedAddress, fromChain, tokenIn, usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance])
-
-  const selectedBalance = tokenInBalance
-  const isInsufficient = amountIn ? parseFloat(amountIn) > parseFloat(selectedBalance) : false
+  // Token list for selector modal
+  const tokenList: TokenItem[] = useMemo(
+    () => [
+      { symbol: 'USDC', name: 'USD Coin', icon: TOKEN_ICONS.USDC, balance: usdcWalletBalance },
+      { symbol: 'EURC', name: 'Euro Coin', icon: TOKEN_ICONS.EURC, balance: eurcWalletBalance },
+      { symbol: 'cirBTC', name: 'Circle Bitcoin', icon: TOKEN_ICONS.cirBTC, balance: cirbtcWalletBalance },
+    ],
+    [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance]
+  )
 
   // Swap Direction Switch
   const handleSwitchDirection = () => {
     const tempToken = tokenIn
     setTokenIn(tokenOut)
     setTokenOut(tempToken)
-
     if (estimatedOutput) {
       setAmountIn(estimatedOutput)
     }
@@ -294,7 +280,8 @@ export default function SwapModal({
     }
 
     const isArcUSDCConflict =
-      (fromChain === 'Arc_Testnet' && toChain === 'Arc_Testnet') &&
+      fromChain === 'Arc_Testnet' &&
+      toChain === 'Arc_Testnet' &&
       ((tokenIn === 'USDC' && tokenOut === 'NATIVE') || (tokenIn === 'NATIVE' && tokenOut === 'USDC'))
     if (isArcUSDCConflict) {
       setEstimatedOutput('')
@@ -311,7 +298,6 @@ export default function SwapModal({
     const fetchEstimate = async () => {
       try {
         if (provider) {
-          // Real onchain estimate
           const quote = await getSwapEstimate({
             fromChain,
             toChain: toChain === fromChain ? undefined : toChain,
@@ -325,9 +311,9 @@ export default function SwapModal({
             ...(platformFeeEnabled && {
               customFee: {
                 percentageBps: platformFeeBps,
-                recipientAddress: TREASURY_ADDRESS
-              }
-            })
+                recipientAddress: TREASURY_ADDRESS,
+              },
+            }),
           })
           if (isMounted) {
             setEstimatedOutput(quote.estimatedOutput)
@@ -355,13 +341,11 @@ export default function SwapModal({
     }
   }, [amountIn, tokenIn, tokenOut, fromChain, toChain, slippageTolerance, allowanceStrategy, provider])
 
-  const isCrossChain = fromChain !== toChain
-
-  // Parse error messages for friendly feedback
   const getFriendlyErrorMessage = (err: any): string => {
     return formatWalletError(err)
   }
 
+  // Swap Execution
   const handleSwapExecution = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -378,7 +362,6 @@ export default function SwapModal({
       return
     }
 
-    // Validate custom recipient before executing the swap
     if (useCustomRecipient) {
       if (!isValidEvmAddress(customRecipient)) {
         setRecipientError('Geçerli bir EVM adresi girin (0x + 40 karakter).')
@@ -392,11 +375,11 @@ export default function SwapModal({
 
     setIsSwapping(true)
 
-    const isCrossChain = Boolean(toChain && toChain !== fromChain)
+    const isCross = Boolean(toChain && toChain !== fromChain)
     const broadcastId = addBroadcast({
-      title: isCrossChain ? 'Cross-Chain Swap in Progress...' : 'Swapping Tokens...',
+      title: isCross ? 'Cross-Chain Swap in Progress...' : 'Swapping Tokens...',
       status: 'pending',
-      badgeText: isCrossChain ? 'Cross-Chain' : 'Swapping',
+      badgeText: isCross ? 'Cross-Chain' : 'Swapping',
       details: {
         fromAmount: amountIn,
         fromSymbol: tokenIn,
@@ -407,13 +390,12 @@ export default function SwapModal({
         toIcon: TOKEN_ICONS[tokenOut],
         toChain: toChain || fromChain,
         network: fromChain,
-        isBridge: isCrossChain,
+        isBridge: isCross,
       },
     })
 
     try {
       if (provider) {
-        // Real Execution
         const sourceAdapter = await createViemAdapter(provider)
 
         const finalStatus = await executeSwap({
@@ -429,9 +411,9 @@ export default function SwapModal({
           ...(platformFeeEnabled && {
             customFee: {
               percentageBps: platformFeeBps,
-              recipientAddress: TREASURY_ADDRESS
-            }
-          })
+              recipientAddress: TREASURY_ADDRESS,
+            },
+          }),
         })
 
         if (finalStatus.status === 'DONE') {
@@ -442,11 +424,11 @@ export default function SwapModal({
             tokenIn,
             tokenOut,
             txHash: finalStatus.sourceTxHash,
-            destTxHash: finalStatus.destinationTxHash
+            destTxHash: finalStatus.destinationTxHash,
           })
 
           updateBroadcast(broadcastId, {
-            title: isCrossChain ? 'Cross-Chain Swap Success' : 'Swap Confirmed',
+            title: isCross ? 'Cross-Chain Swap Success' : 'Swap Confirmed',
             status: 'success',
             badgeText: 'Swapped',
             details: {
@@ -460,11 +442,10 @@ export default function SwapModal({
               toChain: toChain || fromChain,
               network: fromChain,
               txHash: finalStatus.sourceTxHash,
-              isBridge: isCrossChain,
+              isBridge: isCross,
             },
           })
 
-          // Refetch balances to auto-update UI
           refetchWalletBalances()
 
           addTransaction({
@@ -480,14 +461,14 @@ export default function SwapModal({
             amountOut: estimatedOutput,
             tokenIn,
             tokenOut,
-            isPrivate: isPrivateSwap
+            isPrivate: isPrivateSwap,
           })
 
           onSuccess(amountIn, estimatedOutput, tokenIn, tokenOut, finalStatus.sourceTxHash || '')
         } else {
           throw new Error(finalStatus.errorMessage || 'Swap failed to complete.')
         }
-      } 
+      }
     } catch (err: any) {
       console.error(err)
       const friendlyMsg = getFriendlyErrorMessage(err)
@@ -495,7 +476,7 @@ export default function SwapModal({
       setIsSwapping(false)
 
       updateBroadcast(broadcastId, {
-        title: isCrossChain ? 'Cross-Chain Swap Failed' : 'Swap Failed',
+        title: isCross ? 'Cross-Chain Swap Failed' : 'Swap Failed',
         status: 'failed',
         badgeText: 'Failed',
         message: friendlyMsg,
@@ -509,919 +490,572 @@ export default function SwapModal({
           toIcon: TOKEN_ICONS[tokenOut],
           toChain: toChain || fromChain,
           network: fromChain,
-          isBridge: isCrossChain,
+          isBridge: isCross,
         },
       })
     }
   }
 
+  // Quick percentage handler
+  const handleQuickPercentage = (pct: number) => {
+    const bal = parseFloat(tokenInBalance)
+    if (isNaN(bal) || bal <= 0) return
+    const calculated = (bal * pct) / 100
+    setAmountIn(calculated.toFixed(tokenIn === 'cirBTC' ? 5 : 2))
+  }
+
+  // Transaction breakdown items
+  const breakdownItems: BreakdownItem[] = useMemo(() => {
+    if (!estimatedOutput || !rate || isEstimating) return []
+
+    const items: BreakdownItem[] = [
+      {
+        label: 'Exchange Rate',
+        value: `1 ${tokenIn} = ${rate} ${tokenOut}`,
+      },
+      {
+        label: 'Min. Guaranteed',
+        value: `${stopLimit} ${tokenOut}`,
+        tooltip: 'Minimum amount you will receive after slippage tolerance',
+      },
+      {
+        label: 'Slippage Tolerance',
+        value: `${(slippageTolerance * 100).toFixed(1)}%`,
+      },
+    ]
+
+    if (platformFeeEnabled && platformFeeAmount) {
+      items.push({
+        label: `Platform Fee (${platformFeePercent})`,
+        value: `${platformFeeAmount} ${tokenIn}`,
+        tooltip: 'Arcis Treasury protocol fee for routing & liquidity optimization',
+      })
+    }
+
+    items.push({
+      label: 'Liquidity Provider Fee',
+      value: '0.02%',
+    })
+
+    items.push({
+      label: 'Execution Speed',
+      value: `${SPEED_TIERS[speedTier].label} (${SPEED_TIERS[speedTier].timeEstimate.swap})`,
+      highlight: speedTier === 'turbo',
+    })
+
+    return items
+  }, [
+    estimatedOutput,
+    rate,
+    isEstimating,
+    tokenIn,
+    tokenOut,
+    stopLimit,
+    slippageTolerance,
+    platformFeeEnabled,
+    platformFeeAmount,
+    platformFeePercent,
+    speedTier,
+  ])
+
+  // Dynamic Button State
+  const ctaButtonState = useMemo(() => {
+    if (!connectedAddress) {
+      return { disabled: true, text: 'CONNECT WALLET', loading: false }
+    }
+    if (!amountIn || parseFloat(amountIn) <= 0) {
+      return { disabled: true, text: 'ENTER AN AMOUNT', loading: false }
+    }
+    if (tokenIn === tokenOut) {
+      return { disabled: true, text: 'SELECT DIFFERENT TOKENS', loading: false }
+    }
+    if (isInsufficient) {
+      return { disabled: true, text: `INSUFFICIENT ${tokenIn} BALANCE`, loading: false }
+    }
+    if (isEstimating) {
+      return { disabled: true, text: 'FETCHING BEST QUOTE...', loading: true }
+    }
+    if (estimateError) {
+      return { disabled: true, text: 'SWAP ROUTE UNAVAILABLE', loading: false }
+    }
+    if (useCustomRecipient && (!isValidEvmAddress(customRecipient) || recipientIsOwnAddress)) {
+      return { disabled: true, text: 'ENTER VALID DESTINATION', loading: false }
+    }
+    if (isSwapping) {
+      return {
+        disabled: true,
+        text: isCrossChain ? 'CROSS-CHAIN SWAPPING...' : 'SWAPPING TOKENS...',
+        loading: true,
+      }
+    }
+    return {
+      disabled: false,
+      text: isCrossChain ? 'CROSS-CHAIN SWAP' : 'SWAP TOKENS',
+      loading: false,
+      icon: <ArrowRightLeft className="w-4 h-4" />,
+    }
+  }, [
+    connectedAddress,
+    amountIn,
+    tokenIn,
+    tokenOut,
+    isInsufficient,
+    isEstimating,
+    estimateError,
+    useCustomRecipient,
+    customRecipient,
+    recipientIsOwnAddress,
+    isSwapping,
+    isCrossChain,
+  ])
+
   if (!isOpen && !isInline) return null
-  const content = (
-    <div
-      className={`relative w-full ub-asset-card arc-animate-reveal flex flex-col ${isInline ? '' : 'overflow-y-auto max-h-[90vh]'}`}
-      style={{
-        maxWidth: isInline ? 780 : 590,
-        margin: isInline ? '0 auto' : undefined,
-        padding: isInline ? '36px 44px' : '32px 36px',
-        minHeight: isInline ? 630 : undefined,
-        borderRadius: '28px',
-        boxShadow: isInline
-          ? '0 0 0 1px rgba(255, 255, 255, 0.06), 0 20px 48px -12px rgba(0, 0, 0, 0.5)'
-          : '0 0 0 1px rgba(255, 255, 255, 0.1), 0 28px 64px -12px rgba(0, 0, 0, 0.7)',
-      }}
-    >
 
-      {/* Modal Header */}
-      <div className="flex items-center justify-between mb-6 pb-5 border-b border-white/[0.08]">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{
-              color: 'var(--purple-1)',
-            }}
-          >
-            <ArrowRightLeft className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2.5 ">
-              <span className="arc-eyebrow" style={{ fontSize: 16, color: '#ffffff', fontWeight: 600, letterSpacing: '2px' }}>
-                SWAP
-              </span>
-              {isCrossChain && (
-                <span
-                  className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full animate-pulse"
-                  style={{
-                    background: 'rgba(152, 150, 255, 0.15)',
-                    color: 'var(--purple-1)',
-                    border: '1px solid rgba(152, 150, 255, 0.3)',
-                    fontFamily: 'var(--font-app)',
-                  }}
-                >
-                  CROSSCHAIN
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <PrivacyLockButton
-            isPrivate={isPrivateSwap}
-            onToggle={() => setIsPrivateSwap(prev => !prev)}
-            disabled={isSwapping || !!successData}
-            size="md"
+  // Header Actions (Network Selector Pill + Privacy + Settings + Close)
+  const headerActions = (
+    <>
+      {/* Network Selector Pill */}
+      <button
+        type="button"
+        disabled={isSwapping || !!successData}
+        onClick={() => setShowChainModal(true)}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.16] text-xs font-medium text-slate-200 transition-all cursor-pointer select-none"
+      >
+        <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+          <NetworkIcon
+            name={getChainIconId(selectedChain)}
+            variant={getChainIconId(selectedChain) === 'solana' ? 'branded' : 'background'}
+            size={16}
+            className="rounded-full"
           />
-          <button
-            type="button"
-            onClick={() => setShowSettings(!showSettings)}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-              showSettings
-                ? 'text-white bg-[rgba(152,150,255,0.2)] border border-[rgba(152,150,255,0.4)] shadow-md'
-                : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]'
-            }`}
-            title="Slippage settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-          {!isInline && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] transition-all cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
         </div>
-      </div>
+        <span className="truncate max-w-[100px]">{selectedChain.replace(/_/g, ' ')}</span>
+        <ChevronDown className="w-3 h-3 text-slate-400" />
+      </button>
 
-      {/* Swap Form */}
-      <form onSubmit={handleSwapExecution} className="flex-1 flex flex-col justify-between">
-        {error && (
-          <div className="p-3.5 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-center mb-4">
-            <AlertTriangle className="w-4 h-4 shrink-0 font-bold" />
-            <span>{error}</span>
-          </div>
-        )}
+      {/* Privacy Lock Toggle */}
+      <PrivacyLockButton
+        isPrivate={isPrivateSwap}
+        onToggle={() => setIsPrivateSwap((prev) => !prev)}
+        disabled={isSwapping || !!successData}
+        size="md"
+      />
 
-        {/* Elements arranged along Y-axis with equal vertical spacing */}
-        <div className="flex-1 flex flex-col justify-between gap-4 sm:gap-5">
+      {/* Settings / Slippage Toggle */}
+      <button
+        type="button"
+        onClick={() => setShowSettings(!showSettings)}
+        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+          showSettings
+            ? 'text-white bg-indigo-500/25 border border-indigo-500/40 shadow-sm'
+            : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]'
+        }`}
+        title="Slippage and speed settings"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
 
-        {/* Chain Selector */}
-        <div className="relative" onClick={(e) => e.stopPropagation()}>
-          <label className="block text-xs font-semibold tracking-wide text-slate-300 mb-1.5 ml-3" style={{ fontFamily: 'var(--font-app)' }}>
-            CHAIN
-          </label>
-          <button
-            type="button"
-            disabled={isSwapping || !!successData}
-            onClick={(e) => {
-              e.stopPropagation()
-              setShowChainDropdown(prev => !prev)
-            }}
-            className="w-full rounded-2xl px-4 py-3.5 text-xs text-white focus:outline-none flex items-center justify-between cursor-pointer transition-all duration-200"
-            style={{
-              background: 'rgba(11, 13, 24, 0.75)',
-              border: showChainDropdown ? '1px solid rgba(152, 150, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)',
-              boxShadow: showChainDropdown ? '0 0 16px rgba(152, 150, 255, 0.2)' : 'none',
-              fontFamily: 'var(--font-app)',
-            }}
-          >
-            <div className="flex items-center gap-2.5">
-              <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', clipPath: 'circle(50% at 50% 50%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <NetworkIcon
-                  name={getChainIconId(selectedChain)}
-                  variant={getChainIconId(selectedChain) === 'solana' ? 'branded' : 'background'}
-                  size={22}
-                  className="rounded-full overflow-hidden"
-                />
-              </div>
-              <span className="font-semibold text-white text-sm">{selectedChain.replace(/_/g, ' ')}</span>
-            </div>
-            <ChevronDown size={15} className={`transition-transform duration-200 text-slate-400 ${showChainDropdown ? 'rotate-180' : ''}`} />
-          </button>
+      {/* Close button if modal */}
+      {!isInline && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] transition-all cursor-pointer"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
+    </>
+  )
 
-          {showChainDropdown && (
-            <div
-              className="absolute z-[120] left-0 right-0 mt-2 max-h-56 overflow-y-auto rounded-2xl shadow-2xl p-1.5 space-y-1 backdrop-blur-2xl"
-              style={{
-                background: 'rgba(15, 18, 32, 0.96)',
-                border: '1px solid rgba(152, 150, 255, 0.25)',
-                boxShadow: '0 24px 48px -8px rgba(0, 0, 0, 0.7)',
-              }}
-            >
-              {supportedChains.map((c) => {
-                const iconId = getChainIconId(c.chain)
-                const isSelected = selectedChain === c.chain
-                return (
-                  <button
-                    key={c.chain}
-                    type="button"
-                    onClick={() => {
-                      setSelectedChain(c.chain)
-                      setChainSearch(c.name)
-                      setShowChainDropdown(false)
-                    }}
-                    className={`w-full text-left px-3.5 py-2.5 text-xs rounded-xl transition-all flex items-center justify-between cursor-pointer ${
-                      isSelected
-                        ? 'bg-[rgba(152,150,255,0.15)] text-white border border-[rgba(152,150,255,0.3)]'
-                        : 'text-slate-300 hover:bg-white/[0.06] hover:text-white border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div style={{ width: 20, height: 20, borderRadius: '50%', overflow: 'hidden', clipPath: 'circle(50% at 50% 50%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <NetworkIcon
-                          name={iconId}
-                          variant={iconId === 'solana' ? 'branded' : 'background'}
-                          size={20}
-                          className="rounded-full overflow-hidden"
-                        />
-                      </div>
-                      <span className="font-semibold" style={{ fontFamily: 'var(--font-app)' }}>{c.name}</span>
-                    </div>
-                    {isSelected && (
-                      <span className="text-[11px] text-[var(--purple-1)] font-semibold" style={{ fontFamily: 'var(--font-app)' }}>
-                        SELECTED
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
+  const content = (
+    <FintechCard
+      title="SWAP"
+      icon={<ArrowRightLeft className="w-5 h-5" />}
+      isInline={isInline}
+      maxWidth={isInline ? 640 : 540}
+      minHeight={isInline ? 680 : undefined}
+      pill={
+        isCrossChain ? (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+            CROSS-CHAIN
+          </span>
+        ) : undefined
+      }
+      headerActions={headerActions}
+    >
+      {/* Success View */}
+      {successData ? (
+        <SwapSuccessReceipt
+          amountIn={successData.amountIn}
+          amountOut={successData.amountOut}
+          tokenIn={successData.tokenIn}
+          tokenOut={successData.tokenOut}
+          tokenInIcon={TOKEN_ICONS[successData.tokenIn]}
+          tokenOutIcon={TOKEN_ICONS[successData.tokenOut]}
+          fromChain={fromChain}
+          toChain={toChain}
+          txHash={successData.txHash}
+          explorerUrl={getExplorerTxUrl(fromChain, successData.txHash)}
+          isCrossChain={isCrossChain}
+          isInline={isInline}
+          onSwapAgain={() => {
+            setSuccessData(null)
+            setIsSwapping(false)
+            setAmountIn('')
+            setEstimatedOutput('')
+          }}
+          onClose={onClose}
+        />
+      ) : (
+        <form onSubmit={handleSwapExecution} className="flex flex-col gap-4 flex-1 justify-between">
+          {/* Error Alert */}
+          {error && (
+            <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex items-center gap-2.5 animate-fade-in">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span className="flex-1">{error}</span>
             </div>
           )}
-        </div>
 
-        {/* Token Inputs */}
-        <div className="space-y-3 relative">
-          {/* Token In (PAY) */}
-          <div
-            className="p-5 rounded-2xl"
-            style={{
-              background: 'rgba(11, 13, 24, 0.75)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-            }}
-          >
-            <div className="flex justify-between items-center mb-2.5">
-              <label className="text-xs font-semibold tracking-wide text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
-                YOU PAY
-              </label>
-              {connectedAddress && (
-                <span className="text-xs text-slate-400" style={{ fontFamily: 'var(--font-app)' }}>
-                  Balance: <strong className="text-white ml-1">{selectedBalance} {getTokenDisplaySymbol(fromChain, tokenIn)}</strong>
-                </span>
-              )}
+          {/* Route Error Alert */}
+          {estimateError && !error && (
+            <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/25 text-amber-300 text-xs flex items-center gap-2.5 animate-fade-in">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span className="flex-1">
+                {estimateError.includes('INPUT_AMOUNT_OUT_OF_RANGE')
+                  ? 'Entered amount is outside supported swap liquidity limits.'
+                  : estimateError}
+              </span>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <input
-                  type="number"
-                  step="any"
-                  required
-                  placeholder={tokenIn === 'cirBTC' ? '0.00000' : '0.00'}
-                  value={amountIn}
-                  onChange={(e) => setAmountIn(e.target.value)}
-                  disabled={isSwapping}
-                  className="w-full bg-transparent border-0 p-0 text-2xl font-medium text-white focus:outline-none"
-                  style={{
-                    fontFamily: 'var(--fonts--space-grotesk)',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                />
-              </div>
+          )}
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setAmountIn(selectedBalance)}
-                  disabled={isSwapping}
-                  className="ub-action-btn"
-                  style={{
-                    fontSize: 10,
-                    padding: '3px 9px',
-                    borderRadius: 99,
-                    background: 'rgba(152, 150, 255, 0.12)',
-                    borderColor: 'rgba(152, 150, 255, 0.3)',
-                    color: 'var(--purple-1)',
-                  }}
-                >
-                  MAX
-                </button>
+          {/* Asset Panels Stack */}
+          <div className="relative flex flex-col gap-2.5 sm:gap-3.5">
+            {/* Input Panel 1: YOU PAY */}
+            <AssetInputPanel
+              label="YOU PAY"
+              amount={amountIn}
+              onAmountChange={(val) => setAmountIn(val)}
+              tokenSymbol={tokenIn}
+              tokenIcon={TOKEN_ICONS[tokenIn]}
+              onSelectToken={() => setShowTokenInModal(true)}
+              balance={tokenInBalance}
+              onMaxClick={() => setAmountIn(tokenInBalance)}
+              quickPercentages={[25, 50, 75, 100]}
+              onSelectPercentage={handleQuickPercentage}
+              fiatEstimate={amountIn ? `≈ $${amountIn} USD` : undefined}
+              disabled={isSwapping}
+              error={isInsufficient}
+            />
 
-                {/* Custom Token In Dropdown */}
-                <div className="relative" ref={tokenInRef}>
-                  <button
-                    type="button"
-                    disabled={isSwapping}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setShowTokenInDropdown(prev => !prev)
-                      setShowTokenOutDropdown(false)
-                    }}
-                    className="rounded-2xl px-3 py-2 text-xs text-white focus:outline-none flex items-center gap-2 cursor-pointer transition-all"
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: showTokenInDropdown ? '1px solid rgba(152, 150, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)',
-                    }}
-                  >
-                    {TOKEN_ICONS[tokenIn] && (
-                      <img src={TOKEN_ICONS[tokenIn]} alt={tokenIn} className="w-5 h-5 object-contain" />
-                    )}
-                    <span className="font-semibold">{tokenIn}</span>
-                    <ChevronDown size={14} className={`transition-transform duration-200 text-slate-400 ${showTokenInDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {showTokenInDropdown && (
-                    <div
-                      className="absolute right-0 mt-2 w-36 rounded-2xl shadow-2xl p-1.5 z-[130] space-y-1 backdrop-blur-2xl"
-                      style={{
-                        background: 'rgba(15, 18, 32, 0.96)',
-                        border: '1px solid rgba(152, 150, 255, 0.25)',
-                      }}
-                    >
-                      {['USDC', 'EURC', 'cirBTC'].map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => {
-                            setTokenIn(t)
-                            setShowTokenInDropdown(false)
-                            if (t === tokenOut) {
-                              const otherTokens = ['USDC', 'EURC', 'cirBTC'].filter(tk => tk !== t)
-                              setTokenOut(otherTokens[0])
-                            }
-                          }}
-                          className={`w-full text-left px-3 py-2 text-xs rounded-xl transition-all flex items-center gap-2.5 cursor-pointer ${
-                            tokenIn === t
-                              ? 'bg-[rgba(152,150,255,0.15)] text-white border border-[rgba(152,150,255,0.3)]'
-                              : 'text-slate-300 hover:bg-white/[0.06] hover:text-white border border-transparent'
-                          }`}
-                        >
-                          {TOKEN_ICONS[t] && (
-                            <img src={TOKEN_ICONS[t]} alt={t} className="w-4 h-4 object-contain" />
-                          )}
-                          <span className="font-semibold">{t}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Switch Direction Arrow Floating Circle */}
-          <div className="flex justify-center -my-2.5 py-0 relative z-10">
-            <button
-              type="button"
+            {/* Switch Direction Invert Button */}
+            <DirectionSwitchButton
               onClick={handleSwitchDirection}
               disabled={isSwapping}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-slate-300 hover:text-white bg-[#0f1220] border border-white/10 hover:border-[var(--purple-1)] hover:shadow-lg hover:shadow-indigo-500/20 hover:scale-110 active:scale-95 transition-all duration-300 cursor-pointer group"
-              title="Switch swap direction"
-            >
-              <ArrowUpDown className="w-4 h-4 text-slate-400 group-hover:text-[var(--purple-1)] transition-transform duration-300 group-hover:rotate-180" />
-            </button>
+            />
+
+            {/* Input Panel 2: YOU RECEIVE */}
+            <AssetInputPanel
+              label="YOU RECEIVE"
+              amount={estimatedOutput}
+              readOnly={true}
+              placeholder={tokenOut === 'cirBTC' ? '0.00000' : '0.00'}
+              tokenSymbol={tokenOut}
+              tokenIcon={TOKEN_ICONS[tokenOut]}
+              onSelectToken={() => setShowTokenOutModal(true)}
+              balance={tokenOutBalance}
+              isLoading={isEstimating}
+              fiatEstimate={estimatedOutput ? `≈ $${estimatedOutput} USD` : undefined}
+              disabled={isSwapping}
+            />
           </div>
 
-          {/* Token Out (RECEIVE) with Integrated Destination Pill */}
-          <div
-            className={`p-5 rounded-2xl transition-all duration-300 ${
-              useCustomRecipient && recipientIsValid
-                ? 'border-[rgba(152,150,255,0.25)] shadow-[0_4px_24px_rgba(152,150,255,0.06)]'
-                : 'border-white/[0.08]'
-            }`}
-            style={{
-              background: 'rgba(11, 13, 24, 0.75)',
-            }}
-          >
-            <div className="flex justify-between items-center mb-2.5">
-              <label className="text-xs font-semibold tracking-wide text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
-                YOU RECEIVE
-              </label>
-
-              {/* Destination Wallet Badge (Default: Connected Wallet, Clickable to customize) */}
+          {/* Destination Address Pill & Collapsible Field */}
+          <div className="rounded-xl bg-[#101323]/50 border border-white/[0.04] p-2.5 transition-all">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5 text-slate-400">
+                <Wallet className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-[12px]">To:</span>
+                <span className="font-mono text-slate-200 text-[12px]">
+                  {useCustomRecipient && recipientIsValid
+                    ? formatAddress(customRecipient)
+                    : formatAddress(connectedAddress) || 'Connected Wallet'}
+                </span>
+              </div>
               <button
                 type="button"
-                disabled={isSwapping}
-                onClick={() => {
-                  setIsEditingRecipient(prev => {
-                    const next = !prev
-                    if (!next) {
-                      // Closing: if no valid address was entered, revert back to default connected wallet
-                      if (!customRecipient || !isValidEvmAddress(customRecipient)) {
-                        setCustomRecipient('')
-                        setUseCustomRecipient(false)
-                        setRecipientError(null)
-                      }
-                    }
-                    return next
-                  })
-                }}
-                className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200 cursor-pointer border ${
-                  useCustomRecipient && recipientIsValid
-                    ? 'bg-[rgba(152,150,255,0.15)] border-[rgba(152,150,255,0.4)] text-white shadow-[0_0_12px_rgba(152,150,255,0.25)]'
-                    : isEditingRecipient
-                      ? 'bg-white/[0.08] border-white/25 text-white shadow-[0_0_10px_rgba(255,255,255,0.08)]'
-                      : 'bg-white/[0.03] hover:bg-white/[0.08] border-white/[0.08] hover:border-white/[0.2] text-slate-300 hover:text-white'
-                }`}
-                title={useCustomRecipient && recipientIsValid ? `Destination: ${customRecipient} (Click to change)` : `Default: ${connectedAddress || 'Connected Wallet'} (Click to change)`}
+                onClick={() => setIsEditingRecipient((prev) => !prev)}
+                className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer transition-colors"
               >
-                <span className="text-[10px] text-slate-400 font-normal">To:</span>
-                {useCustomRecipient && recipientIsValid ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-xs font-semibold text-[var(--purple-1)]">{formatAddress(customRecipient)}</span>
-                    <Check className="w-3 h-3 text-emerald-400" />
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-xs font-semibold text-slate-300 group-hover:text-white">
-                      {connectedAddress ? formatAddress(connectedAddress) : 'Default Wallet'}
-                    </span>
-                    <Edit3 className="w-3 h-3 text-slate-400 group-hover:text-[var(--purple-1)] transition-colors" />
-                  </div>
-                )}
+                <Edit3 className="w-3 h-3" />
+                <span>{isEditingRecipient ? 'Hide' : 'Change'}</span>
               </button>
             </div>
 
-            <div className="flex items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <input
-                  type="number"
-                  step="any"
-                  readOnly
-                  placeholder={tokenOut === 'cirBTC' ? '0.00000' : '0.00'}
-                  value={estimatedOutput}
-                  className="w-full bg-transparent border-0 p-0 text-2xl font-medium text-white focus:outline-none cursor-default"
-                  style={{
-                    fontFamily: 'var(--fonts--space-grotesk)',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                />
-              </div>
-
-              {/* Custom Token Out Dropdown */}
-              <div className="relative shrink-0" ref={tokenOutRef}>
-                <button
-                  type="button"
-                  disabled={isSwapping}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setShowTokenOutDropdown(prev => !prev)
-                    setShowTokenInDropdown(false)
-                  }}
-                  className="rounded-2xl px-3 py-2 text-xs text-white focus:outline-none flex items-center gap-2 cursor-pointer transition-all"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: showTokenOutDropdown ? '1px solid rgba(152, 150, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)',
-                  }}
-                >
-                  {TOKEN_ICONS[tokenOut] && (
-                    <img src={TOKEN_ICONS[tokenOut]} alt={tokenOut} className="w-5 h-5 object-contain" />
-                  )}
-                  <span className="font-semibold">{tokenOut}</span>
-                  <ChevronDown size={14} className={`transition-transform duration-200 text-slate-400 ${showTokenOutDropdown ? 'rotate-180' : ''}`} />
-                </button>
-
-                {showTokenOutDropdown && (
-                  <div
-                    className="absolute right-0 mt-2 w-36 rounded-2xl shadow-2xl p-1.5 z-[130] space-y-1 backdrop-blur-2xl"
-                    style={{
-                      background: 'rgba(15, 18, 32, 0.96)',
-                      border: '1px solid rgba(152, 150, 255, 0.25)',
-                    }}
-                  >
-                    {['USDC', 'EURC', 'cirBTC'].map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => {
-                          setTokenOut(t)
-                          setShowTokenOutDropdown(false)
-                          if (t === tokenIn) {
-                            const otherTokens = ['USDC', 'EURC', 'cirBTC'].filter(tk => tk !== t)
-                            setTokenIn(otherTokens[0])
-                          }
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs rounded-xl transition-all flex items-center gap-2.5 cursor-pointer ${
-                          tokenOut === t
-                            ? 'bg-[rgba(152,150,255,0.15)] text-white border border-[rgba(152,150,255,0.3)]'
-                            : 'text-slate-300 hover:bg-white/[0.06] hover:text-white border border-transparent'
-                        }`}
-                      >
-                        {TOKEN_ICONS[t] && (
-                          <img src={TOKEN_ICONS[t]} alt={t} className="w-4 h-4 object-contain" />
-                        )}
-                        <span className="font-semibold">{t}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Custom Destination Address Expansion Panel */}
+            {/* Custom Recipient Expanded Drawer */}
             {isEditingRecipient && (
-              <div className="mt-3.5 pt-3.5 border-t border-white/[0.08] space-y-2 animate-fade-in">
-                <div className="flex items-center justify-between text-xs text-slate-300">
-                  <div className="flex items-center gap-1.5 font-medium">
-                    <Wallet className="w-3.5 h-3.5 text-[var(--purple-1)]" />
-                    <span>Custom Destination Address</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomRecipient('')
-                      setUseCustomRecipient(false)
-                      setIsEditingRecipient(false)
-                      setRecipientError(null)
-                    }}
-                    className="text-[11px] text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    Reset to Default
-                  </button>
+              <div className="mt-2.5 pt-2 border-t border-white/[0.06] space-y-1.5 animate-fade-in">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  {customRecipient && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomRecipient('')
+                        setUseCustomRecipient(false)
+                        setRecipientError(null)
+                      }}
+                      className="text-slate-500 hover:text-slate-300 cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
                 </div>
 
-                {/* Input Box with Icons */}
                 <div className="relative flex items-center">
                   <input
                     ref={recipientInputRef}
                     type="text"
-                    placeholder={'0x...'}
+                    placeholder="0x..."
                     value={customRecipient}
                     onChange={(e) => {
-                      const value = e.target.value.trim()
-                      setCustomRecipient(value)
-                      setUseCustomRecipient(isValidEvmAddress(value))
+                      const val = e.target.value.trim()
+                      setCustomRecipient(val)
+                      setUseCustomRecipient(isValidEvmAddress(val))
                       setRecipientError(null)
                     }}
-                    onBlur={() => {
-                      if (customRecipient && !isValidEvmAddress(customRecipient)) {
-                        setRecipientError('Please enter a valid EVM address.')
-                      }
-                    }}
-                    disabled={isSwapping}
-                    className={`w-full rounded-xl pl-3.5 pr-16 py-3 text-xs text-white focus:outline-none font-mono transition-all ${
+                    className={`w-full rounded-xl pl-3 pr-14 py-2 text-xs text-white font-mono focus:outline-none transition-all ${
                       recipientError
-                        ? 'bg-rose-500/[0.08] border border-rose-500/40 focus:border-rose-500'
+                        ? 'bg-rose-500/10 border border-rose-500/40'
                         : recipientIsValid
-                          ? 'bg-[rgba(11,13,24,0.95)] border-2 border-emerald-500 focus:border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.3)]'
-                          : 'bg-[rgba(11,13,24,0.75)] border border-white/10 focus:border-[var(--purple-1)]'
+                        ? 'bg-white/[0.04] border border-emerald-500/50'
+                        : 'bg-white/[0.04] border border-white/[0.08] focus:border-indigo-500/50'
                     }`}
                   />
-
-                  {/* Action Buttons inside Input */}
                   <div className="absolute right-2 flex items-center gap-1">
-                    {customRecipient && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCustomRecipient('')
-                          setUseCustomRecipient(false)
-                          setRecipientError(null)
-                        }}
-                        className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer"
-                        title="Clear"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={handlePasteCustomRecipient}
-                      disabled={isSwapping}
+                      className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
                       title="Paste from clipboard"
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white transition-all border border-white/[0.06] cursor-pointer active:scale-95"
                     >
                       <Clipboard className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
 
-                {/* Recipient Error Display */}
                 {recipientError && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1.5 rounded-xl animate-shake">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{recipientError}</span>
-                  </div>
+                  <p className="text-[10px] text-rose-400">{recipientError}</p>
                 )}
               </div>
             )}
           </div>
-        </div>
 
-        {/* Error or Quote Summary Card */}
-        {estimateError && (
-          <div className="p-4 bg-rose-500/10 border border-rose-500/25 rounded-2xl text-rose-400 text-xs flex gap-2.5 font-[var(--font-app)] items-start">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold block">Route Error</span>
-              <p className="text-xs text-slate-300 mt-0.5">
-                {estimateError.includes('INPUT_AMOUNT_OUT_OF_RANGE') || estimateError.includes('outside the supported liquidity limits')
-                  ? 'Girdiğiniz tutar minimum takas limitinin altındadır.'
-                  : estimateError}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Quote details özet kartı */}
-        {estimatedOutput && !estimateError && !isEstimating && (
-          <div
-            className="p-4.5 sm:p-5 rounded-2xl space-y-2.5 text-xs animate-fade-in"
-            style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(255, 255, 255, 0.07)',
-              fontFamily: 'var(--font-app)',
-              color: 'var(--fp-3)',
-            }}
-          >
-            <div className="flex justify-between items-center text-white">
-              <span className="font-semibold">Live Quote Preview</span>
-              <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-500/25">Best Rate</span>
-            </div>
-            <div className="flex justify-between border-b border-white/[0.06] pb-2 pt-0.5">
-              <span>Exchange Rate</span>
-              <span className="text-white font-medium">1 {getTokenDisplaySymbol(fromChain, tokenIn)} = {rate} {getTokenDisplaySymbol(toChain, tokenOut)}</span>
-            </div>
-            <div className="flex justify-between border-b border-white/[0.06] pb-2">
-              <span>Minimum Guaranteed (Stop Limit)</span>
-              <span className="text-white font-medium">{stopLimit} {getTokenDisplaySymbol(toChain, tokenOut)}</span>
-            </div>
-            <div className="flex justify-between border-b border-white/[0.06] pb-2">
-              <span>Slippage Tolerance</span>
-              <span className="text-slate-200 font-mono">{(slippageTolerance * 100).toFixed(1)}%</span>
-            </div>
-            
-            {/* Transparent Fees Breakdown */}
-            <div className="space-y-1.5 pt-1">
-              <div className="text-[11px] font-semibold text-[var(--purple-1)] uppercase tracking-wider">Fee Breakdown</div>
-              
-              {/* Platform Fee */}
-              {platformFeeEnabled && platformFeeAmount && (
-                <div className="flex justify-between items-center text-slate-300">
-                  <div className="flex items-center gap-1.5">
-                    <span>Arcis Platform Fee ({platformFeePercent}):</span>
-                    <a
-                      href={TREASURY_EXPLORER_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`Treasury: ${formatTreasuryAddress(TREASURY_ADDRESS)} (${REVENUE_SHARE_TOOLTIP})`}
-                      className="text-[9px] bg-[rgba(152,150,255,0.15)] text-[var(--purple-1)] hover:bg-[rgba(152,150,255,0.25)] px-1.5 py-0.2 rounded-full border border-[rgba(152,150,255,0.3)] flex items-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <span>{REVENUE_SHARE_LABEL}</span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  </div>
-                  <span className="font-mono text-slate-200">{platformFeeAmount} {getTokenDisplaySymbol(fromChain, tokenIn)}</span>
-                </div>
-              )}
-
-              {/* Provider Fee / SDK Fees */}
-              <div className="flex justify-between items-center text-slate-300">
-                <span>DEX Liquidity Provider Fee</span>
-                <span className="font-mono text-slate-200">0.02%</span>
-              </div>
-
-              {/* Execution Speed & Priority Link */}
-              <div className="flex justify-between items-center text-slate-300 pt-0.5">
-                <span>Execution Priority</span>
-                <button
-                  type="button"
-                  onClick={() => setShowSettings(true)}
-                  className={`font-mono text-xs font-semibold flex items-center gap-1.5 px-2.5 py-1 rounded-full border cursor-pointer transition-all duration-200 group ${
-                    speedTier === 'turbo'
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 hover:border-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
-                      : speedTier === 'fast'
-                        ? 'bg-[rgba(152,150,255,0.2)] text-[var(--purple-1,#9896ff)] border-[rgba(152,150,255,0.45)] hover:bg-[rgba(152,150,255,0.3)] hover:border-[rgba(152,150,255,0.65)] shadow-[0_0_12px_rgba(152,150,255,0.2)]'
-                        : 'bg-blue-500/15 text-blue-300 border-blue-500/35 hover:bg-blue-500/25 hover:border-blue-500/55 shadow-[0_0_10px_rgba(59,130,246,0.18)]'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                      speedTier === 'turbo'
-                        ? 'bg-amber-400 shadow-[0_0_6px_#f59e0b]'
-                        : speedTier === 'fast'
-                          ? 'bg-[var(--purple-1,#9896ff)] shadow-[0_0_6px_#9896ff]'
-                          : 'bg-blue-400 shadow-[0_0_6px_#60a5fa]'
-                    }`}
-                  />
-                  <span>{SPEED_TIERS[speedTier].label} {SPEED_TIERS[speedTier].timeEstimate.swap}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        </div>
-
-        {/* Submit Swap Button placed near the bottom of the body */}
-        {!successData && (
-          <div className="mt-auto pt-6">
-            <button
-              type="submit"
-              disabled={
-                isSwapping ||
-                isInsufficient ||
-                tokenIn === tokenOut ||
-                !!estimateError ||
-                isEstimating ||
-                (useCustomRecipient && !isValidEvmAddress(customRecipient)) ||
-                !!recipientError
+          {/* Live Quote & Fee Breakdown Accordion */}
+          {breakdownItems.length > 0 && (
+            <TransactionBreakdown
+              summaryTitle={`1 ${tokenIn} ≈ ${rate} ${tokenOut}`}
+              summaryBadge={
+                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold px-2 py-0.2 rounded-full border border-emerald-500/20">
+                  Best Rate
+                </span>
               }
-              className="w-full py-4 rounded-full text-sm font-semibold tracking-wide text-white bg-blue-900 hover:bg-blue-800 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg hover:shadow-blue-900/30 active:scale-[0.99]"
-              style={{
-                fontFamily: 'var(--font-app)',
-                cursor: (
-                  isSwapping ||
-                  isInsufficient ||
-                  tokenIn === tokenOut ||
-                  !!estimateError ||
-                  isEstimating ||
-                  (useCustomRecipient && !isValidEvmAddress(customRecipient)) ||
-                  !!recipientError
-                ) ? 'not-allowed' : 'pointer',
-              }}
+              items={breakdownItems}
+              defaultOpen={false}
+            />
+          )}
+
+          {/* Primary Action Button */}
+          <div className="pt-2">
+            <FintechActionButton
+              disabled={ctaButtonState.disabled}
+              loading={ctaButtonState.loading}
+              loadingText={ctaButtonState.text}
+              icon={ctaButtonState.icon}
             >
-              {isSwapping ? (
-                <>
-                  <RefreshCw className="w-4 h-4 arcis-spin" />
-                  <span>{isCrossChain ? 'CROSS-CHAIN SWAPPING...' : 'SWAPPING...'}</span>
-                </>
-              ) : (
-                <>
-                  <ArrowRightLeft className="w-4 h-4" />
-                  <span>{isInsufficient ? 'INSUFFICIENT BALANCE' : isCrossChain ? 'CROSS-CHAIN SWAP' : 'SWAP'}</span>
-                </>
-              )}
-            </button>
+              {ctaButtonState.text}
+            </FintechActionButton>
           </div>
-        )}
-        
-        {/* Success Summary */}
-        {successData && (
-          <div
-            className="mt-6 p-5 rounded-2xl space-y-4 animate-fade-in"
-            style={{
-              background: 'rgba(1, 208, 98, 0.08)',
-              border: '1px solid rgba(1, 208, 98, 0.25)',
-              fontFamily: 'var(--font-app)',
-            }}
-          >
-            <div className="flex items-center gap-2.5 text-emerald-400 font-semibold text-sm">
-              <ShieldCheck className="w-5 h-5 text-emerald-400 animate-bounce" />
-              <span>SWAP COMPLETED SUCCESSFULLY!</span>
-            </div>
+        </form>
+      )}
 
-            <div
-              className="p-4 rounded-xl space-y-2.5 text-xs"
-              style={{
-                background: 'rgba(11, 13, 24, 0.6)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-              }}
-            >
-              <div className="flex justify-between border-b border-white/[0.06] pb-2 text-slate-300">
-                <span>Swapped Amount</span>
-                <span className="text-white font-semibold">{successData.amountIn} {getTokenDisplaySymbol(fromChain, successData.tokenIn)} {"→"} {successData.amountOut} {getTokenDisplaySymbol(toChain, successData.tokenOut)}</span>
-              </div>
-              <div className="flex justify-between text-slate-300">
-                <span>Route Type</span>
-                <span className="text-white font-medium">{isCrossChain ? 'Cross-Chain CCTP Swap' : 'Same-Chain Swap'}</span>
-              </div>
-            </div>
+      {/* Token In Selector Modal */}
+      <TokenSelectorModal
+        isOpen={showTokenInModal}
+        onClose={() => setShowTokenInModal(false)}
+        tokens={tokenList}
+        selectedToken={tokenIn}
+        onSelectToken={(sym) => {
+          setTokenIn(sym)
+          if (sym === tokenOut) {
+            const others = ['USDC', 'EURC', 'cirBTC'].filter((t) => t !== sym)
+            setTokenOut(others[0])
+          }
+        }}
+        title="Pay with"
+      />
 
-            <div className="flex gap-2.5 pt-2">
-              {successData.txHash && (
-                <a
-                  href={getExplorerTxUrl(fromChain, successData.txHash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ub-action-btn ub-action-btn-primary flex-1 justify-center py-2.5 text-xs font-semibold"
-                >
-                  <ExternalLink className="w-3.5 h-3.5 mr-1" />
-                  <span>VIEW EXPLORER</span>
-                </a>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setSuccessData(null)
-                  setIsSwapping(false)
-                }}
-                className="ub-action-btn ub-action-btn-primary flex-1 justify-center py-2.5 text-xs font-semibold"
-              >
-                <ArrowRightLeft className="w-4 h-4" />
-                <span>SWAP AGAIN</span>
-              </button>
-              {!isInline && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="ub-action-btn flex-1 justify-center py-2.5 text-xs font-semibold"
-                >
-                  <span>CLOSE</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+      {/* Token Out Selector Modal */}
+      <TokenSelectorModal
+        isOpen={showTokenOutModal}
+        onClose={() => setShowTokenOutModal(false)}
+        tokens={tokenList}
+        selectedToken={tokenOut}
+        onSelectToken={(sym) => {
+          setTokenOut(sym)
+          if (sym === tokenIn) {
+            const others = ['USDC', 'EURC', 'cirBTC'].filter((t) => t !== sym)
+            setTokenIn(others[0])
+          }
+        }}
+        title="Receive"
+      />
 
-      </form>
-
-    </div>
+      {/* Network Selector Modal */}
+      <ChainSelectorModal
+        isOpen={showChainModal}
+        onClose={() => setShowChainModal(false)}
+        chains={supportedChains}
+        selectedChain={selectedChain}
+        onSelectChain={(chainKey) => setSelectedChain(chainKey)}
+        getChainIconId={getChainIconId}
+        title="Select Network"
+      />
+    </FintechCard>
   )
 
-  // Settings Window / Modal rendered over document.body via Portal
-  const settingsModalWindow = showSettings && typeof document !== 'undefined'
-    ? createPortal(
-        <div
-          className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in"
-          onClick={() => setShowSettings(false)}
-        >
+  // Settings Modal rendered over document.body via Portal
+  const settingsModalWindow =
+    showSettings && typeof document !== 'undefined'
+      ? createPortal(
           <div
-            className="w-full max-w-[540px] rounded-3xl p-7 sm:p-8 shadow-2xl relative border space-y-6 animate-scale-in"
-            style={{
-              background: 'linear-gradient(180deg, rgba(17, 21, 38, 0.98) 0%, rgba(11, 13, 24, 0.99) 100%)',
-              borderColor: 'rgba(152, 150, 255, 0.35)',
-              boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(152, 150, 255, 0.15)',
-              fontFamily: 'var(--font-app)',
-            }}
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in"
+            onClick={() => setShowSettings(false)}
           >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3.5 border-b border-white/[0.08]">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center"
-                  style={{
-                    background: 'rgba(152, 150, 255, 0.12)',
-                    border: '1px solid rgba(152, 150, 255, 0.25)',
-                    color: 'var(--purple-1)',
-                  }}
+            <div
+              className="w-full max-w-[480px] rounded-3xl p-6 sm:p-7 shadow-2xl relative border space-y-5 animate-scale-in"
+              style={{
+                background: 'linear-gradient(180deg, rgba(16, 20, 36, 0.98) 0%, rgba(10, 12, 22, 0.99) 100%)',
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(99, 102, 241, 0.15)',
+                fontFamily: 'var(--font-app)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3.5 border-b border-white/[0.06]">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                    <Settings className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-white tracking-wide">
+                      Transaction Settings
+                    </h3>
+                    <p className="text-[11px] text-slate-400">Slippage and execution preferences</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(false)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] transition-all cursor-pointer"
                 >
-                  <Settings className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-m font-semibold text-white tracking-wide" style={{ fontFamily: 'var(--font-app)' }}>
-                    SETTINGS
-                  </h3>
-                  <p className="text-[11px] text-slate-400">Transaction & slippage preferences</p>
-                </div>
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] transition-all cursor-pointer"
-                title="Close settings"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            {/* Slippage Tolerance Section */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-[14px] font-semibold text-slate-300 tracking-wider flex items-center gap-1.5">
-                  SLIPPAGE TOLERANCE
-                </label>
-                <span className="text-[14px] text-[var(--purple-1)] font-semibold font-mono px-2.5 py-0.5 rounded-full bg-[rgba(152,150,255,0.12)] border border-[rgba(152,150,255,0.25)]">
-                  % {(slippageTolerance * 100).toFixed(1)}
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Your transaction will revert if the price changes unfavorably by more than this percentage.
-              </p>
+              {/* Slippage Tolerance */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300 tracking-wide">
+                    SLIPPAGE TOLERANCE
+                  </label>
+                  <span className="text-xs text-indigo-400 font-semibold font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
+                    {(slippageTolerance * 100).toFixed(1)}%
+                  </span>
+                </div>
 
-              {/* Slippage Presets */}
-              <div className="grid grid-cols-4 gap-2">
-                {(['0.1', '0.5', '1.0'] as const).map(type => (
+                <div className="grid grid-cols-4 gap-2">
+                  {(['0.1', '0.5', '1.0'] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSlippageType(type)
+                        setCustomSlippage('')
+                      }}
+                      className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
+                        selectedSlippageType === type
+                          ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm'
+                          : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
+                      }`}
+                    >
+                      {type}%
+                    </button>
+                  ))}
                   <button
-                    key={type}
                     type="button"
-                    onClick={() => {
-                      setSelectedSlippageType(type)
-                      setCustomSlippage('')
-                    }}
+                    onClick={() => setSelectedSlippageType('custom')}
                     className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
-                      selectedSlippageType === type
-                        ? 'text-white bg-[rgba(152,150,255,0.25)] border border-[rgba(152,150,255,0.5)] shadow-md shadow-indigo-500/20'
+                      selectedSlippageType === 'custom'
+                        ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm'
                         : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
                     }`}
                   >
-                    {type}%
+                    Custom
                   </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setSelectedSlippageType('custom')}
-                  className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
-                    selectedSlippageType === 'custom'
-                      ? 'text-white bg-[rgba(152,150,255,0.25)] border border-[rgba(152,150,255,0.5)] shadow-md shadow-indigo-500/20'
-                      : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
-                  }`}
-                >
-                  Custom
-                </button>
+                </div>
+
+                {selectedSlippageType === 'custom' && (
+                  <div className="space-y-1.5 pt-1 animate-fade-in">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.01"
+                        max="50"
+                        placeholder="e.g. 2.5"
+                        value={customSlippage}
+                        onChange={(e) => setCustomSlippage(e.target.value)}
+                        autoFocus
+                        className="w-full rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none transition-all pr-8 bg-white/[0.04] border border-indigo-500/40 focus:border-indigo-500"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                        %
+                      </span>
+                    </div>
+                    {isHighSlippageWarning && (
+                      <div className="flex gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2 rounded-xl">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>High slippage may result in frontrunning or poor execution.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Custom Slippage Input */}
-              {selectedSlippageType === 'custom' && (
-                <div className="space-y-2 pt-1 animate-fade-in">
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0.01"
-                      max="50"
-                      placeholder="e.g. 2.5"
-                      value={customSlippage}
-                      onChange={(e) => setCustomSlippage(e.target.value)}
-                      autoFocus
-                      className="w-full rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all pr-8"
-                      style={{
-                        background: 'rgba(11, 13, 24, 0.75)',
-                        border: '1px solid rgba(152, 150, 255, 0.3)',
-                      }}
-                    />
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
-                      %
-                    </span>
-                  </div>
-                  {isHighSlippageWarning && (
-                    <div className="flex gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl leading-relaxed">
-                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>High slippage tolerance may result in frontrunning or unfavorable execution rate.</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+              {/* Speed Priority Section */}
+              <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+                <SpeedFeeSelector
+                  selectedTier={speedTier}
+                  onSelectTier={(tier) => setSpeedTier(tier)}
+                  context="swap"
+                  disabled={isSwapping}
+                />
+              </div>
 
-            {/* Speed & Execution Priority Section */}
-            <div className="space-y-2 pt-2 border-t border-white/[0.08]">
-              <SpeedFeeSelector
-                selectedTier={speedTier}
-                onSelectTier={(tier) => setSpeedTier(tier)}
-                context="swap"
-                disabled={isSwapping}
-              />
-            </div>
-
-            {/* Footer Action Button */}
-            <div className="pt-2">
+              {/* Save button */}
               <button
                 type="button"
                 onClick={() => setShowSettings(false)}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold tracking-wide text-white transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                style={{
-                  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                  boxShadow: '0 4px 16px rgba(152, 150, 255, 0.3)',
-                }}
+                className="w-full py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
               >
                 Save Settings
               </button>
             </div>
-          </div>
-        </div>,
-        document.body
-      )
-    : null
+          </div>,
+          document.body
+        )
+      : null
 
   if (isInline) {
     return (
@@ -1441,4 +1075,3 @@ export default function SwapModal({
     </>
   )
 }
-
