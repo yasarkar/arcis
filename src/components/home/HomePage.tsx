@@ -1,43 +1,16 @@
 import { useState } from 'react'
-import {
-  Sparkles,
-  ArrowRight,
-  ShieldCheck,
-  Zap,
-  Coins,
-  Globe,
-  Layers,
-  Bot,
-  Cpu,
-  ExternalLink,
-  ChevronDown,
-  Check,
-  ArrowUpRight,
-  ArrowRightLeft,
-  Lock,
-  Droplets,
-  Terminal,
-  Gauge,
-  KeyRound,
-  Compass,
-  FileText,
-  Activity,
-  CheckCircle2,
-  Database,
-  Shuffle
-} from 'lucide-react'
+import { ArrowRight, ChevronDown, Check, CheckCircle2 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 
 // Visual Artwork Assets
-import heroNexusImg from '../../assets/hero/arcis_unified_multichain.jpg'
-import unifiedMultichainImg from '../../assets/hero/arcis_unified_multichain.jpg'
-import nativeGasImg from '../../assets/hero/arcis_native_gas.jpg'
-import passkeyVaultImg from '../../assets/hero/arcis_passkey_vault.jpg'
-import realYieldImg from '../../assets/hero/arcis_real_yield.jpg'
-import agentSettlementImg from '../../assets/hero/arcis_agent_settlement.jpg'
+import heroTitaniumCardImg from '../../assets/hero/Arcis_Titanium_Card.jpg'
+import unifiedVaultImg from '../../assets/hero/Arcis_Unified_Vault.jpg'
+import passkeyVaultImg from '../../assets/hero/Arcis_Passkey_Vault.jpg'
+import nativeGasImg from '../../assets/hero/Arcis_Native_Gas.jpg'
+import realYieldImg from '../../assets/hero/Arcis_Real_Yield.jpg'
+import aiAgentImg from '../../assets/hero/Arcis_AI_Agent.jpg'
+import universalBridgeImg from '../../assets/hero/Arcis_Universal_Bridge.jpg'
 import usdcTokenImg from '../../assets/Token-Icon/USDC Token.svg'
-
-import { arcTestnet } from '../../config/arcChain'
 
 type TabType = 'home' | 'unified' | 'send' | 'swap' | 'bridge' | 'pools' | 'ai-services' | 'history'
 
@@ -306,26 +279,9 @@ export default function HomePage({
       ],
       ctaText: 'Launch Unified Balance',
       actionTab: 'unified' as TabType,
-      image: unifiedMultichainImg,
+      image: unifiedVaultImg,
       accentColor: 'rgba(56, 189, 248, 0.25)',
       badgeBorder: 'border-sky-500/40 text-sky-400',
-    },
-    {
-      id: 'native-gas',
-      title: 'Zero ETH, Zero Volatility: Native USDC Gas Engine',
-      headline: 'The First Institutional L1 Blockchain Eliminating Gas Price Volatility',
-      description:
-        'On Arc L1, transaction fees are paid natively in USDC instead of volatile native tokens like ETH. Never worry about holding ETH for gas. Every transfer, contract call, and swap executes with predictable, sub-penny USDC transaction fees.',
-      bullets: [
-        'Predictable Accounting: Fixed, forecastable gas fees for enterprises and retail users alike.',
-        'Dual Gas Engine: 18 Dec Native Gas & 6 Dec ERC-20 dual precision architecture.',
-        'Sub-Second Deterministic Finality: Irreversible on-chain settlement in under 1 second.',
-      ],
-      ctaText: 'Send Instant Transfer',
-      actionTab: 'send' as TabType,
-      image: nativeGasImg,
-      accentColor: 'rgba(34, 197, 94, 0.25)',
-      badgeBorder: 'border-emerald-500/40 text-emerald-400',
     },
     {
       id: 'passkey-msca',
@@ -343,6 +299,23 @@ export default function HomePage({
       image: passkeyVaultImg,
       accentColor: 'rgba(6, 182, 212, 0.25)',
       badgeBorder: 'border-cyan-500/40 text-cyan-400',
+    },
+    {
+      id: 'native-gas',
+      title: 'Zero ETH, Zero Volatility: Native USDC Gas Engine',
+      headline: 'The First Institutional L1 Blockchain Eliminating Gas Price Volatility',
+      description:
+        'On Arc L1, transaction fees are paid natively in USDC instead of volatile native tokens like ETH. Never worry about holding ETH for gas. Every transfer, contract call, and swap executes with predictable, sub-penny USDC transaction fees.',
+      bullets: [
+        'Predictable Accounting: Fixed, forecastable gas fees for enterprises and retail users alike.',
+        'Dual Gas Engine: 18 Dec Native Gas & 6 Dec ERC-20 dual precision architecture.',
+        'Sub-Second Deterministic Finality: Irreversible on-chain settlement in under 1 second.',
+      ],
+      ctaText: 'Send Instant Transfer',
+      actionTab: 'send' as TabType,
+      image: nativeGasImg,
+      accentColor: 'rgba(34, 197, 94, 0.25)',
+      badgeBorder: 'border-emerald-500/40 text-emerald-400',
     },
     {
       id: 'real-yield',
@@ -374,7 +347,7 @@ export default function HomePage({
       ],
       ctaText: 'Explore AI Services',
       actionTab: 'ai-services' as TabType,
-      image: agentSettlementImg,
+      image: aiAgentImg,
       accentColor: 'rgba(168, 85, 247, 0.25)',
       badgeBorder: 'border-purple-500/40 text-purple-400',
     },
@@ -391,7 +364,7 @@ export default function HomePage({
       ],
       ctaText: 'Bridge & Swap Tokens',
       actionTab: 'bridge' as TabType,
-      image: heroNexusImg,
+      image: universalBridgeImg,
       accentColor: 'rgba(99, 102, 241, 0.25)',
       badgeBorder: 'border-indigo-500/40 text-indigo-400',
     },
@@ -472,87 +445,78 @@ export default function HomePage({
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-indigo-500/20 rounded-full blur-[140px] pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-cyan-500/20 rounded-full blur-[140px] pointer-events-none" />
 
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-center">
+        {/* Background Hero Visual Artwork (Positioned Further to the Right, Edge-Feathered Dissolve) */}
+        <div className="absolute -right-48 sm:-right-64 md:-right-80 lg:-right-88 xl:-right-[26rem] top-1/2 -translate-y-1/2 w-[620px] sm:w-[780px] md:w-[940px] lg:w-[1120px] xl:w-[1260px] pointer-events-none select-none z-0 opacity-55 sm:opacity-70 md:opacity-85 lg:opacity-95 transition-all duration-700">
+          {/* Subtle Ambient Backlight */}
+          <div className="absolute inset-0 bg-blue-600/10 rounded-full blur-[140px] pointer-events-none -z-10" />
 
-          {/* Left Column: Messaging & CTAs */}
-          <div className="lg:col-span-6 xl:col-span-6 flex flex-col gap-6 text-left">
+          <img
+            src={heroTitaniumCardImg}
+            alt="Arcis L1 Institutional Layer 1 Titanium Card"
+            className="w-full h-auto object-contain transform scale-100 lg:scale-105"
+            style={{
+              WebkitMaskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
+              maskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
+            }}
+          />
+        </div>
 
-            {/* Main Welcome Heading */}
-            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] text-white">
-              Build & Scale <br />
-              <span className="text-gradient">Real-World Finance</span> <br />
-              on Arc
-            </h1>
+        {/* Foreground Content: Messaging & CTAs */}
+        <div className="relative z-10 max-w-2xl lg:max-w-3xl flex flex-col gap-6 text-left py-2">
 
-            {/* Motto / Slogan */}
-            <p className="text-base sm:text-lg md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl">
-              <strong className="text-white font-semibold">Arcis</strong> is the next-generation economic operating system built on Arc
-              Circle's blockchain with native USDC gas delivering
-              <span className="text-sky-300 font-medium"> unified liquidity across 13+ chains</span>,
-              <span className="text-purple-300 font-medium"> 100% real-yield vaults</span>, and
-              <span className="text-cyan-300 font-medium"> autonomous AI agent settlement</span>.
-            </p>
+          {/* Main Welcome Heading */}
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] text-white">
+            Build & Scale <br />
+            <span className="text-gradient">Real-World Finance</span> <br />
+            on Arc
+          </h1>
 
-            {/* Fast Bullet Points */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs sm:text-sm text-slate-300">
-              <div className="flex items-center gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Sub-Second Deterministic Finality (&lt;1.0s)</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Zero ETH — Native USDC Gas Engine</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Seedless Biometric Passkeys (WebAuthn)</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>x402 Agent Micropayments & AI Copilot</span>
-              </div>
+          {/* Motto / Slogan */}
+          <p className="text-base sm:text-lg md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl">
+            <strong className="text-white font-semibold">Arcis</strong> is the next-generation economic operating system built on Arc
+            Circle's blockchain with native USDC gas delivering
+            <span className="text-sky-300 font-medium"> unified liquidity across 13+ chains</span>,
+            <span className="text-purple-300 font-medium"> 100% real-yield vaults</span>, and
+            <span className="text-cyan-300 font-medium"> autonomous AI agent settlement</span>.
+          </p>
+
+          {/* Fast Bullet Points */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs sm:text-sm text-slate-300">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Sub-Second Deterministic Finality (&lt;1.0s)</span>
             </div>
-
-            {/* Call To Action Button Group */}
-            <div className="flex flex-wrap items-center gap-3 pt-4">
-              <button
-                type="button"
-                onClick={() => onNavigate('unified')}
-                className="arc-btn arc-btn-primary px-6 py-3.5 rounded-full text-sm font-semibold flex items-center gap-2 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:scale-105 active:scale-95 transition-all cursor-pointer"
-              >
-                <span>DApp</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-              <a
-                href="#features-showcase"
-                className="px-4 py-3.5 text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
-              >
-                <span>Explore Features</span>
-                <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
-              </a>
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Zero ETH — Native USDC Gas Engine</span>
             </div>
-
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Seedless Biometric Passkeys (WebAuthn)</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>x402 Agent Micropayments & AI Copilot</span>
+            </div>
           </div>
 
-          {/* Right Column: Hero Visual Artwork (Larger, Borderless, Feathered & Dispersed) */}
-          <div className="lg:col-span-6 xl:col-span-6 relative flex justify-center items-center py-4 lg:py-0">
-
-            {/* Ambient Color Dispersion Layers (Görselin renklerini dışarıya yumuşakça dağıtan hareler) */}
-            <div className="absolute -inset-4 md:-inset-8 bg-gradient-to-tr from-blue-600/30 via-sky-500/25 to-indigo-600/30 rounded-full blur-[80px] md:blur-[110px] opacity-75 pointer-events-none -z-10 animate-pulse-slow" />
-            <div className="absolute inset-0 bg-sky-400/20 rounded-full blur-[140px] opacity-60 pointer-events-none -z-10" />
-
-            {/* Borderless Image Container with Radial Feather Mask */}
-            <div className="relative w-full max-w-xl lg:max-w-2xl xl:max-w-3xl group flex justify-center">
-              <img
-                src={heroNexusImg}
-                alt="Arcis Economic Operating System Nexus"
-                className="w-full h-auto object-cover transform group-hover:scale-[1.02] transition-transform duration-700 ease-out"
-                style={{
-                  WebkitMaskImage: 'radial-gradient(ellipse 88% 84% at 50% 50%, rgba(0,0,0,1) 48%, rgba(0,0,0,0.85) 68%, rgba(0,0,0,0) 100%)',
-                  maskImage: 'radial-gradient(ellipse 88% 84% at 50% 50%, rgba(0,0,0,1) 48%, rgba(0,0,0,0.85) 68%, rgba(0,0,0,0) 100%)',
-                }}
-              />
-            </div>
+          {/* Call To Action Button Group */}
+          <div className="flex flex-wrap items-center gap-3 pt-4">
+            <button
+              type="button"
+              onClick={() => onNavigate('unified')}
+              className="arc-btn arc-btn-primary px-6 py-3.5 rounded-full text-sm font-semibold flex items-center gap-2 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            >
+              <span>DApp</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <a
+              href="#features-showcase"
+              className="px-4 py-3.5 text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
+            >
+              <span>Explore Features</span>
+              <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
+            </a>
           </div>
 
         </div>
@@ -658,81 +622,97 @@ export default function HomePage({
             return (
               <div
                 key={pillar.id}
-                className="arc-card rounded-3xl p-6 sm:p-8 md:p-10 border border-white/10 bg-gradient-to-b from-slate-900/80 to-slate-950/90 relative overflow-hidden group"
+                className="arc-card rounded-3xl p-6 sm:p-8 md:p-12 border border-white/10 bg-gradient-to-b from-slate-900/80 to-slate-950/90 relative overflow-hidden group"
               >
                 {/* Background Ambient Glow */}
                 <div
-                  className="absolute top-0 right-0 w-80 h-80 rounded-full blur-[120px] pointer-events-none opacity-40 group-hover:opacity-70 transition-opacity"
+                  className="absolute top-0 right-0 w-96 h-96 rounded-full blur-[140px] pointer-events-none opacity-35 group-hover:opacity-60 transition-opacity"
                   style={{ background: pillar.accentColor }}
                 />
 
-                <div className={`grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-12 items-center ${isReversed ? 'lg:flex-row-reverse' : ''}`}>
+                {/* Background Visual Artwork (Ambient Background Layer, Feather-Dissolved) */}
+                {pillar.image && (
+                  <div
+                    className={`absolute ${
+                      isReversed
+                        ? '-left-28 sm:-left-36 md:-left-48 lg:-left-56 xl:-left-56'
+                        : '-right-20 sm:-right-28 md:-right-36 lg:-right-40 xl:-right-48'
+                    } top-1/2 -translate-y-1/2 w-[400px] sm:w-[520px] md:w-[640px] lg:w-[760px] xl:w-[860px] pointer-events-none select-none z-0 opacity-40 sm:opacity-55 md:opacity-75 lg:opacity-90 transition-all duration-700`}
+                  >
+                    {/* Soft Backlight */}
+                    <div
+                      className="absolute inset-0 rounded-full blur-[110px] pointer-events-none opacity-35 -z-10"
+                      style={{ background: pillar.accentColor }}
+                    />
 
-                  {/* Text Column */}
-                  <div className={`lg:col-span-7 flex flex-col gap-5 text-left ${isReversed ? 'lg:order-2' : 'lg:order-1'}`}>
-
-                    <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-snug">
-                      {pillar.title}
-                    </h3>
-
-                    <h4 className="text-sm sm:text-base font-semibold text-sky-300">
-                      {pillar.headline}
-                    </h4>
-
-                    <p className="text-sm sm:text-base text-slate-300 leading-relaxed font-normal">
-                      {pillar.description}
-                    </p>
-
-                    {/* Bullet Points */}
-                    <ul className="flex flex-col gap-2.5 pt-2 text-xs sm:text-sm text-slate-300">
-                      {pillar.bullets.map((b, bIdx) => (
-                        <li key={bIdx} className="flex items-start gap-2.5">
-                          <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
-                          <span>{b}</span>
-                        </li>
-                      ))}
-                    </ul>
-
-                    {/* Action Button */}
-                    <div className="pt-4">
-                      {pillar.customAction ? (
-                        <button
-                          type="button"
-                          onClick={pillar.customAction}
-                          className="arc-btn arc-btn-primary px-5 py-3 rounded-full text-xs sm:text-sm font-semibold inline-flex items-center gap-2 cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95"
-                        >
-                          <span>{pillar.ctaText}</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </button>
-                      ) : pillar.actionTab ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (pillar.actionTab) {
-                              onNavigate(pillar.actionTab)
-                            }
-                          }}
-                          className="arc-btn arc-btn-primary px-5 py-3 rounded-full text-xs sm:text-sm font-semibold inline-flex items-center gap-2 cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95"
-                        >
-                          <span>{pillar.ctaText}</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </button>
-                      ) : null}
-                    </div>
-
+                    <img
+                      src={pillar.image}
+                      alt={pillar.title}
+                      className="w-full h-auto object-contain transform scale-90 sm:scale-95 group-hover:scale-100 transition-transform duration-700 ease-out"
+                      loading="lazy"
+                      style={{
+                        WebkitMaskImage:
+                          'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 15%, rgba(0,0,0,0.8) 42%, rgba(0,0,0,0.2) 68%, rgba(0,0,0,0) 100%)',
+                        maskImage:
+                          'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 15%, rgba(0,0,0,0.8) 42%, rgba(0,0,0,0.2) 68%, rgba(0,0,0,0) 100%)',
+                      }}
+                    />
                   </div>
+                )}
 
-                  {/* Visual Artwork Column */}
-                  <div className={`lg:col-span-5 relative flex justify-center items-center ${isReversed ? 'lg:order-1' : 'lg:order-2'}`}>
-                    <div className="relative w-full rounded-2xl overflow-hidden border border-white/15 shadow-2xl group-hover:border-sky-400/40 transition-colors">
-                      <img
-                        src={pillar.image}
-                        alt={pillar.title}
-                        className="w-full h-auto object-cover transform group-hover:scale-105 transition-transform duration-700"
-                        loading="lazy"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
-                    </div>
+                {/* Foreground Content: Text & Bullets */}
+                <div
+                  className={`relative z-10 max-w-xl lg:max-w-2xl xl:max-w-3xl flex flex-col gap-5 text-left py-2 ${
+                    isReversed ? 'lg:ml-auto' : ''
+                  }`}
+                >
+                  <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-snug">
+                    {pillar.title}
+                  </h3>
+
+                  <h4 className="text-sm sm:text-base font-semibold text-sky-300">
+                    {pillar.headline}
+                  </h4>
+
+                  <p className="text-sm sm:text-base text-slate-300 leading-relaxed font-normal">
+                    {pillar.description}
+                  </p>
+
+                  {/* Bullet Points */}
+                  <ul className="flex flex-col gap-2.5 pt-2 text-xs sm:text-sm text-slate-300">
+                    {pillar.bullets.map((b, bIdx) => (
+                      <li key={bIdx} className="flex items-start gap-2.5">
+                        <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Action Button */}
+                  <div className="pt-4">
+                    {pillar.customAction ? (
+                      <button
+                        type="button"
+                        onClick={pillar.customAction}
+                        className="arc-btn arc-btn-primary px-5 py-3 rounded-full text-xs sm:text-sm font-semibold inline-flex items-center gap-2 cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95"
+                      >
+                        <span>{pillar.ctaText}</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    ) : pillar.actionTab ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (pillar.actionTab) {
+                            onNavigate(pillar.actionTab)
+                          }
+                        }}
+                        className="arc-btn arc-btn-primary px-5 py-3 rounded-full text-xs sm:text-sm font-semibold inline-flex items-center gap-2 cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95"
+                      >
+                        <span>{pillar.ctaText}</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    ) : null}
                   </div>
 
                 </div>
