@@ -378,16 +378,14 @@
 
 /* ─── Arcis Design System Utilities ─── */
 
-.arcis-card,
-.arcflow-card {
+.arcis-card{
   background: #111827;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 16px;
   padding: 28px 32px;
 }
 
-.arcis-label,
-.arcflow-label {
+.arcis-label {
   font-family: var(--fonts--space-mono);
   font-size: 12px;
   font-weight: 600;
@@ -396,8 +394,7 @@
   color: var(--secondary-colors--sky-sync);
 }
 
-.arcis-hero-balance,
-.arcflow-hero-balance {
+.arcis-hero-balance {
   font-family: var(--fonts--space-grotesk);
   font-size: clamp(2.75rem, 6vw, 4rem);
   font-weight: 400;
@@ -407,8 +404,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.arcis-hero-balance .unit,
-.arcflow-hero-balance .unit {
+.arcis-hero-balance .unit {
   font-size: 0.4em;
   font-weight: 400;
   color: rgba(255, 255, 255, 0.4);
@@ -416,8 +412,7 @@
   margin-left: 0.3em;
 }
 
-.arcis-progress-track,
-.arcflow-progress-track {
+.arcis-progress-track {
   width: 100%;
   height: 3px;
   border-radius: 2px;
@@ -426,26 +421,22 @@
   margin-top: 10px;
 }
 
-.arcis-progress-fill,
-.arcflow-progress-fill {
+.arcis-progress-fill{
   height: 100%;
   border-radius: 2px;
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.arcis-asset-row,
-.arcflow-asset-row {
+.arcis-asset-row {
   padding: 16px 0;
   transition: background 0.2s ease;
 }
 
-.arcis-asset-row:not(:last-child),
-.arcflow-asset-row:not(:last-child) {
+.arcis-asset-row:not(:last-child) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.arcis-chain-icon,
-.arcflow-chain-icon {
+.arcis-chain-icon {
   width: 34px;
   height: 34px;
   border-radius: 50%;
@@ -461,8 +452,7 @@
 @keyframes arcis-spin {
   to { transform: rotate(360deg); }
 }
-.arcis-spin,
-.arcflow-spin {
+.arcis-spin{
   animation: arcis-spin 1s linear infinite;
 }
 
@@ -996,8 +986,7 @@
   }
 }
 
-.arcis-apy-arrow-dynamic,
-.arcflow-apy-arrow-dynamic {
+.arcis-apy-arrow-dynamic {
   display: inline-flex;
   align-items: center;
   justify-content: center;

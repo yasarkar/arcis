@@ -170,14 +170,13 @@ export function extractSwapTokens(prompt: string): { fromTok: string; toTok: str
 }
 
 export function getOpenAIApiKey(): string {
-  const localKey = localStorage.getItem('arcis_openai_api_key') || localStorage.getItem('arcflow_openai_api_key')
+  const localKey = localStorage.getItem('arcis_openai_api_key')
   return localKey ? localKey.trim() : ''
 }
 
 export function setOpenAIApiKey(key: string): void {
   if (!key.trim()) {
     localStorage.removeItem('arcis_openai_api_key')
-    localStorage.removeItem('arcflow_openai_api_key')
   } else {
     localStorage.setItem('arcis_openai_api_key', key.trim())
   }

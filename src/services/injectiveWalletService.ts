@@ -6,8 +6,8 @@ import type { InjectiveWalletProvider } from '../types/multiChainWallet'
 const STORAGE_KEYS = {
   ADDRESS: 'arcis_injective_wallet_address',
   PROVIDER: 'arcis_injective_wallet_provider',
-  LEGACY_ADDRESS: 'arcflow_injective_wallet_address',
-  LEGACY_PROVIDER: 'arcflow_injective_wallet_provider',
+  LEGACY_ADDRESS: 'arcis_injective_wallet_address',
+  LEGACY_PROVIDER: 'arcis_injective_wallet_provider',
 }
 
 export const INJECTIVE_TESTNET_CHAIN_ID = 'injective-888'

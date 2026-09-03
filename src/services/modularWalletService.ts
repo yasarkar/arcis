@@ -101,9 +101,6 @@ function getStorageItem(key: string): string | null {
   try {
     const item = localStorage.getItem(key)
     if (item) return item
-    if (key.startsWith('arcis_')) {
-      return localStorage.getItem(key.replace('arcis_', 'arcflow_'))
-    }
     return null
   } catch { return null }
 }

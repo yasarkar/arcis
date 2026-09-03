@@ -475,7 +475,6 @@ export function isActionOrStrategyIntent(query: string): boolean {
   const isPureSendFaq =
     p.includes('what are transaction memos') ||
     p.includes('what fees does arcis charge') ||
-    p.includes('what fees does arcflow charge') ||
     p.includes('how does gasless sending work')
 
   if (hasSendVerb && !isPureSendFaq) {
@@ -835,7 +834,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
 
     if (
       q.includes('what makes it unique on arc l1') ||
-      ((q.includes('what is arcis') || q.includes('what is arcflow')) && !q.includes('terms') && !q.includes('features'))
+      q.includes('what is arcis')
     ) {
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
@@ -919,7 +918,6 @@ x402 AI agents can execute thousands of rapid micro-transactions without risk of
       addMessage(assistantMsg)
     } else if (
       q.includes('core features i can use on arcis') ||
-      q.includes('core features i can use on arcflow') ||
       q.includes('core features') ||
       q.includes('main modules')
     ) {
@@ -979,7 +977,7 @@ The quoted price on your screen matches the exact on-chain execution price with 
     // ─────────────────────────────────────────────────────────────
     else if (
       q.includes('how do token swaps work') ||
-      (q.includes('token swaps work') && (q.includes('arcis') || q.includes('arcflow')))
+      (q.includes('token swaps work') && (q.includes('arcis')))
     ) {
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
@@ -1499,7 +1497,7 @@ Use the Send tab and pick a preset (Invoice, Freelance, AI Agent, Rent, Gift, E-
           },
         }
         addMessage(assistantMsg)
-      } else if (q.includes('fees does arcis charge') || q.includes('fees does arcflow charge')) {
+      } else if (q.includes('fees does arcis charge')) {
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',

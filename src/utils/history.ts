@@ -6,7 +6,7 @@
 
 export interface HistoryItem {
   id: string
-  type: 'send' | 'swap' | 'bridge'
+  type: 'send' | 'swap' | 'bridge' | 'deposit'
   txHash: string
   amount: string
   tokenSymbol: string

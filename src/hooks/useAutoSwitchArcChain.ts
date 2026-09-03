@@ -82,9 +82,7 @@ export function useAutoSwitchArcChain() {
     if (hasAttemptedThisSession.current) return
 
     // Check if user already declined in this browser tab
-    const alreadyDeclined =
-      sessionStorage.getItem('arcis_auto_switch_declined') ||
-      sessionStorage.getItem('arcflow_auto_switch_declined')
+    const alreadyDeclined = sessionStorage.getItem('arcis_auto_switch_declined')
     if (alreadyDeclined === 'true') return
 
     hasAttemptedThisSession.current = true

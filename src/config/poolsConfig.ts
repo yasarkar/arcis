@@ -349,8 +349,6 @@ export const ARCIS_POOLS: PoolConfig[] = [
   },
 ]
 
-export const ARCFLOW_POOLS = ARCIS_POOLS
-
 // ── Contract ABIs ────────────────────────────────────────────────────────────
 export const ERC20_ABI = [
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },

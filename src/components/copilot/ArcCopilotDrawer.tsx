@@ -197,7 +197,7 @@ export default function ArcCopilotDrawer({
   // Resizable window state (width and height)
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>(() => {
     try {
-      const saved = localStorage.getItem('arcis_window_size_v2') || localStorage.getItem('arcflow_arco_window_size_v2')
+      const saved = localStorage.getItem('arcis_window_size_v2')
       if (saved) {
         const parsed = JSON.parse(saved)
         return {

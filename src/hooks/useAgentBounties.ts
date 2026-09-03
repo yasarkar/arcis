@@ -25,7 +25,6 @@ import { sendModularUserOperation, getActiveSmartAccount } from '../services/mod
 import { addTransaction } from '../utils/history'
 
 const STORAGE_KEY = 'arcis_agent_bounties_state_v2'
-const LEGACY_STORAGE_KEY = 'arcflow_agent_bounties_state_v2'
 
 async function executeEscrowDeposit(amountUsdc: number, userAddress: string): Promise<string> {
   const amountUnits = parseUnits(amountUsdc.toString(), 6)
@@ -111,7 +110,7 @@ async function executeEscrowDeposit(amountUsdc: number, userAddress: string): Pr
 export function useAgentBounties(walletAddress: string) {
   const [bounties, setBounties] = useState<AgentBountyTask[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY)
+      const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) return JSON.parse(saved)
     } catch (e) {
       console.warn('Failed to load agent bounties from localStorage:', e)
@@ -121,7 +120,7 @@ export function useAgentBounties(walletAddress: string) {
 
   const [userSponsored, setUserSponsored] = useState<Record<string, number>>(() => {
     try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_user_${walletAddress}`) || localStorage.getItem(`${LEGACY_STORAGE_KEY}_user_${walletAddress}`)
+      const saved = localStorage.getItem(`${STORAGE_KEY}_user_${walletAddress}`)
       if (saved) return JSON.parse(saved)
     } catch (e) {}
     return {
@@ -132,7 +131,7 @@ export function useAgentBounties(walletAddress: string) {
 
   const [claimedYields, setClaimedYields] = useState<Record<string, number>>(() => {
     try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_claimed_${walletAddress}`) || localStorage.getItem(`${LEGACY_STORAGE_KEY}_claimed_${walletAddress}`)
+      const saved = localStorage.getItem(`${STORAGE_KEY}_claimed_${walletAddress}`)
       if (saved) return JSON.parse(saved)
     } catch (e) {}
     return {}
