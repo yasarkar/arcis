@@ -181,3 +181,27 @@ export function getExplorerAddressUrl(chainKey?: string, address?: string): stri
   }
   return `https://testnet.arcscan.app/address/${address}`
 }
+
+export function getExplorerName(chainKey?: string): string {
+  const target = (chainKey || '').toLowerCase().replace(/_/g, '-')
+  if (target.includes('arc')) return 'ArcScan'
+  if (target.includes('base')) return 'Basescan'
+  if (target.includes('arbitrum')) return 'Arbiscan'
+  if (target.includes('optimism') || target.includes('op-sepolia')) return 'OP Etherscan'
+  if (target.includes('polygon') || target.includes('amoy')) return 'Polygonscan'
+  if (target.includes('avalanche') || target.includes('fuji')) return 'Snowtrace'
+  if (target.includes('monad')) return 'Monad Explorer'
+  if (target.includes('hyper')) return 'HyperEVM'
+  if (target.includes('sei')) return 'Seitrace'
+  if (target.includes('ink')) return 'Ink Explorer'
+  if (target.includes('plume')) return 'Plume Explorer'
+  if (target.includes('sonic')) return 'Sonicscan'
+  if (target.includes('unichain')) return 'Unichain Explorer'
+  if (target.includes('world')) return 'Worldscan'
+  if (target.includes('linea')) return 'Lineascan'
+  if (target.includes('xdc') || target.includes('apothem')) return 'XDCScan'
+  if (target.includes('solana')) return 'Solana Explorer'
+  if (target.includes('injective')) return 'Injective Explorer'
+  if (target.includes('eth') || target.includes('sepolia')) return 'Etherscan'
+  return 'ArcScan'
+}

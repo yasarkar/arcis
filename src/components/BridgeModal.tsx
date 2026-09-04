@@ -18,6 +18,7 @@ import { executeBridge, estimateBridgeCost } from '../services/bridgeService'
 import { createViemAdapter } from '../services/sendService'
 import { parseTransactionError, type ParsedTransactionError } from '../utils/errorUtils'
 import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
+import { getExplorerTxUrl } from '../config/sendConfig'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
@@ -327,6 +328,9 @@ export default function BridgeModal({
 
     try {
       let mintTxHash = ''
+      let burnTxHash = ''
+      let destExplorerUrl: string | undefined = undefined
+      let sourceExplorerUrl: string | undefined = undefined
 
       if (bridgeMode === 'direct') {
         // Direct CCTP Bridge via App Kit SDK
@@ -368,12 +372,23 @@ export default function BridgeModal({
           throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg))
         }
 
+        const mintStep = result?.steps?.find((s: any) => s.name === 'mint')
+        const burnStep = result?.steps?.find((s: any) => s.name === 'burn')
+
         mintTxHash =
           result?.mintTxHash ||
+          mintStep?.txHash ||
           result?.txHash ||
-          result?.steps?.find((s: any) => s.name === 'mint')?.txHash ||
-          result?.steps?.find((s: any) => s.name === 'burn')?.txHash ||
+          burnStep?.txHash ||
           ''
+        burnTxHash = burnStep?.txHash || result?.burnTxHash || ''
+
+        destExplorerUrl =
+          mintStep?.explorerUrl ||
+          (mintTxHash ? getExplorerTxUrl(destChain, mintTxHash) : undefined)
+        sourceExplorerUrl =
+          burnStep?.explorerUrl ||
+          (burnTxHash ? getExplorerTxUrl(sourceChain, burnTxHash) : undefined)
       } else {
         // Gateway Fast Transfer
         if (!provider) throw new Error('No wallet provider available')
@@ -392,6 +407,7 @@ export default function BridgeModal({
         }
 
         mintTxHash = result.mintTxHash || ''
+        destExplorerUrl = mintTxHash ? getExplorerTxUrl(destChain, mintTxHash) : undefined
       }
 
       setIsTransferring(false)
@@ -404,10 +420,13 @@ export default function BridgeModal({
           : '0.0001')
       const netAmount = Math.max(0, parseFloat(amount) - parseFloat(computedFee)).toFixed(6)
 
-      const explorerUrl = mintTxHash ? `https://testnet.arcscan.app/tx/${mintTxHash}` : undefined
+      // Primary explorer URL is on the destination chain for minting/delivery
+      const explorerUrl = destExplorerUrl || (mintTxHash ? getExplorerTxUrl(destChain, mintTxHash) : undefined)
       setSuccessReceipt({
         txHash: mintTxHash,
+        sourceTxHash: burnTxHash,
         explorerUrl,
+        sourceExplorerUrl,
         amount,
         sourceChain,
         destChain,
@@ -557,7 +576,7 @@ export default function BridgeModal({
     }
     return {
       disabled: false,
-      text: bridgeMode === 'direct' ? `BRIDGE ${amount} USDC` : `FAST TRANSFER ${amount} USDC`,
+      text: bridgeMode === 'direct' ? 'BRIDGE USDC' : 'FAST TRANSFER USDC',
       loading: false,
       icon: <Globe className="w-4 h-4" />,
     }
@@ -744,7 +763,9 @@ export default function BridgeModal({
           recipient={recipient || connectedAddress}
           mode={successReceipt.mode}
           txHash={successReceipt.txHash}
+          sourceTxHash={successReceipt.sourceTxHash}
           explorerUrl={successReceipt.explorerUrl}
+          sourceExplorerUrl={successReceipt.sourceExplorerUrl}
           fee={successReceipt.fee}
           netReceived={successReceipt.netReceived}
           isInline={isInline}
@@ -904,7 +925,7 @@ export default function BridgeModal({
           {/* Simplified Transaction Breakdown Accordion */}
           {breakdownItems.length > 0 && (
             <TransactionBreakdown
-              summaryTitle={`Route: ${getChainDisplayName(sourceChain)} → ${getChainDisplayName(destChain)}`}
+              summaryTitle="Transaction Summary"
               summaryBadge={
                 <span className="bg-indigo-500/15 text-indigo-300 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-500/30">
                   {bridgeMode === 'gateway'

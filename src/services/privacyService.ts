@@ -21,7 +21,7 @@ function getCryptoSubtle(): SubtleCrypto {
   throw new Error('Web Crypto API is not supported in this environment.');
 }
 
-function getRandomBytes(len: number): Uint8Array {
+function getRandomBytes(len: number): Uint8Array<ArrayBuffer> {
   const buf = new Uint8Array(len);
   if (typeof window !== 'undefined' && window.crypto) {
     window.crypto.getRandomValues(buf);
@@ -37,7 +37,7 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function hexToBytes(hex: string): Uint8Array {
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
@@ -52,7 +52,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
   return subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as BufferSource,
       iterations: 100000,
       hash: 'SHA-256',
     },

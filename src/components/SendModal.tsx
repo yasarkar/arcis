@@ -493,7 +493,7 @@ export default function SendModal({
           setSuccessReceipt({
             txHash,
             explorerUrl,
-            gasFee: 'Zero Extra Gateway Fee (<500ms Instant)',
+            gasFee: 'Zero Extra Gateway Fee',
             blockNumber: 'Instant Gateway Finalized',
           })
 
@@ -901,6 +901,7 @@ export default function SendModal({
           tokenIcon={isCustom ? undefined : TOKEN_ICONS[token]}
           recipient={recipient}
           network={selectedChain}
+          networkIconId={getChainIconId(selectedChain)}
           txHash={successReceipt.txHash}
           explorerUrl={successReceipt.explorerUrl}
           gasFee={successReceipt.gasFee}

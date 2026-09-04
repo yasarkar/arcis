@@ -1333,11 +1333,17 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     <td className="w-1/5 px-5 py-3">
                       <div className="flex items-center gap-2 font-mono">
                         <a
-                          href={getExplorerLink(item.txHash, item.sourceChain || 'Arc_Testnet')}
+                          href={getExplorerLink(
+                            item.txHash,
+                            item.type === 'bridge' && item.destChain ? item.destChain : (item.sourceChain || 'Arc_Testnet')
+                          )}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-slate-200 hover:text-white font-medium transition-all group/tx select-none cursor-pointer"
-                          title={getExplorerLink(item.txHash, item.sourceChain || 'Arc_Testnet')}
+                          title={getExplorerLink(
+                            item.txHash,
+                            item.type === 'bridge' && item.destChain ? item.destChain : (item.sourceChain || 'Arc_Testnet')
+                          )}
                         >
                           <span className="group-hover/tx:text-white">{formatAddress(item.txHash)}</span>
                           <ExternalLink className="w-4 h-4 text-slate-500 group-hover/tx:text-[var(--purple-1)] transition-colors opacity-70 group-hover/tx:opacity-100 shrink-0" />

@@ -1,5 +1,8 @@
 import React, { useState } from 'react'
-import { CheckCircle2, ExternalLink, Copy, Check, ArrowUpRight } from 'lucide-react'
+import { CheckCircle2, ExternalLink, Copy, Check, ArrowUpRight, ArrowUpRightFromSquare } from 'lucide-react'
+import { NetworkIcon } from '@web3icons/react/dynamic'
+import { getChainIconId, getChainDisplayName } from '../../config/chainMeta'
+import { getExplorerTxUrl, getExplorerName } from '../../config/sendConfig'
 
 interface SendSuccessReceiptProps {
   amount: string
@@ -7,6 +10,7 @@ interface SendSuccessReceiptProps {
   tokenIcon?: string
   recipient: string
   network: string
+  networkIconId?: string
   txHash?: string
   explorerUrl?: string
   gasFee?: string
@@ -24,6 +28,7 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
   tokenIcon,
   recipient,
   network,
+  networkIconId,
   txHash,
   explorerUrl,
   gasFee,
@@ -33,16 +38,12 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
   onClose,
   isInline = false,
 }) => {
-  const [copiedTx, setCopiedTx] = useState(false)
   const [copiedRecipient, setCopiedRecipient] = useState(false)
 
-  const handleCopyTx = () => {
-    if (txHash) {
-      navigator.clipboard.writeText(txHash)
-      setCopiedTx(true)
-      setTimeout(() => setCopiedTx(false), 2000)
-    }
-  }
+  const chainIconId = networkIconId || getChainIconId(network)
+  const chainDisplayName = getChainDisplayName(network) || network.replace(/_/g, ' ')
+  const explorerName = getExplorerName(network)
+  const effectiveExplorerUrl = explorerUrl || (txHash ? getExplorerTxUrl(network, txHash) : '#')
 
   const handleCopyRecipient = () => {
     if (recipient) {
@@ -53,22 +54,23 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
   }
 
   return (
-    <div className="space-y-5 animate-fade-in text-center py-2" style={{ fontFamily: 'var(--font-app)' }}>
-      {/* Glowing Checkmark */}
-      <div className="flex justify-center">
-        <div className="w-16 h-16 rounded-full bg-indigo-500/15 border border-indigo-500/35 flex items-center justify-center text-indigo-300 shadow-[0_0_24px_rgba(99,102,241,0.25)]">
-          <CheckCircle2 className="w-9 h-9 text-indigo-300 animate-pulse" />
+    <div className="flex-1 flex flex-col justify-between animate-fade-in text-center py-2" style={{ fontFamily: 'var(--font-app)' }}>
+      <div className="space-y-5 flex flex-col">
+        {/* Glowing Checkmark */}
+        <div className="flex justify-center mt-5">
+          <div className="w-20 h-20 rounded-full bg-indigo-500/15 border border-indigo-500/35 flex items-center justify-center text-indigo-300 shadow-[0_0_24px_rgba(99,102,241,0.25)]">
+            <CheckCircle2 className="w-12 h-12 text-indigo-300 animate-pulse" />
+          </div>
         </div>
-      </div>
 
-      <div>
-        <h3 className="text-base font-semibold text-white tracking-wide">
-          Transfer Finalized!
-        </h3>
-        <p className="text-xs text-slate-400 mt-1">
-          Transaction successfully broadcasted and confirmed onchain
-        </p>
-      </div>
+        <div className="pb-2">
+          <h3 className="text-2xl font-semibold text-white tracking-wide">
+            Transfer Finalized!
+          </h3>
+          <p className="text-sm text-slate-400 mt-2 mb-3">
+            Transaction successfully broadcasted and confirmed onchain
+          </p>
+        </div>
 
       {/* Amount Card */}
       <div className="bg-[#121626]/90 border border-white/[0.08] rounded-2xl p-4 text-left space-y-3">
@@ -104,9 +106,19 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
 
       {/* Details Box */}
       <div className="bg-[#101323]/60 border border-white/[0.05] rounded-xl p-3 text-xs space-y-2 text-left">
-        <div className="flex justify-between text-slate-400 text-[11px]">
+        <div className="flex items-center justify-between text-slate-400 text-[11px]">
           <span>Network:</span>
-          <span className="text-slate-200 font-medium">{network.replace(/_/g, ' ')}</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+              <NetworkIcon
+                name={chainIconId}
+                variant={chainIconId === 'solana' ? 'branded' : 'background'}
+                size={16}
+                className="rounded-full"
+              />
+            </div>
+            <span className="text-slate-200 font-medium">{chainDisplayName}</span>
+          </div>
         </div>
 
         {gasFee && (
@@ -119,8 +131,8 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
         {memoText && (
           <div className="flex justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
             <span>Memo:</span>
-            <span className="text-indigo-300 font-medium truncate max-w-[200px]">
-              {memoText} {memoId ? `(${memoId})` : ''}
+            <span className="text-indigo-300 font-medium truncate max-w-[300px]" title={memoText}>
+              {memoText}
             </span>
           </div>
         )}
@@ -128,55 +140,52 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
         {txHash && (
           <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
             <span>Transaction:</span>
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-slate-300">
-                {txHash.slice(0, 8)}...{txHash.slice(-6)}
+            <a
+              href={effectiveExplorerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer"
+              title={`View transaction on ${explorerName} (${txHash})`}
+            >
+              <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                <NetworkIcon
+                  name={chainIconId}
+                  variant={chainIconId === 'solana' ? 'branded' : 'background'}
+                  size={14}
+                  className="rounded-full"
+                />
+              </div>
+              <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
+                View on {explorerName}
               </span>
-              <button
-                type="button"
-                onClick={handleCopyTx}
-                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-                title="Copy Transaction Hash"
-              >
-                {copiedTx ? <Check className="w-3 h-3 text-indigo-400" /> : <Copy className="w-3 h-3" />}
-              </button>
-            </div>
+              <ArrowUpRightFromSquare className="w-3 h-3 text-indigo-400 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+            </a>
           </div>
         )}
       </div>
+    </div>
 
-      {/* Actions */}
-      <div className="flex gap-2.5 pt-1">
-        {explorerUrl && (
-          <a
-            href={explorerUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex-1 py-3 px-3 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition-all flex items-center justify-center gap-1.5"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            <span>EXPLORER</span>
-          </a>
-        )}
+    {/* Actions */}
+    <div className="mt-auto pt-6 space-y-2">
         <button
           type="button"
           onClick={onSendAgain}
-          className="flex-1 py-3 px-3 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+          className="w-full py-3.5 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
         >
           <ArrowUpRight className="w-3.5 h-3.5" />
           <span>SEND AGAIN</span>
         </button>
-      </div>
 
-      {!isInline && onClose && (
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full text-center text-xs text-slate-400 hover:text-white py-1 transition-colors cursor-pointer"
-        >
-          Close
-        </button>
-      )}
+        {!isInline && onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full text-center text-xs text-slate-400 hover:text-white py-1 transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+        )}
+      </div>
     </div>
   )
 }

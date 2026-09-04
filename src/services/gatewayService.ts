@@ -94,20 +94,37 @@ async function ensureChain(provider: any, chain: Chain) {
       params: [{ chainId: chainIdHex }],
     })
   } catch {
-    await provider.request({
-      method: 'wallet_addEthereumChain',
-      params: [
-        {
-          chainId: chainIdHex,
-          chainName: chain.name,
-          nativeCurrency: chain.nativeCurrency,
-          rpcUrls: chain.rpcUrls.default.http,
-          blockExplorerUrls: chain.blockExplorers?.default?.url
-            ? [chain.blockExplorers.default.url]
-            : [],
-        },
-      ],
-    })
+    try {
+      await provider.request({
+        method: 'wallet_addEthereumChain',
+        params: [
+          {
+            chainId: chainIdHex,
+            chainName: chain.name,
+            nativeCurrency: chain.nativeCurrency,
+            rpcUrls: chain.rpcUrls.default.http,
+            blockExplorerUrls: chain.blockExplorers?.default?.url
+              ? [chain.blockExplorers.default.url]
+              : [],
+          },
+        ],
+      })
+    } catch (addErr: any) {
+      console.warn('[ensureChain] Could not add chain:', addErr)
+    }
+  }
+
+  // Verify wallet is on the correct chain
+  try {
+    const activeChainHex = await provider.request({ method: 'eth_chainId' })
+    if (activeChainHex && parseInt(activeChainHex, 16) !== chain.id) {
+      throw new Error(`Cüzdanınız ${chain.name} ağına bağlı değil (Chain ID: ${chain.id}). Lütfen cüzdanınızdan ağı değiştirin.`)
+    }
+  } catch (verifyErr: any) {
+    if (verifyErr.message?.includes('bağlı değil')) {
+      throw verifyErr
+    }
+    console.warn('[ensureChain] Chain verification skipped:', verifyErr)
   }
 }
 
@@ -270,41 +287,94 @@ export async function depositToGateway(
     console.warn(`[Gateway Deposit] Balance pre-check skipped:`, balanceErr)
   }
 
-  // Step 1 (Circle Official Spec): Approve Gateway Wallet to spend token
-  const tokenContract = getContract({
-    address: tokenAddress,
-    abi: erc20Abi,
-    client: walletClient,
-  })
+  // Step 1 (Circle Official Spec): Check allowance and approve Gateway Wallet if needed
+  let approveTxHash = ''
+  let currentAllowance = 0n
+  try {
+    currentAllowance = await publicClient.readContract({
+      address: tokenAddress,
+      abi: erc20Abi,
+      functionName: 'allowance',
+      args: [address, gatewayWallet],
+    })
+    console.log(`[Gateway Deposit] Current allowance for ${gatewayWallet}: ${(Number(currentAllowance) / 1e6).toFixed(6)} ${tokenSymbol}`)
+  } catch (allowanceErr) {
+    console.warn(`[Gateway Deposit] Could not read allowance, will attempt approve:`, allowanceErr)
+  }
 
-  console.log(`[Gateway Deposit] Step 1/2: Approving ${amount} ${tokenSymbol} on ${chainKey}...`)
-  const approveTxHash = await tokenContract.write.approve(
-    [gatewayWallet, amountBaseUnits],
-    { account: address }
-  )
-  console.log(`[Gateway Deposit] Approve tx submitted: ${approveTxHash}`)
-  const approveReceipt = await publicClient.waitForTransactionReceipt({
-    hash: approveTxHash,
-    timeout: 120_000, // 2 minutes — Arc RPC can be slow to propagate
-    confirmations: 1,
-  })
-  console.log(`[Gateway Deposit] Approve confirmed in block ${approveReceipt.blockNumber}`)
+  if (currentAllowance < amountBaseUnits) {
+    console.log(`[Gateway Deposit] Step 1/2: Approving ${amount} ${tokenSymbol} on ${chainKey}...`)
+
+    // Calculate safe gas limit for approve
+    let gasLimit: bigint = GATEWAY_GAS_LIMITS.approve
+    try {
+      const estimatedGas = await publicClient.estimateContractGas({
+        address: tokenAddress,
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [gatewayWallet, amountBaseUnits],
+        account: address,
+      })
+      gasLimit = (estimatedGas * 130n) / 100n // +30% buffer
+    } catch (gasErr) {
+      console.warn(`[Gateway Deposit] Approve gas estimate fallback to 100_000:`, gasErr)
+      gasLimit = 100_000n
+    }
+
+    try {
+      approveTxHash = await walletClient.writeContract({
+        address: tokenAddress,
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [gatewayWallet, amountBaseUnits],
+        chain: chainDef,
+        account: address,
+        gas: gasLimit,
+      })
+      console.log(`[Gateway Deposit] Approve tx submitted: ${approveTxHash}`)
+      const approveReceipt = await publicClient.waitForTransactionReceipt({
+        hash: approveTxHash as `0x${string}`,
+        timeout: 120_000, // 2 minutes — Arc RPC can be slow to propagate
+        confirmations: 1,
+      })
+      console.log(`[Gateway Deposit] Approve confirmed in block ${approveReceipt.blockNumber}`)
+    } catch (err: any) {
+      console.error(`[Gateway Deposit] Approve failed:`, err)
+      throw err
+    }
+  } else {
+    console.log(`[Gateway Deposit] Step 1/2 skipped: Allowance already sufficient (${(Number(currentAllowance) / 1e6).toFixed(6)} >= ${amount})`)
+  }
 
   // Step 2 (Circle Official Spec): Call deposit on the Gateway Wallet contract
-  const gatewayWalletContract = getContract({
-    address: gatewayWallet,
-    abi: GATEWAY_WALLET_ABI,
-    client: walletClient,
-  })
+  let depositGasLimit: bigint = GATEWAY_GAS_LIMITS.deposit
+  try {
+    const estimatedGas = await publicClient.estimateContractGas({
+      address: gatewayWallet,
+      abi: GATEWAY_WALLET_ABI,
+      functionName: 'deposit',
+      args: [tokenAddress, amountBaseUnits],
+      account: address,
+    })
+    depositGasLimit = (estimatedGas * 130n) / 100n
+  } catch (gasErr) {
+    console.warn(`[Gateway Deposit] Deposit gas estimate fallback to 150_000:`, gasErr)
+    depositGasLimit = 150_000n
+  }
 
   console.log(`[Gateway Deposit] Step 2/2: Depositing ${amount} ${tokenSymbol} into Gateway...`)
-  const depositTxHash = await gatewayWalletContract.write.deposit(
-    [tokenAddress, amountBaseUnits],
-    { account: address }
-  )
+  const depositTxHash = await walletClient.writeContract({
+    address: gatewayWallet,
+    abi: GATEWAY_WALLET_ABI,
+    functionName: 'deposit',
+    args: [tokenAddress, amountBaseUnits],
+    chain: chainDef,
+    account: address,
+    gas: depositGasLimit,
+  })
   console.log(`[Gateway Deposit] Deposit tx submitted: ${depositTxHash}`)
   const depositReceipt = await publicClient.waitForTransactionReceipt({
-    hash: depositTxHash,
+    hash: depositTxHash as `0x${string}`,
     timeout: 120_000, // 2 minutes
     confirmations: 1,
   })

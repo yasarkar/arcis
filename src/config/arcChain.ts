@@ -33,15 +33,15 @@ export const arcTestnet = defineChain({
   rpcUrls: {
     default: {
       http: customRpcUrl
-        ? [customRpcUrl, 'https://rpc.testnet.arc.io', 'https://rpc-testnet.arc.io']
-        : ['https://rpc.testnet.arc.io', 'https://rpc-testnet.arc.io'],
-      webSocket: ['wss://rpc.testnet.arc.io'],
+        ? [customRpcUrl, 'https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io']
+        : ['https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io'],
+      webSocket: ['wss://rpc.testnet.arc.network'],
     },
     public: {
       http: customRpcUrl
-        ? [customRpcUrl, 'https://rpc.testnet.arc.io', 'https://rpc-testnet.arc.io']
-        : ['https://rpc.testnet.arc.io', 'https://rpc-testnet.arc.io'],
-      webSocket: ['wss://rpc.testnet.arc.io'],
+        ? [customRpcUrl, 'https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io']
+        : ['https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io'],
+      webSocket: ['wss://rpc.testnet.arc.network'],
     },
   },
   blockExplorers: {
@@ -107,8 +107,8 @@ export const ARC_TOKENS = IS_TESTNET ? ARC_TESTNET_TOKENS : ARC_MAINNET_TOKENS
 export const ARC_METADATA = {
   cctpDomain: IS_TESTNET ? 26 : 26,
   faucetUrl: 'https://faucet.circle.com',
-  rpcHttpUrl: customRpcUrl || (IS_TESTNET ? 'https://rpc.testnet.arc.io' : 'https://rpc.arc.io'),
-  rpcWsUrl: IS_TESTNET ? 'wss://rpc.testnet.arc.io' : 'wss://rpc.arc.io',
+  rpcHttpUrl: customRpcUrl || (IS_TESTNET ? 'https://rpc.testnet.arc.network' : 'https://rpc.arc.io'),
+  rpcWsUrl: IS_TESTNET ? 'wss://rpc.testnet.arc.network' : 'wss://rpc.arc.io',
   explorerUrl: IS_TESTNET ? 'https://testnet.arcscan.app' : 'https://arcscan.app',
   isTestnet: IS_TESTNET,
 }

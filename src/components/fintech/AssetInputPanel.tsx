@@ -136,7 +136,7 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
       <div className="flex items-center justify-between gap-2 mt-2.5 pt-1 text-xs">
         <div className="flex items-center gap-2 text-slate-400">
           {fiatEstimate && (
-            <span className="tabular-nums font-mono text-[11px] text-slate-400">
+            <span className="tabular-nums font-mono text-[13px] text-slate-400">
               {fiatEstimate}
             </span>
           )}

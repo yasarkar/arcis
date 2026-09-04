@@ -127,7 +127,21 @@ export function formatCopilotError(err: any): { title: string; message: string; 
     }
   }
 
-  // 5. Smart contract revert
+  // 5. Internal Wallet / RPC Failure (e.g. MetaMask -32603 / nonce desync / RPC drop)
+  if (
+    lowMsg.includes('internal error was received') ||
+    lowMsg.includes('internalrpcerror') ||
+    lowMsg.includes('-32603') ||
+    (lowMsg.includes('transaction failed') && !lowMsg.includes('execution reverted:'))
+  ) {
+    return {
+      title: 'Cüzdan / RPC İletim Hatası',
+      message: 'İşlem cüzdanınız (MetaMask vb.) veya ağ RPC düğümü tarafından kabul edilemedi ("Transaction failed"). Bu hata genellikle MetaMask\'ın yerel nonce (işlem sırası) önbelleğinin ağ ile senkronize olmamasından kaynaklanır. Çözüm: MetaMask > Ayarlar > Gelişmiş > "Etkinlik ve işlem verilerini temizle" (Clear activity tab data) butonuna tıklayıp sayfayı yenileyerek tekrar deneyin.',
+      isRejected: false,
+    }
+  }
+
+  // 6. Smart contract revert
   if (lowMsg.includes('execution reverted') || lowMsg.includes('transaction reverted') || lowMsg.includes('revert')) {
     const reasonMatch = rawMessage.match(/reason:\s*([^\n\r]+)/i)
     const cleanReason = reasonMatch && reasonMatch[1] ? reasonMatch[1].trim() : 'Akıllı sözleşme işlemi reddetti.'

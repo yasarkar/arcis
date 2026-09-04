@@ -44,7 +44,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
     setTimeout(() => setCopiedField(null), 2000)
   }
 
-  const explorerUrl = getExplorerTxUrl(item.sourceChain, item.txHash)
+  const targetChain = item.type === 'bridge' && item.destChain ? item.destChain : (item.sourceChain || 'Arc_Testnet')
+  const explorerUrl = getExplorerTxUrl(targetChain, item.txHash)
   const recipientChain = item.destChain || item.sourceChain || 'Arc_Testnet'
   const recipientExplorerUrl = item.recipient ? getExplorerAddressUrl(recipientChain, item.recipient) : '#'
 
