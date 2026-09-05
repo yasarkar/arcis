@@ -4,6 +4,8 @@
 // Connects to Redis (via REDIS_URL or local redis://127.0.0.1:6379)
 // with a graceful in-memory TTL fallback if Redis server is not currently running.
 
+import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+
 let redisClient: any = null
 let redisAvailable = false
 let connectionAttempted = false
@@ -56,7 +58,7 @@ export async function GET(req: Request) {
   const key = url.searchParams.get('key')
 
   if (!key) {
-    return Response.json({ success: false, error: 'Query parameter "key" is required' }, { status: 400 })
+    return apiError('Query parameter "key" is required.', 'MISSING_QUERY_PARAM', 400)
   }
 
   try {
@@ -68,8 +70,7 @@ export async function GET(req: Request) {
         const ttl = await client.ttl(key)
         if (raw !== null) {
           const parsed = JSON.parse(raw)
-          return Response.json({
-            success: true,
+          return apiSuccess({
             hit: true,
             source: 'redis',
             key,
@@ -87,8 +88,7 @@ export async function GET(req: Request) {
     const now = Date.now()
     if (memItem && memItem.expiresAt > now) {
       const ttlRemainingSeconds = Math.max(0, Math.round((memItem.expiresAt - now) / 1000))
-      return Response.json({
-        success: true,
+      return apiSuccess({
         hit: true,
         source: 'memory-fallback',
         key,
@@ -99,27 +99,35 @@ export async function GET(req: Request) {
       memoryCache.delete(key)
     }
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       hit: false,
       key,
       data: null,
       ttlRemainingSeconds: 0,
     })
   } catch (error: any) {
-    return Response.json({ success: false, error: error.message }, { status: 500 })
+    return apiError(error.message || 'Internal server error in Cache query', 'CACHE_GET_ERROR', 500)
   }
 }
 
 export async function POST(req: Request) {
+  const jsonResult = await safeJsonParse(req)
+  if (!jsonResult.success) {
+    return apiError(
+      jsonResult.error || 'Invalid or malformed JSON payload in request body.',
+      'INVALID_JSON',
+      400
+    )
+  }
+
+  const body = jsonResult.data || {}
+  const { key, value, ttlSeconds = 30 } = body
+
+  if (!key || value === undefined) {
+    return apiError('"key" and "value" are required.', 'MISSING_PARAMETERS', 400)
+  }
+
   try {
-    const body = await req.json().catch(() => ({}))
-    const { key, value, ttlSeconds = 30 } = body
-
-    if (!key || value === undefined) {
-      return Response.json({ success: false, error: '"key" and "value" are required' }, { status: 400 })
-    }
-
     const ttl = Number(ttlSeconds) || 30
     const client = await getRedisClient()
 
@@ -138,14 +146,13 @@ export async function POST(req: Request) {
     const expiresAt = Date.now() + ttl * 1000
     memoryCache.set(key, { value, expiresAt })
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       key,
       ttlSeconds: ttl,
       source: savedToRedis ? 'redis' : 'memory-fallback',
     })
   } catch (error: any) {
-    return Response.json({ success: false, error: error.message }, { status: 500 })
+    return apiError(error.message || 'Internal server error in Cache save', 'CACHE_POST_ERROR', 500)
   }
 }
 
@@ -154,7 +161,7 @@ export async function DELETE(req: Request) {
   const key = url.searchParams.get('key')
 
   if (!key) {
-    return Response.json({ success: false, error: 'Query parameter "key" is required' }, { status: 400 })
+    return apiError('Query parameter "key" is required.', 'MISSING_QUERY_PARAM', 400)
   }
 
   try {
@@ -165,8 +172,8 @@ export async function DELETE(req: Request) {
       } catch {}
     }
     memoryCache.delete(key)
-    return Response.json({ success: true, key, message: 'Deleted' })
+    return apiSuccess({ key, message: 'Deleted' })
   } catch (error: any) {
-    return Response.json({ success: false, error: error.message }, { status: 500 })
+    return apiError(error.message || 'Internal server error in Cache delete', 'CACHE_DELETE_ERROR', 500)
   }
 }

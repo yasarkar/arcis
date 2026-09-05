@@ -32,6 +32,8 @@ export interface ServerHistoryItem {
   memoIndex?: number
 }
 
+import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+
 let redisClient: any = null
 let redisAvailable = false
 let connectionAttempted = false
@@ -126,8 +128,7 @@ export async function GET(req: Request) {
     // Sort descending by timestamp (newest first)
     const sorted = items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, limit)
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       address: address || null,
       count: sorted.length,
       transactions: sorted,
@@ -135,7 +136,7 @@ export async function GET(req: Request) {
     })
   } catch (error: any) {
     console.error('[History API] GET Error:', error)
-    return Response.json({ success: false, error: error.message || 'Internal server error' }, { status: 500 })
+    return apiError(error.message || 'Internal server error in History query', 'HISTORY_GET_ERROR', 500)
   }
 }
 
@@ -145,11 +146,19 @@ export async function GET(req: Request) {
  * Adds or updates a transaction in server storage.
  */
 export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => null)
-    if (!body || typeof body !== 'object') {
-      return Response.json({ success: false, error: 'Invalid request body' }, { status: 400 })
-    }
+  const jsonResult = await safeJsonParse(req)
+  if (!jsonResult.success) {
+    return apiError(
+      jsonResult.error || 'Invalid or malformed JSON payload in request body.',
+      'INVALID_JSON',
+      400
+    )
+  }
+
+  const body = jsonResult.data
+  if (!body || typeof body !== 'object') {
+    return apiError('Invalid request body.', 'INVALID_BODY', 400)
+  }
 
     const {
       type = 'send',
@@ -229,13 +238,12 @@ export async function POST(req: Request) {
       }
     }
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       transaction: newItem,
     })
   } catch (error: any) {
     console.error('[History API] POST Error:', error)
-    return Response.json({ success: false, error: error.message || 'Internal server error' }, { status: 500 })
+    return apiError(error.message || 'Internal server error in History save', 'HISTORY_POST_ERROR', 500)
   }
 }
 
@@ -252,7 +260,7 @@ export async function DELETE(req: Request) {
     const txHash = url.searchParams.get('txHash')?.toLowerCase()
 
     if (!address && !txHash) {
-      return Response.json({ success: false, error: 'Query parameter "address" or "txHash" is required' }, { status: 400 })
+      return apiError('Query parameter "address" or "txHash" is required.', 'MISSING_QUERY_PARAM', 400)
     }
 
     // Remove from in-memory
@@ -278,8 +286,8 @@ export async function DELETE(req: Request) {
       } catch {}
     }
 
-    return Response.json({ success: true, message: 'History record(s) removed' })
+    return apiSuccess({ message: 'History record(s) removed' })
   } catch (error: any) {
-    return Response.json({ success: false, error: error.message || 'Internal server error' }, { status: 500 })
+    return apiError(error.message || 'Internal server error in History delete', 'HISTORY_DELETE_ERROR', 500)
   }
 }

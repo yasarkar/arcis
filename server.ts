@@ -141,7 +141,17 @@ if (fs.existsSync(distPath)) {
       return res.sendFile(path.join(distPath, 'index.html'))
     }
     if (req.url.startsWith('/api/')) {
-      return res.status(404).json({ success: false, error: `API endpoint '${req.url}' not found.` })
+      return res.status(404).json({
+        success: false,
+        error: `API endpoint '${req.url}' not found.`,
+        code: 'NOT_FOUND',
+        errorDetails: {
+          code: 'NOT_FOUND',
+          message: `API endpoint '${req.url}' not found.`,
+          details: null,
+        },
+        timestamp: Date.now(),
+      })
     }
     next()
   })
@@ -163,9 +173,19 @@ if (fs.existsSync(distPath)) {
 // ─────────────────────────────────────────────────────────────
 app.use((err: any, _req: ExpRequest, res: ExpResponse, _next: NextFunction) => {
   console.error('[Server Error]:', err)
-  res.status(500).json({
+  const status = typeof err?.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500
+  const message = err?.message || 'Internal Server Error'
+  const code = err?.code || 'INTERNAL_SERVER_ERROR'
+  res.status(status).json({
     success: false,
-    error: err?.message || 'Internal Server Error',
+    error: message,
+    code,
+    errorDetails: {
+      code,
+      message,
+      details: process.env.NODE_ENV === 'development' ? err?.stack : null,
+    },
+    timestamp: Date.now(),
   })
 })
 

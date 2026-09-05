@@ -1,46 +1,46 @@
+import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+
 function getApiKey(): string {
-  const circleApiKey = process.env.CIRCLE_API_KEY || process.env.VITE_CIRCLE_API_KEY || ''
+  const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
+  const circleApiKey = globalEnv.CIRCLE_API_KEY || process.env.CIRCLE_API_KEY || globalEnv.VITE_CIRCLE_API_KEY || process.env.VITE_CIRCLE_API_KEY || ''
   return circleApiKey.trim()
 }
 
 export async function POST(req: Request) {
+  const jsonResult = await safeJsonParse(req)
+  if (!jsonResult.success) {
+    return apiError(
+      jsonResult.error || 'Invalid or malformed JSON payload in request body.',
+      'INVALID_JSON',
+      400
+    )
+  }
+
+  const body = jsonResult.data || {}
+  const {
+    address,
+    blockchain = 'ARC-TESTNET',
+    usdc = true,
+    eurc = false,
+    native = true,
+  } = body
+
+  if (!address) {
+    return apiError('Wallet address is required.', 'MISSING_ADDRESS', 400)
+  }
+
+  // Validate EVM / Solana address format basic check
+  const isSolana = blockchain.includes('SOL')
+  if (!isSolana && !address.startsWith('0x')) {
+    return apiError('Invalid EVM address (must start with 0x).', 'INVALID_EVM_ADDRESS', 400)
+  }
+
+  const apiKey = getApiKey()
+  if (!apiKey) {
+    return apiError('CIRCLE_API_KEY is not configured on the server.', 'MISSING_API_KEY', 500)
+  }
+
   try {
-    const body = await req.json().catch(() => ({}))
-    const {
-      address,
-      blockchain = 'ARC-TESTNET',
-      usdc = true,
-      eurc = false,
-      native = true,
-    } = body
-
-    if (!address) {
-      return Response.json(
-        { success: false, error: 'Wallet address is required.' },
-        { status: 400 }
-      )
-    }
-
-    // Validate EVM / Solana address format basic check
-    const isSolana = blockchain.includes('SOL')
-    if (!isSolana && !address.startsWith('0x')) {
-      return Response.json(
-        { success: false, error: 'Invalid EVM address (must start with 0x).' },
-        { status: 400 }
-      )
-    }
-
-    const apiKey = getApiKey()
-    if (!apiKey) {
-      return Response.json(
-        {
-          success: false,
-          error: 'CIRCLE_API_KEY is not configured.',
-        },
-        { status: 500 }
-      )
-    }
-
     // Call Circle's Official Faucet Drips API
     const circleResponse = await fetch('https://api.circle.com/v1/faucet/drips', {
       method: 'POST',
@@ -66,37 +66,31 @@ export async function POST(req: Request) {
         data?.error ||
         `Circle Faucet request failed (HTTP ${circleResponse.status})`
 
+      let errorCode = 'CIRCLE_FAUCET_ERROR'
+
       if (circleResponse.status === 403 || data?.code === 3 || errorMessage.toLowerCase().includes('forbidden')) {
+        errorCode = 'FAUCET_ACCESS_RESTRICTED'
         errorMessage =
           'Circle Faucet API access requires developer account upgrade or daily limit reached. Please use the "Official Circle Faucet" button below to request tokens directly from the web faucet.'
       } else if (circleResponse.status === 429 || errorMessage.toLowerCase().includes('rate limit')) {
+        errorCode = 'FAUCET_RATE_LIMITED'
         errorMessage =
           '24-hour Faucet request limit has been exceeded. Please try again later or visit the official Circle Faucet page.'
       }
 
-      return Response.json(
-        {
-          success: false,
-          error: errorMessage,
-          details: data,
-        },
-        { status: circleResponse.status }
-      )
+      return apiError(errorMessage, errorCode, circleResponse.status, data)
     }
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       message: 'Testnet tokens sent successfully!',
       data,
     })
   } catch (error: any) {
     console.error('Circle Faucet API Error:', error)
-    return Response.json(
-      {
-        success: false,
-        error: error.message || 'Server error occurred.',
-      },
-      { status: 500 }
+    return apiError(
+      error?.message || 'Server error occurred in Circle Faucet proxy.',
+      'FAUCET_INTERNAL_ERROR',
+      500
     )
   }
 }

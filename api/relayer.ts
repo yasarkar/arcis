@@ -14,6 +14,7 @@ import {
   getGaslessDailyQuota,
   incrementGaslessDailyQuota,
 } from './rateLimiter'
+import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
 
 const USDC_ADDRESS = ARC_TOKENS.USDC
 const DAILY_FREE_LIMIT = DEFAULT_GASLESS_DAILY_LIMIT
@@ -80,7 +81,19 @@ class RelayerTransactionMutex {
 const relayerMutex = new RelayerTransactionMutex()
 
 function getRelayerAccount() {
-  const rawKey = (process.env.PRIVATE_KEY || '').trim()
+  const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
+  const localEnv = (typeof process !== 'undefined' && process.env) || {}
+
+  const rawKey = (
+    localEnv.PRIVATE_KEY ||
+    globalEnv.PRIVATE_KEY ||
+    localEnv.RELAYER_PRIVATE_KEY ||
+    globalEnv.RELAYER_PRIVATE_KEY ||
+    localEnv.VITE_RELAYER_PRIVATE_KEY ||
+    globalEnv.VITE_RELAYER_PRIVATE_KEY ||
+    ''
+  ).trim()
+
   if (!rawKey) {
     throw new Error('PRIVATE_KEY is not configured in .env for Relayer service')
   }
@@ -103,9 +116,10 @@ export async function GET(req: Request) {
   const address = url.searchParams.get('address')
 
   if (!address || !isAddress(address)) {
-    return Response.json(
-      { success: false, error: 'Valid EVM address query param is required' },
-      { status: 400 }
+    return apiError(
+      'Valid EVM address query parameter is required.',
+      'INVALID_ADDRESS',
+      400
     )
   }
 
@@ -125,8 +139,7 @@ export async function GET(req: Request) {
       relayerBalanceFormatted = formatUnits(relayerBal, 6)
     } catch {}
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       address,
       sponsoredBy: 'Arcis Protocol',
       relayerAddress: relayerAccount.address,
@@ -137,9 +150,10 @@ export async function GET(req: Request) {
       isEligible: quota.remaining > 0,
     })
   } catch (error: any) {
-    return Response.json(
-      { success: false, error: error.message || 'Internal server error' },
-      { status: 500 }
+    return apiError(
+      error?.message || 'Internal server error in Gasless relayer quota query.',
+      'RELAYER_GET_ERROR',
+      500
     )
   }
 }
@@ -148,48 +162,55 @@ export async function GET(req: Request) {
 // 3. POST: PROCESS GASLESS EIP-3009 META-TRANSACTION
 // ─────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
+  const jsonResult = await safeJsonParse(req)
+  if (!jsonResult.success) {
+    return apiError(
+      jsonResult.error || 'Invalid or malformed JSON payload in request body.',
+      'INVALID_JSON',
+      400
+    )
+  }
+
+  const body = jsonResult.data || {}
+  const {
+    from,
+    to,
+    value,
+    validAfter = 0,
+    validBefore,
+    nonce,
+    v,
+    r,
+    s,
+  } = body
+
+  // 1. Validate required fields
+  if (!from || !to || !value || !nonce || v === undefined || !r || !s) {
+    return apiError(
+      'Missing required EIP-3009 parameters (from, to, value, nonce, v, r, s).',
+      'MISSING_EIP3009_PARAMETERS',
+      400
+    )
+  }
+
+  if (!isAddress(from) || !isAddress(to)) {
+    return apiError(
+      'Invalid EVM address for sender (from) or recipient (to).',
+      'INVALID_ADDRESS',
+      400
+    )
+  }
+
   try {
-    const body = await req.json().catch(() => ({}))
-    const {
-      from,
-      to,
-      value,
-      validAfter = 0,
-      validBefore,
-      nonce,
-      v,
-      r,
-      s,
-    } = body
-
-    // 1. Validate required fields
-    if (!from || !to || !value || !nonce || v === undefined || !r || !s) {
-      return Response.json(
-        {
-          success: false,
-          error: 'Missing required EIP-3009 parameters (from, to, value, nonce, v, r, s).',
-        },
-        { status: 400 }
-      )
-    }
-
-    if (!isAddress(from) || !isAddress(to)) {
-      return Response.json(
-        { success: false, error: 'Invalid EVM address for sender (from) or recipient (to).' },
-        { status: 400 }
-      )
-    }
-
     // 2. Check Daily Free Gasless Quota (Redis / In-Memory Distributed)
     const quota = await getGaslessDailyQuota(from, DAILY_FREE_LIMIT)
     if (quota.remaining <= 0) {
-      return Response.json(
-        {
-          success: false,
-          error: `Daily free ${DAILY_FREE_LIMIT}/${DAILY_FREE_LIMIT} Gasless transfer limit has been reached. Please try again tomorrow or use standard sending.`,
-          remainingQuota: 0,
-        },
-        { status: 429 }
+      return apiError(
+        `Daily free ${DAILY_FREE_LIMIT}/${DAILY_FREE_LIMIT} Gasless transfer limit has been reached. Please try again tomorrow or use standard sending.`,
+        'QUOTA_EXCEEDED',
+        429,
+        null,
+        { remainingQuota: 0 }
       )
     }
 
@@ -233,24 +254,20 @@ export async function POST(req: Request) {
     ])
 
     if (isNonceUsed) {
-      return Response.json(
-        {
-          success: false,
-          error: 'Authorization signature (nonce) has already been used. Please start a new transaction.',
-        },
-        { status: 400 }
+      return apiError(
+        'Authorization signature (nonce) has already been used. Please start a new transaction.',
+        'NONCE_ALREADY_USED',
+        400
       )
     }
 
     if (senderBalance < transferValue) {
       const formattedSenderBal = formatUnits(senderBalance, 6)
       const formattedTransferVal = formatUnits(transferValue, 6)
-      return Response.json(
-        {
-          success: false,
-          error: `Insufficient USDC balance. Balance: ${formattedSenderBal} USDC, Attempting to send: ${formattedTransferVal} USDC.`,
-        },
-        { status: 400 }
+      return apiError(
+        `Insufficient USDC balance. Balance: ${formattedSenderBal} USDC, Attempting to send: ${formattedTransferVal} USDC.`,
+        'INSUFFICIENT_BALANCE',
+        400
       )
     }
 
@@ -258,12 +275,10 @@ export async function POST(req: Request) {
     const minRelayerGasReserve = parseUnits('0.01', 6)
     if (relayerBalance < minRelayerGasReserve) {
       console.warn(`[Relayer Low Balance Alert]: Relayer balance is ${formatUnits(relayerBalance, 6)} USDC`)
-      return Response.json(
-        {
-          success: false,
-          error: 'Relayer gas liquidity is currently low. Please try standard transfer or notify the administrator.',
-        },
-        { status: 503 }
+      return apiError(
+        'Relayer gas liquidity is currently low. Please try standard transfer or notify the administrator.',
+        'RELAYER_LOW_LIQUIDITY',
+        503
       )
     }
 
@@ -308,8 +323,7 @@ export async function POST(req: Request) {
     // 7. Increment daily quota
     const remainingQuota = await incrementGaslessDailyQuota(from, DAILY_FREE_LIMIT)
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       txHash,
       blockNumber: receipt.blockNumber.toString(),
       status: receipt.status,
@@ -321,12 +335,10 @@ export async function POST(req: Request) {
     })
   } catch (error: any) {
     console.error('[Relayer API Error]:', error)
-    return Response.json(
-      {
-        success: false,
-        error: error.shortMessage || error.message || 'Relayer transaction sending error.',
-      },
-      { status: 500 }
+    return apiError(
+      error.shortMessage || error.message || 'Relayer transaction broadcast error.',
+      'RELAYER_BROADCAST_ERROR',
+      500
     )
   }
 }

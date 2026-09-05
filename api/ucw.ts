@@ -1,5 +1,6 @@
 import { initiateUserControlledWalletsClient } from "@circle-fin/user-controlled-wallets";
 import { checkRateLimit } from "./rateLimiter";
+import { apiSuccess, apiError, safeJsonParse } from "./utils/apiResponse";
 
 // ─────────────────────────────────────────────────────────────
 // 1. IP RESOLUTION HELPER
@@ -39,7 +40,8 @@ function sanitizeString(input: any, maxLen = 128): string {
 // 3. CIRCLE CLIENT INITIALIZATION
 // ─────────────────────────────────────────────────────────────
 function getCircleClient() {
-  const apiKey = process.env.CIRCLE_API_KEY;
+  const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {};
+  const apiKey = (globalEnv.CIRCLE_API_KEY || process.env.CIRCLE_API_KEY || "").trim();
   if (!apiKey) {
     throw new Error("CIRCLE_API_KEY is not configured in environment variables.");
   }
@@ -64,27 +66,35 @@ export async function POST(req: Request) {
   const action = url.searchParams.get("action");
   const clientIp = getClientIp(req);
 
-  try {
-    const body = await req.json().catch(() => ({}));
+  const jsonResult = await safeJsonParse(req);
+  if (!jsonResult.success) {
+    return apiError(
+      jsonResult.error || "Invalid or malformed JSON payload in request body.",
+      "INVALID_JSON",
+      400
+    );
+  }
 
+  const body = jsonResult.data || {};
+
+  try {
     // ── Action: Create User & Obtain userToken ────────────────
     if (action === "createUserToken") {
       // Distributed Rate Limit: 15 requests per 60s per IP
       const rateCheck = await checkRateLimit(`userToken:${clientIp}`, 15, 60_000);
       if (!rateCheck.allowed) {
-        return Response.json(
-          {
-            success: false,
-            error: "Çok fazla kullanıcı oturumu isteği gönderildi. Lütfen bekleyin.",
-            retryAfter: rateCheck.retryAfterSeconds,
-          },
-          { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSeconds) } }
+        return apiError(
+          "Rate limit exceeded for user sessions. Please wait before trying again.",
+          "RATE_LIMIT_EXCEEDED",
+          429,
+          null,
+          { retryAfter: rateCheck.retryAfterSeconds }
         );
       }
 
       const userId = sanitizeString(body.userId, 100);
       if (!userId) {
-        return Response.json({ success: false, error: "userId is required and must be valid string" }, { status: 400 });
+        return apiError("userId is required and must be a valid string.", "MISSING_USER_ID", 400);
       }
 
       const client = getCircleClient();
@@ -101,8 +111,7 @@ export async function POST(req: Request) {
 
       // Generate user token
       const response = await client.createUserToken({ userId });
-      return Response.json({ 
-        success: true, 
+      return apiSuccess({ 
         userToken: response.data?.userToken, 
         encryptionKey: response.data?.encryptionKey 
       });
@@ -114,36 +123,34 @@ export async function POST(req: Request) {
       const deviceId = sanitizeString(body.deviceId, 128);
 
       if (!deviceId || !email) {
-        return Response.json({ success: false, error: "deviceId and email are required" }, { status: 400 });
+        return apiError("deviceId and email are required.", "MISSING_PARAMETERS", 400);
       }
 
       if (!isValidEmail(email)) {
-        return Response.json({ success: false, error: "Lütfen geçerli bir e-posta adresi girin." }, { status: 400 });
+        return apiError("Please enter a valid email address.", "INVALID_EMAIL", 400);
       }
 
       // Rate Limit 1: Max 5 requests / 60s per IP
       const ipCheck = await checkRateLimit(`otpIp:${clientIp}`, 5, 60_000);
       if (!ipCheck.allowed) {
-        return Response.json(
-          {
-            success: false,
-            error: `Çok fazla OTP isteği gönderildi. Lütfen ${ipCheck.retryAfterSeconds} saniye sonra tekrar deneyin.`,
-            retryAfter: ipCheck.retryAfterSeconds,
-          },
-          { status: 429, headers: { "Retry-After": String(ipCheck.retryAfterSeconds) } }
+        return apiError(
+          `Too many OTP requests. Please try again in ${ipCheck.retryAfterSeconds} seconds.`,
+          "RATE_LIMIT_EXCEEDED",
+          429,
+          null,
+          { retryAfter: ipCheck.retryAfterSeconds }
         );
       }
 
       // Rate Limit 2: Max 3 requests / 120s per Email (Anti-Spam / Anti-Bombing)
       const emailCheck = await checkRateLimit(`otpEmail:${email}`, 3, 120_000);
       if (!emailCheck.allowed) {
-        return Response.json(
-          {
-            success: false,
-            error: `Bu e-posta adresine çok sık kod gönderildi. Lütfen ${emailCheck.retryAfterSeconds} saniye bekleyin.`,
-            retryAfter: emailCheck.retryAfterSeconds,
-          },
-          { status: 429, headers: { "Retry-After": String(emailCheck.retryAfterSeconds) } }
+        return apiError(
+          `Verification code was requested too frequently for this email. Please wait ${emailCheck.retryAfterSeconds} seconds.`,
+          "EMAIL_RATE_LIMIT_EXCEEDED",
+          429,
+          null,
+          { retryAfter: emailCheck.retryAfterSeconds }
         );
       }
 
@@ -153,8 +160,7 @@ export async function POST(req: Request) {
         email,
       });
 
-      return Response.json({
-        success: true,
+      return apiSuccess({
         deviceToken: response.data?.deviceToken,
         deviceEncryptionKey: response.data?.deviceEncryptionKey,
         otpToken: response.data?.otpToken,
@@ -165,19 +171,18 @@ export async function POST(req: Request) {
     if (action === "createSocialDeviceToken") {
       const rateCheck = await checkRateLimit(`socialToken:${clientIp}`, 25, 60_000);
       if (!rateCheck.allowed) {
-        return Response.json(
-          {
-            success: false,
-            error: "Çok fazla istek gönderildi. Lütfen bekleyin.",
-            retryAfter: rateCheck.retryAfterSeconds,
-          },
-          { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSeconds) } }
+        return apiError(
+          "Too many social login requests. Please wait before retrying.",
+          "RATE_LIMIT_EXCEEDED",
+          429,
+          null,
+          { retryAfter: rateCheck.retryAfterSeconds }
         );
       }
 
       const deviceId = sanitizeString(body.deviceId, 128);
       if (!deviceId) {
-        return Response.json({ success: false, error: "deviceId is required" }, { status: 400 });
+        return apiError("deviceId is required.", "MISSING_DEVICE_ID", 400);
       }
 
       const client = getCircleClient();
@@ -185,8 +190,7 @@ export async function POST(req: Request) {
         deviceId,
       });
 
-      return Response.json({
-        success: true,
+      return apiSuccess({
         deviceToken: response.data?.deviceToken,
         deviceEncryptionKey: response.data?.deviceEncryptionKey,
       });
@@ -196,19 +200,18 @@ export async function POST(req: Request) {
     if (action === "createPinWallet" || action === "initializeUser") {
       const rateCheck = await checkRateLimit(`pinWallet:${clientIp}`, 15, 60_000);
       if (!rateCheck.allowed) {
-        return Response.json(
-          {
-            success: false,
-            error: "PIN işlemi için çok fazla deneme yapıldı. Lütfen bekleyin.",
-            retryAfter: rateCheck.retryAfterSeconds,
-          },
-          { status: 429, headers: { "Retry-After": String(rateCheck.retryAfterSeconds) } }
+        return apiError(
+          "Too many PIN setup attempts. Please wait before retrying.",
+          "RATE_LIMIT_EXCEEDED",
+          429,
+          null,
+          { retryAfter: rateCheck.retryAfterSeconds }
         );
       }
 
       const userToken = sanitizeString(body.userToken, 1024);
       if (!userToken) {
-        return Response.json({ success: false, error: "userToken is required" }, { status: 400 });
+        return apiError("userToken is required.", "MISSING_USER_TOKEN", 400);
       }
 
       const client = getCircleClient();
@@ -219,15 +222,13 @@ export async function POST(req: Request) {
           accountType: "EOA",
         });
 
-        return Response.json({
-          success: true,
+        return apiSuccess({
           challengeId: response.data?.challengeId,
         });
       } catch (err: any) {
         const errCode = err?.response?.data?.code || err?.code;
         if (errCode === 155106) {
-          return Response.json({
-            success: true,
+          return apiSuccess({
             code: 155106,
             message: "User already initialized",
           });
@@ -240,22 +241,21 @@ export async function POST(req: Request) {
     if (action === "getUserWallets" || action === "listWallets") {
       const userToken = sanitizeString(body.userToken, 1024);
       if (!userToken) {
-        return Response.json({ success: false, error: "userToken is required" }, { status: 400 });
+        return apiError("userToken is required.", "MISSING_USER_TOKEN", 400);
       }
 
       const client = getCircleClient();
       const response = await client.listWallets({ userToken });
-      return Response.json({
-        success: true,
+      return apiSuccess({
         wallets: response.data?.wallets || [],
       });
     }
 
-    return Response.json({ success: false, error: `Invalid action: ${action}` }, { status: 400 });
+    return apiError(`Invalid action: ${action}`, "INVALID_ACTION", 400);
   } catch (error: any) {
     console.error("[UCW API Error]:", error?.message || error);
-    const code = error?.response?.data?.code || error?.code;
-    const msg = error?.response?.data?.message || error?.message || "Internal server error";
-    return Response.json({ success: false, code, error: msg }, { status: 500 });
+    const code = error?.response?.data?.code || error?.code || "UCW_INTERNAL_ERROR";
+    const msg = error?.response?.data?.message || error?.message || "Internal server error occurred in Circle UCW service.";
+    return apiError(msg, String(code), 500, error?.details || null);
   }
 }

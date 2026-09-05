@@ -3,28 +3,43 @@
 // Interacts with OpenAI / OpenRouter GPT-4o-mini without exposing API keys to the client browser.
 
 import { arcTestnet } from '../src/config/arcChain'
+import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
 
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get('authorization')
+    const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
     let apiKey = (authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '') ||
+      globalEnv.OPENAI_API_KEY ||
       process.env.OPENAI_API_KEY ||
+      globalEnv.OPENROUTER_API_KEY ||
       process.env.OPENROUTER_API_KEY ||
+      globalEnv.VITE_OPENAI_API_KEY ||
       process.env.VITE_OPENAI_API_KEY ||
       ''
 
     if (!apiKey || apiKey.trim() === '') {
-      return Response.json(
-        {
-          success: false,
-          error: 'No OpenAI / OpenRouter API key configured on server or in request.',
-          fallbackToLocal: true,
-        },
-        { status: 401 }
+      return apiError(
+        'No OpenAI / OpenRouter API key configured on server or in request.',
+        'MISSING_AI_KEY',
+        401,
+        null,
+        { fallbackToLocal: true }
       )
     }
 
-    const body = await req.json().catch(() => ({}))
+    const jsonResult = await safeJsonParse(req)
+    if (!jsonResult.success) {
+      return apiError(
+        jsonResult.error || 'Invalid or malformed JSON payload in request body.',
+        'INVALID_JSON',
+        400,
+        null,
+        { fallbackToLocal: true }
+      )
+    }
+
+    const body = jsonResult.data || {}
     const {
       userPrompt,
       walletAddress,
@@ -34,9 +49,12 @@ export async function POST(req: Request) {
     } = body
 
     if (!userPrompt || typeof userPrompt !== 'string') {
-      return Response.json(
-        { success: false, error: 'userPrompt is required.' },
-        { status: 400 }
+      return apiError(
+        'userPrompt is required.',
+        'MISSING_USER_PROMPT',
+        400,
+        null,
+        { fallbackToLocal: true }
       )
     }
 
@@ -301,21 +319,19 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       }
     }
 
-    return Response.json({
-      success: true,
+    return apiSuccess({
       message: outputMessage,
       actionPayload,
       source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini',
     })
   } catch (error: any) {
     console.error('[Copilot API Error]:', error)
-    return Response.json(
-      {
-        success: false,
-        error: error.message || 'Server error in Copilot processing',
-        fallbackToLocal: true,
-      },
-      { status: 500 }
+    return apiError(
+      error.message || 'Server error occurred in Copilot processing.',
+      'COPILOT_SERVER_ERROR',
+      500,
+      null,
+      { fallbackToLocal: true }
     )
   }
 }

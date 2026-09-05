@@ -55,8 +55,19 @@ export async function GET(req: Request) {
     isFunded: false,
   }
 
+  const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
+  const localEnv = (typeof process !== 'undefined' && process.env) || {}
+
   try {
-    const rawKey = (process.env.PRIVATE_KEY || '').trim()
+    const rawKey = (
+      localEnv.PRIVATE_KEY ||
+      globalEnv.PRIVATE_KEY ||
+      localEnv.RELAYER_PRIVATE_KEY ||
+      globalEnv.RELAYER_PRIVATE_KEY ||
+      localEnv.VITE_RELAYER_PRIVATE_KEY ||
+      globalEnv.VITE_RELAYER_PRIVATE_KEY ||
+      ''
+    ).trim()
     if (rawKey && rawKey.length >= 64) {
       const formattedKey: Hex = rawKey.startsWith('0x') ? (rawKey as Hex) : `0x${rawKey}`
       const account = privateKeyToAccount(formattedKey)
@@ -91,26 +102,36 @@ export async function GET(req: Request) {
   const redisConnected = isRedisConnected()
 
   // 4. Check Circle API Key Configuration
-  const circleConfigured = Boolean(
-    process.env.CIRCLE_API_KEY && process.env.CIRCLE_API_KEY.trim() !== ''
-  )
+  const circleKey = localEnv.CIRCLE_API_KEY || globalEnv.CIRCLE_API_KEY || ''
+  const circleConfigured = Boolean(circleKey.trim() !== '')
 
   // 5. Check AI Copilot Configuration
   const copilotConfigured = Boolean(
-    process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || process.env.VITE_OPENAI_API_KEY
+    localEnv.OPENAI_API_KEY ||
+    globalEnv.OPENAI_API_KEY ||
+    localEnv.OPENROUTER_API_KEY ||
+    globalEnv.OPENROUTER_API_KEY ||
+    localEnv.VITE_OPENAI_API_KEY ||
+    globalEnv.VITE_OPENAI_API_KEY
   )
 
   const isHealthy = rpcStatus.connected
+
+  const uptimeVal = typeof process?.uptime === 'function'
+    ? process.uptime()
+    : typeof (globalThis as any).process?.uptime === 'function'
+      ? (globalThis as any).process.uptime()
+      : Math.floor((Date.now() - startTime) / 1000)
 
   return Response.json(
     {
       status: isHealthy ? 'healthy' : 'degraded',
       service: 'Arcis Protocol API Gateway',
       version: '0.1.0',
-      uptimeSeconds: Math.floor(process.uptime()),
+      uptimeSeconds: Math.floor(uptimeVal),
       timestamp: Date.now(),
       totalResponseTimeMs: Date.now() - startTime,
-      environment: process.env.NODE_ENV || 'production',
+      environment: localEnv.NODE_ENV || globalEnv.NODE_ENV || 'production',
       networkMode: APP_ENV,
       isTestnet: IS_TESTNET,
       network: {
