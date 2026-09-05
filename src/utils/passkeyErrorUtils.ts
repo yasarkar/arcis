@@ -1,5 +1,5 @@
 // src/utils/passkeyErrorUtils.ts
-// Comprehensive WebAuthn / Passkey Error Parser & Environment Inspector for Circle Modular Wallets
+// Comprehensive WebAuthn / Passkey Error Parser & Environment Inspector for Circle Modular Wallets (100% English)
 
 export interface ParsedPasskeyError {
   code: string
@@ -30,7 +30,7 @@ export function checkPasskeySupport(): {
       isSupported: false,
       isSecureContext: false,
       hasPublicKeyCredential,
-      reason: 'Passkey / WebAuthn güvenli bağlantı (HTTPS veya localhost) gerektirir.',
+      reason: 'Passkey / WebAuthn requires a secure connection (HTTPS or localhost).',
     }
   }
 
@@ -39,7 +39,7 @@ export function checkPasskeySupport(): {
       isSupported: false,
       isSecureContext: true,
       hasPublicKeyCredential: false,
-      reason: 'Tarayıcınız veya cihazınız WebAuthn (Passkey) standardını desteklemiyor.',
+      reason: 'Your browser or device does not support the WebAuthn (Passkey) standard.',
     }
   }
 
@@ -51,7 +51,7 @@ export function checkPasskeySupport(): {
 }
 
 /**
- * Parses raw WebAuthn, DOMExceptions, and Circle Modular SDK errors into human-friendly explanations.
+ * Parses raw WebAuthn, DOMExceptions, and Circle Modular SDK errors into human-friendly explanations (100% English).
  */
 export function parsePasskeyError(err: any): ParsedPasskeyError {
   const errName = err?.name || ''
@@ -62,10 +62,10 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (errName === 'NotAllowedError' || rawMsg.includes('NotAllowedError') || rawMsg.includes('canceled') || rawMsg.includes('timed out')) {
     return {
       code: 'USER_CANCELED',
-      title: 'Biyometrik Doğrulama İptal Edildi',
-      message: 'FaceID, TouchID veya Passkey doğrulaması kullanıcı tarafından iptal edildi ya da zaman aşımına uğradı.',
+      title: 'Biometric Verification Canceled',
+      message: 'FaceID, TouchID, or Passkey confirmation was canceled or timed out by the user.',
       isActionable: true,
-      actionHint: 'Tekrar denemek için butona tıklayın ve cihaz onayını verin.',
+      actionHint: 'Click to try again and authenticate when prompted on your device.',
     }
   }
 
@@ -73,10 +73,10 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (errName === 'InvalidStateError' || rawMsg.includes('InvalidStateError') || rawMsg.includes('already exists')) {
     return {
       code: 'ALREADY_EXISTS',
-      title: 'Cihazda Zaten Kayıtlı Passkey Var',
-      message: 'Bu cihaz ve tarayıcıda kayıtlı bir Passkey zaten mevcut.',
+      title: 'Passkey Already Registered',
+      message: 'A passkey credential is already registered on this device and browser.',
       isActionable: true,
-      actionHint: 'Yeni kayıt yerine "FaceID ile Giriş Yap" butonunu kullanabilirsiniz.',
+      actionHint: 'Please use "Login with FaceID" instead of creating a new passkey.',
     }
   }
 
@@ -84,10 +84,10 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (errName === 'SecurityError' || rawMsg.includes('SecurityError') || rawMsg.includes('relying party') || rawMsg.includes('RP ID')) {
     return {
       code: 'SECURITY_DOMAIN_MISMATCH',
-      title: 'Passkey Alan Adı (Domain) Uyuşmazlığı',
-      message: `WebAuthn anahtarı bu etki alanı (${origin}) ile eşleşmiyor veya izinli değil.`,
+      title: 'Passkey Domain Mismatch',
+      message: `The WebAuthn key does not match or is not authorized for this domain (${origin}).`,
       isActionable: true,
-      actionHint: 'Circle Developer Console üzerinde geçerli alan adınızın yapılandırıldığından emin olun.',
+      actionHint: 'Verify your valid domain is configured in the Circle Developer Console.',
     }
   }
 
@@ -95,10 +95,10 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (errName === 'NotSupportedError' || errName === 'ConstraintError' || rawMsg.includes('not supported')) {
     return {
       code: 'NOT_SUPPORTED',
-      title: 'Cihaz / Tarayıcı Desteği Yok',
-      message: 'Cihazınızda biyometrik kimlik doğrulayıcı (FaceID, Windows Hello, TouchID) etkinleştirilmemiş olabilir.',
+      title: 'Device / Browser Unsupported',
+      message: 'No biometric authenticator (FaceID, Windows Hello, TouchID) is enabled on this device.',
       isActionable: false,
-      actionHint: 'Cihaz ayarlarınızdan biyometrik kilidi açın veya farklı bir tarayıcı deneyin.',
+      actionHint: 'Enable biometric lock in your system settings or try a supported browser.',
     }
   }
 
@@ -106,10 +106,10 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (rawMsg.includes('Cannot find the entity config') || rawMsg.includes('entity config') || rawMsg.includes('EntityConfigNotFound')) {
     return {
       code: 'CIRCLE_ENTITY_CONFIG_MISSING',
-      title: 'Circle Modular Wallets Alan Adı Yapılandırması Eksik',
-      message: `Circle Console üzerinde bu alan adı (${origin}) için Modular Wallets Configurator henüz tamamlanmamış.`,
+      title: 'Circle Modular Config Missing',
+      message: `Modular Wallets Configurator has not been completed for this domain (${origin}) in Circle Console.`,
       isActionable: true,
-      actionHint: 'Circle Console > Wallets > Modular Wallets > Configurator sekmesine giderek alan adınızı kaydedin.',
+      actionHint: 'Go to Circle Console > Wallets > Modular Wallets > Configurator to register your domain.',
     }
   }
 
@@ -117,10 +117,10 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (rawMsg.includes('Invalid credentials') || rawMsg.includes('Unauthorized') || rawMsg.includes('401') || rawMsg.includes('403')) {
     return {
       code: 'CLIENT_KEY_UNAUTHORIZED',
-      title: 'Circle Client Key Yetki Hatası',
-      message: `Mevcut alan adı (${origin}), Circle Developer Console > API & Client Keys altındaki 'Allowed Domains' listesinde yer almıyor.`,
+      title: 'Circle Client Key Unauthorized',
+      message: `The current domain (${origin}) is not listed under 'Allowed Domains' in Circle Developer Console.`,
       isActionable: true,
-      actionHint: 'Circle Console üzerinde bu origin adresini Allowed Domains listesine ekleyin.',
+      actionHint: 'Add this origin to your Allowed Domains list in the Circle Console.',
     }
   }
 
@@ -128,10 +128,10 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (rawMsg.includes('AA21') || rawMsg.includes('paymaster') || rawMsg.includes('Gas Station') || rawMsg.includes('prefund')) {
     return {
       code: 'PAYMASTER_SPONSORSHIP_ERROR',
-      title: 'Gas Station Sponsorluk Hatası',
-      message: 'İşlem için Circle Gas Station gaz sponsorluğu sağlanamadı.',
+      title: 'Gas Station Sponsorship Error',
+      message: 'Circle Gas Station could not sponsor gas for this transaction.',
       isActionable: true,
-      actionHint: 'Circle Console > Gas Station testnet bakiyesini kontrol edin.',
+      actionHint: 'Check your testnet Gas Station balance in the Circle Console.',
     }
   }
 
@@ -139,18 +139,18 @@ export function parsePasskeyError(err: any): ParsedPasskeyError {
   if (rawMsg.includes('Bad request for the Webauthn protocol') || rawMsg.includes('Webauthn protocol')) {
     return {
       code: 'WEBAUTHN_PROTOCOL_BAD_REQUEST',
-      title: 'WebAuthn Protokol Hatası',
-      message: 'WebAuthn protokolü isteği reddetti. Circle Console üzerinde Passkey Domain adı port ve protokol olmadan (sadece "localhost") girilmelidir.',
+      title: 'WebAuthn Protocol Error',
+      message: 'The WebAuthn protocol rejected the request. Passkey Domain in Circle Console must not include protocol or ports (e.g. use "localhost" directly).',
       isActionable: true,
-      actionHint: '1) Circle Console > Modular Wallets > Passkey kısmındaki alan adını sadece "localhost" olarak güncelleyin. 2) İlk defa giriş yapıyorsanız "Yeni Passkey Aç" butonunu kullanın.',
+      actionHint: '1) In Circle Console > Modular Wallets > Passkey, set the domain name to "localhost". 2) If logging in for the first time, click "Create New Passkey".',
     }
   }
 
   // 9. Generic / Unknown Error
   return {
     code: 'UNKNOWN_PASSKEY_ERROR',
-    title: 'Passkey İşlemi Başarısız',
-    message: rawMsg || 'Bilinmeyen bir biyometrik doğrulama hatası oluştu.',
+    title: 'Passkey Operation Failed',
+    message: rawMsg || 'An unknown biometric verification error occurred.',
     isActionable: true,
   }
 }
