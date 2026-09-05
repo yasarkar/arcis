@@ -63,10 +63,10 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
       }
     }
     // For send:
-    const sendFee = getSendProtocolFee(tier)
+    const gasCost = SPEED_TIERS[tier].arcGas.estimatedCostUsdc
     return {
-      amount: sendFee === 0 ? 'Free (0.00 USDC)' : `+${sendFee.toFixed(3)} USDC`,
-      desc: PROTOCOL_FEE_RATES.send[tier]?.description || 'Send platform fee',
+      amount: `~${gasCost} USDC Gas`,
+      desc: PROTOCOL_FEE_RATES.send[tier]?.description || 'Arc L1 native gas (0% platform fee)',
     }
   }
 

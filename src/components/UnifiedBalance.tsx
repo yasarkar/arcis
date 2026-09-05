@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAccount } from 'wagmi'
-import { RefreshCw, AlertTriangle, ChevronDown, Plus, X, Layers, ShieldCheck, ArrowDownRight} from 'lucide-react'
+import { RefreshCw, AlertTriangle, ChevronDown, Plus, X, Layers, ShieldCheck, ArrowDownRight, Ban } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 
@@ -9,7 +9,7 @@ import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { depositToGateway } from '../services/gatewayService'
 import { useBroadcast } from './BroadcastNotification'
-import { formatWalletError } from '../utils/errorUtils'
+import { normalizeAppError } from '../utils/errorNormalizer'
 import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
 import { CHAIN_META, CHAIN_DEFS, getChainDisplayName } from '../config/chainMeta'
 
@@ -36,6 +36,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
   const [depositAmount, setDepositAmount] = useState('')
   const [depositing, setDepositing] = useState(false)
   const [depositError, setDepositError] = useState<string | null>(null)
+  const [isCanceledError, setIsCanceledError] = useState(false)
 
   // Custom chain dropdown state
   const [showChainDropdown, setShowChainDropdown] = useState(false)
@@ -77,6 +78,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault()
     setDepositError(null)
+    setIsCanceledError(false)
 
     const amt = parseFloat(depositAmount)
     if (isNaN(amt) || amt <= 0) {
@@ -96,15 +98,14 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
 
     // Create pending broadcast notification
     const broadcastId = addBroadcast({
+      type: 'deposit',
       title: 'Depositing to Gateway...',
       status: 'pending',
       badgeText: 'Pending',
       details: {
-        fromAmount: depositAmount,
-        fromSymbol: DEPOSIT_TOKEN,
-        fromChain: depositChain,
-        toAmount: depositAmount,
-        toSymbol: `Gateway ${DEPOSIT_TOKEN}`,
+        amount: depositAmount,
+        tokenSymbol: DEPOSIT_TOKEN,
+        sourceChain: depositChain,
         network: depositChain,
       },
     })
@@ -122,15 +123,14 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
 
       // Update broadcast notification to success
       updateBroadcast(broadcastId, {
-        title: 'Deposit Complete',
+        type: 'deposit',
+        title: 'Deposit Completed Successfully',
         status: 'success',
-        badgeText: 'Success',
+        badgeText: 'Confirmed',
         details: {
-          fromAmount: depositAmount,
-          fromSymbol: DEPOSIT_TOKEN,
-          fromChain: depositChain,
-          toAmount: depositAmount,
-          toSymbol: `Gateway ${DEPOSIT_TOKEN}`,
+          amount: depositAmount,
+          tokenSymbol: DEPOSIT_TOKEN,
+          sourceChain: depositChain,
           network: depositChain,
           txHash: result.depositTxHash,
         },
@@ -145,22 +145,27 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
         refetchWalletBalances()
       }, 2000)
     } catch (err: any) {
-      console.error('[Deposit] Failed:', err)
-      const errorMsg = formatWalletError(err)
-      setDepositError(errorMsg)
+      console.error('[UnifiedBalance] Deposit failed:', err)
+      const normalized = normalizeAppError(err)
+      const isCanceled = normalized.isCanceled
+      setIsCanceledError(isCanceled)
+      setDepositError(normalized.message)
 
-      // Update broadcast notification to failed
+      const status = isCanceled ? 'canceled' : 'failed'
+      const title = isCanceled ? 'Deposit Canceled' : (normalized.title || 'Deposit Failed')
+      const badgeText = isCanceled ? 'Canceled' : 'Failed'
+
+      // Update broadcast notification to canceled or failed
       updateBroadcast(broadcastId, {
-        title: 'Deposit Failed',
-        status: 'failed',
-        badgeText: 'Failed',
-        message: errorMsg,
+        type: 'deposit',
+        title,
+        status,
+        badgeText,
+        message: normalized.message,
         details: {
-          fromAmount: depositAmount,
-          fromSymbol: DEPOSIT_TOKEN,
-          fromChain: depositChain,
-          toAmount: depositAmount,
-          toSymbol: `Gateway ${DEPOSIT_TOKEN}`,
+          amount: depositAmount,
+          tokenSymbol: DEPOSIT_TOKEN,
+          sourceChain: depositChain,
           network: depositChain,
         },
       })
@@ -262,7 +267,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
             </div>
           </div>
           <p style={{ margin: 0, fontSize: 14, color: 'var(--fp-3)', fontFamily: 'var(--font-app)', fontWeight: 400 }}>
-            Unified cross-chain USDC balance instantly spendable across 12+ networks via Circle Gateway.
+            Unified cross-chain USDC balance instantly spendable across 13+ networks via Circle Gateway.
           </p>
         </div>
       </div>
@@ -476,6 +481,10 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
                   onChange={(e) => {
                     const val = e.target.value
                     setDepositAmount(val.startsWith('-') ? '0' : val)
+                    if (depositError) {
+                      setDepositError(null)
+                      setIsCanceledError(false)
+                    }
                   }}
                   disabled={depositing}
                   style={{
@@ -522,8 +531,25 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
             )}
 
             {depositError && !isInsufficientWalletBalance && (
-              <div style={{ padding: '10px 14px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 12, fontSize: 12, color: '#f87171', fontFamily: 'var(--font-app)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+              <div
+                style={{
+                  padding: '10px 14px',
+                  background: isCanceledError ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                  border: isCanceledError ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(239, 68, 68, 0.25)',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  color: isCanceledError ? '#fcd34d' : '#f87171',
+                  fontFamily: 'var(--font-app)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                {isCanceledError ? (
+                  <Ban size={14} style={{ flexShrink: 0, color: '#fbbf24' }} />
+                ) : (
+                  <AlertTriangle size={14} style={{ flexShrink: 0, color: '#f87171' }} />
+                )}
                 <span>{depositError}</span>
               </div>
             )}

@@ -7,15 +7,15 @@ import {
   Settings,
   Wallet,
   Clipboard,
-  Check,
   Edit3,
   ChevronDown,
+  Ban,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
-import { formatWalletError } from '../utils/errorUtils'
+import { normalizeAppError } from '../utils/errorNormalizer'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { createViemAdapter } from '../services/sendService'
 import { getSwapEstimate, executeSwap, getSupportedSwapChains } from '../services/swapService'
@@ -29,11 +29,7 @@ import {
   getSwapProtocolFeeBps,
   getSwapProtocolFeePercent,
   calculateSwapProtocolFeeAmount,
-  TREASURY_ADDRESS,
-  TREASURY_EXPLORER_URL,
-  formatTreasuryAddress,
-  REVENUE_SHARE_LABEL,
-  REVENUE_SHARE_TOOLTIP,
+  getTreasuryRecipientAddress,
 } from '../config/treasuryConfig'
 import { getChainIconId } from '../config/swapConfig'
 import { getExplorerTxUrl } from '../config/sendConfig'
@@ -123,6 +119,7 @@ export default function SwapModal({
   const [isSwapping, setIsSwapping] = useState(false)
   const [successData, setSuccessData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isCanceledError, setIsCanceledError] = useState(false)
 
   // Quote & Estimate States
   const [estimatedOutput, setEstimatedOutput] = useState<string>('')
@@ -172,6 +169,7 @@ export default function SwapModal({
       setRate('')
       setSuccessData(null)
       setError(null)
+      setIsCanceledError(false)
       setEstimateError(null)
       setIsSwapping(false)
       setShowSettings(false)
@@ -311,7 +309,7 @@ export default function SwapModal({
             ...(platformFeeEnabled && {
               customFee: {
                 percentageBps: platformFeeBps,
-                recipientAddress: TREASURY_ADDRESS,
+                recipientAddress: getTreasuryRecipientAddress(fromChain),
               },
             }),
           })
@@ -339,36 +337,48 @@ export default function SwapModal({
       isMounted = false
       clearTimeout(timer)
     }
-  }, [amountIn, tokenIn, tokenOut, fromChain, toChain, slippageTolerance, allowanceStrategy, provider])
-
-  const getFriendlyErrorMessage = (err: any): string => {
-    return formatWalletError(err)
-  }
+  }, [
+    amountIn,
+    tokenIn,
+    tokenOut,
+    fromChain,
+    toChain,
+    slippageTolerance,
+    allowanceStrategy,
+    provider,
+    speedTier,
+    platformFeeBps,
+    platformFeeEnabled,
+    effectiveRecipient,
+  ])
 
   // Swap Execution
   const handleSwapExecution = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setIsCanceledError(false)
     setSuccessData(null)
 
     if (tokenIn === tokenOut && fromChain === toChain) {
       setError('Source and destination tokens must be different for same-chain swaps.')
+      setIsCanceledError(false)
       return
     }
 
     const amt = parseFloat(amountIn)
     if (isNaN(amt) || amt <= 0) {
       setError('Please enter a valid amount')
+      setIsCanceledError(false)
       return
     }
 
     if (useCustomRecipient) {
       if (!isValidEvmAddress(customRecipient)) {
-        setRecipientError('Geçerli bir EVM adresi girin (0x + 40 karakter).')
+        setRecipientError('Please enter a valid EVM address (0x followed by 40 hex characters).')
         return
       }
       if (recipientIsOwnAddress) {
-        setRecipientError('Bu adres bağlı cüzdanınızla aynı. Farklı bir adres girin.')
+        setRecipientError('This address is identical to your connected wallet. Please specify a different recipient.')
         return
       }
     }
@@ -377,9 +387,10 @@ export default function SwapModal({
 
     const isCross = Boolean(toChain && toChain !== fromChain)
     const broadcastId = addBroadcast({
+      type: 'swap',
       title: isCross ? 'Cross-Chain Swap in Progress...' : 'Swapping Tokens...',
       status: 'pending',
-      badgeText: isCross ? 'Cross-Chain' : 'Swapping',
+      badgeText: 'Pending',
       details: {
         fromAmount: amountIn,
         fromSymbol: tokenIn,
@@ -388,9 +399,8 @@ export default function SwapModal({
         toAmount: estimatedOutput,
         toSymbol: tokenOut,
         toIcon: TOKEN_ICONS[tokenOut],
-        toChain: toChain || fromChain,
+        toChain: toChain,
         network: fromChain,
-        isBridge: isCross,
       },
     })
 
@@ -408,10 +418,11 @@ export default function SwapModal({
           recipientAddress: effectiveRecipient,
           slippageTolerance,
           allowanceStrategy,
+          speedTier,
           ...(platformFeeEnabled && {
             customFee: {
               percentageBps: platformFeeBps,
-              recipientAddress: TREASURY_ADDRESS,
+              recipientAddress: getTreasuryRecipientAddress(fromChain),
             },
           }),
         })
@@ -428,6 +439,7 @@ export default function SwapModal({
           })
 
           updateBroadcast(broadcastId, {
+            type: 'swap',
             title: isCross ? 'Cross-Chain Swap Success' : 'Swap Confirmed',
             status: 'success',
             badgeText: 'Swapped',
@@ -442,7 +454,6 @@ export default function SwapModal({
               toChain: toChain || fromChain,
               network: fromChain,
               txHash: finalStatus.sourceTxHash,
-              isBridge: isCross,
             },
           })
 
@@ -466,20 +477,33 @@ export default function SwapModal({
 
           onSuccess(amountIn, estimatedOutput, tokenIn, tokenOut, finalStatus.sourceTxHash || '')
         } else {
-          throw new Error(finalStatus.errorMessage || 'Swap failed to complete.')
+          const swapErr: any = new Error(finalStatus.errorMessage || 'Swap failed to complete.')
+          if (finalStatus.isCanceled) {
+            swapErr.isCanceled = true
+          }
+          throw swapErr
         }
       }
     } catch (err: any) {
-      console.error(err)
-      const friendlyMsg = getFriendlyErrorMessage(err)
-      setError(friendlyMsg)
+      console.error('[SwapModal] Execution error:', err)
+      const normalized = normalizeAppError(err)
+      setError(normalized.message)
       setIsSwapping(false)
 
+      const isCanceled = normalized.isCanceled
+      setIsCanceledError(isCanceled)
+      const status = isCanceled ? 'canceled' : 'failed'
+      const title = isCanceled
+        ? (isCross ? 'Cross-Chain Swap Canceled' : 'Swap Canceled')
+        : (isCross ? 'Cross-Chain Swap Failed' : (normalized.title || 'Swap Failed'))
+      const badgeText = isCanceled ? 'Canceled' : 'Failed'
+
       updateBroadcast(broadcastId, {
-        title: isCross ? 'Cross-Chain Swap Failed' : 'Swap Failed',
-        status: 'failed',
-        badgeText: 'Failed',
-        message: friendlyMsg,
+        type: 'swap',
+        title,
+        status,
+        badgeText,
+        message: normalized.message,
         details: {
           fromAmount: amountIn,
           fromSymbol: tokenIn,
@@ -490,7 +514,6 @@ export default function SwapModal({
           toIcon: TOKEN_ICONS[tokenOut],
           toChain: toChain || fromChain,
           network: fromChain,
-          isBridge: isCross,
         },
       })
     }
@@ -532,9 +555,17 @@ export default function SwapModal({
       })
     }
 
+    const isArcNative = fromChain === 'Arc_Testnet' && (!toChain || toChain === 'Arc_Testnet')
+    const lpFeePercent = isArcNative
+      ? tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
+        ? '0.25% (AMM LP Pool)'
+        : '0.12% (StableSwap LP)'
+      : '0.02% (AppKit Route)'
+
     items.push({
       label: 'Liquidity Provider Fee',
-      value: '0.02%',
+      value: lpFeePercent,
+      tooltip: 'Fee distributed to liquidity providers powering the swap pool',
     })
 
     items.push({
@@ -709,11 +740,21 @@ export default function SwapModal({
         />
       ) : (
         <form onSubmit={handleSwapExecution} className="flex flex-col gap-4 flex-1 justify-between">
-          {/* Error Alert */}
+          {/* Error / Rejection Alert */}
           {error && (
-            <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex items-center gap-2.5 animate-fade-in">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span className="flex-1">{error}</span>
+            <div
+              className={`p-3 rounded-2xl border text-xs flex items-center gap-2.5 animate-fade-in ${
+                isCanceledError
+                  ? 'bg-amber-500/10 border-amber-500/25 text-amber-300/90'
+                  : 'bg-rose-500/10 border-rose-500/25 text-rose-400'
+              }`}
+            >
+              {isCanceledError ? (
+                <Ban className="w-4 h-4 shrink-0 text-amber-400" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+              )}
+              <span className="flex-1 leading-relaxed">{error}</span>
             </div>
           )}
 
@@ -853,14 +894,11 @@ export default function SwapModal({
           {/* Live Quote & Fee Breakdown Accordion */}
           {breakdownItems.length > 0 && (
             <TransactionBreakdown
-              summaryTitle={`1 ${tokenIn} ≈ ${rate} ${tokenOut}`}
-              summaryBadge={
-                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold px-2 py-0.2 rounded-full border border-emerald-500/20">
-                  Best Rate
-                </span>
-              }
+              summaryTitle="Swap Breakdown"
               items={breakdownItems}
               defaultOpen={false}
+              context="swap"
+              showItemIcons={false}
             />
           )}
 

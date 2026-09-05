@@ -217,6 +217,81 @@
   will-change: opacity, filter;
 }
 
+/* ─── Hero Banner: Floating Titanium Card & Dynamic Ambient Field ─── */
+@keyframes heroCardLevitate {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+  30% {
+    transform: translateY(-14px) rotate(0.9deg) scale(1.015);
+  }
+  65% {
+    transform: translateY(8px) rotate(-0.7deg) scale(0.995);
+  }
+}
+
+@keyframes heroGlowPulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.95);
+    filter: blur(120px);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.12);
+    filter: blur(140px);
+  }
+}
+
+@keyframes heroShimmerSweep {
+  0% {
+    transform: translateX(-150%) skewX(-20deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateX(250%) skewX(-20deg);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(250%) skewX(-20deg);
+    opacity: 0;
+  }
+}
+
+@keyframes heroParticleDrift {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(0.85);
+    opacity: 0.25;
+  }
+  50% {
+    transform: translate(var(--p-drift-x, 8px), var(--p-drift-y, -16px)) scale(1.25);
+    opacity: 0.95;
+  }
+}
+
+.animate-hero-float {
+  animation: heroCardLevitate 7.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-hero-glow {
+  animation: heroGlowPulse 5.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-hero-shimmer {
+  animation: heroShimmerSweep 5.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-hero-particle {
+  animation: heroParticleDrift 4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
 /* ─── Arc & Aave Official Design System Tokens ─── */
 :root {
   /* Fonts */
@@ -1052,5 +1127,16 @@
   animation: typingDot 1.1s infinite ease-in-out;
   animation-delay: 0.48s;
 }
+
+/* ── Broadcast Toast Timer Countdown Bar ── */
+@keyframes broadcastTimerShrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
 
 

@@ -126,7 +126,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
                 className="rounded-full"
               />
             </div>
-            <span className="text-emerald-300 font-semibold">{destChainName}</span>
+            <span>{destChainName}</span>
           </div>
         </div>
 
@@ -140,7 +140,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
 
         {/* Recipient on Destination */}
         <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-          <div className="text-xs text-slate-400">Recipient ({destChainName})</div>
+          <div className="text-xs text-slate-400">Recipient</div>
           <div className="flex items-center gap-1.5">
             <span className="font-mono text-xs text-slate-200">
               {recipient.length > 16 ? `${recipient.slice(0, 8)}...${recipient.slice(-6)}` : recipient}
@@ -166,11 +166,11 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
           </div>
         )}
 
-        {/* Net Received on Destination */}
+        {/* Net Received */}
         {netReceived && (
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-            <div className="text-xs text-slate-400 font-medium">Net Received ({destChainName})</div>
-            <div className="text-xs font-mono font-bold text-emerald-400">
+            <div className="text-xs text-slate-400 font-medium">Net Received</div>
+            <div className="text-xs font-mono font-bold text-indigo-300">
               {netReceived} USDC
             </div>
           </div>
@@ -180,14 +180,8 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
         {txHash && (
           <div className="flex items-center justify-between py-1 border-b border-white/[0.06]">
             <div className="flex flex-col">
-              <span className="text-xs text-slate-300 font-medium flex items-center gap-1.5">
-                <span>Destination Tx</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 font-normal">
-                  Mint
-                </span>
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                {txHash.length > 18 ? `${txHash.slice(0, 8)}...${txHash.slice(-6)}` : txHash}
+              <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                <span>Transaction</span>
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -197,14 +191,13 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
                 className="p-1 rounded text-slate-400 hover:text-white transition-colors cursor-pointer"
                 title="Copy Destination Transaction Hash"
               >
-                {copiedTx === txHash ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
               <a
                 href={effectiveDestExplorerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-xs text-emerald-300 hover:text-white transition-all cursor-pointer shadow-sm"
-                title={`View transaction on ${destExplorerName} (${destChainName})`}
+                className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-white hover:text-indigo-400 transition-all cursor-pointer shadow-sm"
+                title={`View on ${destExplorerName}`}
               >
                 <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
                   <NetworkIcon
@@ -217,54 +210,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
                 <span className="font-medium text-xs">
                   View on {destExplorerName}
                 </span>
-                <ExternalLink className="w-3 h-3 text-emerald-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-              </a>
-            </div>
-          </div>
-        )}
-
-        {/* Source Transaction (Optional Secondary) */}
-        {sourceTxHash && sourceTxHash !== txHash && (
-          <div className="flex items-center justify-between py-1">
-            <div className="flex flex-col">
-              <span className="text-xs text-slate-400 flex items-center gap-1.5">
-                <span>Source Tx</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/[0.06] text-slate-400 font-normal">
-                  Burn
-                </span>
-              </span>
-              <span className="text-[10px] text-slate-500 font-mono mt-0.5">
-                {sourceTxHash.length > 18 ? `${sourceTxHash.slice(0, 8)}...${sourceTxHash.slice(-6)}` : sourceTxHash}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => handleCopyTx(sourceTxHash)}
-                className="p-1 rounded text-slate-400 hover:text-white transition-colors cursor-pointer"
-                title="Copy Source Transaction Hash"
-              >
-                {copiedTx === sourceTxHash ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-              <a
-                href={effectiveSourceExplorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-xs text-slate-300 hover:text-white transition-all cursor-pointer"
-                title={`View transaction on ${sourceExplorerName} (${sourceChainName})`}
-              >
-                <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                  <NetworkIcon
-                    name={sourceIconId}
-                    variant={sourceIconId === 'solana' ? 'branded' : 'background'}
-                    size={14}
-                    className="rounded-full"
-                  />
-                </div>
-                <span className="font-medium text-xs">
-                  {sourceExplorerName}
-                </span>
-                <ExternalLink className="w-3 h-3 text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                <ExternalLink className="w-3 h-3 text-indigo-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
               </a>
             </div>
           </div>

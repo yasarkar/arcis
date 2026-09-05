@@ -81,12 +81,12 @@ export default function InlineActionCard({
       if (receipt.status === 'SUCCESS') {
         playSound(receipt.actionType === 'faucet' ? 'faucet' : 'success')
       } else if (receipt.status === 'FAILED') {
-        const isRejection =
+        const isCanceled =
           receipt.errorMessage?.toLowerCase().includes('iptal') ||
           receipt.errorMessage?.toLowerCase().includes('reject') ||
           receipt.errorMessage?.toLowerCase().includes('denied') ||
           receipt.errorMessage?.toLowerCase().includes('reddedildi')
-        playSound(isRejection ? 'cancel' : 'error')
+        playSound(isCanceled ? 'cancel' : 'error')
       }
     }
   }, [receipt])
@@ -243,7 +243,7 @@ export default function InlineActionCard({
 
   // ── 3. FAILED / CANCELLED RECEIPT CARD ──
   if (receipt && receipt.status === 'FAILED') {
-    const isRejection =
+    const isCanceled =
       receipt.errorMessage?.toLowerCase().includes('iptal') ||
       receipt.errorMessage?.toLowerCase().includes('reject') ||
       receipt.errorMessage?.toLowerCase().includes('denied') ||
@@ -251,33 +251,33 @@ export default function InlineActionCard({
 
     return (
       <div
-        className={`mt-3 p-3.5 rounded-2xl bg-slate-950/95 border space-y-2.5 shadow-xl select-text selection:bg-rose-500/30 selection:text-white ${isRejection
+        className={`mt-3 p-3.5 rounded-2xl bg-slate-950/95 border space-y-2.5 shadow-xl select-text selection:bg-rose-500/30 selection:text-white ${isCanceled
           ? 'border-amber-500/40 shadow-amber-500/5'
           : 'border-rose-500/50 shadow-rose-500/10'
           }`}
       >
         <div
-          className={`flex items-center justify-between text-xs font-bold ${isRejection ? 'text-amber-300' : 'text-rose-300'
+          className={`flex items-center justify-between text-xs font-bold ${isCanceled ? 'text-amber-300' : 'text-rose-300'
             }`}
         >
           <div className="flex items-center gap-1.5 select-text cursor-text">
-            <AlertCircle className={`w-4 h-4 select-none ${isRejection ? 'text-amber-400' : 'text-rose-400'}`} />
-            <span className="select-text">{receipt.title || (isRejection ? 'Transaction Rejected' : 'Transaction Failed')}</span>
+            <AlertCircle className={`w-4 h-4 select-none ${isCanceled ? 'text-amber-400' : 'text-rose-400'}`} />
+            <span className="select-text">{receipt.title || (isCanceled ? 'Transaction canceled' : 'Transaction Failed')}</span>
           </div>
         </div>
-        <p className={`text-xs leading-relaxed select-text cursor-text ${isRejection ? 'text-slate-300' : 'text-rose-200/90'}`}>
+        <p className={`text-xs leading-relaxed select-text cursor-text ${isCanceled ? 'text-slate-300' : 'text-rose-200/90'}`}>
           {receipt.errorMessage || 'An unexpected error occurred.'}
         </p>
         {actionPayload && (
           <button
             onClick={() => onExecuteInline(message.id, actionPayload)}
-            className={`w-full py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 select-none ${isRejection
+            className={`w-full py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 select-none ${isCanceled
               ? 'bg-slate-900 hover:bg-slate-850 border-slate-700 hover:border-cyan-500/40 text-cyan-300'
               : 'bg-rose-950/80 hover:bg-rose-900 border-rose-700/80 text-rose-200'
               }`}
           >
             <RotateCw className="w-3.5 h-3.5" />
-            <span>{isRejection ? 'Tekrar Dene' : 'Yeniden Dene'}</span>
+            <span>{isCanceled ? 'Tekrar Dene' : 'Yeniden Dene'}</span>
           </button>
         )}
       </div>
@@ -384,7 +384,7 @@ export default function InlineActionCard({
             <div className="flex items-center justify-between select-text mb-2">
               <span className="text-[10px] text-slate-400 uppercase font-semibold select-text block">Bridge Amount</span>
               <div className="font-bold text-cyan-400 text-sm flex items-center justify-end gap-1.5 select-text cursor-text">
-                <span>{data.amount || 250} USDC</span>
+                <span>{data.amount} USDC</span>
                 <CopilotTokenIcon symbol="USDC" className="w-4 h-4" />
               </div>
             </div>

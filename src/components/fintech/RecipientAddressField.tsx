@@ -98,7 +98,6 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
               className="text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 cursor-pointer active:scale-95"
             >
               <Clipboard className="w-3.5 h-3.5" />
-              <span>Paste</span>
             </button>
           )}
         </div>

@@ -131,18 +131,18 @@ export default function CircleAuthModal({
   // ─────────────────────────────────────────────────────────────
   const handlePasskeyLogin = async () => {
     if (!onLoginPasskey) return
-    setStatusMessage({ text: 'Biyometrik doğrulama (FaceID / TouchID) başlatılıyor...' })
+    setStatusMessage({ text: 'Initiating biometric verification (FaceID / TouchID)...' })
     const res = await onLoginPasskey()
     if (res.success && res.address) {
       setStatusMessage({
-        text: `Passkey Smart Account bağlandı: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`,
+        text: `Passkey Smart Account connected: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`,
         isSuccess: true,
       })
       setTimeout(() => {
         onClose()
       }, 1200)
     } else {
-      setStatusMessage({ text: res.error || 'Passkey girişi tamamlanamadı.', isError: true })
+      setStatusMessage({ text: res.error || 'Passkey login could not be completed.', isError: true })
     }
   }
 
@@ -150,18 +150,18 @@ export default function CircleAuthModal({
     e.preventDefault()
     if (!onRegisterPasskey) return
     const uname = passkeyName.trim() || `arcis_user_${Math.floor(Math.random() * 10000)}`
-    setStatusMessage({ text: 'Yeni biyometrik Passkey ve Circle Smart Account oluşturuluyor...' })
+    setStatusMessage({ text: 'Creating biometric Passkey & Circle Smart Account...' })
     const res = await onRegisterPasskey(uname)
     if (res.success && res.address) {
       setStatusMessage({
-        text: `Circle Smart Account oluşturuldu: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`,
+        text: `Circle Smart Account created: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`,
         isSuccess: true,
       })
       setTimeout(() => {
         onClose()
       }, 1200)
     } else {
-      setStatusMessage({ text: res.error || 'Passkey kaydı tamamlanamadı.', isError: true })
+      setStatusMessage({ text: res.error || 'Passkey registration could not be completed.', isError: true })
     }
   }
 
@@ -172,47 +172,47 @@ export default function CircleAuthModal({
     e.preventDefault()
 
     if (!email.trim()) {
-      setStatusMessage({ text: 'Lütfen geçerli bir e-posta adresi girin.', isError: true })
+      setStatusMessage({ text: 'Please enter a valid email address.', isError: true })
       return
     }
 
     if (!isValidEmail(email)) {
-      setStatusMessage({ text: 'Geçersiz e-posta formatı. Lütfen kontrol edin.', isError: true })
+      setStatusMessage({ text: 'Invalid email format. Please verify your email address.', isError: true })
       return
     }
-    setStatusMessage({ text: 'Doğrulama kodu e-postanıza gönderiliyor...' })
+    setStatusMessage({ text: 'Sending verification code to your email...' })
     const res = await onRequestOtp(email)
     if (res.success) {
       setStatusMessage({
-        text: `Doğrulama kodu ${email} adresine gönderildi.`,
+        text: `Verification code sent to ${email}.`,
         isSuccess: true,
       })
     } else {
-      setStatusMessage({ text: res.error || 'OTP kodu gönderilemedi.', isError: true })
+      setStatusMessage({ text: res.error || 'Failed to send OTP code.', isError: true })
     }
   }
 
   const handleOtpVerify = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!otpCode || otpCode.length < 4) {
-      setStatusMessage({ text: 'Lütfen 6 haneli doğrulama kodunu girin.', isError: true })
+      setStatusMessage({ text: 'Please enter the 6-digit verification code.', isError: true })
       return
     }
 
-    setStatusMessage({ text: 'OTP doğrulanıyor ve Circle cüzdanı bağlanıyor...' })
+    setStatusMessage({ text: 'Verifying OTP and connecting Circle wallet...' })
     const res = await onVerifyOtp(otpCode)
     if (res.success) {
       setStatusMessage({
         text: res.address
-          ? `Circle cüzdanı bağlandı: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
-          : `Circle cüzdanı başarıyla doğrulandı.`,
+          ? `Circle wallet connected: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
+          : `Circle wallet verified successfully.`,
         isSuccess: true,
       })
       setTimeout(() => {
         onClose()
       }, 1500)
     } else {
-      setStatusMessage({ text: res.error || 'OTP doğrulaması başarısız oldu.', isError: true })
+      setStatusMessage({ text: res.error || 'OTP verification failed.', isError: true })
     }
   }
 
@@ -221,20 +221,20 @@ export default function CircleAuthModal({
   // ─────────────────────────────────────────────────────────────
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setStatusMessage({ text: 'Circle PIN & MPC cüzdan kurulumu başlatılıyor...' })
+    setStatusMessage({ text: 'Initializing Circle PIN & MPC wallet setup...' })
     const res = await onLoginPin()
     if (res.success) {
       setStatusMessage({
         text: res.address
-          ? `Circle PIN cüzdanı bağlandı: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
-          : `Circle PIN cüzdan kurulumu tamamlandı.`,
+          ? `Circle PIN wallet connected: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
+          : `Circle PIN wallet setup complete.`,
         isSuccess: true,
       })
       setTimeout(() => {
         onClose()
       }, 1500)
     } else {
-      setStatusMessage({ text: res.error || 'PIN cüzdan kurulumu başarısız oldu.', isError: true })
+      setStatusMessage({ text: res.error || 'PIN wallet setup failed.', isError: true })
     }
   }
 
@@ -245,20 +245,20 @@ export default function CircleAuthModal({
       return
     }
 
-    setStatusMessage({ text: `${info.name} ile giriş başlatılıyor...` })
+    setStatusMessage({ text: `Initiating ${info.name} login...` })
     const res = await onLoginSocial(provider)
     if (res.success) {
       setStatusMessage({
         text: res.address
-          ? `Sosyal giriş ile bağlandı: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
-          : `Sosyal giriş tamamlanıyor...`,
+          ? `Connected via social login: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
+          : `Completing social login...`,
         isSuccess: true,
       })
       setTimeout(() => {
         onClose()
       }, 1500)
     } else {
-      setStatusMessage({ text: res.error || 'Sosyal giriş başlatılamadı.', isError: true })
+      setStatusMessage({ text: res.error || 'Social login could not be initiated.', isError: true })
     }
   }
 
@@ -339,10 +339,10 @@ export default function CircleAuthModal({
               </div>
             </div>
             <div className="text-center space-y-1.5">
-              <h3 className="text-lg font-bold text-white tracking-tight">Biyometrik Doğrulama</h3>
+              <h3 className="text-lg font-bold text-white tracking-tight">Biometric Verification</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                FaceID veya TouchID ile kimliğinizi doğrulayın.<br />
-                Tarayıcı penceresindeki istemi onaylayın.
+                Verify your identity using FaceID, TouchID, or your security key.<br />
+                Confirm the biometric prompt in your browser window.
               </p>
             </div>
             {/* Loading dots */}
@@ -357,7 +357,7 @@ export default function CircleAuthModal({
               onClick={() => setAutoLoginPhase('failed')}
               className="text-[11px] text-slate-500 hover:text-slate-300 transition mt-2 cursor-pointer"
             >
-              Diğer yöntemlerle giriş yap →
+              Sign in with other methods →
             </button>
           </div>
         )}
@@ -372,11 +372,11 @@ export default function CircleAuthModal({
               </div>
             </div>
             <div className="text-center space-y-1.5">
-              <h3 className="text-lg font-bold text-white tracking-tight">Bağlantı Başarılı</h3>
+              <h3 className="text-lg font-bold text-white tracking-tight">Connection Successful</h3>
               <p className="text-xs text-emerald-300 font-mono font-semibold">
                 MSCA: {autoLoginAddress.slice(0, 8)}...{autoLoginAddress.slice(-6)}
               </p>
-              <p className="text-[11px] text-slate-400">Passkey Smart Account bağlandı.</p>
+              <p className="text-[11px] text-slate-400">Passkey Smart Account connected.</p>
             </div>
           </div>
         )}
@@ -578,24 +578,24 @@ export default function CircleAuthModal({
               <form onSubmit={handleOtpVerify} className="space-y-5">
                 <div>
                   <h2 className="text-xl font-bold text-white tracking-tight mb-1">
-                    6 Haneli Kodu Girin
+                    Enter 6-Digit Code
                   </h2>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Doğrulama kodu <span className="text-white font-mono font-semibold">{pendingEmail || email}</span> adresine gönderildi.
+                    Verification code sent to <span className="text-white font-mono font-semibold">{pendingEmail || email}</span>.
                   </p>
                 </div>
 
                 <div>
                   <div className="flex justify-between items-center mb-2">
                     <label className="text-xs font-semibold text-slate-300">
-                      Doğrulama Kodu
+                      Verification Code
                     </label>
                     <button
                       type="button"
                       onClick={() => setOtpStep('input')}
                       className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer font-medium"
                     >
-                      <RefreshCw className="w-3 h-3" /> E-postayı Değiştir
+                      <RefreshCw className="w-3 h-3" /> Change Email
                     </button>
                   </div>
 
@@ -625,11 +625,11 @@ export default function CircleAuthModal({
                   {isLoading ? (
                     <>
                       <Sparkles className="w-4 h-4 animate-spin text-purple-200" />
-                      DOĞRULANIYOR...
+                      VERIFYING...
                     </>
                   ) : (
                     <>
-                      <span>DOĞRULA VE BAĞLAN</span>
+                      <span>VERIFY &amp; CONNECT</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
@@ -645,10 +645,10 @@ export default function CircleAuthModal({
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-white tracking-tight">
-                  6 Haneli PIN Oluştur
+                  Create 6-Digit PIN
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Non-custodial cüzdanınız için MPC tabanlı 2-of-2 anahtar koruması.
+                  MPC-based 2-of-2 key security for your non-custodial wallet.
                 </p>
               </div>
               <button
@@ -656,33 +656,33 @@ export default function CircleAuthModal({
                 onClick={() => setViewMode('auth')}
                 className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
               >
-                ← Geri
+                ← Back
               </button>
             </div>
 
             <div className="grid grid-cols-3 gap-2 py-1">
               <div className="p-2.5 rounded-2xl text-center space-y-1 bg-indigo-500/10 border border-indigo-500/30">
                 <span className="text-[10px] font-mono text-indigo-300 uppercase block font-bold">1. PIN</span>
-                <span className="text-[11px] text-white font-medium">6 Haneli PIN</span>
+                <span className="text-[11px] text-white font-medium">6-Digit PIN</span>
               </div>
               <div className="p-2.5 rounded-2xl text-center space-y-1 bg-white/[0.03] border border-white/[0.08]">
-                <span className="text-[10px] font-mono text-slate-400 uppercase block font-bold">2. Kurtarma</span>
-                <span className="text-[11px] text-slate-400 font-medium">2 Soru</span>
+                <span className="text-[10px] font-mono text-slate-400 uppercase block font-bold">2. Recovery</span>
+                <span className="text-[11px] text-slate-400 font-medium">2 Questions</span>
               </div>
               <div className="p-2.5 rounded-2xl text-center space-y-1 bg-white/[0.03] border border-white/[0.08]">
-                <span className="text-[10px] font-mono text-slate-400 uppercase block font-bold">3. Onay</span>
-                <span className="text-[11px] text-slate-400 font-medium">Sözleşme</span>
+                <span className="text-[10px] font-mono text-slate-400 uppercase block font-bold">3. Consent</span>
+                <span className="text-[11px] text-slate-400 font-medium">Agreement</span>
               </div>
             </div>
 
             <div className="p-4 rounded-2xl text-xs space-y-2 bg-indigo-500/5 border border-indigo-500/20">
               <div className="flex items-center gap-2 text-indigo-300 font-semibold">
                 <Shield className="w-4 h-4 text-indigo-400" />
-                <span>Sorularınızı güvende tutun</span>
+                <span>Keep your security answers safe</span>
               </div>
               <ul className="space-y-1.5 text-[11px] list-disc list-inside text-slate-300 leading-relaxed">
-                <li>Non-custodial cüzdanınızı kurtarmanın tek yolu budur.</li>
-                <li>Circle yanıtlarınızı saklamaz, anahtarlar sizin kontrolünüzdedir.</li>
+                <li>This is the only way to recover your non-custodial wallet.</li>
+                <li>Circle never stores your answers; cryptographic keys stay in your control.</li>
               </ul>
             </div>
 
@@ -695,12 +695,12 @@ export default function CircleAuthModal({
                 {isLoading ? (
                   <>
                     <Sparkles className="w-4 h-4 animate-spin text-purple-200" />
-                    PIN YÜKLENİYOR...
+                    INITIALIZING PIN...
                   </>
                 ) : (
                   <>
                     <Key className="w-4 h-4 text-purple-300" />
-                    <span>PIN VE KURTARMA KURULUMUNU BAŞLAT</span>
+                    <span>INITIALIZE PIN &amp; RECOVERY SETUP</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}

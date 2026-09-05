@@ -145,16 +145,8 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
               target="_blank"
               rel="noreferrer"
               className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer"
-              title={`View transaction on ${explorerName} (${txHash})`}
+              title={`View transaction on ${explorerName}`}
             >
-              <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                <NetworkIcon
-                  name={chainIconId}
-                  variant={chainIconId === 'solana' ? 'branded' : 'background'}
-                  size={14}
-                  className="rounded-full"
-                />
-              </div>
               <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
                 View on {explorerName}
               </span>

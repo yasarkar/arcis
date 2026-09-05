@@ -147,7 +147,7 @@ export const GaslessBadge: React.FC<GaslessBadgeProps> = ({
             </div>
 
             <span className="text-[9px] font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-400/40">
-              100% SPONSORED
+              %100 SPONSORED
             </span>
           </div>
 

@@ -70,29 +70,29 @@ export default function HomePage({
   }> = [
       {
         value: '< 1.0s',
-        label: 'Block Finality',
-        desc: 'Sub-second deterministic settlement',
+        label: 'Finality',
+        desc: 'Instant, deterministic settlement on Arc',
         color: '#a855f7',
         silhouetteType: 'speed',
       },
       {
         value: 'Native USDC',
         label: 'Gas Engine',
-        desc: 'Zero ETH needed for fees',
+        desc: 'Pay transaction fees in USDC, zero ETH needed',
         color: '#2775ca',
         silhouetteType: 'usdc',
       },
       {
         value: '13+ Chains',
-        label: 'Unified Balance',
-        desc: 'Instant cross-chain liquidity',
+        label: 'Liquidity',
+        desc: 'One unified balance across major networks',
         color: '#38bdf8',
         silhouetteType: 'multichain',
       },
       {
         value: '100% Real',
-        label: 'Protocol Yield',
-        desc: 'Compounding fee dividends',
+        label: 'Real Yield',
+        desc: 'USDC earnings funded directly by protocol fees',
         color: '#f59e0b',
         silhouetteType: 'yield',
       },
@@ -268,16 +268,16 @@ export default function HomePage({
   const corePillars = [
     {
       id: 'unified',
-      title: 'Unified Balance Across 13+ Chains',
-      headline: 'The Ultimate Solution to Fragmented Liquidity and Bridge Friction',
+      title: 'One Unified Balance across 13+ Chains',
+      headline: 'Your USDC everywhere, without fragmented wallets or bridging hassle',
       description:
-        'Aggregate your USDC balances across Ethereum, Base, Arbitrum, Solana, Avalanche, and Arc Testnet into a single unified vault powered by Circle Gateway and CCTP. Spend or transfer instantly (<500ms burn-and-mint) on any supported chain with zero waiting periods.',
+        'Stop juggling balances across different networks. Arcis pools your USDC across Ethereum, Solana, Base, Arbitrum, and Arc into a single balance you can spend or transfer instantly anywhere.',
       bullets: [
-        'Instant Unified Balance: Consolidate scattered USDC across all your wallets and networks.',
-        'Zero Secondary Token Risk: Direct native USDC settlement without synthetic or wrapped tokens.',
-        'Sub-Second Cross-Chain Settlement: Permissionless Gateway burn-and-mint architecture.',
+        'Instant Cross-Chain Spending: Move and use your USDC across supported networks in under 500ms.',
+        'True Native USDC: Powered by Circle Gateway and CCTP no wrapped tokens, no synthetic risk.',
+        'Zero Waiting Periods: Instant burn-and-mint settlement replaces legacy lock-and-wait bridges.',
       ],
-      ctaText: 'Launch Unified Balance',
+      ctaText: 'Open Unified Balance',
       actionTab: 'unified' as TabType,
       image: unifiedVaultImg,
       accentColor: 'rgba(56, 189, 248, 0.25)',
@@ -285,14 +285,14 @@ export default function HomePage({
     },
     {
       id: 'passkey-msca',
-      title: 'Seedless Biometric Web3: FaceID & TouchID Login',
-      headline: 'Gasless Modular Smart Accounts Created in Seconds',
+      title: 'Biometric Passkey Login',
+      headline: 'Sign in with Face ID or Touch ID no 24-word seed phrases to lose',
       description:
-        'Experience seamless Web3 onboarding with Circle Modular Wallets and ERC-6900 MSCA architecture. Log in using your device\'s biometric sensors (FaceID, TouchID, Windows Hello) with zero seed phrase loss risk. Sign transactions with zero gas fees via Circle Gas Station paymaster.',
+        'Create and access your smart wallet in seconds using your device\'s built-in biometric security. Experience seamless, sponsored transactions where you never have to manage private keys or calculate gas fees.',
       bullets: [
-        'WebAuthn / FIDO2 Hardware Enclave Security: Private keys secured within device hardware chips.',
-        'Circle Gas Station Paymaster: 100% gas-sponsored transactions for frictionless UX.',
-        'Flexible Social Login: MPC User-Controlled Wallets via Google or Apple authentication.',
+        'Hardware-Grade Security: Keys stay protected inside your device\'s secure enclave (Face ID, Touch ID, Windows Hello).',
+        '100% Gasless Experience: Circle Gas Station sponsors transactions so you can start immediately.',
+        'Social & Passkey Freedom: Log in with biometrics, Google, or Apple with instant account recovery.',
       ],
       ctaText: 'Connect with Passkey',
       customAction: onOpenCircleAuth,
@@ -302,14 +302,14 @@ export default function HomePage({
     },
     {
       id: 'native-gas',
-      title: 'Zero ETH, Zero Volatility: Native USDC Gas Engine',
-      headline: 'The First Institutional L1 Blockchain Eliminating Gas Price Volatility',
+      title: 'Native USDC Gas Engine',
+      headline: 'Pay gas directly in USDC. No ETH, no volatile gas tokens.',
       description:
-        'On Arc L1, transaction fees are paid natively in USDC instead of volatile native tokens like ETH. Never worry about holding ETH for gas. Every transfer, contract call, and swap executes with predictable, sub-penny USDC transaction fees.',
+        'Arc L1 eliminates unpredictable gas fee spikes. Every transfer, swap, and contract interaction is paid directly in USDC with sub-cent, predictable costs that make budgeting simple.',
       bullets: [
-        'Predictable Accounting: Fixed, forecastable gas fees for enterprises and retail users alike.',
-        'Dual Gas Engine: 18 Dec Native Gas & 6 Dec ERC-20 dual precision architecture.',
-        'Sub-Second Deterministic Finality: Irreversible on-chain settlement in under 1 second.',
+        'Predictable, Flat Fees: Gas costs a fraction of a cent in USDC, with zero crypto price surprises.',
+        'Zero ETH Required: You only ever need USDC in your wallet to send, swap, and interact.',
+        'Sub-Second Finality: Transactions settle irreversibly on-chain in under one second.',
       ],
       ctaText: 'Send Instant Transfer',
       actionTab: 'send' as TabType,
@@ -319,31 +319,32 @@ export default function HomePage({
     },
     {
       id: 'real-yield',
-      title: 'Zero-Slippage FX & Non-Inflationary Real Yield',
-      headline: 'ERC-4626 Vault Distributing 90% of Protocol Fees in Pure USDC Dividends',
+      title: 'Zero-Slippage FX & Real USDC Yield',
+      headline: '90% of protocol fees distributed directly to vault depositors',
       description:
-        'Our dual-AMM architecture provides Constant-Sum (x + y = k) zero-slippage swaps for stablecoin pairs (USDC/EURC) and Constant-Product (x * y = k) liquidity for market assets. 90% of all protocol fees compound directly into the YieldVault (af-USDC) as real, non-inflationary yields.',
+        'Swap stablecoins like USDC and EURC at true 1:1 rates with zero slippage. Deposit into the Arcis Vault to earn real, compounding yields paid purely in USDC never in volatile or inflationary reward tokens.',
       bullets: [
-        'Constant-Sum Zero Slippage: 1:1 capital efficiency on stable FX pairs without price impact.',
-        'ERC-4626 af-USDC Vault: Auto-compounding real yields paid purely in USDC dividends.',
-        'Zero Token Inflation: Sustainable yield generated entirely from real protocol volume.',
+        '1:1 Zero-Slippage Swaps: Trade stable pairs with exact price parity and no slippage loss.',
+        '100% Real Yield: Earnings come exclusively from actual transaction fees and protocol volume.',
+        'Auto-Compounding Vault: Your USDC compounds automatically in an audited ERC-4626 standard vault.',
       ],
       ctaText: 'Explore Pools & Vault',
       actionTab: 'pools' as TabType,
       image: realYieldImg,
       accentColor: 'rgba(245, 158, 11, 0.25)',
       badgeBorder: 'border-amber-500/40 text-amber-400',
+      imageContainerClass: 'ml-4 sm:ml-8 md:ml-12 lg:ml-16 xl:ml-20',
     },
     {
       id: 'ai-agents',
-      title: 'Autonomous AI Agent Economy & x402 Micropayments',
-      headline: 'On-Chain Identity, Job Escrows, and Real-Time Settlement for Autonomous Agents',
+      title: 'Autonomous AI Agents & Micropayments',
+      headline: 'Pay-per-use APIs and intelligent AI automation on-chain',
       description:
-        'Empower autonomous AI agents with on-chain identity (ERC-8004), verifiable job contracts (ERC-8183), and sub-penny micropayments via the HTTP 402 protocol. Execute natural-language on-chain operations and smart contract actions with Arcis AI Copilot.',
+        'Let AI agents work and transact autonomously. Use natural language to send funds or execute swaps with Arcis Copilot, and access premium AI services with instant pay-per-call micropayments no API keys or subscriptions required.',
       bullets: [
-        'x402 Pay-Per-Call Protocol: Pay-as-you-go USDC micropayments without API keys or subscriptions.',
-        'Yield-Generating Escrow: Idle bounty and escrow funds earn vault yields during job execution.',
-        'Arcis AI Copilot: Autonomous on-chain AI orchestrator for natural language transfers and swaps.',
+        'x402 Pay-Per-Call: Stream fractions of a cent per request directly with USDC.',
+        'Arcis AI Copilot: Execute complex on-chain actions simply by chatting in plain language.',
+        'Automated Job Escrow: Funds stay secured in escrow while agents complete verified tasks.',
       ],
       ctaText: 'Explore AI Services',
       actionTab: 'ai-services' as TabType,
@@ -353,14 +354,14 @@ export default function HomePage({
     },
     {
       id: 'cross-chain-bridge',
-      title: 'Universal Bridge Across EVM, Solana & Injective',
-      headline: 'Connecting Leading Ecosystems into a Single Seamless Terminal',
+      title: 'Universal Cross-Chain Terminal',
+      headline: 'Move USDC seamlessly across EVM, Solana, and Cosmos ecosystems',
       description:
-        'Connect Solana Phantom, Injective Keplr, and EVM wallets (MetaMask, Rainbow) simultaneously. Move USDC effortlessly across distinct blockchain ecosystems with direct Circle CCTP validator attestation and optimal route execution.',
+        'Connect your favorite wallets (MetaMask, Phantom, or Keplr) and transfer USDC anywhere in seconds. Powered by native Circle CCTP, eliminating wrapped token lockups and bridge exploits.',
       bullets: [
-        'Native Circle CCTP v2 Protocol: Zero wrapped-token bridge risks.',
-        'Unified Multi-Ecosystem Interface: Manage EVM, Solana SPL, and Injective from one place.',
-        'Slippage Protection: Automated best-execution routing across all chains.',
+        'Circle CCTP Protocol: Direct native burning and minting with zero wrapped token risk.',
+        'Multi-Wallet Simplicity: Connect EVM, Solana, and Injective wallets at the same time.',
+        'Smart Route Optimization: Automatic best routing with built-in slippage protection.',
       ],
       ctaText: 'Bridge & Swap Tokens',
       actionTab: 'bridge' as TabType,
@@ -372,62 +373,62 @@ export default function HomePage({
 
   const comparisonRows = [
     {
-      feature: 'Native Gas Currency',
-      legacy: 'Volatile ETH, SOL, MATIC (Requires constant native token balance)',
-      arcis: 'Native USDC (0x3600...0000), Zero ETH Required',
+      feature: 'Gas Currency',
+      legacy: 'Volatile tokens (ETH, SOL) required for gas fees',
+      arcis: 'Native USDC (Zero ETH needed)',
     },
     {
-      feature: 'Settlement & Finality Speed',
-      legacy: '12–60s multi-block confirmations with re-organization risks',
-      arcis: '< 1.0s Sub-Second Deterministic Finality',
+      feature: 'Finality & Speed',
+      legacy: '12–60s multi-block wait with risk of reorgs',
+      arcis: '< 1.0s instant deterministic finality',
     },
     {
       feature: 'Cross-Chain Liquidity',
-      legacy: 'Fragmented liquidity pools, wrapped tokens, slow bridging',
-      arcis: '13+ Chains Unified Balance via Circle Gateway (<500ms)',
+      legacy: 'Fragmented pools, wrapped tokens, slow bridging',
+      arcis: '13+ Chains unified balance via Circle Gateway (<500ms)',
     },
     {
-      feature: 'Wallet Onboarding & Security',
-      legacy: '12–24 seed phrases, high risk of phishing and key loss',
-      arcis: 'Biometric WebAuthn Passkeys (FaceID/TouchID) + MSCA',
+      feature: 'Wallet Onboarding',
+      legacy: 'Complex 24-word seed phrases with risk of loss',
+      arcis: 'Biometric Passkeys (Face ID / Touch ID) + Smart Accounts',
     },
     {
-      feature: 'Gas Fee Sponsorship',
-      legacy: 'Users must always hold and pay native gas for each tx',
-      arcis: 'Circle Gas Station Paymaster for 100% Gasless UX',
+      feature: 'Gas Sponsorship',
+      legacy: 'Users must always hold native tokens for every action',
+      arcis: 'Circle Gas Station for 100% gasless user experience',
     },
     {
-      feature: 'Yield Mechanism',
+      feature: 'Yield Source',
       legacy: 'Inflationary farm tokens with rapidly depreciating value',
-      arcis: 'ERC-4626 Real Yield (90% Protocol Volume Fees in Pure USDC)',
+      arcis: 'Real yield from 90% of protocol fees paid in pure USDC',
     },
     {
-      feature: 'AI & Agent Integration',
-      legacy: 'Manual wallet confirmations, centralized API keys',
-      arcis: 'ERC-8183 / ERC-8004 & x402 Automated USDC Micropayments',
+      feature: 'AI & Micropayments',
+      legacy: 'Manual wallet signatures and off-chain API subscriptions',
+      arcis: 'x402 protocol: automated pay-per-call USDC micropayments',
     },
   ]
 
   const faqItems = [
     {
-      q: 'What is Arc L1 and how does it use USDC as native gas?',
-      a: 'Arc is a purpose-built Layer-1 blockchain engineered by Circle for enterprise financial flows. Unlike traditional blockchains that require ETH or SOL for gas, Arc\'s execution engine uses native USDC (0x3600...0000) directly for transaction fees. This allows developers and businesses to operate with predictable, sub-penny costs without price volatility.'
+      q: 'What is Arc L1 and why does it use USDC as native gas?',
+      a: 'Arc is a purpose-built Layer-1 blockchain by Circle engineered for seamless financial flows. Unlike traditional networks that require volatile tokens like ETH or SOL for fees, Arc uses native USDC directly. This gives you predictable, sub-penny transaction costs without market volatility.'
     },
     {
       q: 'How does Unified Balance work across multiple blockchains?',
-      a: 'Powered by Circle Gateway and the Unified Balance Kit, your USDC across Ethereum, Base, Arbitrum, Solana, Avalanche, and Arc Testnet is aggregated into a single spendable pool. You can spend or transfer your funds on any connected chain in under 500ms using permissionless burn-and-mint settlement, without traditional bridging delays.'
+      a: 'Powered by Circle Gateway, Arcis pools your USDC across 13+ networks (including Ethereum, Solana, Base, and Arbitrum) into one spendable balance. You can spend or move your funds instantly anywhere in under 500ms without traditional bridging delays.'
     },
     {
       q: 'Why are Biometric Passkeys safer than seed phrases?',
-      a: 'Passkeys leverage the FIDO2 / WebAuthn open standard. Your private keys are securely generated and stored inside your device\'s hardware enclave (such as Apple Secure Enclave or Windows TPM) and never leave the device. This completely eliminates phishing attacks, clipboard hijacking, and seed phrase loss.'
+      a: 'Passkeys use your device\'s built-in hardware security (such as Face ID, Touch ID, or Windows Hello). Your cryptographic keys never leave your device, eliminating phishing attacks, clipboard hijackers, and lost seed phrases entirely.'
     },
     {
-      q: 'How is yield generated in the ERC-4626 Yield Vault?',
-      a: '90% of all platform fees collected from transfers, stablecoin FX swaps, and cross-chain actions are routed directly to the YieldVault. No inflationary reward tokens are minted; all returns represent genuine protocol volume compounding directly into your af-USDC share value.'
+      q: 'Where does the yield in the Arcis Vault come from?',
+      a: 'All returns come from real protocol economic activity. 90% of fees collected across stablecoin FX swaps, transfers, and cross-chain volume are directed into the vault as auto-compounding USDC dividends—with zero token inflation.'
     },
     {
-      q: 'Where can I obtain Testnet USDC and Arc Testnet funds?',
-      a: 'Click the "Testnet Faucet" button in the navigation or on this page to request free testnet USDC, EURC, and native Arc gas tokens directly via the Circle Faucet API.'
+      q: 'How can I get testnet funds to explore Arcis?',
+      a: 'Click the "Faucet" button in the top navigation bar to request free testnet USDC, EURC, and native Arc gas tokens directly to test all features risk-free.'
     }
   ]
 
@@ -435,7 +436,7 @@ export default function HomePage({
     <div className="w-full flex flex-col gap-16 md:gap-24 pb-20 animate-fade-in text-slate-100">
 
       {/* ── 1. HERO BANNER SECTION ── */}
-      <section className="relative w-full rounded-3xl overflow-hidden border border-white/10 p-6 md:p-12 lg:p-16 transition-all"
+      <section className="arc-card relative w-full rounded-3xl overflow-hidden border border-white/10 p-6 md:p-10 lg:p-12 transition-all group"
         style={{
           background: 'linear-gradient(145deg, rgba(16, 20, 35, 0.95) 0%, rgba(8, 10, 18, 0.98) 100%)',
           boxShadow: '0 20px 60px -15px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
@@ -445,24 +446,91 @@ export default function HomePage({
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-indigo-500/20 rounded-full blur-[140px] pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-cyan-500/20 rounded-full blur-[140px] pointer-events-none" />
 
-        {/* Background Hero Visual Artwork (Positioned Further to the Right, Edge-Feathered Dissolve) */}
-        <div className="absolute -right-48 sm:-right-64 md:-right-80 lg:-right-88 xl:-right-[26rem] top-1/2 -translate-y-1/2 w-[620px] sm:w-[780px] md:w-[940px] lg:w-[1120px] xl:w-[1260px] pointer-events-none select-none z-0 opacity-55 sm:opacity-70 md:opacity-85 lg:opacity-95 transition-all duration-700">
-          {/* Subtle Ambient Backlight */}
-          <div className="absolute inset-0 bg-blue-600/10 rounded-full blur-[140px] pointer-events-none -z-10" />
+        {/* Background Hero Visual Artwork (Dynamic Levitation, Orbit Rings & Atmospheric Shimmer) */}
+        <div className="absolute -right-48 sm:-right-64 md:-right-80 lg:-right-88 xl:-right-[26rem] top-1/2 -translate-y-1/2 w-[620px] sm:w-[780px] md:w-[940px] lg:w-[1120px] xl:w-[1260px] pointer-events-none select-none z-0 opacity-60 sm:opacity-75 md:opacity-90 lg:opacity-100 transition-all duration-700">
+          
+          {/* Pulsing Multi-layered Atmospheric Backlight */}
+          <div className="absolute inset-0 bg-gradient-to-tr from-blue-600/30 via-cyan-500/20 to-indigo-600/35 rounded-full blur-[130px] pointer-events-none -z-10 animate-hero-glow group-hover:scale-110 group-hover:opacity-95 transition-all duration-700" />
+          <div className="absolute top-1/4 left-1/4 w-3/5 h-3/5 bg-sky-400/20 rounded-full blur-[90px] pointer-events-none -z-10 animate-pulse" style={{ animationDuration: '4s' }} />
 
-          <img
-            src={heroTitaniumCardImg}
-            alt="Arcis L1 Institutional Layer 1 Titanium Card"
-            className="w-full h-auto object-contain transform scale-100 lg:scale-105"
-            style={{
-              WebkitMaskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
-              maskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
-            }}
-          />
+          {/* Futuristic Concentric Orbit Rings & High-Tech Data Arcs */}
+          <svg
+            viewBox="0 0 800 800"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="absolute inset-0 w-full h-full pointer-events-none select-none -z-10 opacity-35 group-hover:opacity-60 transition-opacity duration-700"
+          >
+            {/* Outer Slow Clockwise Orbit Ring */}
+            <g className="animate-orbit-cw" style={{ transformOrigin: '400px 400px', animationDuration: '28s' }}>
+              <circle cx="400" cy="400" r="320" stroke="#38bdf8" strokeWidth="1.5" strokeDasharray="6 14" opacity="0.4" />
+              <path d="M400 80 A320 320 0 0 1 720 400" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" opacity="0.75" />
+              <circle cx="720" cy="400" r="6" fill="#38bdf8" className="filter drop-shadow-[0_0_8px_#38bdf8]" />
+              <circle cx="80" cy="400" r="4.5" fill="#818cf8" />
+            </g>
+
+            {/* Middle Counter-Clockwise Orbit Ring */}
+            <g className="animate-orbit-ccw" style={{ transformOrigin: '400px 400px', animationDuration: '20s' }}>
+              <circle cx="400" cy="400" r="255" stroke="#a855f7" strokeWidth="1.2" strokeDasharray="4 10" opacity="0.35" />
+              <path d="M400 655 A255 255 0 0 1 145 400" stroke="#22d3ee" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
+              <circle cx="145" cy="400" r="5" fill="#22d3ee" className="filter drop-shadow-[0_0_8px_#22d3ee]" />
+            </g>
+
+            {/* Inner Speed Track & Reticle Crosshairs */}
+            <g className="animate-chrono-spin" style={{ transformOrigin: '400px 400px', animationDuration: '42s' }}>
+              <circle cx="400" cy="400" r="190" stroke="#38bdf8" strokeWidth="1" strokeDasharray="2 8" opacity="0.3" />
+              <line x1="400" y1="170" x2="400" y2="190" stroke="#38bdf8" strokeWidth="2" opacity="0.6" />
+              <line x1="400" y1="610" x2="400" y2="630" stroke="#38bdf8" strokeWidth="2" opacity="0.6" />
+              <line x1="170" y1="400" x2="190" y2="400" stroke="#38bdf8" strokeWidth="2" opacity="0.6" />
+              <line x1="610" y1="400" x2="630" y2="400" stroke="#38bdf8" strokeWidth="2" opacity="0.6" />
+            </g>
+          </svg>
+
+          {/* Floating Titanium Card Container */}
+          <div className="relative w-full h-full animate-hero-float group-hover:scale-[1.03] transition-transform duration-700 ease-out">
+            <img
+              src={heroTitaniumCardImg}
+              alt="Arcis L1 Institutional Layer 1 Titanium Card"
+              className="w-full h-auto object-contain transform scale-100 lg:scale-105 filter drop-shadow-[0_20px_50px_rgba(0,0,0,0.85)] group-hover:drop-shadow-[0_25px_65px_rgba(39,117,202,0.35)] transition-all duration-700"
+              style={{
+                WebkitMaskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
+                maskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
+              }}
+            />
+
+            {/* Metallic Dynamic Light Shimmer Sweep */}
+            <div
+              className="absolute inset-0 pointer-events-none overflow-hidden"
+              style={{
+                WebkitMaskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
+                maskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
+              }}
+            >
+              <div className="w-[30%] h-[200%] absolute -top-1/2 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 animate-hero-shimmer" />
+            </div>
+
+            {/* Dynamic Energy Node Sparkles */}
+            <div
+              className="absolute top-[28%] left-[22%] w-2 h-2 rounded-full bg-cyan-300 animate-hero-particle shadow-[0_0_12px_#38bdf8]"
+              style={{ ['--p-drift-x' as string]: '10px', ['--p-drift-y' as string]: '-14px', animationDelay: '0s' }}
+            />
+            <div
+              className="absolute top-[64%] left-[35%] w-2.5 h-2.5 rounded-full bg-indigo-300 animate-hero-particle shadow-[0_0_14px_#818cf8]"
+              style={{ ['--p-drift-x' as string]: '-12px', ['--p-drift-y' as string]: '-18px', animationDelay: '1.2s' }}
+            />
+            <div
+              className="absolute top-[35%] right-[25%] w-2 h-2 rounded-full bg-sky-200 animate-hero-particle shadow-[0_0_10px_#bae6fd]"
+              style={{ ['--p-drift-x' as string]: '14px', ['--p-drift-y' as string]: '-10px', animationDelay: '2.1s' }}
+            />
+            <div
+              className="absolute top-[52%] right-[18%] w-1.5 h-1.5 rounded-full bg-purple-300 animate-hero-particle shadow-[0_0_8px_#c084fc]"
+              style={{ ['--p-drift-x' as string]: '-8px', ['--p-drift-y' as string]: '-12px', animationDelay: '2.8s' }}
+            />
+          </div>
+
         </div>
 
         {/* Foreground Content: Messaging & CTAs */}
-        <div className="relative z-10 max-w-2xl lg:max-w-3xl flex flex-col gap-6 text-left py-2">
+        <div className="relative z-10 max-w-2xl lg:max-w-3xl xl:max-w-4xl flex flex-col gap-6 text-left py-2">
 
           {/* Main Welcome Heading */}
           <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] text-white">
@@ -473,30 +541,27 @@ export default function HomePage({
 
           {/* Motto / Slogan */}
           <p className="text-base sm:text-lg md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl">
-            <strong className="text-white font-semibold">Arcis</strong> is the next-generation economic operating system built on Arc
-            Circle's blockchain with native USDC gas delivering
-            <span className="text-sky-300 font-medium"> unified liquidity across 13+ chains</span>,
-            <span className="text-purple-300 font-medium"> 100% real-yield vaults</span>, and
-            <span className="text-cyan-300 font-medium"> autonomous AI agent settlement</span>.
+            <strong className="text-white font-semibold">Arcis</strong> is the all-in-one financial operating system built on Arc.
+            Pay gas in native USDC, access unified liquidity across 13+ chains, and earn sustainable real yield without bridges or seed phrases.
           </p>
 
           {/* Fast Bullet Points */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs sm:text-sm text-slate-300">
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Sub-Second Deterministic Finality (&lt;1.0s)</span>
+              <span>&lt; 1.0s Instant Finality</span>
             </div>
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Zero ETH — Native USDC Gas Engine</span>
+              <span>Native USDC Gas (Zero ETH)</span>
             </div>
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Seedless Biometric Passkeys (WebAuthn)</span>
+              <span>Biometric Passkey Login</span>
             </div>
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>x402 Agent Micropayments & AI Copilot</span>
+              <span>Automated AI Micropayments</span>
             </div>
           </div>
 
@@ -507,15 +572,15 @@ export default function HomePage({
               onClick={() => onNavigate('unified')}
               className="arc-btn arc-btn-primary px-6 py-3.5 rounded-full text-sm font-semibold flex items-center gap-2 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:scale-105 active:scale-95 transition-all cursor-pointer"
             >
-              <span>DApp</span>
+              <span>Launch App</span>
               <ArrowRight className="w-4 h-4" />
             </button>
             <a
               href="#features-showcase"
-              className="px-4 py-3.5 text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
+              className="text-[13px] px-2 py-3.5 text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
             >
               <span>Explore Features</span>
-              <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
+              <ChevronDown className="w-3.5 h-3.5" />
             </a>
           </div>
 
@@ -608,10 +673,10 @@ export default function HomePage({
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto flex flex-col gap-3">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight">
-            Purpose-Built Architecture for Real-World Finance
+            Built for Modern On-Chain Finance
           </h2>
           <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
-            Explore institutional-grade stablecoin flows, cross-chain unified liquidity, and autonomous agent orchestration powered by Arc.
+            Instant settlement, unified cross-chain balances, and autonomous agent orchestration powered by Arc.
           </p>
         </div>
 
@@ -622,7 +687,7 @@ export default function HomePage({
             return (
               <div
                 key={pillar.id}
-                className="arc-card rounded-3xl p-6 sm:p-8 md:p-12 border border-white/10 bg-gradient-to-b from-slate-900/80 to-slate-950/90 relative overflow-hidden group"
+                className="arc-card rounded-3xl p-6 sm:p-8 md:p-10 lg:p-12 border border-white/10 bg-gradient-to-b from-slate-900/80 to-slate-950/90 relative overflow-hidden group"
               >
                 {/* Background Ambient Glow */}
                 <div
@@ -637,7 +702,7 @@ export default function HomePage({
                       isReversed
                         ? '-left-28 sm:-left-36 md:-left-48 lg:-left-56 xl:-left-56'
                         : '-right-20 sm:-right-28 md:-right-36 lg:-right-40 xl:-right-48'
-                    } top-1/2 -translate-y-1/2 w-[400px] sm:w-[520px] md:w-[640px] lg:w-[760px] xl:w-[860px] pointer-events-none select-none z-0 opacity-40 sm:opacity-55 md:opacity-75 lg:opacity-90 transition-all duration-700`}
+                    } ${pillar.imageContainerClass || ''} top-1/2 -translate-y-1/2 w-[400px] sm:w-[520px] md:w-[640px] lg:w-[760px] xl:w-[860px] pointer-events-none select-none z-0 opacity-40 sm:opacity-55 md:opacity-75 lg:opacity-90 transition-all duration-700`}
                   >
                     {/* Soft Backlight */}
                     <div
@@ -725,12 +790,12 @@ export default function HomePage({
 
       {/* ── 4. TECHNICAL COMPARISON MATRIX ── */}
       <section className="w-full flex flex-col gap-8">
-        <div className="text-center max-w-2xl mx-auto flex flex-col gap-2">
+        <div className="text-center max-w-3xl mx-auto flex flex-col gap-2">
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-            Why Arc L1 and Arcis Protocol?
+            Why Arcis on Arc L1?
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            A technical architectural comparison between legacy DeFi networks and Arcis on Arc L1.
+            See how native USDC gas and unified liquidity transform the on-chain financial experience.
           </p>
         </div>
 
@@ -765,11 +830,14 @@ export default function HomePage({
       </section>
 
       {/* ── 5. FREQUENTLY ASKED QUESTIONS (FAQ) ── */}
-      <section className="w-full max-w-4xl mx-auto flex flex-col gap-6">
+      <section className="w-full max-w-4xl lg:max-w-5xl mx-auto flex flex-col gap-6">
         <div className="text-center flex flex-col gap-2">
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white">
-            FAQ
+            Frequently Asked Questions
           </h2>
+          <p className="text-xs sm:text-sm text-slate-400">
+            Everything you need to know about Arcis, Arc L1, and native USDC finance.
+          </p>
         </div>
 
         <div className="flex flex-col gap-3">

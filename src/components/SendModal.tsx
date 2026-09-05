@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo} from 'react'
 import { createPortal } from 'react-dom'
 import {
   X,
@@ -8,8 +8,8 @@ import {
   Wallet,
   Zap,
   FileText,
-  Check,
   ChevronDown,
+  Ban,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -32,12 +32,16 @@ import {
 } from '../config/sendConfig'
 import { ARC_METADATA } from '../config/arcChain'
 import { addTransaction } from '../utils/history'
-import { formatWalletError } from '../utils/errorUtils'
+import { normalizeAppError } from '../utils/errorNormalizer'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
-import { SPEED_TIERS, type SpeedTier } from '../config/feeTiers'
-import { getSendProtocolFee } from '../config/treasuryConfig'
+import {
+  SPEED_TIERS,
+  getDynamicArcGasOptions,
+  ARC_GAS_LIMITS,
+  type SpeedTier,
+} from '../config/feeTiers'
 import {
   getGaslessQuota,
   sendGaslessUsdcTransfer,
@@ -132,6 +136,7 @@ export default function SendModal({
   const [isSending, setIsSending] = useState(false)
   const [successReceipt, setSuccessReceipt] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isCanceledError, setIsCanceledError] = useState(false)
 
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null)
   const [nativeBalance, setNativeBalance] = useState('0.00')
@@ -224,13 +229,8 @@ export default function SendModal({
     selectedChain === 'Arc_Testnet' && (isCustom ? false : token === 'USDC') && sendMode === 'direct'
   const isGaslessActive = isArcUsdc && isGaslessMode && (gaslessQuota ? gaslessQuota.remainingQuota > 0 : true)
 
-  // Dynamic Arcis Protocol Fee
-  const sendProtocolFee =
-    selectedChain === 'Arc_Testnet' && tokenSymbol === 'USDC' && sendMode === 'direct' && !isGaslessActive
-      ? getSendProtocolFee(speedTier)
-      : 0
-  const totalSendDebit = amount ? parseFloat(amount) + sendProtocolFee : 0
-  const isInsufficient = amount ? totalSendDebit > parseFloat(activeBalance) : false
+  // Balance sufficiency check (Direct transfer has 0 platform fee; L1 gas is paid separately via native USDC gas)
+  const isInsufficient = amount ? parseFloat(amount) > parseFloat(activeBalance) : false
 
   // Fetch native token balance from RPC when "NATIVE" is selected in Direct mode
   useEffect(() => {
@@ -354,7 +354,12 @@ export default function SendModal({
 
       try {
         if (selectedChain === 'Arc_Testnet') {
-          setEstimatedFee('0.00135')
+          const isMemo = token === 'USDC' && memoText.trim().length > 0
+          const gasLimit = isMemo ? ARC_GAS_LIMITS.memoTransfer : ARC_GAS_LIMITS.erc20Transfer
+          const gasRes = await getDynamicArcGasOptions(undefined, speedTier, gasLimit)
+          if (isMounted) {
+            setEstimatedFee(gasRes.estimatedCostUsdc)
+          }
         } else if (provider) {
           const gasRes = await estimateGas(
             provider,
@@ -380,7 +385,21 @@ export default function SendModal({
     return () => {
       isMounted = false
     }
-  }, [isOpen, amount, sendMode, isGaslessActive, selectedChain, provider, token, customTokenAddress, isCustom, recipient, recipientIsValid])
+  }, [
+    isOpen,
+    amount,
+    sendMode,
+    isGaslessActive,
+    selectedChain,
+    provider,
+    token,
+    customTokenAddress,
+    isCustom,
+    recipient,
+    recipientIsValid,
+    speedTier,
+    memoText,
+  ])
 
   // Reset modal state on open
   useEffect(() => {
@@ -389,6 +408,7 @@ export default function SendModal({
       setGaslessStage('idle')
       setSuccessReceipt(null)
       setError(null)
+      setIsCanceledError(false)
       setEstimatedFee(null)
       setShowSettings(false)
     }
@@ -411,21 +431,25 @@ export default function SendModal({
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    setIsCanceledError(false)
     setSuccessReceipt(null)
 
     if (!recipientIsValid) {
       setError(`Please enter a valid recipient address for ${selectedChain.replace(/_/g, ' ')}`)
+      setIsCanceledError(false)
       return
     }
 
     const sendAmt = parseFloat(amount)
     if (isNaN(sendAmt) || sendAmt <= 0) {
       setError('Please enter a valid amount')
+      setIsCanceledError(false)
       return
     }
 
     if (sendMode === 'direct' && isCustom && !customTokenAddress) {
       setError('Please enter a valid custom token address')
+      setIsCanceledError(false)
       return
     }
 
@@ -435,17 +459,21 @@ export default function SendModal({
       ? customTokenResult?.symbol || 'Custom Token'
       : getDisplayTokenSymbol(selectedChain, token)
     const tokenIcon = isCustom ? undefined : TOKEN_ICONS[token] || TOKEN_ICONS[displayToken]
+    const effectiveToken = sendMode === 'gateway' ? 'USDC' : displayToken
 
     const broadcastId = addBroadcast({
-      title: sendMode === 'gateway' ? 'Sending via Gateway...' : `Sending ${displayToken}...`,
+      type: 'send',
+      title: sendMode === 'gateway' ? `Sending ${effectiveToken} via Gateway...` : `Sending ${displayToken}...`,
       status: 'pending',
-      badgeText: sendMode === 'gateway' ? 'Instant' : 'Pending',
+      badgeText: 'Pending',
       details: {
-        fromAmount: amount,
-        fromSymbol: sendMode === 'gateway' ? 'USDC' : displayToken,
-        fromIcon: sendMode === 'gateway' ? TOKEN_ICONS.USDC : tokenIcon,
-        toSymbol: recipient,
+        amount,
+        tokenSymbol: effectiveToken,
+        tokenIcon: sendMode === 'gateway' ? TOKEN_ICONS.USDC : tokenIcon,
+        recipient,
         network: selectedChain,
+        memo: selectedChain === 'Arc_Testnet' && memoText.trim() ? memoText.trim() : undefined,
+        isGasless: isGaslessActive,
       },
     })
 
@@ -457,10 +485,18 @@ export default function SendModal({
             setError(errorText)
             setIsSending(false)
             updateBroadcast(broadcastId, {
+              type: 'send',
               title: 'Gateway Send Failed',
               status: 'failed',
               badgeText: 'Failed',
               message: errorText,
+              details: {
+                amount,
+                tokenSymbol: 'USDC',
+                tokenIcon: TOKEN_ICONS.USDC,
+                recipient,
+                network: selectedChain,
+              },
             })
             return
           }
@@ -498,14 +534,15 @@ export default function SendModal({
           })
 
           updateBroadcast(broadcastId, {
-            title: 'Gateway Send Finalized',
+            type: 'send',
+            title: `${displayToken} Transferred Successfully`,
             status: 'success',
-            badgeText: '<500ms Instant',
+            badgeText: 'Confirmed',
             details: {
-              fromAmount: amount,
-              fromSymbol: 'USDC',
-              fromIcon: TOKEN_ICONS.USDC,
-              toSymbol: recipient,
+              amount,
+              tokenSymbol: 'USDC',
+              tokenIcon: TOKEN_ICONS.USDC,
+              recipient,
               network: selectedChain,
               txHash,
             },
@@ -549,22 +586,24 @@ export default function SendModal({
             setSuccessReceipt({
               txHash,
               explorerUrl,
-              gasFee: '0.00135 USDC',
+              gasFee: memoResult.gasFeeUsdc ? `${memoResult.gasFeeUsdc} USDC` : `${estimatedFee || '0.00053'} USDC`,
               blockNumber: memoResult.blockNumber.toString(),
               memoText: memoResult.memoText,
               memoId: memoResult.memoId,
             })
 
             updateBroadcast(broadcastId, {
-              title: 'Memo Transfer Confirmed',
+              type: 'send',
+              title: `${displayToken} Transferred Successfully`,
               status: 'success',
-              badgeText: 'Memo Attached',
+              badgeText: 'Confirmed',
               details: {
-                fromAmount: amount,
-                fromSymbol: displayToken,
-                fromIcon: tokenIcon,
-                toSymbol: recipient,
+                amount,
+                tokenSymbol: displayToken,
+                tokenIcon,
+                recipient,
                 network: selectedChain,
+                memo: memoText.trim(),
                 txHash,
               },
             })
@@ -617,14 +656,15 @@ export default function SendModal({
             })
 
             updateBroadcast(broadcastId, {
-              title: 'Gasless USDC Transfer Confirmed',
+              type: 'send',
+              title: `${displayToken} Transferred Successfully`,
               status: 'success',
-              badgeText: '0 Gas Sponsored',
+              badgeText: 'Confirmed',
               details: {
-                fromAmount: amount,
-                fromSymbol: 'USDC',
-                fromIcon: TOKEN_ICONS.USDC,
-                toSymbol: recipient,
+                amount,
+                tokenSymbol: 'USDC',
+                tokenIcon: TOKEN_ICONS.USDC,
+                recipient,
                 network: selectedChain,
                 txHash,
               },
@@ -662,14 +702,15 @@ export default function SendModal({
             })
 
             updateBroadcast(broadcastId, {
-              title: 'Transfer Sent',
+              type: 'send',
+              title: `${displayToken} Transferred Successfully`,
               status: 'success',
               badgeText: 'Confirmed',
               details: {
-                fromAmount: amount,
-                fromSymbol: displayToken,
-                fromIcon: tokenIcon,
-                toSymbol: recipient,
+                amount,
+                tokenSymbol: displayToken,
+                tokenIcon,
+                recipient,
                 network: selectedChain,
                 txHash,
               },
@@ -692,23 +733,36 @@ export default function SendModal({
           }
         }
       } catch (err: any) {
-        console.error('Token transfer failed:', err)
-        const errMsg = formatWalletError(err)
+        console.error('[SendModal] Token transfer failed:', err)
+        const normalized = normalizeAppError(err)
+        const isCanceled = normalized.isCanceled
+        const errMsg = normalized.message
+
         setError(errMsg)
         setIsSending(false)
         setGaslessStage('idle')
+        setIsCanceledError(isCanceled)
+
+        const status = isCanceled ? 'canceled' : 'failed'
+        const title = isCanceled
+          ? (sendMode === 'gateway' ? 'Gateway Send Canceled' : 'Sending Canceled')
+          : (sendMode === 'gateway' ? 'Gateway Send Failed' : (normalized.title || 'Transfer Failed'))
+        const badgeText = isCanceled ? 'Canceled' : 'Failed'
 
         updateBroadcast(broadcastId, {
-          title: sendMode === 'gateway' ? 'Gateway Send Failed' : 'Transfer Failed',
-          status: 'failed',
-          badgeText: 'Failed',
+          type: 'send',
+          title,
+          status,
+          badgeText,
           message: errMsg,
           details: {
-            fromAmount: amount,
-            fromSymbol: sendMode === 'gateway' ? 'USDC' : displayToken,
-            fromIcon: sendMode === 'gateway' ? TOKEN_ICONS.USDC : tokenIcon,
-            toSymbol: recipient,
+            amount,
+            tokenSymbol: sendMode === 'gateway' ? 'USDC' : displayToken,
+            tokenIcon: sendMode === 'gateway' ? TOKEN_ICONS.USDC : tokenIcon,
+            recipient,
             network: selectedChain,
+            memo: selectedChain === 'Arc_Testnet' && memoText.trim() ? memoText.trim() : undefined,
+            isGasless: isGaslessActive,
           },
         })
       }
@@ -751,17 +805,45 @@ export default function SendModal({
 
   // Transaction Breakdown Items
   const breakdownItems: BreakdownItem[] = useMemo(() => {
+    const chainDisplayName = selectedChain.replace(/_/g, ' ')
+    const chainIconId = getChainIconId(selectedChain)
+
     const items: BreakdownItem[] = [
       {
+        label: 'Network',
+        value: (
+          <div className="flex items-center gap-1.5 font-medium text-slate-200">
+            <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+              <NetworkIcon
+                name={chainIconId}
+                variant={chainIconId === 'solana' ? 'branded' : 'background'}
+                size={14}
+                className="rounded-full"
+              />
+            </div>
+            <span>{chainDisplayName}</span>
+          </div>
+        ),
+      },
+      {
         label: 'Network Fee',
-        value: isGaslessActive
-          ? 'Free (Sponsored)'
-          : sendMode === 'gateway'
-          ? 'Free'
-          : estimatedFee
-          ? `${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
-          : '<0.001 USDC',
+        value: isGaslessActive ? (
+          <span className="text-indigo-400 font-medium text-[12px]">Free (Sponsored by Arcis)</span>
+        ) : sendMode === 'gateway' ? (
+          <span className="text-indigo-400 font-medium text-[12px]">Free (Gateway Unified)</span>
+        ) : estimatedFee ? (
+          `${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
+        ) : selectedChain === 'Arc_Testnet' ? (
+          `~${SPEED_TIERS[speedTier].arcGas.estimatedCostUsdc} USDC`
+        ) : (
+          '<0.001 USDC'
+        ),
         highlight: isGaslessActive || sendMode === 'gateway',
+        highlightColor: isGaslessActive ? 'text-indigo-400' : undefined,
+      },
+      {
+        label: 'Platform Fee',
+        value: '0.00 USDC',
       },
       {
         label: 'Estimated Time',
@@ -927,16 +1009,27 @@ export default function SendModal({
             onChange={(mode) => {
               setSendMode(mode)
               setError(null)
+              setIsCanceledError(false)
               setSuccessReceipt(null)
             }}
             disabled={isSending}
           />
 
-          {/* Error Alert */}
+          {/* Error / Rejection Alert */}
           {error && (
-            <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex items-center gap-2.5 animate-fade-in">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span className="flex-1">{error}</span>
+            <div
+              className={`p-3 rounded-2xl border text-xs flex items-center gap-2.5 animate-fade-in ${
+                isCanceledError
+                  ? 'bg-amber-500/10 border-amber-500/25 text-amber-300/90'
+                  : 'bg-rose-500/10 border-rose-500/25 text-rose-400'
+              }`}
+            >
+              {isCanceledError ? (
+                <Ban className="w-4 h-4 shrink-0 text-amber-400" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+              )}
+              <span className="flex-1 leading-relaxed">{error}</span>
             </div>
           )}
 
@@ -1079,12 +1172,17 @@ export default function SendModal({
             </div>
           )}
 
-          {/* Breakdown Accordion */}
-          {breakdownItems.length > 0 && (
+          {/* Breakdown Accordion - Hidden until amount is entered */}
+          {Boolean(amount && parseFloat(amount) > 0) && breakdownItems.length > 0 && (
             <TransactionBreakdown
-              summaryTitle={`Network: ${selectedChain.replace(/_/g, ' ')}`}
+              summaryTitle="Transfer Breakdown"
               items={breakdownItems}
               defaultOpen={false}
+              context="send"
+              showItemIcons={false}
+              isGaslessSponsored={isGaslessActive}
+              isGatewayMode={sendMode === 'gateway'}
+              className="animate-fade-in"
             />
           )}
 

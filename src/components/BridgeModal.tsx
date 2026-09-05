@@ -7,17 +7,18 @@ import {
   Wallet,
   Zap,
   AlertTriangle,
+  Ban,
   ChevronDown,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
-import { transferFromGateway, estimateGatewayTransfer } from '../services/gatewayService'
+import { transferFromGateway, estimateGatewayTransfer, ensureChain } from '../services/gatewayService'
 import { executeBridge, estimateBridgeCost } from '../services/bridgeService'
 import { createViemAdapter } from '../services/sendService'
-import { parseTransactionError, type ParsedTransactionError } from '../utils/errorUtils'
 import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
+import { normalizeAppError } from '../utils/errorNormalizer'
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
@@ -31,8 +32,12 @@ import {
 } from '../config/bridgeConfig'
 import {
   getBridgeProtocolFee,
-  TREASURY_ADDRESS,
+  getBridgeProtocolFeeBps,
+  getBridgeProtocolFeePercent,
+  calculateBridgeProtocolFeeAmount,
+  getTreasuryRecipientAddress,
 } from '../config/treasuryConfig'
+import { formatFeeDecimals } from '../utils/tokenUtils'
 import { addTransaction } from '../utils/history'
 import {
   FintechCard,
@@ -64,6 +69,8 @@ interface BridgeModalProps {
   ) => string
   removeToast?: (id: string) => void
 }
+
+export const MIN_DIRECT_BRIDGE_AMOUNT = 0.1
 
 export default function BridgeModal({
   isOpen,
@@ -131,8 +138,10 @@ export default function BridgeModal({
 
   const activeBalance = bridgeMode === 'direct' ? sourceWalletBalance : sourceGatewayBalance
 
-  // Custom Platform Fee configuration from Arcis Treasury Fee Engine (Dynamic per speed tier)
-  const platformFeeAmount = getBridgeProtocolFee(speedTier)
+  // Custom Platform Fee configuration from Arcis Treasury Fee Engine (Dynamic per speed tier & transfer amount)
+  const platformFeeBps = getBridgeProtocolFeeBps(speedTier)
+  const platformFeePercent = getBridgeProtocolFeePercent(speedTier)
+  const platformFeeAmount = amount ? calculateBridgeProtocolFeeAmount(speedTier, amount) : 0
   const platformFeeEnabled = platformFeeAmount > 0
   const requiredDebit = amount
     ? parseFloat(amount) + (bridgeMode === 'direct' ? platformFeeAmount : 0)
@@ -143,6 +152,7 @@ export default function BridgeModal({
   const [isTransferring, setIsTransferring] = useState(false)
   const [successReceipt, setSuccessReceipt] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isCanceledError, setIsCanceledError] = useState(false)
 
   // Fee estimation
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null)
@@ -154,6 +164,7 @@ export default function BridgeModal({
       setIsTransferring(false)
       setSuccessReceipt(null)
       setError(null)
+      setIsCanceledError(false)
       setEstimatedFee(null)
       setRecipientError(null)
     }
@@ -190,7 +201,7 @@ export default function BridgeModal({
               ...(platformFeeEnabled && {
                 customFee: {
                   value: platformFeeAmount.toFixed(2),
-                  recipientAddress: TREASURY_ADDRESS,
+                  recipientAddress: getTreasuryRecipientAddress(sourceChain),
                 },
               }),
             })
@@ -203,10 +214,10 @@ export default function BridgeModal({
             if (isMounted) {
               setEstimatedFee(
                 totalFeeInUsdc > 0
-                  ? totalFeeInUsdc.toString()
+                  ? formatFeeDecimals(totalFeeInUsdc)
                   : speedTier === 'standard'
-                  ? '0.0000'
-                  : '0.2000'
+                  ? '0.00'
+                  : '0.20'
               )
             }
           }
@@ -215,10 +226,10 @@ export default function BridgeModal({
         if (isMounted) {
           setEstimatedFee(
             bridgeMode === 'gateway'
-              ? (parseFloat(amount) * 0.00005).toFixed(6)
+              ? formatFeeDecimals(parseFloat(amount) * 0.00005)
               : speedTier === 'standard'
-              ? '0.0000'
-              : '0.2000'
+              ? '0.00'
+              : '0.20'
           )
         }
       } finally {
@@ -258,11 +269,14 @@ export default function BridgeModal({
   const handleSwapChains = () => {
     setSourceChain(destChain)
     setDestChain(sourceChain)
+    setError(null)
+    setIsCanceledError(false)
   }
 
   const handleTransfer = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
     setError(null)
+    setIsCanceledError(false)
     setSuccessReceipt(null)
 
     const targetRecipient = recipient.trim()
@@ -288,6 +302,13 @@ export default function BridgeModal({
       return
     }
 
+    if (bridgeMode === 'direct' && amt < MIN_DIRECT_BRIDGE_AMOUNT) {
+      setError(
+        `Minimum transfer amount for direct CCTP bridge is ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC to cover CCTP network forwarder fees.`
+      )
+      return
+    }
+
     if (sourceChain === destChain) {
       setError('Source and destination chains must be different')
       return
@@ -308,21 +329,20 @@ export default function BridgeModal({
 
     setIsTransferring(true)
 
+    const tokenSymbol = 'USDC'
     const broadcastId = addBroadcast({
-      title: bridgeMode === 'direct' ? 'CCTP Bridging in Progress...' : 'Bridging via Gateway...',
+      type: 'bridge',
+      title: bridgeMode === 'direct' ? `Bridging ${tokenSymbol}...` : `Bridging ${tokenSymbol} via Gateway...`,
       status: 'pending',
-      badgeText: bridgeMode === 'direct' ? 'CCTP V2' : '<500ms Instant',
+      badgeText: bridgeMode === 'direct' ? 'Pending' : '<500ms Instant',
       details: {
-        fromAmount: amount,
-        fromSymbol: 'USDC',
-        fromIcon: UsdcIcon,
-        fromChain: sourceChain,
-        toAmount: amount,
-        toSymbol: 'USDC',
-        toIcon: UsdcIcon,
-        toChain: destChain,
+        amount,
+        tokenSymbol,
+        tokenIcon: UsdcIcon,
+        sourceChain,
+        destChain,
+        bridgeMode,
         network: destChain,
-        isBridge: true,
       },
     })
 
@@ -335,6 +355,13 @@ export default function BridgeModal({
       if (bridgeMode === 'direct') {
         // Direct CCTP Bridge via App Kit SDK
         if (!provider) throw new Error('No wallet provider available')
+
+        // Ensure wallet network is aligned with the source chain before bridging
+        const sourceChainDef = CHAIN_DEFS[sourceChain]
+        if (sourceChainDef && typeof provider.request === 'function') {
+          await ensureChain(provider, sourceChainDef)
+        }
+
         const adapter = await createViemAdapter(provider)
 
         const result: any = await executeBridge({
@@ -347,8 +374,8 @@ export default function BridgeModal({
           transferSpeed: speedTier === 'standard' ? 'SLOW' : 'FAST',
           ...(platformFeeEnabled && {
             customFee: {
-              value: platformFeeAmount.toFixed(2),
-              recipientAddress: TREASURY_ADDRESS,
+              value: formatFeeDecimals(platformFeeAmount),
+              recipientAddress: getTreasuryRecipientAddress(sourceChain),
             },
           }),
         })
@@ -436,21 +463,20 @@ export default function BridgeModal({
       })
 
       updateBroadcast(broadcastId, {
-        title: bridgeMode === 'direct' ? 'CCTP Bridge Confirmed' : 'Instant Bridge Completed',
+        type: 'bridge',
+        title: bridgeMode === 'direct' ? 'Bridge Completed Successfully' : 'Gateway Bridge Completed Successfully',
         status: 'success',
-        badgeText: 'Finalized',
+        badgeText: 'Confirmed',
         details: {
-          fromAmount: amount,
-          fromSymbol: 'USDC',
-          fromIcon: UsdcIcon,
-          fromChain: sourceChain,
-          toAmount: amount,
-          toSymbol: 'USDC',
-          toIcon: UsdcIcon,
-          toChain: destChain,
+          amount,
+          tokenSymbol: 'USDC',
+          tokenIcon: UsdcIcon,
+          sourceChain,
+          destChain,
+          bridgeMode,
           network: destChain,
           txHash: mintTxHash,
-          isBridge: true,
+          sourceTxHash: burnTxHash,
         },
       })
 
@@ -472,54 +498,33 @@ export default function BridgeModal({
 
       onSuccess(amount, mintTxHash)
     } catch (err: any) {
-      console.error('Bridge Failed:', err)
+      console.error('[BridgeModal] Execution error:', err)
       setIsTransferring(false)
 
-      const parsed: ParsedTransactionError = parseTransactionError(err)
+      const normalized = normalizeAppError(err)
+      const isCanceled = normalized.isCanceled
 
-      if (parsed.isRejected) {
-        setError(parsed.message)
+      setIsCanceledError(isCanceled)
+      setError(normalized.message)
 
-        updateBroadcast(broadcastId, {
-          title: bridgeMode === 'direct' ? 'CCTP Bridge Cancelled' : 'Gateway Transfer Cancelled',
-          status: 'failed',
-          badgeText: 'Cancelled',
-          message: 'The transaction request in the wallet was cancelled by the user.',
-          details: {
-            fromAmount: amount,
-            fromSymbol: 'USDC',
-            fromIcon: UsdcIcon,
-            fromChain: sourceChain,
-            toAmount: amount,
-            toSymbol: 'USDC',
-            toIcon: UsdcIcon,
-            toChain: destChain,
-            network: destChain,
-            isBridge: true,
-          },
-        })
-      } else {
-        setError(parsed.message)
-
-        updateBroadcast(broadcastId, {
-          title: bridgeMode === 'direct' ? 'CCTP Bridge Failed' : 'Gateway Transfer Failed',
-          status: 'failed',
-          badgeText: 'Failed',
-          message: parsed.message,
-          details: {
-            fromAmount: amount,
-            fromSymbol: 'USDC',
-            fromIcon: UsdcIcon,
-            fromChain: sourceChain,
-            toAmount: amount,
-            toSymbol: 'USDC',
-            toIcon: UsdcIcon,
-            toChain: destChain,
-            network: destChain,
-            isBridge: true,
-          },
-        })
-      }
+      updateBroadcast(broadcastId, {
+        type: 'bridge',
+        title: isCanceled
+          ? (bridgeMode === 'direct' ? 'Bridging Canceled' : 'Gateway Bridging Canceled')
+          : (bridgeMode === 'direct' ? (normalized.title || 'Bridge Failed') : 'Gateway Transfer Failed'),
+        status: isCanceled ? 'canceled' : 'failed',
+        badgeText: isCanceled ? 'Canceled' : 'Failed',
+        message: normalized.message,
+        details: {
+          amount,
+          tokenSymbol: 'USDC',
+          tokenIcon: UsdcIcon,
+          sourceChain,
+          destChain,
+          bridgeMode,
+          network: destChain,
+        },
+      })
     }
   }
 
@@ -543,6 +548,13 @@ export default function BridgeModal({
       return {
         disabled: true,
         text: 'ENTER AN AMOUNT',
+        loading: false,
+      }
+    }
+    if (bridgeMode === 'direct' && parseFloat(amount) < MIN_DIRECT_BRIDGE_AMOUNT) {
+      return {
+        disabled: true,
+        text: `MINIMUM IS ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC`,
         loading: false,
       }
     }
@@ -597,19 +609,23 @@ export default function BridgeModal({
     if (!amount || parseFloat(amount) <= 0) return []
 
     const computedFee =
-      estimatedFee ||
+      (estimatedFee ? formatFeeDecimals(estimatedFee) : null) ||
       (bridgeMode === 'gateway'
-        ? (parseFloat(amount) * 0.00005).toFixed(6)
+        ? formatFeeDecimals(parseFloat(amount) * 0.00005)
         : speedTier === 'standard'
-        ? '0.0000'
-        : '0.2000')
+        ? '0.00'
+        : '0.20')
 
-    const netReceived = Math.max(0, parseFloat(amount) - parseFloat(computedFee)).toFixed(6)
+    const computedFeeNum = parseFloat(computedFee)
+    const netReceived = Math.max(
+      0,
+      parseFloat(amount) - (isNaN(computedFeeNum) ? 0 : computedFeeNum)
+    )
 
     const items: BreakdownItem[] = [
       {
         label: 'Bridge Method',
-        value: bridgeMode === 'gateway' ? 'Circle Gateway (Instant)' : 'Circle CCTP V2 (Direct)',
+        value: bridgeMode === 'gateway' ? 'Circle Gateway' : 'Circle CCTP V2',
       },
       {
         label: 'Protocol Fee',
@@ -619,8 +635,8 @@ export default function BridgeModal({
 
     if (platformFeeEnabled && bridgeMode === 'direct') {
       items.push({
-        label: 'Platform Fee',
-        value: `${platformFeeAmount.toFixed(2)} USDC`,
+        label: `Platform Fee (${platformFeePercent})`,
+        value: `${formatFeeDecimals(platformFeeAmount)} USDC`,
       })
     }
 
@@ -635,14 +651,24 @@ export default function BridgeModal({
             : '~15-30 sec',
       },
       {
-        label: 'Net Received on Destination',
-        value: `${netReceived} USDC`,
+        label: 'Net Received',
+        value: `${formatFeeDecimals(netReceived)} USDC`,
         highlight: true,
+        highlightColor: 'text-indigo-400',
       }
     )
 
     return items
-  }, [amount, estimatedFee, bridgeMode, speedTier, platformFeeEnabled, platformFeeAmount, isEstimating])
+  }, [
+    amount,
+    estimatedFee,
+    bridgeMode,
+    speedTier,
+    platformFeeEnabled,
+    platformFeeAmount,
+    platformFeePercent,
+    isEstimating,
+  ])
 
   // Header actions with Privacy, Settings and Close
   const headerActions = (
@@ -774,6 +800,7 @@ export default function BridgeModal({
             setIsTransferring(false)
             setAmount('')
             setError(null)
+            setIsCanceledError(false)
           }}
           onClose={onClose}
         />
@@ -791,15 +818,26 @@ export default function BridgeModal({
                 setSpeedTier('fast')
               }
               setError(null)
+              setIsCanceledError(false)
             }}
             disabled={isTransferring}
           />
 
-          {/* Error Alert */}
+          {/* Error / Rejection Alert */}
           {error && (
-            <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/25 text-rose-400 text-xs flex items-center gap-2.5 animate-fade-in">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span className="flex-1">{error}</span>
+            <div
+              className={`p-3 rounded-2xl border text-xs flex items-center gap-2.5 animate-fade-in ${
+                isCanceledError
+                  ? 'bg-amber-500/10 border-amber-500/25 text-amber-300/90'
+                  : 'bg-rose-500/10 border-rose-500/25 text-rose-400'
+              }`}
+            >
+              {isCanceledError ? (
+                <Ban className="w-4 h-4 shrink-0 text-amber-400" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+              )}
+              <span className="flex-1 leading-relaxed">{error}</span>
             </div>
           )}
 
@@ -882,7 +920,11 @@ export default function BridgeModal({
           <AssetInputPanel
             label={bridgeMode === 'gateway' ? 'GATEWAY BRIDGE AMOUNT' : 'AMOUNT TO BRIDGE'}
             amount={amount}
-            onAmountChange={(val) => setAmount(val)}
+            onAmountChange={(val) => {
+              setAmount(val)
+              if (error) setError(null)
+              if (isCanceledError) setIsCanceledError(false)
+            }}
             tokenSymbol="USDC"
             tokenIcon={UsdcIcon}
             balance={activeBalance}
@@ -899,6 +941,14 @@ export default function BridgeModal({
             disabled={isTransferring}
           />
 
+          {/* Minimum Amount Warning for CCTP Direct */}
+          {bridgeMode === 'direct' && amount && parseFloat(amount) > 0 && parseFloat(amount) < MIN_DIRECT_BRIDGE_AMOUNT && (
+            <div className="text-[11px] text-amber-400/90 flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl animate-fade-in">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+              <span>Minimum transfer amount is {MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC to cover CCTP network forwarder fees.</span>
+            </div>
+          )}
+
           {/* Recipient Address Field */}
           <RecipientAddressField
             value={recipient}
@@ -906,6 +956,7 @@ export default function BridgeModal({
               setRecipient(val)
               setRecipientError(null)
               setError(null)
+              setIsCanceledError(false)
             }}
             label="RECIPIENT ADDRESS"
             placeholder={
@@ -925,18 +976,11 @@ export default function BridgeModal({
           {/* Simplified Transaction Breakdown Accordion */}
           {breakdownItems.length > 0 && (
             <TransactionBreakdown
-              summaryTitle="Transaction Summary"
-              summaryBadge={
-                <span className="bg-indigo-500/15 text-indigo-300 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-indigo-500/30">
-                  {bridgeMode === 'gateway'
-                    ? '⚡ Instant <500ms'
-                    : speedTier === 'standard'
-                    ? 'Standard'
-                    : 'Fast 15-30s'}
-                </span>
-              }
+              summaryTitle="Bridge Breakdown"
               items={breakdownItems}
               defaultOpen={false}
+              context="bridge"
+              showItemIcons={false}
             />
           )}
 
@@ -963,6 +1007,8 @@ export default function BridgeModal({
         onSelectChain={(c) => {
           setSourceChain(c)
           setShowSourceChainModal(false)
+          setError(null)
+          setIsCanceledError(false)
           if (c === destChain) {
             const alternate = GATEWAY_SUPPORTED_CHAINS.find((sc) => sc !== c) || ''
             setDestChain(alternate)
@@ -981,6 +1027,8 @@ export default function BridgeModal({
         onSelectChain={(c) => {
           setDestChain(c)
           setShowDestChainModal(false)
+          setError(null)
+          setIsCanceledError(false)
           if (c === sourceChain) {
             const alternate = GATEWAY_SUPPORTED_CHAINS.find((sc) => sc !== c) || ''
             setSourceChain(alternate)

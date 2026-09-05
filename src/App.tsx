@@ -157,7 +157,13 @@ export default function App() {
         />
 
         {/* Main Container */}
-        <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 py-6 md:py-10 flex flex-col gap-6 min-h-[calc(100vh+80px)]">
+        <main
+          className={`flex-1 mx-auto w-full py-6 md:py-10 flex flex-col gap-6 min-h-[calc(100vh+80px)] ${
+            activeTab === 'home'
+              ? 'max-w-[1380px] px-4 sm:px-6 md:px-8'
+              : 'max-w-7xl px-4 sm:px-6 md:px-8'
+          }`}
+        >
           
           {/* Workspace Content */}
           <section className="flex-1 min-w-0 flex flex-col min-h-[calc(100vh-60px)] pb-12">

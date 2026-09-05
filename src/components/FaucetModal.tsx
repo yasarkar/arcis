@@ -255,6 +255,7 @@ export default function FaucetModal({
     if (isArc) {
       if (!requestUsdc && !requestEurc) {
         addBroadcast({
+          type: 'faucet',
           title: 'No Token Selected',
           status: 'failed',
           badgeText: 'Faucet',
@@ -267,6 +268,7 @@ export default function FaucetModal({
     } else {
       if (!requestUsdc && !requestEurc && !requestNative) {
         addBroadcast({
+          type: 'faucet',
           title: 'No Token Selected',
           status: 'failed',
           badgeText: 'Faucet',
@@ -288,12 +290,12 @@ export default function FaucetModal({
     setRecipientError(null)
 
     const broadcastId = addBroadcast({
+      type: 'faucet',
       title: `Requesting ${tokenSummary} Faucet...`,
       status: 'pending',
       badgeText: 'Faucet',
       message: `Sending faucet drip request on ${selectedNetwork.name}...`,
       details: {
-        isFaucet: true,
         faucetTokens: tokenSummary,
         network: selectedNetwork.name,
         recipient: trimmedAddress ? `${trimmedAddress.slice(0, 6)}...${trimmedAddress.slice(-4)}` : undefined,
@@ -326,12 +328,12 @@ export default function FaucetModal({
           'Failed to request testnet tokens.'
 
         updateBroadcast(broadcastId, {
+          type: 'faucet',
           title: 'Faucet Request Failed',
           status: 'failed',
           badgeText: 'Failed',
           message: errorDetail,
           details: {
-            isFaucet: true,
             faucetTokens: tokenSummary,
             network: selectedNetwork.name,
             recipient: trimmedAddress ? `${trimmedAddress.slice(0, 8)}...${trimmedAddress.slice(-6)}` : undefined,
@@ -344,12 +346,12 @@ export default function FaucetModal({
 
       // Success
       updateBroadcast(broadcastId, {
+        type: 'faucet',
         title: 'Faucet Request Successful! 🎉',
         status: 'success',
         badgeText: 'Success',
         message: `Your requested ${tokenSummary} on ${selectedNetwork.name} have been sent to your wallet.`,
         details: {
-          isFaucet: true,
           faucetTokens: tokenSummary,
           network: selectedNetwork.name,
           recipient: trimmedAddress ? `${trimmedAddress.slice(0, 6)}...${trimmedAddress.slice(-4)}` : undefined,
@@ -367,6 +369,7 @@ export default function FaucetModal({
         err.message || 'An error occurred while connecting to the server.'
 
       updateBroadcast(broadcastId, {
+        type: 'faucet',
         title: 'Connection Error',
         status: 'failed',
         badgeText: 'Failed',
