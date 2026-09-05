@@ -17,9 +17,18 @@ import {
   SESSION_KEY_UPDATED_EVENT,
 } from '../services/sessionKeyService'
 import { executeDirectCopilotAction } from '../services/copilotExecutionService'
-import type { CopilotMessage, CopilotStepLog, CopilotActionPayload } from '../types/marketplace'
+import type { CopilotMessage, CopilotStepLog, CopilotActionPayload, CopilotActionType } from '../types/marketplace'
 import type { SessionKeyConfig, SessionActionType } from '../types/sessionKey'
 import { formatCopilotError } from '../utils/errorUtils'
+
+function normalizeActionType(type?: CopilotActionType | string): SessionActionType {
+  if (!type) return 'send'
+  if (type === 'trade' || type.includes('swap')) return 'swap'
+  if (type === 'zap' || type.includes('deposit')) return 'deposit'
+  if (type.includes('bridge')) return 'bridge'
+  if (type === 'faucet') return 'faucet'
+  return 'send'
+}
 
 export interface TopicQuestion {
   id: string
@@ -654,6 +663,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
       setSessionConfig(getSessionKeyConfig())
     } catch (err: any) {
       const cleanErr = formatCopilotError(err)
+      const dynamicActionType = normalizeActionType(actionPayload?.type)
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === msgId
@@ -663,7 +673,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
                 executionState: 'failed',
                 receipt: {
                   id: `rcpt_err_${Date.now()}`,
-                  actionType: 'send',
+                  actionType: dynamicActionType,
                   title: cleanErr.title,
                   status: 'FAILED',
                   txHash: '',
@@ -691,15 +701,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
 
       const liveConfig = getSessionKeyConfig()
       if (action && liveConfig.isActive) {
-        const actionType = action.type.includes('swap')
-          ? 'swap'
-          : action.type.includes('deposit')
-          ? 'deposit'
-          : action.type.includes('bridge')
-          ? 'bridge'
-          : action.type === 'faucet'
-          ? 'faucet'
-          : 'send'
+        const actionType = normalizeActionType(action.type)
         const amount = Number(action.data?.amount) || 0
         const check = verifySessionLimits(actionType, amount)
 

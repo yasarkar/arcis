@@ -1,13 +1,78 @@
 import { AppKit, Blockchain } from '@circle-fin/app-kit'
 import { createViemAdapterFromProvider, createViemAdapterFromPrivateKey } from '@circle-fin/adapter-viem-v2'
-import { createPublicClient, createWalletClient, http } from 'viem'
+import { createPublicClient, createWalletClient, defineChain, http } from 'viem'
 import type { SendParams } from '@circle-fin/app-kit'
-import { ArcTestnet, BaseSepolia } from '@circle-fin/app-kit/chains'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { CHAIN_DEFS } from '../config/chainMeta'
 
 // Single instance of AppKit to be used for Send operations
 const kit = new AppKit()
+
+/**
+ * Resolves a proper Viem Chain object and RPC URL from any input chain representation
+ * (whether it is a Circle ChainDefinition, Viem Chain, or chain name/ID).
+ * Guarantees that client.chain.id is always defined and RPC is valid.
+ */
+export function resolveViemChainAndRpc(chain: any): { viemChain: any; rpcUrl: string } {
+  const chainId = chain?.chainId || chain?.id
+  const chainName = chain?.name || chain?.chain || ''
+
+  // 1. Arc Testnet check
+  if (
+    chainId === arcTestnet.id ||
+    chainName === arcTestnet.name ||
+    chainName === 'Arc_Testnet' ||
+    String(chainName).toLowerCase().includes('arc')
+  ) {
+    return {
+      viemChain: arcTestnet,
+      rpcUrl: ARC_METADATA.rpcHttpUrl,
+    }
+  }
+
+  // 2. Check in CHAIN_DEFS
+  for (const [key, def] of Object.entries(CHAIN_DEFS)) {
+    if (
+      def &&
+      (def.id === chainId ||
+        def.name === chainName ||
+        key.toLowerCase() === String(chainName).toLowerCase().replace(/[\s-]/g, '_'))
+    ) {
+      const rpc =
+        def.rpcUrls?.default?.http?.[0] ||
+        chain?.rpcEndpoints?.[0] ||
+        'https://rpc.ankr.com/eth'
+      return {
+        viemChain: def,
+        rpcUrl: rpc,
+      }
+    }
+  }
+
+  // 3. Fallback: construct a valid Viem Chain via defineChain
+  const rpc =
+    chain?.rpcEndpoints?.[0] ||
+    chain?.rpcUrls?.default?.http?.[0] ||
+    'https://rpc.ankr.com/eth'
+  const fallbackViemChain = defineChain({
+    id: chainId || 1,
+    name: chainName || 'EVM Chain',
+    nativeCurrency: chain?.nativeCurrency || {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    rpcUrls: {
+      default: { http: [rpc] },
+      public: { http: [rpc] },
+    },
+  })
+
+  return {
+    viemChain: fallbackViemChain,
+    rpcUrl: rpc,
+  }
+}
 
 /**
  * Patch helper to safely handle chain switching in ViemAdapter when running in the browser.
@@ -100,44 +165,18 @@ export function createHeadlessSessionAdapter(privateKey: string): any {
   const adapter = createViemAdapterFromPrivateKey({
     privateKey: privateKey as `0x${string}`,
     getPublicClient: ({ chain }) => {
-      // Use custom RPC for Arc Testnet to avoid SDK built-in RPC failures
-      if (chain.id === arcTestnet.id || chain.name === arcTestnet.name) {
-        return createPublicClient({
-          chain: ArcTestnet as any,
-          transport: http(ARC_METADATA.rpcHttpUrl, {
-            retryCount: 3,
-            timeout: 15000,
-          }),
-        }) as any
-      }
-      if (chain.id === CHAIN_DEFS.Base_Sepolia.id || chain.name === CHAIN_DEFS.Base_Sepolia.name) {
-        return createPublicClient({
-          chain: BaseSepolia as any,
-          transport: http(CHAIN_DEFS.Base_Sepolia.rpcUrls.default.http[0], {
-            retryCount: 3,
-            timeout: 15000,
-          }),
-        }) as any
-      }
+      const { viemChain, rpcUrl } = resolveViemChainAndRpc(chain)
       return createPublicClient({
-        chain,
-        transport: http(),
+        chain: viemChain,
+        transport: http(rpcUrl, { retryCount: 3, timeout: 15000 }),
       }) as any
     },
     getWalletClient: ({ chain, account }) => {
-      const isArc = chain.id === arcTestnet.id || chain.name === arcTestnet.name
-      const isBase = chain.id === CHAIN_DEFS.Base_Sepolia.id || chain.name === CHAIN_DEFS.Base_Sepolia.name
-      const targetChain = isArc ? (ArcTestnet as any) : isBase ? (BaseSepolia as any) : chain
-      const rpcUrl = isArc
-        ? ARC_METADATA.rpcHttpUrl
-        : isBase
-        ? CHAIN_DEFS.Base_Sepolia.rpcUrls.default.http[0]
-        : undefined
-
+      const { viemChain, rpcUrl } = resolveViemChainAndRpc(chain)
       return createWalletClient({
         account,
-        chain: targetChain,
-        transport: rpcUrl ? http(rpcUrl, { retryCount: 3, timeout: 15000 }) : http(),
+        chain: viemChain,
+        transport: http(rpcUrl, { retryCount: 3, timeout: 15000 }),
       }) as any
     },
   })
@@ -147,7 +186,7 @@ export function createHeadlessSessionAdapter(privateKey: string): any {
 
 /**
  * Creates a Viem adapter from an EIP-1193 browser wallet provider,
- * with custom RPC endpoints for Arc Testnet and Base Sepolia to avoid
+ * with robust Viem Chain resolution and custom RPC endpoints to avoid
  * SDK built-in RPC failures.
  */
 export async function createViemAdapter(provider: any): Promise<any> {
@@ -158,30 +197,13 @@ export async function createViemAdapter(provider: any): Promise<any> {
   const adapter = await createViemAdapterFromProvider({
     provider,
     getPublicClient: ({ chain }) => {
-      // Use custom RPC for Arc Testnet to avoid SDK built-in RPC failures
-      if (chain.id === arcTestnet.id || chain.name === arcTestnet.name) {
-        return createPublicClient({
-          chain: ArcTestnet as any,
-          transport: http(ARC_METADATA.rpcHttpUrl, {
-            retryCount: 3,
-            timeout: 15000,
-          }),
-        }) as any
-      }
-      // Use custom RPC for Base Sepolia to avoid SDK built-in RPC failures
-      if (chain.id === CHAIN_DEFS.Base_Sepolia.id || chain.name === CHAIN_DEFS.Base_Sepolia.name) {
-        return createPublicClient({
-          chain: BaseSepolia as any,
-          transport: http(CHAIN_DEFS.Base_Sepolia.rpcUrls.default.http[0], {
-            retryCount: 3,
-            timeout: 15000,
-          }),
-        }) as any
-      }
-      // For other chains, use default transport
+      const { viemChain, rpcUrl } = resolveViemChainAndRpc(chain)
       return createPublicClient({
-        chain,
-        transport: http(),
+        chain: viemChain,
+        transport: http(rpcUrl, {
+          retryCount: 3,
+          timeout: 15000,
+        }),
       }) as any
     },
   })

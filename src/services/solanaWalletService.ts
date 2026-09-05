@@ -112,8 +112,8 @@ export async function connectSolanaWallet(
       return { success: false, error: 'Auto-reconnect trusted session not found.' }
     }
     console.error('[SolanaWallet] Connection error:', err)
-    let msg = err?.message || 'Solana cüzdanına bağlanılamadı.'
-    if (err?.code === 4001 || msg.includes('User rejected')) {
+    let msg = err?.message
+    if (err?.code === 4001 || msg.includes('User canceled')) {
       msg = 'Bağlantı isteği kullanıcı tarafından reddedildi.'
     }
     return { success: false, error: msg }

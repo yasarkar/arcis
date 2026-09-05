@@ -85,7 +85,7 @@ function randomHex32(): `0x${string}` {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}` as const
 }
 
-async function ensureChain(provider: any, chain: Chain) {
+export async function ensureChain(provider: any, chain: Chain) {
   const chainIdHex = `0x${chain.id.toString(16)}`
 
   try {

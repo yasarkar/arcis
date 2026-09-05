@@ -157,7 +157,13 @@ export async function executeDirectCopilotAction(
             functionName: 'approve',
             args: [arcRoute.poolAddress, amountInUnits],
           })
-          await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch(() => {})
+          const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err) => {
+            console.warn('[copilotExecutionService] Swap approve receipt timeout/error:', err)
+            return null
+          })
+          if (approveRec && approveRec.status === 'reverted') {
+            throw new Error('Token approval reverted on-chain.')
+          }
 
           realTxHash = await walletClient.writeContract({
             address: arcRoute.poolAddress,
@@ -167,7 +173,13 @@ export async function executeDirectCopilotAction(
           })
 
           // Wait for on-chain inclusion
-          await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch(() => {})
+          const swapRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err) => {
+            console.warn('[copilotExecutionService] Swap tx receipt timeout/error:', err)
+            return null
+          })
+          if (swapRec && swapRec.status === 'reverted') {
+            throw new Error('Swap transaction reverted on-chain.')
+          }
         } catch (e: any) {
           console.warn('[copilotExecutionService] Ephemeral session swap execution warning:', e)
         }
@@ -507,7 +519,13 @@ export async function executeDirectCopilotAction(
           functionName: 'approve',
           args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
         })
-        await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch(() => {})
+        const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err) => {
+          console.warn('[copilotExecutionService] Yield vault approve receipt warning:', err)
+          return null
+        })
+        if (approveRec && approveRec.status === 'reverted') {
+          throw new Error('Token approval reverted on-chain.')
+        }
 
         realTxHash = await walletClient.writeContract({
           address: POOL_CONTRACTS.YIELD_VAULT,
@@ -515,7 +533,13 @@ export async function executeDirectCopilotAction(
           functionName: 'deposit',
           args: [amountUnits, activeWallet as Hex],
         })
-        await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch(() => {})
+        const depRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err) => {
+          console.warn('[copilotExecutionService] Yield vault deposit receipt warning:', err)
+          return null
+        })
+        if (depRec && depRec.status === 'reverted') {
+          throw new Error('Vault deposit reverted on-chain.')
+        }
       } catch (e) {
         console.warn('[copilotExecutionService] Ephemeral private key vault deposit error:', e)
       }
@@ -568,7 +592,13 @@ export async function executeDirectCopilotAction(
           functionName: 'approve',
           args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
         })
-        await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch(() => {})
+        const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err) => {
+          console.warn('[copilotExecutionService] EOA vault approve receipt warning:', err)
+          return null
+        })
+        if (approveRec && approveRec.status === 'reverted') {
+          throw new Error('Token approval reverted on-chain.')
+        }
 
         realTxHash = await walletClient.writeContract({
           address: POOL_CONTRACTS.YIELD_VAULT,
@@ -576,7 +606,13 @@ export async function executeDirectCopilotAction(
           functionName: 'deposit',
           args: [amountUnits, activeWallet as Hex],
         })
-        await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch(() => {})
+        const depRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err) => {
+          console.warn('[copilotExecutionService] EOA vault deposit receipt warning:', err)
+          return null
+        })
+        if (depRec && depRec.status === 'reverted') {
+          throw new Error('Vault deposit reverted on-chain.')
+        }
       } catch (e: any) {
         console.warn('[copilotExecutionService] EOA vault transaction error:', e)
       }
@@ -802,7 +838,7 @@ export async function executeDirectCopilotAction(
       return {
         id: `rcpt_err_${Date.now()}`,
         actionType: 'send',
-        title: 'Geçersiz Alıcı Adresi',
+        title: 'Invalid Recipient Address',
         status: 'FAILED',
         txHash: '',
         fromToken: tokenSymbol,
@@ -810,7 +846,7 @@ export async function executeDirectCopilotAction(
         gasUsdc: 0,
         settlementLatencyMs: Date.now() - startTime,
         timestamp: Date.now(),
-        errorMessage: 'Lütfen geçerli bir EVM cüzdan adresi belirtin (örn: 0x...).',
+        errorMessage: 'Please specify a valid EVM wallet address (e.g. 0x...).',
       }
     }
 
@@ -820,7 +856,7 @@ export async function executeDirectCopilotAction(
       return {
         id: `rcpt_${Date.now()}`,
         actionType: 'send',
-        title: `Gönderim Başarısız: ${amount} ${tokenSymbol}`,
+        title: `Transfer Failed: ${amount} ${tokenSymbol}`,
         status: 'FAILED',
         txHash: '',
         fromToken: tokenSymbol,
@@ -829,7 +865,7 @@ export async function executeDirectCopilotAction(
         gasUsdc: 0,
         settlementLatencyMs: Date.now() - startTime,
         timestamp: Date.now(),
-        errorMessage: limitCheck.reason || 'Oturum harcama limiti aşıldı.',
+        errorMessage: limitCheck.reason || 'Session spending limit exceeded.',
       }
     }
 
@@ -872,7 +908,7 @@ export async function executeDirectCopilotAction(
           paymaster: true,
         })
         if (!userOpRes.success || !userOpRes.txHash) {
-          throw new Error(userOpRes.error || 'Arc Testnet üzerinde transfer onaylanamadı.')
+          throw new Error(userOpRes.error || 'Transfer could not be confirmed on Arc Testnet.')
         }
         realTxHash = userOpRes.txHash
       }

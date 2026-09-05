@@ -189,7 +189,7 @@ export async function connectInjectiveWallet(
   } catch (err: any) {
     console.error('[InjectiveWallet] Connection error:', err)
     let msg = err?.message || 'Injective cüzdanına bağlanılamadı.'
-    if (msg.includes('rejected') || msg.includes('declined') || msg.includes('User rejected')) {
+    if (msg.includes('canceled') || msg.includes('declined') || msg.includes('User canceled')) {
       msg = 'Bağlantı isteği kullanıcı tarafından reddedildi.'
     }
     return { success: false, error: msg }

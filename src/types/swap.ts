@@ -23,6 +23,7 @@ export interface SwapExecuteParams {
   sourceAdapter: any
   recipientAddress?: string
   slippageTolerance?: number
+  speedTier?: 'standard' | 'fast' | 'turbo'
   customFee?: {
     percentageBps: number
     recipientAddress: string
@@ -46,4 +47,5 @@ export interface SwapExecutionStatus {
   sourceTxHash?: string
   destinationTxHash?: string
   errorMessage?: string
+  isCanceled?: boolean
 }

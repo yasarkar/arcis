@@ -1,9 +1,6 @@
-// src/services/memoService.ts
-//
 // Official Arc Testnet Transaction Memo Service.
 // Enables sending USDC on Arc Testnet with on-chain metadata (memos, invoice refs)
 // via the pre-deployed Memo contract (0x5294E9927c3306DcBaDb03fe70b92e01cCede505).
-
 import {
   createPublicClient,
   createWalletClient,
@@ -28,7 +25,11 @@ import {
   ARC_USDC_CONTRACT_ADDRESS,
   type MemoSendResult,
 } from '../config/memoConfig'
-import { getViemGasOptions, type SpeedTier } from '../config/feeTiers'
+import {
+  getDynamicArcGasOptions,
+  ARC_GAS_LIMITS,
+  type SpeedTier,
+} from '../config/feeTiers'
 
 /**
  * Creates a public client connected directly to Arc Testnet HTTP RPC.
@@ -176,16 +177,21 @@ export async function sendUsdcWithMemo(
   console.log(`[Arc Memo Service] Memo ID: ${memoId}`)
   console.log(`[Arc Memo Service] Speed Tier: ${tier}`)
 
-  const gasOptions = getViemGasOptions(tier)
+  // Dynamically resolve Arc L1 gas parameters from RPC (EWMA base fee, 20 Gwei floor, speed tier)
+  const gasOptions = await getDynamicArcGasOptions(publicClient, tier, ARC_GAS_LIMITS.memoTransfer)
+  console.log(
+    `[Arc Memo Service] Dynamic Gas: maxFee=${gasOptions.maxFeePerGas.toString()} wei (source: ${gasOptions.source}), estCost=${gasOptions.estimatedCostUsdc} USDC`
+  )
 
-  // 4. Send transaction to Memo contract
+  // 4. Send transaction to Memo contract with dynamic EIP-1559 gas parameters
   const txHash = await walletClient.writeContract({
     address: MEMO_CONTRACT_ADDRESS,
     abi: MEMO_ABI,
     functionName: 'memo',
     args: [ARC_USDC_CONTRACT_ADDRESS, transferCalldata, memoId, memoBytes],
     account: senderAddress,
-    ...gasOptions,
+    maxFeePerGas: gasOptions.maxFeePerGas,
+    maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
   })
 
   console.log(`[Arc Memo Service] Tx submitted: ${txHash}. Waiting for confirmation...`)
@@ -201,7 +207,14 @@ export async function sendUsdcWithMemo(
     throw new Error(`Memo transaction reverted on Arc Testnet (tx: ${txHash})`)
   }
 
-  console.log(`[Arc Memo Service] Confirmed in block ${receipt.blockNumber}`)
+  // Calculate actual gas fee paid on Arc L1 (18 decimals native USDC accounting)
+  const effectiveGasPrice = receipt.effectiveGasPrice || gasOptions.maxFeePerGas
+  const actualGasCostWei = receipt.gasUsed * effectiveGasPrice
+  const gasFeeUsdc = (Number(actualGasCostWei) / 1e18).toFixed(5)
+
+  console.log(
+    `[Arc Memo Service] Confirmed in block ${receipt.blockNumber} (Gas Used: ${receipt.gasUsed.toString()}, Cost: ${gasFeeUsdc} USDC)`
+  )
 
   // 6. Parse and verify emitted logs
   const parsedLogs = parseEventLogs({
@@ -230,6 +243,7 @@ export async function sendUsdcWithMemo(
     callDataHash: memoArgs?.callDataHash || callDataHash,
     sender: senderAddress,
     target: ARC_USDC_CONTRACT_ADDRESS,
+    gasFeeUsdc,
   }
 }
 

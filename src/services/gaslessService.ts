@@ -164,15 +164,22 @@ export async function sendGaslessUsdcTransfer({
       params: [from, JSON.stringify(typedData)],
     })
   } catch (signErr: any) {
-    // If user rejected the signature
+    // If user canceled the signature
     if (
       signErr.code === 4001 ||
-      signErr.message?.includes('rejected') ||
-      signErr.message?.includes('denied')
+      signErr.code === 'ACTION_REJECTED' ||
+      signErr.name === 'UserRejectedRequestError' ||
+      signErr.message?.includes('canceled') ||
+      signErr.message?.includes('cancelled') ||
+      signErr.message?.includes('denied') ||
+      signErr.message?.includes('rejected')
     ) {
-      throw new Error('İmza isteği kullanıcı tarafından reddedildi.')
+      const cancelErr: any = new Error('Signature request was canceled by user.')
+      cancelErr.isCanceled = true
+      cancelErr.code = 4001
+      throw cancelErr
     }
-    throw new Error(`EIP-712 imzalama başarısız: ${signErr.message || signErr}`)
+    throw new Error(`EIP-712 signature failed: ${signErr.message || signErr}`)
   }
 
   // 2. Parse signature components: v, r, s
@@ -201,7 +208,7 @@ export async function sendGaslessUsdcTransfer({
   const result = await response.json()
 
   if (!response.ok || !result.success) {
-    throw new Error(result.error || 'Relayer işlemi gerçekleştirirken bir hata oluştu.')
+    throw new Error(result.error || 'Relayer execution failed.')
   }
 
   return {
@@ -210,6 +217,6 @@ export async function sendGaslessUsdcTransfer({
     blockNumber: result.blockNumber,
     amount,
     remainingQuota: result.remainingQuota ?? 0,
-    message: result.message || 'Gasless transfer Arc L1 üzerinde onaylandı!',
+    message: result.message || 'Gasless transfer confirmed on Arc L1!',
   }
 }

@@ -151,7 +151,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       })
       return res
     } else {
-      const err = res.error || 'Solana bağlantısı başarısız oldu.'
+      const err = res.error || 'Solana wallet connection failed.'
       setSolana((prev) => ({
         ...prev,
         isConnecting: false,
@@ -192,7 +192,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       })
       return res
     } else {
-      const err = res.error || 'Injective bağlantısı başarısız oldu.'
+      const err = res.error || 'Injective wallet connection failed.'
       setInjective((prev) => ({
         ...prev,
         isConnecting: false,

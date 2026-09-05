@@ -13,9 +13,10 @@ import {
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { POOL_CONTRACTS, STABLE_SWAP_ABI, ERC20_ABI } from '../config/poolsConfig'
 import { sendModularUserOperation, getActiveSmartAccount } from './modularWalletService'
+import { getDynamicArcGasOptions, ARC_GAS_LIMITS } from '../config/feeTiers'
 import type { SwapExecuteParams, SwapQuoteResult, SwapExecutionStatus } from '../types/swap'
 import { SWAP_SUPPORTED_TOKENS } from '../types/swap'
-import { formatCopilotError } from '../utils/errorUtils'
+import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
 
 const kit = new AppKit()
 
@@ -200,8 +201,14 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
         reserveB = arcRoute.isStable ? parseUnits('100000', 6) : parseUnits('1.5', 8)
       }
 
-      const feeUnits = (amountInUnits * arcRoute.feeBps) / 10000n
-      const amountInAfterFee = amountInUnits - feeUnits
+      // 1. Calculate platform protocol fee (customFee) if configured
+      const customFeeBps = params.customFee?.percentageBps ? BigInt(params.customFee.percentageBps) : 0n
+      const customFeeUnits = customFeeBps > 0n ? (amountInUnits * customFeeBps) / 10000n : 0n
+      const netSwapAmountIn = amountInUnits - customFeeUnits
+
+      // 2. Calculate pool LP fee on net amount
+      const feeUnits = (netSwapAmountIn * arcRoute.feeBps) / 10000n
+      const amountInAfterFee = netSwapAmountIn - feeUnits
       let amountOutUnits = 0n
 
       if (arcRoute.isStable) {
@@ -230,16 +237,26 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
       const amountOutNum = parseFloat(estimatedOutput)
       const rate = amountInNum > 0 ? (amountOutNum / amountInNum).toFixed(6) : '0'
 
+      const fees: SwapQuoteResult['fees'] = [
+        {
+          token: params.tokenIn,
+          amount: formatUnits(feeUnits, arcRoute.decIn),
+          type: 'swap',
+        },
+      ]
+
+      if (customFeeUnits > 0n) {
+        fees.push({
+          token: params.tokenIn,
+          amount: formatUnits(customFeeUnits, arcRoute.decIn),
+          type: 'developer',
+        })
+      }
+
       return {
         estimatedOutput,
         stopLimit,
-        fees: [
-          {
-            token: params.tokenIn,
-            amount: formatUnits(feeUnits, arcRoute.decIn),
-            type: 'swap',
-          },
-        ],
+        fees,
         rate,
       }
     } catch (arcErr) {
@@ -384,8 +401,14 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         reserveB = arcRoute.isStable ? parseUnits('100000', 6) : parseUnits('1.5', 8)
       }
 
-      const feeUnits = (amountInUnits * arcRoute.feeBps) / 10000n
-      const amountInAfterFee = amountInUnits - feeUnits
+      // 1. Calculate platform protocol fee (customFee) if configured
+      const customFeeBps = params.customFee?.percentageBps ? BigInt(params.customFee.percentageBps) : 0n
+      const customFeeUnits = customFeeBps > 0n ? (amountInUnits * customFeeBps) / 10000n : 0n
+      const swapAmountInUnits = amountInUnits - customFeeUnits
+
+      // 2. Calculate pool LP fee on net amount
+      const feeUnits = (swapAmountInUnits * arcRoute.feeBps) / 10000n
+      const amountInAfterFee = swapAmountInUnits - feeUnits
       let amountOutUnits = 0n
 
       if (arcRoute.isStable) {
@@ -416,7 +439,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           data: encodeFunctionData({
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [arcRoute.poolAddress, amountInUnits],
+            args: [arcRoute.poolAddress, swapAmountInUnits],
           }),
         }
         const swapCall = {
@@ -424,12 +447,26 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           data: encodeFunctionData({
             abi: STABLE_SWAP_ABI,
             functionName: 'swap',
-            args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, amountInUnits, minOutUnits],
+            args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, swapAmountInUnits, minOutUnits],
           }),
         }
 
+        const calls: Array<{ to: Hex; data: Hex }> = [approveCall, swapCall]
+
+        // Atomically transfer protocol fee to Treasury in the same UserOp
+        if (customFeeUnits > 0n && params.customFee?.recipientAddress) {
+          calls.push({
+            to: arcRoute.tokenInAddr as Hex,
+            data: encodeFunctionData({
+              abi: ERC20_ABI,
+              functionName: 'transfer',
+              args: [params.customFee.recipientAddress as Address, customFeeUnits],
+            }),
+          })
+        }
+
         const userOpRes = await sendModularUserOperation({
-          calls: [approveCall, swapCall],
+          calls,
           paymaster: true,
         })
 
@@ -474,27 +511,60 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           args: [account, arcRoute.poolAddress],
         })
 
-        if (currentAllowance < amountInUnits) {
+        // Dynamically resolve Arc L1 gas parameters enforcing 20 Gwei floor & EWMA base fee
+        const gasOptions = await getDynamicArcGasOptions(
+          arcPublicClient,
+          params.speedTier || 'fast',
+          ARC_GAS_LIMITS.contractInteraction
+        )
+
+        if (currentAllowance < swapAmountInUnits) {
           const approveTx = await walletClient.writeContract({
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [arcRoute.poolAddress, amountInUnits],
+            args: [arcRoute.poolAddress, swapAmountInUnits],
             chain: arcTestnet,
             account,
+            maxFeePerGas: gasOptions.maxFeePerGas,
+            maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
           })
           await arcPublicClient.waitForTransactionReceipt({ hash: approveTx })
         }
 
+        // Execute pool swap with net input
         const swapTx = await walletClient.writeContract({
           address: arcRoute.poolAddress,
           abi: STABLE_SWAP_ABI,
           functionName: 'swap',
-          args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, amountInUnits, minOutUnits],
+          args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, swapAmountInUnits, minOutUnits],
           chain: arcTestnet,
           account,
+          maxFeePerGas: gasOptions.maxFeePerGas,
+          maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
         })
         await arcPublicClient.waitForTransactionReceipt({ hash: swapTx })
+
+        // Collect custom platform protocol fee to Treasury if enabled
+        if (customFeeUnits > 0n && params.customFee?.recipientAddress) {
+          try {
+            const feeTx = await walletClient.writeContract({
+              address: arcRoute.tokenInAddr,
+              abi: ERC20_ABI,
+              functionName: 'transfer',
+              args: [params.customFee.recipientAddress as Address, customFeeUnits],
+              chain: arcTestnet,
+              account,
+              maxFeePerGas: gasOptions.maxFeePerGas,
+              maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
+            })
+            arcPublicClient.waitForTransactionReceipt({ hash: feeTx }).catch((err) => {
+              console.warn('[swapService] Platform fee receipt error on EOA:', err)
+            })
+          } catch (feeErr) {
+            console.warn('[swapService] Platform fee transfer skipped/canceled on EOA:', feeErr)
+          }
+        }
 
         return {
           status: 'DONE',
@@ -593,7 +663,8 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     const clean = formatCopilotError(err)
     return {
       status: 'FAILED',
-      errorMessage: clean.message
+      errorMessage: clean.message,
+      isCanceled: clean.isCanceled || isUserCanceled(err),
     }
   }
 }

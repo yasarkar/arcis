@@ -31,6 +31,7 @@ export function useAutoSwitchArcChain() {
       try {
         await switchChainAsync({ chainId: ARC_TESTNET_CHAIN_ID })
         addBroadcast({
+          type: 'system',
           status: 'success',
           title: 'Arc Testnet Switched',
           message: 'Your wallet has been successfully switched to the Arc Testnet network.',
@@ -50,6 +51,7 @@ export function useAutoSwitchArcChain() {
               params: [ARC_TESTNET_ADD_ETHEREUM_CHAIN_PARAMS],
             })
             addBroadcast({
+              type: 'system',
               status: 'success',
               title: 'Arc Testnet Added to Wallet',
               message: 'Arc Testnet network has been added to your wallet and selected as the active network.',
@@ -59,9 +61,9 @@ export function useAutoSwitchArcChain() {
           }
         }
 
-        // 4001 means user rejected the prompt
-        if (errCode === 4001 || errMsg.includes('rejected') || errMsg.includes('User rejected')) {
-          return { success: false, error: 'The network switch request was rejected in the wallet.' }
+        // 4001 means user canceled the prompt
+        if (errCode === 4001 || errMsg.includes('canceled') || errMsg.includes('User canceled')) {
+          return { success: false, error: 'The network switch request was canceled in the wallet.' }
         }
 
         throw switchErr

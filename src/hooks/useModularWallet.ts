@@ -13,7 +13,7 @@ import {
   sendModularUserOperation,
   type UserOpCall,
 } from '../services/modularWalletService'
-import { checkPasskeySupport } from '../utils/passkeyErrorUtils'
+import { checkPasskeySupport, parsePasskeyError } from '../utils/passkeyErrorUtils'
 
 export interface ModularWalletState {
   isPasskeyConnected: boolean
@@ -75,13 +75,15 @@ export function useModularWallet(): ModularWalletState {
         setIsLoading(false)
         return { success: true, address: res.smartAccountAddress }
       } else {
-        const err = res.error || 'Passkey kaydı başarısız oldu.'
+        const parsed = parsePasskeyError(res.error)
+        const err = parsed.message || res.error || 'Passkey registration failed.'
         setError(err)
         setIsLoading(false)
         return { success: false, error: err }
       }
     } catch (err: any) {
-      const errMsg = err.message || 'Passkey kaydı sırasında beklenmeyen bir hata oluştu.'
+      const parsed = parsePasskeyError(err)
+      const errMsg = parsed.message || err.message || 'An unexpected error occurred during Passkey registration.'
       setError(errMsg)
       setIsLoading(false)
       return { success: false, error: errMsg }
@@ -100,13 +102,15 @@ export function useModularWallet(): ModularWalletState {
         setIsLoading(false)
         return { success: true, address: res.smartAccountAddress }
       } else {
-        const err = res.error || 'Passkey girişi başarısız oldu.'
+        const parsed = parsePasskeyError(res.error)
+        const err = parsed.message || res.error || 'Passkey authentication failed.'
         setError(err)
         setIsLoading(false)
         return { success: false, error: err }
       }
     } catch (err: any) {
-      const errMsg = err.message || 'Passkey girişi sırasında hata oluştu.'
+      const parsed = parsePasskeyError(err)
+      const errMsg = parsed.message || err.message || 'An unexpected error occurred during Passkey login.'
       setError(errMsg)
       setIsLoading(false)
       return { success: false, error: errMsg }
@@ -131,11 +135,14 @@ export function useModularWallet(): ModularWalletState {
       if (res.success) {
         return { success: true, txHash: res.txHash }
       } else {
-        setError(res.error || 'İşlem yürütülemedi.')
-        return { success: false, error: res.error }
+        const parsed = parsePasskeyError(res.error)
+        const err = parsed.message || res.error || 'UserOperation execution failed.'
+        setError(err)
+        return { success: false, error: err }
       }
     } catch (err: any) {
-      const errMsg = err.message || 'İşlem gönderilirken hata oluştu.'
+      const parsed = parsePasskeyError(err)
+      const errMsg = parsed.message || err.message || 'Transaction submission error.'
       setError(errMsg)
       setIsLoading(false)
       return { success: false, error: errMsg }

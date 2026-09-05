@@ -42,3 +42,21 @@ export function getDisplayTokenSymbol(chain: string, token: string): string {
   }
   return token
 }
+
+/**
+ * Formats a numeric fee value to at most `maxDecimals` (default 6) meaningful digits,
+ * stripping floating-point inaccuracies (e.g. 0.15421200000000002 -> 0.154212).
+ */
+export function formatFeeDecimals(val: number | string | null | undefined, maxDecimals = 6): string {
+  if (val === null || val === undefined || val === '') return '0.00'
+  const num = typeof val === 'number' ? val : parseFloat(val)
+  if (isNaN(num)) return '0.00'
+  if (num === 0) return '0.00'
+
+  // Eliminate IEEE-754 precision artifacts by rounding to maxDecimals
+  const fixed = Number(num.toFixed(maxDecimals))
+  const parts = fixed.toString().split('.')
+  if (parts.length === 1) return `${parts[0]}.00`
+  if (parts[1].length === 1) return `${parts[0]}.${parts[1]}0`
+  return fixed.toString()
+}
