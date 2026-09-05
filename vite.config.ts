@@ -13,6 +13,9 @@ function apiPlugin(): Plugin {
           try {
             const currentEnv = loadEnv(server.config.mode || 'development', process.cwd(), '')
             Object.assign(process.env, currentEnv)
+            if (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) {
+              Object.assign((globalThis as any).process.env, currentEnv)
+            }
             if (!process.env.CIRCLE_API_KEY && currentEnv.CIRCLE_API_KEY) {
               process.env.CIRCLE_API_KEY = currentEnv.CIRCLE_API_KEY
             }
@@ -92,7 +95,17 @@ function apiPlugin(): Plugin {
             console.error('Vite API Plugin Error:', err)
             res.statusCode = 500
             res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ success: false, error: err.message || 'Internal server error' }))
+            res.end(JSON.stringify({
+              success: false,
+              error: err.message || 'Internal server error',
+              code: 'INTERNAL_SERVER_ERROR',
+              errorDetails: {
+                code: 'INTERNAL_SERVER_ERROR',
+                message: err.message || 'Internal server error',
+                details: null,
+              },
+              timestamp: Date.now(),
+            }))
             return
           }
         }
