@@ -218,6 +218,32 @@ export function isSolanaChain(chainKey?: string): boolean {
   return chainKey.toLowerCase().includes('solana')
 }
 
+// ── Check if a string is a recognized blockchain network ───────────────────
+export function isKnownChain(chainKey?: string): boolean {
+  if (!chainKey) return false
+  const trimmed = chainKey.trim()
+  // Reject Ethereum addresses, hashes, or common token symbols
+  if (trimmed.startsWith('0x') || trimmed.length > 35) return false
+  if (['usdc', 'eurc', 'cirbtc', 'usdt', 'btc', 'eth', 'sol'].includes(trimmed.toLowerCase())) return false
+  
+  if (CHAIN_META[trimmed]) return true
+  const lower = trimmed.toLowerCase()
+  if (CHAIN_META[lower]) return true
+
+  const clean = lower.replace(/[\s_-]+/g, '')
+  for (const [k, v] of Object.entries(CHAIN_META)) {
+    if (clean === k.toLowerCase().replace(/[\s_-]+/g, '')) return true
+    if (v.name && clean === v.name.toLowerCase().replace(/[\s_-]+/g, '')) return true
+  }
+
+  const knownKeywords = [
+    'arc', 'arbitrum', 'base', 'optimism', 'polygon', 'amoy', 'avalanche',
+    'fuji', 'hyper', 'sei', 'solana', 'sonic', 'unichain', 'world',
+    'injective', 'ink', 'linea', 'monad', 'plume', 'xdc', 'apothem', 'sepolia'
+  ]
+  return knownKeywords.some(kw => clean.includes(kw))
+}
+
 // ── Canonical Chain Key Resolver (SDK Bridge & Gateway) ────────────────────
 export function resolveCanonicalChainKey(chainNameOrKey?: string): string {
   if (!chainNameOrKey) return 'Arc_Testnet'

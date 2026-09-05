@@ -139,7 +139,9 @@ export function calculateArcGasCostUsdc(
 }
 
 /**
- * Returns Viem transaction options (maxFeePerGas & maxPriorityFeePerGas) for a tier.
+ * Returns static Viem transaction options (maxFeePerGas & maxPriorityFeePerGas) for a tier.
+ * For dynamic RPC-queried fees with Arc EWMA smoothing & floor enforcement,
+ * prefer `getDynamicArcGasOptions` from '../services/arcGasService'.
  */
 export function getViemGasOptions(tier: SpeedTier = 'fast') {
   const config = SPEED_TIERS[tier]
@@ -148,3 +150,15 @@ export function getViemGasOptions(tier: SpeedTier = 'fast') {
     maxPriorityFeePerGas: config.arcGas.maxPriorityFeePerGas,
   }
 }
+
+// Re-export dynamic Arc L1 gas services for convenient access
+export {
+  ARC_MIN_BASE_FEE_FLOOR,
+  ARC_MAX_BASE_FEE_CEILING,
+  ARC_GAS_LIMITS,
+  extractBaseFeeFromHeaderExtraData,
+  getDynamicArcGasOptions,
+  calculateArcGasCostFromFee,
+  type DynamicArcGasResult,
+} from '../services/arcGasService'
+

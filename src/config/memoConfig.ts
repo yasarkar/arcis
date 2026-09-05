@@ -52,6 +52,7 @@ export interface MemoSendResult {
   callDataHash?: `0x${string}`
   sender: `0x${string}`
   target: `0x${string}`
+  gasFeeUsdc?: string
 }
 
 export interface MemoPreset {
