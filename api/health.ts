@@ -1,9 +1,10 @@
 // api/health.ts
 // Arcis Protocol Healthcheck & System Status Endpoint
 
-import { createPublicClient, http, formatUnits, type Hex } from 'viem'
+import { formatUnits, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { arcActiveChain, ARC_TOKENS, ARC_METADATA, APP_ENV, IS_TESTNET } from '../src/config/arcChain'
+import { arcActiveChain, ARC_TOKENS, APP_ENV, IS_TESTNET, ARC_METADATA } from '../src/config/arcChain'
+import { getArcPublicClient, resilientReadContract, ACTIVE_ARC_RPCS } from '../src/services/rpc'
 import { isRedisConnected, getRedisInstance } from './rateLimiter'
 
 const USDC_ADDRESS = ARC_TOKENS.USDC
@@ -29,10 +30,7 @@ export async function GET(req: Request) {
     error: undefined as string | undefined,
   }
 
-  const publicClient = createPublicClient({
-    chain: arcActiveChain,
-    transport: http(ARC_METADATA.rpcHttpUrl, { timeout: 5000 }),
-  })
+  const publicClient = getArcPublicClient()
 
   try {
     const rpcStart = Date.now()
@@ -77,7 +75,7 @@ export async function GET(req: Request) {
 
       if (rpcStatus.connected) {
         try {
-          const bal = await publicClient.readContract({
+          const bal = await resilientReadContract(publicClient, {
             address: USDC_ADDRESS,
             abi: BALANCE_ABI,
             functionName: 'balanceOf',

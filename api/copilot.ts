@@ -69,7 +69,7 @@ Arcis features:
 - Real-Yield Vault (af-USDC): 8.42% APY compound real yield
 - Circle Gateway: Instant cross-chain unified balance across Ethereum, Base, Arbitrum, Solana, Polygon
 - Enterprise Send: Multicall3From batch payments with preserved msg.sender identity
-- Live Real-Time Market Prices: 1 EURC ≈ $${livePrices.EURC || 1.08} USDC, 1 WETH ≈ $${livePrices.WETH || 2650} USDC, 1 WBTC ≈ $${livePrices.WBTC || 63000} USDC
+- Live Real-Time Market Prices: 1 EURC ≈ ${livePrices.EURC || 1.08} USDC, 1 WETH ≈ ${livePrices.WETH || 2650} USDC, 1 WBTC ≈ ${livePrices.WBTC || 63000} USDC
 
 ${portfolioText}
 
@@ -279,7 +279,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
           },
         }
         if (!outputMessage) {
-          outputMessage = `I have prepared your Real-Yield Vault allocation:\n\n🏦 <strong>Vault Deposit Overview:</strong>\n• <strong>Deposit Amount:</strong> ${amount} USDC\n• <strong>Annual Yield (APY):</strong> 8.42% (Compound Real Yield)\n• <strong>Est. 1-Year Gain:</strong> +$${yearlyReturn} USDC\n• <strong>Lockup:</strong> None (Withdraw anytime)\n\nClick below to lock in your vault deposit.`
+          outputMessage = `I have prepared your Real-Yield Vault allocation:\n\n🏦 <strong>Vault Deposit Overview:</strong>\n• <strong>Deposit Amount:</strong> ${amount} USDC\n• <strong>Annual Yield (APY):</strong> 8.42% (Compound Real Yield)\n• <strong>Est. 1-Year Gain:</strong> +${yearlyReturn} USDC\n• <strong>Lockup:</strong> None (Withdraw anytime)\n\nClick below to lock in your vault deposit.`
         }
       } else if (funcName === 'execute_bridge') {
         const fromChain = args.fromChain || 'Ethereum Sepolia'
@@ -350,11 +350,11 @@ function formatPortfolioForPrompt(port: any): string {
   const totalUsdc = Number(port.totalNetWorthUsdc || 0)
 
   return `USER LIVE PORTFOLIO SNAPSHOT (Real-Time Chain State):
-- Liquid Arc Testnet USDC: $${arcUsdc.toFixed(2)} USDC (Available for gas & swaps)
+- Liquid Arc Testnet USDC: ${arcUsdc.toFixed(2)} USDC (Available for gas & swaps)
 - Liquid Arc Testnet EURC: ${arcEurc.toFixed(2)} EURC
 - Liquid Arc Testnet WETH: ${arcWeth.toFixed(4)} WETH
 - Liquid Arc Testnet WBTC: ${arcWbtc.toFixed(6)} WBTC
-- Staked in Real-Yield Vault (af-USDC @ 8.42% APY): $${vaultUsdc.toFixed(2)} USDC
-- Cross-Chain USDC on Circle Gateway: $${gatewayUsdc.toFixed(2)} USDC
-- Total Net Worth Across Ecosystem: $${totalUsdc.toFixed(2)} USD`
+- Staked in Real-Yield Vault (af-USDC @ 8.42% APY): ${vaultUsdc.toFixed(2)} USDC
+- Cross-Chain USDC on Circle Gateway: ${gatewayUsdc.toFixed(2)} USDC
+- Total Net Worth Across Ecosystem: ${totalUsdc.toFixed(2)} USD`
 }

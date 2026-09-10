@@ -1,14 +1,15 @@
 import {
-  createPublicClient,
   createWalletClient,
   http,
+  fallback,
   isAddress,
   formatUnits,
   parseUnits,
   type Hex,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { arcTestnet, ARC_TOKENS, ARC_METADATA } from '../src/config/arcChain'
+import { arcTestnet, ARC_TOKENS } from '../src/config/arcChain'
+import { getArcPublicClient, resilientWaitForReceipt, ACTIVE_ARC_RPCS } from '../src/services/rpc'
 import { DEFAULT_GASLESS_DAILY_LIMIT } from '../src/services/gaslessService'
 import {
   getGaslessDailyQuota,
@@ -102,10 +103,7 @@ function getRelayerAccount() {
 }
 
 function getPublicClient() {
-  return createPublicClient({
-    chain: arcTestnet,
-    transport: http(ARC_METADATA.rpcHttpUrl, { retryCount: 3, timeout: 15000 }),
-  })
+  return getArcPublicClient()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -214,15 +212,16 @@ export async function POST(req: Request) {
       )
     }
 
-    // 3. Set up Viem Clients for Arc Testnet
-    const rpcUrl = ARC_METADATA.rpcHttpUrl
+    // 3. Set up Viem Clients for Arc Testnet (Multi-RPC Fallback)
     const publicClient = getPublicClient()
     const relayerAccount = getRelayerAccount()
 
     const walletClient = createWalletClient({
       account: relayerAccount,
       chain: arcTestnet,
-      transport: http(rpcUrl, { retryCount: 3, timeout: 15000 }),
+      transport: fallback(
+        ACTIVE_ARC_RPCS.map((u) => http(u, { retryCount: 3, timeout: 15000 }))
+      ),
     })
 
     const transferValue = BigInt(value.toString())
@@ -311,11 +310,12 @@ export async function POST(req: Request) {
 
       const hash = await walletClient.writeContract(request)
 
-      // Wait for sub-second confirmation on Arc Testnet
-      const rec = await publicClient.waitForTransactionReceipt({
-        hash,
-        timeout: 20000,
-      })
+      // Wait for sub-second confirmation on Arc Testnet with resilient receipt check
+      const recResult = await resilientWaitForReceipt(publicClient, hash, 'Relayer Transfer', 25000)
+      const rec = recResult.receipt || {
+        blockNumber: recResult.blockNumber || 0n,
+        status: recResult.status === 'reverted' ? 'reverted' : 'success',
+      }
 
       return { receipt: rec, txHash: hash }
     })
