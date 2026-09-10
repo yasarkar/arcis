@@ -52,9 +52,28 @@ contract SessionKeyModule {
     error SessionKeyNotFound();
     error ZeroAddress();
     error InvalidParameters();
+    error InvalidSignature();
 
     modifier onlyOwner() { if (msg.sender != owner) revert NotOwner(); _; }
     modifier onlyMSCA() { if (msg.sender != msca) revert NotMSCA(); _; }
+
+    /// @dev Recovers the signing address from a 65-byte (r || s || v) secp256k1 signature.
+    ///      v is normalized to ecrecover's expected [27, 28] range, accepting both the modern
+    ///      0/1 convention and the legacy EIP-155 27/28 convention (M-3).
+    function _recoverSessionKey(bytes32 userOpHash, bytes calldata signature)
+        internal pure returns (address)
+    {
+        if (signature.length < 65) return address(0);
+
+        bytes32 r; bytes32 s; uint8 v;
+        assembly {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 0x20))
+            v := byte(0, calldataload(add(signature.offset, 0x40)))
+        }
+        uint8 vNorm = v >= 27 ? v : uint8(27 + v); // 0->27, 1->28, 27->27, 28->28
+        return ecrecover(userOpHash, vNorm, r, s);
+    }
 
     constructor(address _msca, address _owner) {
         if (_msca == address(0) || _owner == address(0)) revert ZeroAddress();
@@ -119,6 +138,31 @@ contract SessionKeyModule {
     function executeFromSessionKey(
         address sessionKey, address target, uint256 value, bytes calldata data
     ) external onlyMSCA returns (bytes memory) {
+        return _execute(sessionKey, target, value, data);
+    }
+
+    /// @notice Signed execution path — same budget checks as executeFromSessionKey but ALSO
+    ///         requires a secp256k1 signature from the session key over the exact op payload
+    ///         (userOpHash = keccak256(pack(target, value, data))). This closes the M-2/M-4 gap
+    ///         where high-value or non-standard calldata (arbitrary token movers) were only an
+    ///         MSCA-trust decision: this path binds the operation to session-key consent.
+    function executeFromSessionKeySigned(
+        address sessionKey, address target, uint256 value, bytes calldata data, bytes calldata signature
+    ) external onlyMSCA returns (bytes memory) {
+        bytes32 userOpHash = keccak256(abi.encodePacked(target, value, data));
+        address recovered = _recoverSessionKey(userOpHash, signature);
+        if (recovered != sessionKey || recovered == address(0)) revert InvalidSignature();
+        return _execute(sessionKey, target, value, data);
+    }
+
+    /// @dev Core execution + spend-accounting engine. Shared by the trusted (MSCA) and the
+    ///      signed (M-4) paths. NOTE (M-2): native `value` and the well-known ERC-20 selectors
+    ///      (transfer / approve / transferFrom) are counted toward the budget; arbitrary custom
+    ///      calldata that moves value outside those selectors is NOT auto-counted. Such calls
+    ///      MUST go through executeFromSessionKeySigned so the session key explicitly consents.
+    function _execute(
+        address sessionKey, address target, uint256 value, bytes calldata data
+    ) internal returns (bytes memory) {
         SessionKeyData storage sk = sessionKeys[sessionKey];
         if (!sk.active) revert SessionKeyNotActive();
         if (block.timestamp > sk.validUntil) revert SessionKeyExpired();
@@ -170,13 +214,7 @@ contract SessionKeyModule {
         SessionKeyData storage sk = sessionKeys[sessionKey];
         if (!sk.active || block.timestamp > sk.validUntil) return 1;
 
-        bytes32 r; bytes32 s; uint8 v;
-        assembly {
-            r := calldataload(signature.offset)
-            s := calldataload(add(signature.offset, 0x20))
-            v := byte(0, calldataload(add(signature.offset, 0x40)))
-        }
-        address recovered = ecrecover(userOpHash, v, r, s);
+        address recovered = _recoverSessionKey(userOpHash, signature);
         return recovered == sessionKey ? 0 : 1;
     }
 }

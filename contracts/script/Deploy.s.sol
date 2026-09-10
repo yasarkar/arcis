@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {StableSwapPool} from "../src/StableSwapPool.sol";
 import {ConstantProductPool} from "../src/ConstantProductPool.sol";
 import {YieldVault} from "../src/YieldVault.sol";
@@ -20,7 +19,6 @@ contract Deploy is Script {
         address usdc = vm.envOr("USDC_ADDRESS", address(0x3600000000000000000000000000000000000000));
         address eurc = vm.envOr("EURC_ADDRESS", address(0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a));
         address cirbtc = vm.envOr("CIRBTC_ADDRESS", address(0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF));
-        bool isTestnet = vm.envOr("IS_TESTNET", true);
 
         vm.startBroadcast(deployerKey);
 
@@ -35,17 +33,7 @@ contract Deploy is Script {
         console2.log("ConstantProductPool (USDC/cirBTC):", address(cpPool));
         console2.log("YieldVault (af-USDC):", address(yieldVault));
 
-        // 2) Optional Testnet Mock Token
-        if (isTestnet) {
-            MockERC20 tcirbtc = new MockERC20("Test cirBTC", "tcirBTC", 8);
-            ConstantProductPool cpPoolTc = new ConstantProductPool(usdc, address(tcirbtc), 25);
-            tcirbtc.mint(deployer, 10 * 10**8); // 10 tcirBTC for initial liquidity
-
-            console2.log("tcirBTC (Faucet Token):", address(tcirbtc));
-            console2.log("ConstantProductPool (USDC/tcirBTC):", address(cpPoolTc));
-        }
-
-        // 3) SessionKeyModule (if MSCA_ADDRESS is provided)
+        // 2) SessionKeyModule (if MSCA_ADDRESS is provided)
         address mscaAddress = vm.envOr("MSCA_ADDRESS", address(0));
         if (mscaAddress != address(0)) {
             SessionKeyModule skModule = new SessionKeyModule(mscaAddress, deployer);
