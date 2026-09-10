@@ -187,8 +187,8 @@ describe('Arrays', function () {
           const array = Array.from({ length: 10 }, randomOf(name));
 
           describe(fn, function () {
-            const fragment = `$${fn}(${name}[] arr, uint256 start)`;
-            const rangeFragment = `$${fn}(${name}[] arr, uint256 start, uint256 end)`;
+            const fragment = `${fn}(${name}[] arr, uint256 start)`;
+            const rangeFragment = `${fn}(${name}[] arr, uint256 start, uint256 end)`;
 
             it(`${fn} from start to end`, async function () {
               const start = 2;

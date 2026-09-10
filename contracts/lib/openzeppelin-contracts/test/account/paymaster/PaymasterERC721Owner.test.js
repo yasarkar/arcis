@@ -29,7 +29,7 @@ for (const [name, opts] of Object.entries({
     await account.deploy();
 
     // ERC-4337 paymaster
-    const paymaster = await ethers.deployContract(`$${name}Mock`, [token, admin]);
+    const paymaster = await ethers.deployContract(`${name}Mock`, [token, admin]);
 
     // Domains
     const entrypointDomain = await getDomain(ethers.predeploy.entrypoint.v09);

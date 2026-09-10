@@ -71,7 +71,7 @@ describe('SignatureChecker (ERC1271)', function () {
       describe(fn, function () {
         it('with matching signer and signature', async function () {
           await expect(
-            this.mock.getFunction(`$${fn}`)(
+            this.mock.getFunction(`${fn}`)(
               ethers.Typed.address(this.wallet.target),
               TEST_MESSAGE_HASH,
               this.signature,
@@ -81,13 +81,13 @@ describe('SignatureChecker (ERC1271)', function () {
 
         it('with invalid signer', async function () {
           await expect(
-            this.mock.getFunction(`$${fn}`)(ethers.Typed.address(this.mock.target), TEST_MESSAGE_HASH, this.signature),
+            this.mock.getFunction(`${fn}`)(ethers.Typed.address(this.mock.target), TEST_MESSAGE_HASH, this.signature),
           ).to.eventually.be.false;
         });
 
         it('with identity precompile', async function () {
           await expect(
-            this.mock.getFunction(`$${fn}`)(
+            this.mock.getFunction(`${fn}`)(
               ethers.Typed.address(precompile.identity),
               TEST_MESSAGE_HASH,
               this.signature,
@@ -97,7 +97,7 @@ describe('SignatureChecker (ERC1271)', function () {
 
         it('with invalid signature', async function () {
           await expect(
-            this.mock.getFunction(`$${fn}`)(
+            this.mock.getFunction(`${fn}`)(
               ethers.Typed.address(this.wallet.target),
               WRONG_MESSAGE_HASH,
               this.signature,
@@ -107,7 +107,7 @@ describe('SignatureChecker (ERC1271)', function () {
 
         it('with malicious wallet', async function () {
           await expect(
-            this.mock.getFunction(`$${fn}`)(
+            this.mock.getFunction(`${fn}`)(
               ethers.Typed.address(this.malicious.target),
               TEST_MESSAGE_HASH,
               this.signature,

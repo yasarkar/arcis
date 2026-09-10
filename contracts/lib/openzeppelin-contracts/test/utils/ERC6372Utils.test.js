@@ -31,7 +31,7 @@ describe('ERC6372Utils', function () {
   for (const mode of ['timestamp', 'blockNumber']) {
     describe(mode, function () {
       it('clock mode from matching instance: success', async function () {
-        await expect(this.mock[`$${mode}ClockMode(address)`](this.instances[mode])).to.eventually.equal(
+        await expect(this.mock[`${mode}ClockMode(address)`](this.instances[mode])).to.eventually.equal(
           CLOCK_MODE[mode],
         );
       });
@@ -39,7 +39,7 @@ describe('ERC6372Utils', function () {
       it('clock mode from mismatching instance: revert', async function () {
         for (const [key, instance] of Object.entries(this.instances)) {
           if (key == mode) continue;
-          await expect(this.mock[`$${mode}ClockMode(address)`](instance)).to.be.revertedWithCustomError(
+          await expect(this.mock[`${mode}ClockMode(address)`](instance)).to.be.revertedWithCustomError(
             this.mock,
             'ERC6372InconsistentClock',
           );
@@ -48,12 +48,12 @@ describe('ERC6372Utils', function () {
 
       it('clock mode from uint48', async function () {
         const clock = await time.clock[mode]();
-        await expect(this.mock[`$${mode}ClockMode(uint48)`](clock)).to.eventually.equal(CLOCK_MODE[mode]);
-        await expect(this.mock[`$${mode}ClockMode(uint48)`](clock - 1n)).to.be.revertedWithCustomError(
+        await expect(this.mock[`${mode}ClockMode(uint48)`](clock)).to.eventually.equal(CLOCK_MODE[mode]);
+        await expect(this.mock[`${mode}ClockMode(uint48)`](clock - 1n)).to.be.revertedWithCustomError(
           this.mock,
           'ERC6372InconsistentClock',
         );
-        await expect(this.mock[`$${mode}ClockMode(uint48)`](clock + 1n)).to.be.revertedWithCustomError(
+        await expect(this.mock[`${mode}ClockMode(uint48)`](clock + 1n)).to.be.revertedWithCustomError(
           this.mock,
           'ERC6372InconsistentClock',
         );

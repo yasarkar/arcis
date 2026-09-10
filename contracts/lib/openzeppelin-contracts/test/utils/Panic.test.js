@@ -30,7 +30,7 @@ describe('Panic', function () {
   })) {
     describe(`${name} (${ethers.toBeHex(code)})`, function () {
       it('exposes panic code as constant', async function () {
-        expect(await this.mock.getFunction(`$${name}`)()).to.equal(code);
+        expect(await this.mock.getFunction(`${name}`)()).to.equal(code);
       });
 
       it('reverts with panic when called', async function () {

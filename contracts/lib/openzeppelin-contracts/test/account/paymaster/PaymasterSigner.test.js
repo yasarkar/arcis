@@ -33,7 +33,7 @@ for (const [name, opts] of Object.entries({
     await account.deploy();
 
     // ERC-4337 paymaster
-    const paymaster = await ethers.deployContract(`$${name}Mock`, [
+    const paymaster = await ethers.deployContract(`${name}Mock`, [
       'MyPaymasterECDSASigner',
       '1',
       paymasterSigner,
