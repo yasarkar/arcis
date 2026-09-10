@@ -49,6 +49,11 @@ function apiPlugin(): Plugin {
             } else if (pathname === '/api/faucet') {
               const mod = await server.ssrLoadModule('/api/faucet.ts')
               handler = mod.POST
+            } else if (pathname === '/api/rebalance' || pathname === '/api/gateway/rebalance') {
+              const mod = await server.ssrLoadModule('/api/rebalance.ts')
+              if (req.method === 'GET') handler = mod.GET
+              else if (req.method === 'POST') handler = mod.POST
+              else if (req.method === 'DELETE') handler = mod.DELETE
             } else if (pathname === '/api/cache') {
               const mod = await server.ssrLoadModule('/api/cache.ts')
               if (req.method === 'GET') handler = mod.GET

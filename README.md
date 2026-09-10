@@ -81,7 +81,6 @@ flowchart TB
         subgraph AMMLayer["Automated Market Makers (AMM)"]
             StablePool["StableSwapPool (USDC / EURC)<br/>x + y = k (0.12% Fee)"]
             CPPool["ConstantProductPool (USDC / cirBTC)<br/>x * y = k (0.25% Fee)"]
-            FaucetPool["Test Pool (USDC / tcirBTC)<br/>Mintable Faucet Integration"]
         end
 
         subgraph VaultLayer["Yield & Treasury"]
@@ -127,10 +126,8 @@ All contracts are compiled with Solidity `0.8.24` via Foundry and deployed to **
 | **Native USDC** | Gas Token & ERC-20 | `0x3600000000000000000000000000000000000000` | [ArcScan](https://testnet.arcscan.app/address/0x3600000000000000000000000000000000000000) |
 | **EURC** | Circle Euro Coin (ERC-20) | `0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a` | [ArcScan](https://testnet.arcscan.app/address/0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a) |
 | **cirBTC** | Circle Wrapped Bitcoin | `0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF` | [ArcScan](https://testnet.arcscan.app/address/0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF) |
-| **tcirBTC** | Mintable Test cirBTC (Faucet) | `0x6a32d40a9f9aca0c2b244c53d7c35c0dffbbb8d2` | [ArcScan](https://testnet.arcscan.app/address/0x6a32d40a9f9aca0c2b244c53d7c35c0dffbbb8d2) |
 | **StableSwapPool** | Constant-Sum AMM ($x+y=k$) | `0x6d8fda7557d1c0a945a955557e10a4e70a129d20` | [ArcScan](https://testnet.arcscan.app/address/0x6d8fda7557d1c0a945a955557e10a4e70a129d20) |
 | **ConstantProductPool** | Real cirBTC AMM ($x \cdot y=k$) | `0x179c9d7f75b0aee8ffe9451fec060b9639220fe6` | [ArcScan](https://testnet.arcscan.app/address/0x179c9d7f75b0aee8ffe9451fec060b9639220fe6) |
-| **ConstantProductPool (Test)** | tcirBTC Test AMM | `0x24f09544f554b26c44cf309cfafe448a1a9d3c1f` | [ArcScan](https://testnet.arcscan.app/address/0x24f09544f554b26c44cf309cfafe448a1a9d3c1f) |
 | **YieldVault** | ERC-4626 Real-Yield Vault | `0x4a4f0c1dd34c5433a228cbc3a499fabf18e3156d` | [ArcScan](https://testnet.arcscan.app/address/0x4a4f0c1dd34c5433a228cbc3a499fabf18e3156d) |
 | **Memo Contract** | On-Chain Metadata Router | `0x5294E9927c3306DcBaDb03fe70b92e01cCede505` | [ArcScan](https://testnet.arcscan.app/address/0x5294E9927c3306DcBaDb03fe70b92e01cCede505) |
 | **Protocol Treasury** | Revenue Distribution Hub | `0x4a4f0c1dd34c5433a228cbc3a499fabf18e3156d` | [ArcScan](https://testnet.arcscan.app/address/0x4a4f0c1dd34c5433a228cbc3a499fabf18e3156d) |
@@ -148,7 +145,7 @@ where $\phi = 0.0012$ (12 bps).
 $$\text{Shares}_{\text{minted}} = \frac{(\Delta A + \Delta B) \cdot \text{TotalLP}}{R_A + R_B}$$
 
 ### 2. Constant-Product AMM ($x \cdot y = k$)
-For volatile pairs (USDC/cirBTC and USDC/tcirBTC), Arcis maintains an invariant product curve:
+For volatile pairs (USDC/cirBTC), Arcis maintains an invariant product curve:
 $$(x + \Delta x \cdot (1 - \phi)) \cdot (y - \Delta y) = k$$
 where $\phi = 0.0025$ (25 bps). The output amount received is:
 $$\Delta y = \frac{y \cdot \Delta x \cdot (1 - \phi)}{x + \Delta x \cdot (1 - \phi)}$$
@@ -169,7 +166,7 @@ This immediately appreciates the redemption value of every minted `af-USDC` shar
 Arcis Pools & Vaults Hub
 ├── 💱 Liquidity Pools (AMM)
 │   ├── USDC–EURC Stable Pool        → 6.15% FX APR | Zero IL | 1-Click Zap
-│   └── USDC–tcirBTC Test Pool       → 12.80% APR   | Mintable Faucet BTC
+│   └── USDC–cirBTC Liquidity Pool   → 12.80% APR   | Circle Wrapped Bitcoin
 ├── 🏦 Single-Asset Vault
 │   └── USDC Yield Vault (ERC-4626)  → 8.42% APR    | Real USDC Revenue Share
 └── 🌐 Cross-Chain Liquidity
@@ -179,7 +176,7 @@ Arcis Pools & Vaults Hub
 | Pool / Vault Name | Category | Risk Profile | Target APR | Yield Source | Key Features |
 |---|---|---|---|---|---|
 | **USDC / EURC Stable Pool** | Liquidity AMM | 🟢 Safe (Zero IL) | **6.15%** | FX Swap Fees (0.12%) | 1-Click Zap, No Impermanent Loss |
-| **USDC / tcirBTC Test Pool** | Practice AMM | 🟡 Medium | **12.80%** | AMM Volume Fees (0.25%) | Built-in Faucet (Mint 0.01 tcirBTC) |
+| **USDC / cirBTC Liquidity Pool** | Liquidity AMM | 🟡 Medium | **12.80%** | AMM Volume Fees (0.25%) | Circle Wrapped Bitcoin, 1-Click Zap |
 | **USDC Yield Vault** | ERC-4626 Vault | 🔵 Low | **8.42%** | 90% Protocol Revenue Share | Pure USDC Payout, No Lockup |
 | **Gateway Settlement Pool** | Cross-Chain | 🔵 Low | **7.25%** | Cross-Chain Routing (0.03%) | <500ms Sub-Second Finality Buffer |
 
@@ -406,7 +403,8 @@ arcis-protocol/
 
 1. **Native USDC Decimal Alignment**: Arc utilizes 18 decimals for native balance lookups and 6 decimals for ERC-20 interface interactions. Arcis contracts enforce rigorous 6-decimal fixed-point precision across all mathematical curves.
 2. **Reentrancy Protection**: Critical state-mutating functions (`addLiquidity`, `removeLiquidity`, `swap`, `redeem`) implement OpenZeppelin's `ReentrancyGuard`.
-3. **Nonpayable Guarding**: Explicit `receive()` and `fallback()` functions reject unexpected native transfers to prevent unbacked token lockups.
+3. **Nonpayable Guarding**: Explicit `receive()` functions reject unexpected native transfers to prep
+vent unbacked token lockups (unknown selectors are rejected by the default revert).
 4. **SafeERC20 Compliance**: All token movements utilize OpenZeppelin `SafeERC20` wrappers to guard against non-standard ERC-20 returns.
 
 ---
