@@ -23,6 +23,7 @@ export interface ArcisAppError {
   actionHint?: string          // Actionable advice for the user to resolve the issue
   isCanceled: boolean          // True if user deliberately aborted the request
   isRetryable: boolean         // True if repeating the action might succeed
+  isActionable?: boolean       // True if the user can take a direct action to resolve (Passkey & UI compatibility)
   rawMessage?: string          // Original unformatted error text for technical debugging
   txHash?: string              // On-chain transaction hash if available
 }
@@ -37,3 +38,10 @@ export interface ErrorNotificationPayload {
   isCanceled: boolean
   actionHint?: string
 }
+
+/**
+ * Backward-compatible type alias for Circle Modular Wallets & WebAuthn consumers.
+ * Unifies ParsedPasskeyError into the standardized ArcisAppError structure.
+ */
+export type ParsedPasskeyError = ArcisAppError
+

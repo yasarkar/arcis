@@ -39,7 +39,7 @@ export interface InlineExecutionReceipt {
   id: string
   actionType: 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet'
   title: string
-  status: 'SUCCESS' | 'FAILED'
+  status: 'SUCCESS' | 'FAILED' | 'CANCELED'
   txHash: string
   explorerUrl?: string
   fromToken?: string
