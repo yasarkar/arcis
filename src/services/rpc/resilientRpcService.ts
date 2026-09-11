@@ -401,3 +401,52 @@ export async function pingRpcEndpoint(url: string, timeoutMs = 5000): Promise<Rp
 export async function checkArcNetworkHealth(): Promise<RpcHealthResult[]> {
   return Promise.all(ACTIVE_ARC_RPCS.map((url) => pingRpcEndpoint(url)))
 }
+
+/**
+ * Resilient writeContract with automatic retry on RPC rate limits (HTTP 429 / -32005 / -32603).
+ * Shields browser wallets from transient RPC throttling during user transactions.
+ */
+export async function resilientWriteContract(
+  walletClient: any,
+  params: any,
+  maxRetries: number = 3
+): Promise<Hex> {
+  let attempt = 0
+  while (true) {
+    try {
+      return await walletClient.writeContract(params)
+    } catch (err: any) {
+      attempt++
+      const msg = (
+        err?.shortMessage ||
+        err?.details ||
+        err?.message ||
+        err?.cause?.message ||
+        err?.cause?.details ||
+        ''
+      ).toLowerCase()
+
+      const isRateLimited =
+        msg.includes('rate limit') ||
+        msg.includes('rate-limited') ||
+        msg.includes('limit exceeded') ||
+        msg.includes('limitexceeded') ||
+        msg.includes('too many requests') ||
+        msg.includes('request is being rate limited') ||
+        err?.code === -32005 ||
+        err?.code === -32603 ||
+        err?.cause?.code === -32005 ||
+        err?.cause?.code === -32603
+
+      if (isRateLimited && attempt <= maxRetries) {
+        const delayMs = attempt * 1200
+        console.warn(
+          `[resilientRpc] writeContract rate-limited by RPC node (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`
+        )
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        continue
+      }
+      throw err
+    }
+  }
+}

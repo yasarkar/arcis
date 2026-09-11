@@ -126,92 +126,6 @@ export const GATEWAY_NETWORK_DEPTHS: GatewayChainDepth[] = [
   { chainKey: 'World_Chain_Sepolia', avgSettlementMs: 460, availableLiquidityUsd: 250000 },
 ]
 
-// ── ERC-8183 / ERC-8004 AI Agent Bounty & Escrow Definitions ────────────────
-export interface AgentBountyTask {
-  id: string
-  title: string
-  description: string
-  agentName: string
-  agentAddress: string
-  agentReputationScore: number
-  escrowLockedUsdc: number
-  sponsorCount: number
-  status: 'in_progress' | 'completed' | 'proof_submitted'
-  targetCompletionDate: string
-  aprReward: number
-  category: 'Arbitrage' | 'Security' | 'Oracle' | 'Liquidity' | string
-  proofHash?: string
-  // ── Yield-Generating Escrow Properties ──
-  escrowYieldVault?: string
-  accumulatedYieldUsdc?: number
-  yieldApr?: number
-  yieldBeneficiary?: 'Sponsor Cash-Back' | 'Agent Bonus' | 'Protocol Revenue'
-  escrowStartTime?: number
-}
-
-export const DEFAULT_AGENT_BOUNTY_ADDRESS = '0x8004E88A91C27B4938D82A7401EF82B33F71D3A9'
-
-export const AGENT_BOUNTIES_LIST: AgentBountyTask[] = [
-  {
-    id: 'bounty-1',
-    title: 'Multi-Chain FX Rate Arbitrage Sentinel',
-    description: 'Autonomous rebalancer detecting USDC/EURC deviations across Base Sepolia and Arc Testnet.',
-    agentName: 'ArcSentinel-v4',
-    agentAddress: '0x8004A7bE0919327e4A70889218EF99042b781B89',
-    agentReputationScore: 99,
-    escrowLockedUsdc: 2500,
-    sponsorCount: 14,
-    status: 'in_progress',
-    targetCompletionDate: 'Active Escrow',
-    aprReward: 16.4,
-    category: 'Arbitrage',
-    escrowYieldVault: 'Arcis Real-Yield Vault',
-    accumulatedYieldUsdc: 42.60,
-    yieldApr: 8.42,
-    yieldBeneficiary: 'Sponsor Cash-Back',
-    escrowStartTime: Date.now() - 1000 * 60 * 60 * 24 * 18, // 18 days ago
-  },
-  {
-    id: 'bounty-2',
-    title: 'Circle Gateway Sub-Second Finality Verifier',
-    description: 'ZK-attestation validator checking sub-500ms burn-and-mint settlement across 9 testnet chains.',
-    agentName: 'GatewayProver-01',
-    agentAddress: '0x8004B99c1D227e748A938C0409A349A7818A2B99',
-    agentReputationScore: 97,
-    escrowLockedUsdc: 1800,
-    sponsorCount: 9,
-    status: 'proof_submitted',
-    targetCompletionDate: 'Proof Pending Verification',
-    aprReward: 14.8,
-    category: 'Security',
-    proofHash: '0x80041a87e2b4f910cd1e4832bf6e3a9c7710a91e5c2b9a4c871029e18b820a4b',
-    escrowYieldVault: 'Arcis Real-Yield Vault (ERC-4626)',
-    accumulatedYieldUsdc: 31.45,
-    yieldApr: 8.42,
-    yieldBeneficiary: 'Agent Bonus',
-    escrowStartTime: Date.now() - 1000 * 60 * 60 * 24 * 12, // 12 days ago
-  },
-  {
-    id: 'bounty-3',
-    title: 'Arc High-Frequency DEX Liquidity Guard',
-    description: 'Dynamic spread optimizer keeping slippage under 0.05% for StableSwap pools.',
-    agentName: 'FluxOptimizer-AI',
-    agentAddress: '0x8004C8827FA7194A198284729182C092847A8901',
-    agentReputationScore: 95,
-    escrowLockedUsdc: 3200,
-    sponsorCount: 21,
-    status: 'in_progress',
-    targetCompletionDate: 'Active Escrow',
-    aprReward: 15.2,
-    category: 'Liquidity',
-    escrowYieldVault: 'Arcis Real-Yield Vault',
-    accumulatedYieldUsdc: 58.20,
-    yieldApr: 8.42,
-    yieldBeneficiary: 'Sponsor Cash-Back',
-    escrowStartTime: Date.now() - 1000 * 60 * 60 * 24 * 24, // 24 days ago
-  },
-]
-
 // ── Deployed Contract Addresses (Arc Testnet — V3, mainnet-bound) ─────────────
 // V3 restores the canonical Curve amplification constant Ann = A*4 (V2 silently used
 // A*2 — see contracts/test/StableMathComparison.t.sol). These addresses were produced
@@ -280,7 +194,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { symbol: 'EURC', name: 'Euro Coin', address: POOL_CONTRACTS.EURC, iconType: 'eurc', decimals: 6 },
     ],
     apy: 6.15, apyType: 'APY', apyBadge: '6.15% FX Fee Est. APY',
-    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'No Lock',
+    tvlUsd: 0, volume24hUsd: 14.80, lockPeriod: 'No Lock',
     riskLevel: 'Safe', feeShare: '0.12% Swap Fee to LPs',
     contractAddress: POOL_CONTRACTS.STABLE_SWAP_POOL,
     depositTokenSymbol: 'USDC + EURC', rewardTokenSymbol: 'LP Fees (USDC/EURC)',
@@ -311,7 +225,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { symbol: 'cirBTC', name: 'Circle Wrapped Bitcoin', address: POOL_CONTRACTS.cirBTC, iconType: 'btc', decimals: 8 },
     ],
     apy: 12.8, apyType: 'APY', apyBadge: '12.80% Fee Est. APY',
-    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'No Lock',
+    tvlUsd: 0, volume24hUsd: 5.00, lockPeriod: 'No Lock',
     riskLevel: 'Medium', feeShare: '0.25% Swap Fee to LPs',
     contractAddress: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
     depositTokenSymbol: 'USDC + cirBTC', rewardTokenSymbol: 'LP Fees (USDC/cirBTC)',
@@ -341,7 +255,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
     ],
     apy: 8.42, apyType: 'APY', apyBadge: '8.42% Vault Yield (Baseline Est.)',
-    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'Flexible (Unstake Anytime)',
+    tvlUsd: 0, volume24hUsd: 19.80, lockPeriod: 'Flexible (Unstake Anytime)',
     riskLevel: 'Low', feeShare: '90% Protocol Revenue Share',
     contractAddress: POOL_CONTRACTS.YIELD_VAULT,
     depositTokenSymbol: 'USDC', rewardTokenSymbol: 'USDC',
@@ -356,34 +270,6 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { step: 4, title: 'Redeem for USDC', desc: 'Redeem your shares anytime to withdraw principal + accumulated USDC yield.' },
     ],
     tags: ['ERC-4626', 'Real Yield', 'Revenue Share', 'USDC Payout'],
-    supportsZap: true,
-  },
-  {
-    id: 'gateway-settlement-pool',
-    name: 'Gateway Cross-Chain Settlement',
-    subtitle: 'Cross-chain settlement liquidity buffer across 9 testnet chains via Circle Gateway.',
-    description: 'Infrastructure liquidity powering Circle Gateway sub-second (<500ms) cross-chain burn and mint settlements.',
-    category: 'crosschain',
-    tokens: [
-      { symbol: 'USDC', name: 'USD Coin (Gateway)', address: POOL_CONTRACTS.USDC, iconType: 'gateway', decimals: 6 },
-    ],
-    apy: GATEWAY_ROUTING_APY, apyType: 'APY', apyBadge: `${GATEWAY_ROUTING_APY}% Cross-Chain Routing APY`,
-    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'Flexible (Instant Settlement)',
-    riskLevel: 'Low', feeShare: '0.03% Gateway Settlement Fee to LPs',
-    contractAddress: POOL_CONTRACTS.USDC,
-    depositTokenSymbol: 'USDC (Any Chain)', rewardTokenSymbol: 'USDC',
-    isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    isCrossChainPool: true, supportedChainsCount: 9,
-    yieldOrigin: '9-Chain Instant Routing & Settlement Fees',
-    yieldOriginDetails: 'Capital powers the liquidity buffer for sub-second cross-chain transfers via Circle Gateway.',
-    gasBenefitNote: 'Circle Gateway allows multi-chain capital efficiency.',
-    howItWorksSteps: [
-      { step: 1, title: 'Deposit USDC', desc: 'Add unified USDC to the Gateway cross-chain balance.' },
-      { step: 2, title: 'Multi-Chain Buffer', desc: 'Funds power instant transfers across 9 supported testnets.' },
-      { step: 3, title: 'Routing Rewards', desc: 'Earn protocol routing fees on cross-chain settlements.' },
-      { step: 4, title: 'Instant Exit', desc: 'Burn and mint or spend unified USDC across chains anytime.' },
-    ],
-    tags: ['Gateway', 'Infrastructure', '<500ms Finality', '9 Testnet Chains'],
     supportsZap: true,
   },
 ]
