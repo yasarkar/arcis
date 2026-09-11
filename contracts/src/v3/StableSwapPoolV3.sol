@@ -79,6 +79,25 @@ contract StableSwapPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
         return accumulatedFeeB;
     }
 
+    /// @notice Owner-only fee collection. Fees accrue inside the pool reserves; when they
+    ///         are swept the reserves are decreased by the same amount so the accounting
+    ///         stays consistent with the token balances (collectFees fix).
+    function collectFees(address to) external onlyOwner returns (uint256 amountA, uint256 amountB) {
+        if (to == address(0)) revert ZeroAddress();
+        amountA = accumulatedFeeA;
+        amountB = accumulatedFeeB;
+        accumulatedFeeA = 0;
+        accumulatedFeeB = 0;
+        if (amountA > 0) {
+            reserveA -= amountA;
+            _safeTransfer(tokenA, to, amountA);
+        }
+        if (amountB > 0) {
+            reserveB -= amountB;
+            _safeTransfer(tokenB, to, amountB);
+        }
+    }
+
     /// @notice Emergency pause swaps and liquidity addition.
     function pause() external onlyOwner {
         _pause();
@@ -128,12 +147,9 @@ contract StableSwapPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
         return lpShares;
     }
 
-    /// @notice Backward-compatible addLiquidity signature (minLpShares = 0).
-    function addLiquidity(uint256 amountAIn, uint256 amountBIn) external returns (uint256) {
-        return this.addLiquidity(amountAIn, amountBIn, 0);
-    }
-
     /// @notice Remove liquidity proportionally and burn LP shares.
+    /// @dev SECURITY: the slippage-less convenience overloads were REMOVED — callers
+    ///      must always pass explicit minLpShares / minOut values.
     function removeLiquidity(uint256 lpAmount, uint256 minOutA, uint256 minOutB)
         external
         nonReentrant
@@ -159,11 +175,6 @@ contract StableSwapPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
 
         emit LiquidityRemoved(msg.sender, lpAmount, outA, outB);
         return (outA, outB);
-    }
-
-    /// @notice Backward-compatible removeLiquidity.
-    function removeLiquidity(uint256 lpAmount) external returns (uint256, uint256) {
-        return this.removeLiquidity(lpAmount, 0, 0);
     }
 
     /// @notice Execute token swap using the Curve Stableswap invariant.

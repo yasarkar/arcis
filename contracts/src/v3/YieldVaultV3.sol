@@ -25,6 +25,7 @@ contract YieldVaultV3 is ERC4626, Ownable, Pausable {
     error ZeroAmount();
     error FeeTooHigh();
     error NativeDepositsNotAllowed();
+    error InsufficientShares();
 
     constructor(
         IERC20 _asset,
@@ -76,6 +77,29 @@ contract YieldVaultV3 is ERC4626, Ownable, Pausable {
 
     /// @dev Override mint to enforce whenNotPaused.
     function mint(uint256 shares, address receiver) public override whenNotPaused returns (uint256) {
+        return super.mint(shares, receiver);
+    }
+
+    /// @notice Deposit with an explicit minimum-shares guard.
+    /// @dev Extra first-depositor / inflation-attack protection: if the share price was
+    ///      manipulated by a donation before our deposit, the caller reverts instead of
+    ///      receiving (near-)zero shares.
+    function depositWithMinShares(uint256 assets, address receiver, uint256 minShares)
+        external
+        whenNotPaused
+        returns (uint256)
+    {
+        if (previewDeposit(assets) < minShares) revert InsufficientShares();
+        return super.deposit(assets, receiver);
+    }
+
+    /// @notice Mint with an explicit minimum-assets guard (symmetric to depositWithMinShares).
+    function mintWithMinAssets(uint256 shares, address receiver, uint256 minAssets)
+        external
+        whenNotPaused
+        returns (uint256)
+    {
+        if (previewMint(shares) > minAssets) revert InsufficientShares();
         return super.mint(shares, receiver);
     }
 }

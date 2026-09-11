@@ -22,14 +22,17 @@ contract DeployV3 is Script {
         // Contract admin / owner for Pausable + Ownable (defaults to deployer).
         address owner = vm.envOr("OWNER_ADDRESS", deployer);
 
-        // Token addresses (configurable via environment variables).
-        // Defaults match Arc Testnet (5042002). For mainnet, override USDC_ADDRESS /
-        // EURC_ADDRESS / CIRBTC_ADDRESS to the Arc Mainnet token contracts.
-        address usdc = vm.envOr("USDC_ADDRESS", address(0x3600000000000000000000000000000000000000));
-        address eurc = vm.envOr("EURC_ADDRESS", address(0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a));
-        address cirbtc = vm.envOr("CIRBTC_ADDRESS", address(0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF));
+        // Token addresses — MANDATORY for both testnet and mainnet (no embedded defaults:
+        // prevents an accidental mainnet deploy against testnet token addresses).
+        address usdc = vm.envAddress("USDC_ADDRESS");
+        address eurc = vm.envAddress("EURC_ADDRESS");
+        address cirbtc = vm.envAddress("CIRBTC_ADDRESS");
 
         require(usdc != address(0) && eurc != address(0) && cirbtc != address(0), "USDC/EURC/CIRBTC required");
+        require(
+            block.chainid == 5042002 || block.chainid == 5042001,
+            "unsupported chain: expected Arc testnet (5042002) or mainnet (5042001)"
+        );
 
         vm.startBroadcast(deployerKey);
 

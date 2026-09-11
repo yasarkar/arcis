@@ -28,6 +28,14 @@ contract SessionKeyModule {
     mapping(address => SessionKeyData) public sessionKeys;
     address[] public registeredKeys;
 
+    /// @notice Per-session-key replay counter. Each signed execution must consume
+    ///         the current nonce and include it in the signed payload (M-2/M-4 fix).
+    mapping(address => uint256) public nonce;
+
+    /// @notice Whitelist of callable targets for the trusted (MSCA) execution path.
+    ///         The signed path additionally binds consent to the session key itself.
+    mapping(address => bool) public approvedTargets;
+
     address public immutable msca;
     address public immutable owner;
 
@@ -53,6 +61,10 @@ contract SessionKeyModule {
     error ZeroAddress();
     error InvalidParameters();
     error InvalidSignature();
+    error HighSValue();
+    error ApproveNotAllowed();
+    error TargetNotApproved();
+    error SessionKeyNotYetValid();
 
     modifier onlyOwner() { if (msg.sender != owner) revert NotOwner(); _; }
     modifier onlyMSCA() { if (msg.sender != msca) revert NotMSCA(); _; }
@@ -72,7 +84,13 @@ contract SessionKeyModule {
             v := byte(0, calldataload(add(signature.offset, 0x40)))
         }
         uint8 vNorm = v >= 27 ? v : uint8(27 + v); // 0->27, 1->28, 27->27, 28->28
-        return ecrecover(userOpHash, vNorm, r, s);
+        // EIP-2: reject malleable high-s signatures (security fix — replay hardening)
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            revert HighSValue();
+        }
+        address recovered = ecrecover(userOpHash, vNorm, r, s);
+        if (recovered == address(0)) revert InvalidSignature();
+        return recovered;
     }
 
     constructor(address _msca, address _owner) {
@@ -132,12 +150,20 @@ contract SessionKeyModule {
 
     function registeredKeyCount() external view returns (uint256) { return registeredKeys.length; }
 
+    function setApprovedTarget(address target, bool approved) external onlyOwner {
+        if (target == address(0)) revert ZeroAddress();
+        approvedTargets[target] = approved;
+    }
+
     // ─────────────────────────────────────────────────────────
     //  EXECUTION (via ERC-6900 executor interface)
-    // ─────────────────────────────────────────────────────────
+    //  ────────────────────────────────────────────────────────
+    /// @notice Trusted (MSCA) path — restricted to the whitelisted targets so the
+    ///         budget limits cannot be bypassed with arbitrary calldata (M-2 fix).
     function executeFromSessionKey(
         address sessionKey, address target, uint256 value, bytes calldata data
     ) external onlyMSCA returns (bytes memory) {
+        if (!approvedTargets[target]) revert TargetNotApproved();
         return _execute(sessionKey, target, value, data);
     }
 
@@ -149,9 +175,16 @@ contract SessionKeyModule {
     function executeFromSessionKeySigned(
         address sessionKey, address target, uint256 value, bytes calldata data, bytes calldata signature
     ) external onlyMSCA returns (bytes memory) {
-        bytes32 userOpHash = keccak256(abi.encodePacked(target, value, data));
+        // Replay-hardened hash: binds the signature to chainId, this module, the session
+        // key, the exact payload AND a per-key nonce. Replaying the same signature is
+        // impossible because the nonce is consumed on every successful validation.
+        uint256 currentNonce = nonce[sessionKey];
+        bytes32 userOpHash = keccak256(abi.encode(
+            block.chainid, address(this), sessionKey, target, value, keccak256(data), currentNonce
+        ));
         address recovered = _recoverSessionKey(userOpHash, signature);
-        if (recovered != sessionKey || recovered == address(0)) revert InvalidSignature();
+        if (recovered != sessionKey) revert InvalidSignature();
+        nonce[sessionKey] = currentNonce + 1;
         return _execute(sessionKey, target, value, data);
     }
 
@@ -165,6 +198,7 @@ contract SessionKeyModule {
     ) internal returns (bytes memory) {
         SessionKeyData storage sk = sessionKeys[sessionKey];
         if (!sk.active) revert SessionKeyNotActive();
+        if (block.timestamp < sk.validAfter) revert SessionKeyNotYetValid();
         if (block.timestamp > sk.validUntil) revert SessionKeyExpired();
 
         uint256 effectiveSpend = value;
@@ -173,13 +207,17 @@ contract SessionKeyModule {
         if (data.length >= 68) {
             bytes4 selector = bytes4(data[:4]);
             // transfer(address,uint256) -> 0xa9059cbb
-            // approve(address,uint256) -> 0x095ea7b3
-            if (selector == 0xa9059cbb || selector == 0x095ea7b3) {
+            if (selector == 0xa9059cbb) {
                 uint256 tokenAmount;
                 assembly {
                     tokenAmount := calldataload(add(data.offset, 36))
                 }
                 effectiveSpend += tokenAmount;
+            }
+            // approve(address,uint256) -> 0x095ea7b3 — FORBIDDEN: a durable allowance
+            // would let token moves escape the session budget afterwards (M-2 fix).
+            else if (selector == 0x095ea7b3) {
+                revert ApproveNotAllowed();
             }
             // transferFrom(address,address,uint256) -> 0x23b872dd
             else if (selector == 0x23b872dd && data.length >= 100) {
