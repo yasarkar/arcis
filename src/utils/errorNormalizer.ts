@@ -135,6 +135,239 @@ function cleanTechnicalNoise(raw: string): string {
 }
 
 /**
+ * Centralized WebAuthn / Passkey Error Normalizer: Converts raw browser DOMExceptions,
+ * WebAuthn protocol errors, and Circle Modular SDK errors into standardized ArcisAppError.
+ */
+export function normalizePasskeyError(err: unknown): ArcisAppError {
+  if (!err) {
+    const def = ERROR_DEFINITIONS.UNKNOWN_PASSKEY_ERROR
+    return {
+      category: def.category,
+      code: 'UNKNOWN_PASSKEY_ERROR',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: def.isRetryable,
+      isActionable: def.isActionable ?? true,
+      rawMessage: '',
+    }
+  }
+
+  const errName = (err as any)?.name || ''
+  const rawMsg = typeof err === 'string'
+    ? err
+    : ((err as any)?.shortMessage || (err as any)?.message || (err as any)?.details || String(err))
+  const lowMsg = rawMsg.toLowerCase()
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'current domain'
+
+  // 1. User Canceled / Biometrics Timed Out
+  if (
+    errName === 'NotAllowedError' ||
+    lowMsg.includes('notallowederror') ||
+    lowMsg.includes('canceled') ||
+    lowMsg.includes('timed out')
+  ) {
+    const def = ERROR_DEFINITIONS.PASSKEY_CANCELED
+    return {
+      category: def.category,
+      code: 'PASSKEY_CANCELED',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: true,
+      isRetryable: true,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 2. Already Registered on this Device
+  if (
+    errName === 'InvalidStateError' ||
+    lowMsg.includes('invalidstateerror') ||
+    lowMsg.includes('already exists')
+  ) {
+    const def = ERROR_DEFINITIONS.PASSKEY_ALREADY_EXISTS
+    return {
+      category: def.category,
+      code: 'PASSKEY_ALREADY_EXISTS',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: false,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 3. Security / Domain (RP ID) Mismatch
+  if (
+    errName === 'SecurityError' ||
+    lowMsg.includes('securityerror') ||
+    lowMsg.includes('relying party') ||
+    lowMsg.includes('rp id')
+  ) {
+    const def = ERROR_DEFINITIONS.PASSKEY_DOMAIN_MISMATCH
+    return {
+      category: def.category,
+      code: 'PASSKEY_DOMAIN_MISMATCH',
+      title: def.title,
+      message: `The WebAuthn key does not match or is not authorized for this domain (${origin}).`,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: false,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 4. Not Supported or Device Constraint
+  if (
+    errName === 'NotSupportedError' ||
+    errName === 'ConstraintError' ||
+    lowMsg.includes('not supported')
+  ) {
+    const def = ERROR_DEFINITIONS.PASSKEY_NOT_SUPPORTED
+    return {
+      category: def.category,
+      code: 'PASSKEY_NOT_SUPPORTED',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: false,
+      isActionable: false,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 5. Circle Console Modular Entity Config Missing
+  if (
+    lowMsg.includes('cannot find the entity config') ||
+    lowMsg.includes('entity config') ||
+    lowMsg.includes('entityconfignotfound')
+  ) {
+    const def = ERROR_DEFINITIONS.CIRCLE_ENTITY_CONFIG_MISSING
+    return {
+      category: def.category,
+      code: 'CIRCLE_ENTITY_CONFIG_MISSING',
+      title: def.title,
+      message: `Modular Wallets Configurator has not been completed for this domain (${origin}) in Circle Console.`,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: false,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 6. Client Key / Origin Unauthorized
+  if (
+    lowMsg.includes('invalid credentials') ||
+    lowMsg.includes('unauthorized') ||
+    (err as any)?.code === 401 ||
+    (err as any)?.code === 403 ||
+    lowMsg.includes('401') ||
+    lowMsg.includes('403')
+  ) {
+    const def = ERROR_DEFINITIONS.CLIENT_KEY_UNAUTHORIZED
+    return {
+      category: def.category,
+      code: 'CLIENT_KEY_UNAUTHORIZED',
+      title: def.title,
+      message: `The current domain (${origin}) is not listed under 'Allowed Domains' in Circle Developer Console.`,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: false,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 7. Gas Station / Paymaster Error
+  if (
+    lowMsg.includes('aa21') ||
+    lowMsg.includes('paymaster') ||
+    lowMsg.includes('gas station') ||
+    lowMsg.includes('prefund')
+  ) {
+    const def = ERROR_DEFINITIONS.PAYMASTER_SPONSORSHIP_ERROR
+    return {
+      category: def.category,
+      code: 'PAYMASTER_SPONSORSHIP_ERROR',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: true,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 8. WebAuthn Protocol Bad Request
+  if (
+    lowMsg.includes('bad request for the webauthn protocol') ||
+    lowMsg.includes('webauthn protocol')
+  ) {
+    const def = ERROR_DEFINITIONS.WEBAUTHN_PROTOCOL_BAD_REQUEST
+    return {
+      category: def.category,
+      code: 'WEBAUTHN_PROTOCOL_BAD_REQUEST',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: true,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 8b. RPC Limit Exceeded
+  if (
+    (err as any)?.code === -32005 ||
+    (err as any)?.cause?.code === -32005 ||
+    lowMsg.includes('request exceeds defined limit') ||
+    lowMsg.includes('-32005')
+  ) {
+    const def = ERROR_DEFINITIONS.RPC_LIMIT_EXCEEDED
+    return {
+      category: def.category,
+      code: 'RPC_LIMIT_EXCEEDED',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: true,
+      isActionable: true,
+      rawMessage: rawMsg,
+    }
+  }
+
+  // 9. Generic / Unknown Passkey Error Fallback
+  const def = ERROR_DEFINITIONS.UNKNOWN_PASSKEY_ERROR
+  return {
+    category: def.category,
+    code: 'UNKNOWN_PASSKEY_ERROR',
+    title: def.title,
+    message: rawMsg && rawMsg.length > 5 && rawMsg.length < 240 ? rawMsg : def.message,
+    actionHint: def.actionHint,
+    isCanceled: false,
+    isRetryable: true,
+    isActionable: true,
+    rawMessage: rawMsg,
+  }
+}
+
+/**
+ * Backward-compatible alias for passkey error parsing.
+ */
+export const parsePasskeyError = normalizePasskeyError
+
+/**
  * Central Normalizer: Converts ANY error into a standardized ArcisAppError object (100% English).
  */
 export function normalizeAppError(err: unknown): ArcisAppError {
@@ -157,8 +390,26 @@ export function normalizeAppError(err: unknown): ArcisAppError {
     : ((err as any).shortMessage || (err as any).message || (err as any).details || (err as any).errorMessage || String(err))
 
   const lowMsg = rawMessage.toLowerCase()
+  const errName = (err as any)?.name || ''
 
-  // 1. User Canceled in Wallet or WebAuthn
+  // 1. Passkey / WebAuthn Detection (prioritize specific biometric handling)
+  const isPasskey =
+    lowMsg.includes('webauthn') ||
+    lowMsg.includes('passkey') ||
+    lowMsg.includes('p256') ||
+    lowMsg.includes('entity config') ||
+    lowMsg.includes('paymaster') ||
+    lowMsg.includes('aa21') ||
+    errName === 'NotAllowedError' ||
+    errName === 'InvalidStateError' ||
+    errName === 'SecurityError' ||
+    errName === 'ConstraintError'
+
+  if (isPasskey) {
+    return normalizePasskeyError(err)
+  }
+
+  // 2. User Canceled in Wallet
   if (isUserCanceledError(err)) {
     const def = ERROR_DEFINITIONS.USER_CANCELED
     return {
@@ -366,19 +617,34 @@ export function normalizeAppError(err: unknown): ArcisAppError {
     }
   }
 
-  // 10. Passkey / WebAuthn Specifics
-  if (lowMsg.includes('webauthn') || lowMsg.includes('passkey') || (err as any)?.name === 'NotAllowedError') {
-    const def = ERROR_DEFINITIONS.PASSKEY_CANCELED
+  // 9b. RPC Rate / Request Limit Exceeded (-32005 / LimitExceededRpcError)
+  if (
+    (err as any)?.code === -32005 ||
+    (err as any)?.cause?.code === -32005 ||
+    (err as any)?.name === 'LimitExceededRpcError' ||
+    lowMsg.includes('request exceeds defined limit') ||
+    lowMsg.includes('limit exceeded') ||
+    lowMsg.includes('limitexceeded') ||
+    lowMsg.includes('-32005') ||
+    lowMsg.includes('rate limit') ||
+    lowMsg.includes('too many requests')
+  ) {
+    const def = ERROR_DEFINITIONS.RPC_LIMIT_EXCEEDED
     return {
       category: def.category,
-      code: 'PASSKEY_CANCELED',
+      code: 'RPC_LIMIT_EXCEEDED',
       title: def.title,
       message: def.message,
       actionHint: def.actionHint,
-      isCanceled: true,
+      isCanceled: false,
       isRetryable: true,
       rawMessage,
     }
+  }
+
+  // 10. Passkey / WebAuthn Fallback (if not matched earlier)
+  if (isPasskey) {
+    return normalizePasskeyError(err)
   }
 
   // 11. General Clean Fallback
