@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom'
 import { Search, X, Check } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 
-interface ChainItem {
+export interface ChainItem {
   chain: string
   name: string
+  balance?: string
 }
 
 interface ChainSelectorModalProps {
@@ -60,7 +61,7 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in"
+      className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in"
       onClick={onClose}
     >
       <div
@@ -124,7 +125,7 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
                       : 'hover:bg-white/[0.05] border border-transparent text-slate-300 hover:text-white'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0">
                       <NetworkIcon
                         name={iconId}
@@ -133,14 +134,21 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
                         className="rounded-full overflow-hidden"
                       />
                     </div>
-                    <span className="font-semibold text-xs text-white">
+                    <span className="font-semibold text-xs text-white truncate">
                       {c.name}
                     </span>
                   </div>
 
-                  {isSelected && (
-                    <Check className="w-4 h-4 text-indigo-400" />
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {c.balance !== undefined && (
+                      <span className="text-xs text-slate-400 font-medium">
+                        {c.balance} USDC
+                      </span>
+                    )}
+                    {isSelected && (
+                      <Check className="w-4 h-4 text-indigo-400" />
+                    )}
+                  </div>
                 </button>
               )
             })

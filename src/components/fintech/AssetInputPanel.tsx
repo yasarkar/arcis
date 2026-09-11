@@ -96,7 +96,11 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
                   onAmountChange?.(val)
                 }
               }}
-              className="w-full bg-transparent border-0 p-0 text-3xl sm:text-4xl font-semibold tracking-tight text-white placeholder-slate-600 focus:outline-none tabular-nums"
+              className={`w-full bg-transparent border-0 p-0 text-3xl sm:text-4xl tracking-tight ${
+                readOnly && (!amount || amount === '0' || amount === '0.0' || amount === '0.00' || parseFloat(amount) === 0)
+                  ? 'text-slate-500/70 font-normal'
+                  : 'text-white font-semibold'
+              } placeholder-slate-600 focus:outline-none tabular-nums`}
               style={{
                 fontFamily: 'var(--fonts--space-grotesk)',
               }}
