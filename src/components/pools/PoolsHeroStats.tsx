@@ -1,14 +1,13 @@
 // Hero statistics banner & control sidebar for Pools & Yield Hub.
 // Displays Total Value Locked, Average APY, User Staked Assets, Claimable Rewards,
 // Capital Efficiency, and Quick Actions (Auto-Rebalancer, Yield Calculator, Claim All).
-import { TrendingUp, Gift, Zap, Layers, Bot, Info } from 'lucide-react'
-import { ARCIS_POOLS, GATEWAY_BASE_LIQUIDITY, type PoolConfig } from '../../config/poolsConfig'
+import { TrendingUp, Layers, Info, Coins, RefreshCw } from 'lucide-react'
+import { type PoolConfig } from '../../config/poolsConfig'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
-import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
 
 interface PoolsHeroStatsProps {
   totalTvlUsd: number
@@ -24,24 +23,18 @@ interface PoolsHeroStatsProps {
   isClaiming?: boolean
   onOpenCalculator?: () => void
   onOpenRebalancer?: () => void
-  onOpenAgentBounties?: () => void
 }
 
 export default function PoolsHeroStats({
   totalTvlUsd,
-  localTvlUsd,
-  gatewayTvlUsd = GATEWAY_BASE_LIQUIDITY,
   pools,
   userTotalDepositedUsd,
   userTotalClaimableRewardsUsd,
   dailyYieldGeneratedUsd,
   walletConnected,
-  capitalEfficiencyScore = 100,
-  onClaimAll,
-  isClaiming,
   onOpenCalculator,
-  onOpenRebalancer,
-  onOpenAgentBounties,
+  onClaimAll,
+  isClaiming = false,
 }: PoolsHeroStatsProps) {
   const userPortfolioApy = userTotalDepositedUsd > 0
     ? ((dailyYieldGeneratedUsd * 365) / userTotalDepositedUsd) * 100
@@ -49,34 +42,15 @@ export default function PoolsHeroStats({
   const { formattedYield: liveHeroYield, yieldPerSecond: heroYieldPerSec } = useContinuousYieldStream(
     userTotalDepositedUsd,
     userPortfolioApy,
-    userTotalClaimableRewardsUsd,
-    60,
-    'hero_total'
+    userTotalClaimableRewardsUsd
   )
 
-  // Resolve pool TVL metrics across the 4 Arcis protocols
-  const poolList = (pools && pools.length > 0) ? pools : ARCIS_POOLS
-
-  const getPoolTvl = (id: string, defaultVal: number = 0) => {
-    const found = poolList.find((p) => p.id === id)
-    if (found && typeof found.tvlUsd === 'number') {
-      return found.tvlUsd
-    }
-    return defaultVal
+  // Derive individual pool TVLs dynamically from live on-chain data
+  const getPoolTvl = (id: string, fallback: number): number => {
+    const p = pools?.find((pool) => pool.id === id)
+    return p?.tvlUsd !== undefined ? p.tvlUsd : fallback
   }
 
-  const formatTvl = (val: number) => {
-    if (!val || val <= 0) return '$0.00'
-    if (val >= 1_000_000) {
-      return `$${(val / 1_000_000).toFixed(2)}M`
-    }
-    if (val >= 1_000) {
-      return `$${Math.floor(val).toLocaleString('en-US')}`
-    }
-    return `$${val.toFixed(2)}`
-  }
-
-  // 4 active pools and vaults on Arcis
   const poolItems = [
     {
       id: 'usdc-eurc-stable-pool',
@@ -104,15 +78,6 @@ export default function PoolsHeroStats({
       accentColor: '#10b981',
       icons: [UsdcIcon],
       tvl: getPoolTvl('usdc-yield-vault', 0),
-    },
-    {
-      id: 'gateway-settlement-pool',
-      shortName: 'Gateway Buffer',
-      name: 'Gateway Settlement Buffer',
-      tag: 'Cross-Chain',
-      accentColor: '#38bdf8',
-      icons: [CircleIcon],
-      tvl: getPoolTvl('gateway-settlement-pool', gatewayTvlUsd || GATEWAY_BASE_LIQUIDITY),
     },
   ]
 
@@ -277,7 +242,7 @@ export default function PoolsHeroStats({
             marginBottom: 12,
           }}
         >
-          Aggregated TVL across all 4 liquidity pools & vaults
+          Aggregated TVL across all 3 native liquidity pools & vaults
         </div>
       </div>
 
@@ -452,6 +417,7 @@ export default function PoolsHeroStats({
         </div>
 
         {/* Metric 4: Capital Efficiency */}
+        {/* Metric 4: Portfolio APY */}
         <div
           style={{
             background: 'rgba(11, 13, 24, 0.7)',
@@ -460,19 +426,25 @@ export default function PoolsHeroStats({
             padding: '14px 16px',
           }}
         >
-          <span
-            style={{
-              fontSize: 11,
-              fontFamily: 'var(--font-app)',
-              color: 'var(--fp-4)',
-              fontWeight: 600,
-              letterSpacing: '0.5px',
-              display: 'block',
-              marginBottom: 5,
-            }}
-          >
-            CAPITAL EFFICIENCY
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+            <span
+              style={{
+                fontSize: 11,
+                fontFamily: 'var(--font-app)',
+                color: 'var(--fp-4)',
+                fontWeight: 600,
+                letterSpacing: '0.5px',
+              }}
+            >
+              PORTFOLIO APY
+            </span>
+            <span
+              title="Weighted average annual percentage yield across your active deposited positions on Arc."
+              style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
+            >
+              <Info size={10} />
+            </span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span
               style={{
@@ -482,7 +454,7 @@ export default function PoolsHeroStats({
                 color: '#60a5fa',
               }}
             >
-              {capitalEfficiencyScore}%
+              {walletConnected && userTotalDepositedUsd > 0 ? `${userPortfolioApy.toFixed(2)}%` : '—'}
             </span>
           </div>
         </div>
@@ -498,132 +470,60 @@ export default function PoolsHeroStats({
           gap: 11,
         }}
       >
-        {/* Auto-Accrued Yield & Position Appreciation Indicator */}
-        {walletConnected && (userTotalClaimableRewardsUsd > 0 || userTotalDepositedUsd > 0) ? (
-          <div
-            style={{
-              padding: '11px 14px',
-              background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)',
-              border: '1px solid rgba(1, 208, 98, 0.3)',
-              borderRadius: 14,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: 11.5,
-              fontFamily: 'var(--font-app)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: 'var(--earned-green)',
-                  boxShadow: '0 0 6px var(--earned-green)',
-                  display: 'inline-block',
-                }}
-              />
-              <span style={{ color: '#fff', fontWeight: 600 }}>
-                {userTotalClaimableRewardsUsd > 0
-                  ? `Accrued Yield: +${userTotalClaimableRewardsUsd.toFixed(2)} USDC`
-                  : 'Yield Auto-Compounding'}
-              </span>
-            </div>
-            <span
-              style={{
-                color: 'var(--earned-green)',
-                fontWeight: 700,
-                fontSize: 10.5,
-                cursor: 'help',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-              title="In Arcis AMMs & ERC-4626 Vaults, swap fees and protocol yields automatically appreciate your share value. Realize all earnings upon withdrawing."
-            >
-              Realized on Exit
-              <Info size={11} />
-            </span>
-          </div>
-        ) : null}
-
-        {/* 2-Button Grid for Tools */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {onOpenRebalancer && (
-            <button
-              onClick={onOpenRebalancer}
-              type="button"
-              className="ub-action-btn"
-              style={{
-                width: '100%',
-                justifyContent: 'center',
-                padding: '11px 12px',
-                background: 'rgba(152, 150, 255, 0.12)',
-                borderColor: 'rgba(152, 150, 255, 0.3)',
-                fontSize: 13,
-                fontWeight: 500,
-              }}
-              title="Consolidate multi-chain testnet USDC to Arc"
-            >
-              <Zap size={15} style={{ color: 'var(--purple-1)' }} />
-              <span>Auto-Rebalancer</span>
-            </button>
-          )}
-
-          {onOpenCalculator && (
-            <button
-              onClick={onOpenCalculator}
-              type="button"
-              className="ub-action-btn"
-              style={{
-                width: '100%',
-                justifyContent: 'center',
-                padding: '11px 12px',
-                fontSize: 13,
-                fontWeight: 500,
-              }}
-              title="Open Interactive Yield Simulator"
-            >
-              <TrendingUp size={15} style={{ color: 'var(--purple-1)' }} />
-              <span>Calculator</span>
-            </button>
-          )}
-        </div>
-
-        {/* AI Agent Bounty Escrow Hub Button */}
-        {onOpenAgentBounties && (
+        {/* Claim All Rewards Button */}
+        {walletConnected && userTotalClaimableRewardsUsd >= 0.01 && onClaimAll && (
           <button
-            onClick={onOpenAgentBounties}
+            onClick={onClaimAll}
+            disabled={isClaiming}
             type="button"
             className="ub-action-btn"
             style={{
               width: '100%',
-              justifyContent: 'space-between',
-              padding: '11px 14px',
-              background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
-              borderColor: 'rgba(236, 72, 153, 0.35)',
+              justifyContent: 'center',
+              padding: '12px 14px',
+              background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.22) 0%, rgba(56, 189, 248, 0.18) 100%)',
+              borderColor: 'rgba(1, 208, 98, 0.45)',
               fontSize: 13,
+              fontWeight: 600,
+              color: '#fff',
+              boxShadow: '0 0 16px rgba(1, 208, 98, 0.2)',
+              cursor: isClaiming ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s ease',
             }}
-            title="Open ERC-8183 AI Agent Escrow & Bounty Hub"
+            title="Claim all accumulated earnings directly into your USDC wallet"
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Bot size={16} style={{ color: '#f472b6' }} />
-              <span style={{ fontWeight: 600, color: '#fff' }}>Agent Bounty Escrows</span>
-            </div>
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: 'var(--earned-green)',
-                background: 'rgba(1, 208, 98, 0.12)',
-                padding: '2px 8px',
-                borderRadius: 99,
-                border: '1px solid rgba(1, 208, 98, 0.25)',
-              }}
-            >
-              8.42% APY Yield
+            {isClaiming ? (
+              <RefreshCw size={15} className="arcis-spin" style={{ color: 'var(--earned-green)' }} />
+            ) : (
+              <Coins size={15} style={{ color: 'var(--earned-green)' }} />
+            )}
+            <span>
+              {isClaiming
+                ? 'Claiming Rewards...'
+                : `Claim All Rewards (+${userTotalClaimableRewardsUsd.toFixed(2)} USDC)`}
             </span>
+          </button>
+        )}
+
+        {/* Tool Button: Yield Calculator */}
+        {onOpenCalculator && (
+          <button
+            onClick={onOpenCalculator}
+            type="button"
+            className="ub-action-btn"
+            style={{
+              width: '100%',
+              justifyContent: 'center',
+              padding: '11px 14px',
+              background: 'rgba(152, 150, 255, 0.08)',
+              borderColor: 'rgba(152, 150, 255, 0.25)',
+              fontSize: 13,
+              fontWeight: 500,
+            }}
+            title="Open Interactive Yield Simulator"
+          >
+            <TrendingUp size={15} style={{ color: 'var(--purple-1)' }} />
+            <span>Yield Calculator</span>
           </button>
         )}
       </div>

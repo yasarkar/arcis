@@ -186,7 +186,7 @@ export default function PoolActionModal({
   if (!isOpen || !pool) return null
 
   const isLp = Boolean(pool.isLpPool)
-  const isPool = isLp || pool.id === 'gateway-settlement-pool'
+  const isPool = isLp
   const isPoolEmpty = Boolean(
     isLp && (
       pool.tvlUsd === 0 ||
@@ -252,7 +252,7 @@ export default function PoolActionModal({
 
   const swapWalletBalTokenInStr = swapTokenIn === 'USDC' || swapTokenIn === 'EURC'
     ? swapWalletBalTokenIn.toFixed(2)
-    : swapWalletBalTokenIn.toFixed(4)
+    : (swapWalletBalTokenIn > 0 && swapWalletBalTokenIn < 0.0001 ? swapWalletBalTokenIn.toFixed(8) : swapWalletBalTokenIn.toFixed(6))
 
   // Dual-Asset deposit balance and validation calculations
   const aNum = parseFloat(amountA) || 0
@@ -372,7 +372,7 @@ export default function PoolActionModal({
     setErrorMsg(null)
     const num = parseFloat(val)
     if (!isNaN(num) && num > 0 && exchangeRate > 0) {
-      const bDecimals = counterTokenDecimals === 8 ? 6 : (counterTokenSymbol === 'EURC' ? 2 : 4)
+      const bDecimals = counterTokenDecimals === 8 ? 8 : (counterTokenSymbol === 'EURC' ? 2 : 4)
       const requiredB = (num / exchangeRate).toFixed(bDecimals)
       setAmountB(requiredB)
     } else {
@@ -425,19 +425,8 @@ export default function PoolActionModal({
       }
     } else {
       // Withdraw mode
-      if (pool.id === 'gateway-settlement-pool') {
-        const GATEWAY_BURN_FEE_RESERVE = 0.05
-        if (pct === 100) {
-          const maxWithdraw = Math.max(0, maxAvailable - GATEWAY_BURN_FEE_RESERVE)
-          setAmount(maxWithdraw.toFixed(2))
-        } else {
-          const calculated = (maxAvailable * (pct / 100)).toFixed(2)
-          setAmount(calculated)
-        }
-      } else {
-        const calculated = (maxAvailable * (pct / 100)).toFixed(2)
-        setAmount(calculated)
-      }
+      const calculated = (maxAvailable * (pct / 100)).toFixed(2)
+      setAmount(calculated)
     }
     setErrorMsg(null)
   }
@@ -635,13 +624,6 @@ export default function PoolActionModal({
       }
 
       let finalAmount = amount
-      if (pool.id === 'gateway-settlement-pool') {
-        const maxSafeWithdraw = Math.max(0, userStaked - 0.05)
-        if (inputAmountNum > maxSafeWithdraw && userStaked > 0.05) {
-          finalAmount = maxSafeWithdraw.toFixed(2)
-          setAmount(finalAmount)
-        }
-      }
 
       setIsProcessing(true)
       try {
@@ -1474,32 +1456,7 @@ export default function PoolActionModal({
                 </div>
               )}
 
-              {/* Circle Gateway Routing Fee Buffer (Gateway Settlement Pool Withdrawal Only) */}
-              {activeMode === 'withdraw' && pool.id === 'gateway-settlement-pool' && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    borderRadius: 10,
-                    background: 'rgba(56, 189, 248, 0.08)',
-                    border: '1px solid rgba(56, 189, 248, 0.2)',
-                    marginBottom: 12,
-                    fontSize: 11,
-                    fontFamily: 'var(--font-app)',
-                    color: '#bae6fd',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Shield size={13} style={{ color: '#38bdf8' }} />
-                    <span>Circle Gateway Routing Fee Buffer (0.05 USDC auto-reserved)</span>
-                  </div>
-                  <span style={{ fontWeight: 600, color: '#38bdf8' }}>
-                    Net: {Math.max(0, userStaked - 0.05).toFixed(2)} USDC
-                  </span>
-                </div>
-              )}
+
 
               {/* Arc Gas Shield Banner (Native Deposit Only) */}
               {activeMode === 'deposit' && depositSource === 'native' && (
@@ -1540,31 +1497,7 @@ export default function PoolActionModal({
                   )}
                 </div>
               )}
-
-              {/* Real-Yield Auto-Compounding Badge (Yield Vault) */}
-              {pool.id === 'usdc-yield-vault' && activeMode === 'deposit' && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 12px',
-                    background: 'rgba(99, 102, 241, 0.08)',
-                    border: '1px solid rgba(99, 102, 241, 0.2)',
-                    borderRadius: 10,
-                    marginBottom: 16,
-                    fontSize: 11,
-                    fontFamily: 'var(--font-app)',
-                    color: '#c7d2fe',
-                  }}
-                >
-                  <TrendingUp size={13} style={{ color: '#818cf8', flexShrink: 0 }} />
-                  <span>
-                    <strong>Auto-Compounding Real Yield:</strong> Your shares automatically appreciate in value via the ERC-4626 standard. No manual harvest or claim required.
-                  </span>
-                </div>
-              )}
-
+              
               {/* ── Pre-Execution Summary Breakdown Card (Swap, Zap, & LP) ── */}
               {activeMode === 'swap' && swapAmountInNum > 0 && (
                 <div

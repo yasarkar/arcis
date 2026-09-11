@@ -1,6 +1,6 @@
 // Master Pools & Yield Hub view for Arcis (Phase 4 Enhanced).
 // Combines USYC RWA Vault, Circle Gateway Cross-Chain Settlement Vault,
-// Arcis Real-Yield Staking, DEX Liquidity Pools, ERC-8183 AI Agent Bounty Hub,
+// Arcis Real-Yield Staking, DEX Liquidity Pools,
 // 1-Click Zap, Auto-Rebalance Wizard, and live Arc Testnet state.
 import { useState, useMemo, useRef, useEffect } from 'react'
 import {
@@ -19,10 +19,7 @@ import PoolsHeroStats from './PoolsHeroStats'
 import PoolCard from './PoolCard'
 import PoolActionModal from './PoolActionModal'
 import YieldCalculator from './YieldCalculator'
-import GatewayRebalanceWizard from './GatewayRebalanceWizard'
-import AgentBountyHubModal from './AgentBountyHubModal'
 import { usePoolsData } from '../../hooks/usePoolsData'
-import { useGatewayBalancer } from '../../hooks/useGatewayBalancer'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
 import { type PoolCategory, type PoolConfig, POOLS_CHAIN_DEFS } from '../../config/poolsConfig'
 import { arcTestnet } from '../../config/arcChain'
@@ -74,13 +71,8 @@ export default function PoolsTab({
     refreshBalances,
   } = usePoolsData(walletAddress, provider)
 
-  // Gateway unified balance
+  // Gateway unified balance (for cross-chain zap)
   const { totalBalance: gatewayTotalBalance, refresh: refreshGatewayBalance } = useGatewayBalance(walletAddress)
-
-  const { capitalEfficiencyScore, refreshAll: refreshBalancer } = useGatewayBalancer(
-    walletAddress,
-    userTotalDepositedUsd
-  )
 
   // Filter & Search states
   const [activeCategory, setActiveCategory] = useState<PoolCategory | 'all'>('all')
@@ -109,46 +101,20 @@ export default function PoolsTab({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // One-time cleanup of legacy pools localStorage keys to ensure pure live data
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      const keysToRemove: string[] = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (
-          key &&
-          (key.startsWith('arcis:pools:') ||
-            key.startsWith('arcis:gateway:') ||
-            key.startsWith('arcis_yield_stream_') ||
-            key.startsWith('arcis_agent_bounties_') ||
-            key.startsWith('arcis_gateway_rebalanced_'))
-        ) {
-          keysToRemove.push(key)
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k))
-    } catch {
-      // Ignore
-    }
-  }, [])
-
   // Modal states
   const [selectedPoolForAction, setSelectedPoolForAction] = useState<PoolConfig | null>(null)
   const [actionModalMode, setActionModalMode] = useState<'deposit' | 'withdraw' | 'swap'>('deposit')
   const [isActionModalOpen, setIsActionModalOpen] = useState<boolean>(false)
   const [isCalculatorOpen, setIsCalculatorOpen] = useState<boolean>(false)
-  const [isRebalancerOpen, setIsRebalancerOpen] = useState<boolean>(false)
-  const [isBountyHubOpen, setIsBountyHubOpen] = useState<boolean>(false)
   const [isClaiming, setIsClaiming] = useState<boolean>(false)
+  const [claimingPoolId, setClaimingPoolId] = useState<string | null>(null)
   const [isManualRefreshing, setIsManualRefreshing] = useState<boolean>(false)
 
-  // Filter categories list (3 clear product types)
+  // Filter categories list (native Arc DeFi products)
   const categories: { id: PoolCategory | 'all'; label: string; count?: number }[] = [
     { id: 'all', label: 'All Pools' },
     { id: 'liquidity', label: 'Liquidity' },
     { id: 'vault', label: 'Vaults' },
-    { id: 'crosschain', label: 'Cross-Chain' },
   ]
 
   // Filtered and sorted pools
@@ -197,12 +163,6 @@ export default function PoolsTab({
   const handleOpenWithdraw = (pool: PoolConfig) => {
     setSelectedPoolForAction(pool)
     setActionModalMode('withdraw')
-    setIsActionModalOpen(true)
-  }
-
-  const handleOpenSwap = (pool: PoolConfig) => {
-    setSelectedPoolForAction(pool)
-    setActionModalMode('swap')
     setIsActionModalOpen(true)
   }
 
@@ -270,34 +230,126 @@ export default function PoolsTab({
     })
   }
 
-  // Gateway Deposit handler: opens standard deposit modal for Gateway pool
-  const handleGatewayDeposit = async (pool: PoolConfig) => {
-    handleOpenDeposit(pool)
-  }
-
-  // Gateway Spend handler: opens Gateway Rebalance & Spend Wizard directly
-  const handleGatewaySpend = async (_pool: PoolConfig) => {
-    setIsRebalancerOpen(true)
-  }
-
   const handleClaimAll = async () => {
-    setIsClaiming(true)
-    try {
-      await claimAllRewards()
+    if (userTotalClaimableRewardsUsd < 0.01) {
       if (addToast) {
         addToast(
-          'Yield Auto-Compounding',
-          'All AMM swap fees and vault yields automatically appreciate your position value and are realized directly upon withdrawal. Zero claim gas needed!',
+          'No Claimable Yield',
+          'You have no accrued yield to claim at this time (minimum 0.01 USDC).',
           'info',
           undefined,
           'Arc Testnet'
         )
       }
+      return
+    }
+
+    setIsClaiming(true)
+    const notif = notifyPending(
+      'Claiming All Yield...',
+      `Redeeming ${userTotalClaimableRewardsUsd.toFixed(2)} USDC in accumulated profit across your pools`,
+      {
+        amount: userTotalClaimableRewardsUsd.toFixed(2),
+        tokenSymbol: 'USDC',
+        tokenIcon: UsdcIcon,
+        network: 'Arc_Testnet',
+      },
+      'pool'
+    )
+
+    try {
+      const res = await claimAllRewards()
+      notifySuccess(
+        notif,
+        'Yield Claimed Successfully!',
+        `Successfully claimed ${res.totalClaimed} USDC in profits directly to your wallet!`,
+        res.txHash,
+        {
+          amount: res.totalClaimed,
+          tokenSymbol: 'USDC',
+          tokenIcon: UsdcIcon,
+          network: 'Arc_Testnet',
+        }
+      )
       refreshBalances()
+      refreshGatewayBalance()
     } catch (err: any) {
-      console.warn('[PoolsTab] Claim notice error:', err)
+      notifyError(notif, 'Claim Failed', err, {
+        amount: userTotalClaimableRewardsUsd.toFixed(2),
+        tokenSymbol: 'USDC',
+        tokenIcon: UsdcIcon,
+        network: 'Arc_Testnet',
+      })
     } finally {
       setIsClaiming(false)
+    }
+  }
+
+  const handleClaimPool = async (poolId: string) => {
+    const targetPool = pools.find((p) => p.id === poolId)
+    const poolName = targetPool?.name || 'Pool'
+    const earnedUsd = targetPool?.userPosition?.earnedUsd || 0
+
+    if (earnedUsd < 0.01) {
+      if (addToast) {
+        addToast(
+          'No Claimable Yield',
+          `No accrued yield available to claim for ${poolName}.`,
+          'info',
+          undefined,
+          'Arc Testnet'
+        )
+      }
+      return
+    }
+
+    setClaimingPoolId(poolId)
+    setIsClaiming(true)
+
+    const notif = notifyPending(
+      `Claiming Yield from ${poolName}...`,
+      `Redeeming ${earnedUsd.toFixed(2)} USDC in profit without unstaking your principal`,
+      {
+        poolId,
+        poolName,
+        amount: earnedUsd.toFixed(2),
+        tokenSymbol: 'USDC',
+        tokenIcon: UsdcIcon,
+        network: 'Arc_Testnet',
+      },
+      'pool'
+    )
+
+    try {
+      const res = await claimPoolRewards(poolId)
+      notifySuccess(
+        notif,
+        'Yield Claimed Successfully!',
+        `Successfully claimed +${res.amountClaimed} USDC from ${poolName} directly into your wallet!`,
+        res.txHash,
+        {
+          poolId,
+          poolName,
+          amount: res.amountClaimed,
+          tokenSymbol: 'USDC',
+          tokenIcon: UsdcIcon,
+          network: 'Arc_Testnet',
+        }
+      )
+      refreshBalances()
+      refreshGatewayBalance()
+    } catch (err: any) {
+      notifyError(notif, 'Claim Failed', err, {
+        poolId,
+        poolName,
+        amount: earnedUsd.toFixed(2),
+        tokenSymbol: 'USDC',
+        tokenIcon: UsdcIcon,
+        network: 'Arc_Testnet',
+      })
+    } finally {
+      setIsClaiming(false)
+      setClaimingPoolId(null)
     }
   }
 
@@ -310,7 +362,7 @@ export default function PoolsTab({
     const targetPool = pools.find((p) => p.id === poolId)
     const poolName = targetPool?.name || 'Vault'
     const isLp = Boolean(targetPool?.isLpPool || targetPool?.lpTokenSymbol)
-    const isPool = isLp || poolId === 'gateway-settlement-pool'
+    const isPool = isLp
     const lpTokenSymbol = targetPool?.lpTokenSymbol || (
       poolId === 'usdc-cirbtc-pool'
         ? 'af-USDC-cirBTC'
@@ -387,7 +439,6 @@ export default function PoolsTab({
 
       refreshBalances()
       refreshGatewayBalance()
-      refreshBalancer()
     } catch (err: any) {
       const errorTitle = isPool
         ? (mode === 'deposit' ? 'Add Liquidity Failed' : 'Remove Liquidity Failed')
@@ -457,7 +508,6 @@ export default function PoolsTab({
 
       refreshBalances()
       refreshGatewayBalance()
-      refreshBalancer()
     } catch (err: any) {
       notifyError(notif, 'Add Liquidity Failed', err, {
         poolId,
@@ -531,7 +581,6 @@ export default function PoolsTab({
 
       refreshBalances()
       refreshGatewayBalance()
-      refreshBalancer()
     } catch (err: any) {
       notifyError(notif, 'Liquidity Deposit Failed', err, {
         poolId,
@@ -611,7 +660,6 @@ export default function PoolsTab({
 
       refreshBalances()
       refreshGatewayBalance()
-      refreshBalancer()
     } catch (err: any) {
       notifyError(notif, 'Withdrawal Failed', err, {
         poolId,
@@ -695,7 +743,7 @@ export default function PoolsTab({
   ) => {
     const targetPool = pools.find((p) => p.id === poolId)
     const poolName = targetPool?.name || 'Vault'
-    const isPool = Boolean(targetPool?.isLpPool || poolId === 'gateway-settlement-pool')
+    const isPool = Boolean(targetPool?.isLpPool)
     const sourceChainDisplayName = sourceChainKey === 'Unified_Gateway'
       ? 'Gateway Unified Balance'
       : sourceChainKey.replace('_', ' ')
@@ -767,7 +815,6 @@ export default function PoolsTab({
 
       refreshBalances()
       refreshGatewayBalance()
-      refreshBalancer()
     } catch (err: any) {
       const errorTitle = isPool ? 'Add Liquidity Failed' : 'Cross-Chain Deposit Failed'
       notifyError(notif, errorTitle, err, {
@@ -785,36 +832,7 @@ export default function PoolsTab({
     }
   }
 
-  const handleRebalanceSuccess = (totalMoved: string, txHash?: string, explorerUrl?: string) => {
-    addBroadcast({
-      type: 'pool',
-      title: 'Rebalance Complete!',
-      status: 'success',
-      badgeText: 'Confirmed',
-      message: `Consolidated ${totalMoved} USDC across multiple chains to Arc Testnet`,
-      details: {
-        poolAction: 'rebalance',
-        amount: totalMoved,
-        tokenSymbol: 'USDC',
-        tokenIcon: TOKEN_ICON_MAP['USDC'],
-        poolName: 'Circle Gateway Auto-Rebalancer',
-        network: 'Arc_Testnet',
-        txHash,
-        explorerUrl,
-      },
-    })
-    if (addToast) {
-      addToast(
-        'Rebalance Complete!',
-        `Consolidated ${totalMoved} USDC to Arc Testnet via Circle Gateway`,
-        'success',
-        txHash,
-        'Arc Testnet'
-      )
-    }
-    refreshBalances()
-    refreshBalancer()
-  }
+
 
   return (
     <div className="arc-animate-reveal w-full max-w-[1400px] mx-auto pt-1">
@@ -831,12 +849,9 @@ export default function PoolsTab({
             userTotalClaimableRewardsUsd={userTotalClaimableRewardsUsd}
             dailyYieldGeneratedUsd={dailyYieldGeneratedUsd}
             walletConnected={walletConnected}
-            capitalEfficiencyScore={capitalEfficiencyScore}
             onClaimAll={handleClaimAll}
             isClaiming={isClaiming}
             onOpenCalculator={() => setIsCalculatorOpen(true)}
-            onOpenRebalancer={() => setIsRebalancerOpen(true)}
-            onOpenAgentBounties={() => setIsBountyHubOpen(true)}
           />
         </div>
 
@@ -1042,7 +1057,6 @@ export default function PoolsTab({
                   try {
                     setIsManualRefreshing(true)
                     await refreshBalances()
-                    refreshBalancer()
                   } finally {
                     setIsManualRefreshing(false)
                   }
@@ -1066,9 +1080,9 @@ export default function PoolsTab({
                 walletConnected={walletConnected}
                 onDeposit={handleOpenDeposit}
                 onWithdraw={handleOpenWithdraw}
-                onGatewayDeposit={handleGatewayDeposit}
-                onGatewaySpend={handleGatewaySpend}
-                gatewayBalance={gatewayTotalBalance}
+                onClaim={handleClaimPool}
+                isClaiming={isClaiming}
+                claimingPoolId={claimingPoolId}
               />
             ))}
 
@@ -1115,74 +1129,6 @@ export default function PoolsTab({
           onSelectPoolToDeposit={(pool) => handleOpenDeposit(pool)}
           walletBalanceUsdc={onchainBalances.usdc}
           pools={pools}
-        />
-      )}
-
-      {isRebalancerOpen && (
-        <GatewayRebalanceWizard
-          isOpen={isRebalancerOpen}
-          onClose={() => setIsRebalancerOpen(false)}
-          walletAddress={walletAddress}
-          totalStakedUsd={userTotalDepositedUsd}
-          onSuccess={handleRebalanceSuccess}
-        />
-      )}
-
-      {isBountyHubOpen && (
-        <AgentBountyHubModal
-          isOpen={isBountyHubOpen}
-          onClose={() => setIsBountyHubOpen(false)}
-          walletAddress={walletAddress}
-          availableWalletUsdc={onchainBalances.usdc}
-          onSponsorSuccess={(title, amount) => {
-            addBroadcast({
-              type: 'pool',
-              title: 'Agent Bounty Sponsored!',
-              status: 'success',
-              badgeText: 'Confirmed',
-              message: `Locked ${amount} USDC into ${title} (generating 8.42% APY in Yield Vault)`,
-              details: {
-                poolAction: 'deposit',
-                poolName: title,
-                poolApy: '8.42',
-                amount: amount.toString(),
-                tokenSymbol: 'USDC',
-                tokenIcon: TOKEN_ICON_MAP['USDC'],
-                network: 'Arc_Testnet',
-              },
-            })
-            if (addToast) {
-              addToast(
-                'Agent Bounty Sponsored!',
-                `Locked ${amount} USDC into ${title} (generating 8.42% APY in Yield Vault)`,
-                'success'
-              )
-            }
-          }}
-          onCreateSuccess={(title, amount) => {
-            addBroadcast({
-              type: 'pool',
-              title: 'Agent Bounty Launched!',
-              status: 'success',
-              badgeText: 'Confirmed',
-              message: `Created ${title} with ${amount} USDC yield-generating escrow on Arc Testnet`,
-              details: {
-                poolAction: 'deposit',
-                poolName: title,
-                amount: amount.toString(),
-                tokenSymbol: 'USDC',
-                tokenIcon: TOKEN_ICON_MAP['USDC'],
-                network: 'Arc_Testnet',
-              },
-            })
-            if (addToast) {
-              addToast(
-                'Agent Bounty Launched!',
-                `Created ${title} with ${amount} USDC yield-generating escrow on Arc Testnet`,
-                'success'
-              )
-            }
-          }}
         />
       )}
     </div>

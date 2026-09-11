@@ -1,7 +1,7 @@
 // Minimal & Informative Pool Card for Arcis Pools & Yield Hub.
 // Features a clean layout, streamlined metrics, live APY badge,
 // user position overview, and collapsible technical details.
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Unlock,
   ChevronDown,
@@ -12,6 +12,7 @@ import {
   Globe,
   TrendingUp,
   Info,
+  Coins,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
@@ -27,10 +28,9 @@ interface PoolCardProps {
   walletConnected: boolean
   onDeposit: (pool: PoolConfig) => void
   onWithdraw: (pool: PoolConfig) => void
-  onOpenAgentBounties?: (pool: PoolConfig) => void
-  onGatewayDeposit?: (pool: PoolConfig) => void
-  onGatewaySpend?: (pool: PoolConfig) => void
-  gatewayBalance?: string
+  onClaim?: (poolId: string) => void
+  isClaiming?: boolean
+  claimingPoolId?: string | null
 }
 
 export default function PoolCard({
@@ -38,13 +38,28 @@ export default function PoolCard({
   walletConnected,
   onDeposit,
   onWithdraw,
-  onGatewaySpend,
-  gatewayBalance,
+  onClaim,
+  isClaiming = false,
+  claimingPoolId = null,
 }: PoolCardProps) {
   const [showDetails, setShowDetails] = useState(false)
 
+  const prevVolRef = useRef(pool.volume24hUsd)
+  const [volUpdated, setVolUpdated] = useState(false)
+
+  useEffect(() => {
+    if (prevVolRef.current !== undefined && prevVolRef.current !== pool.volume24hUsd && (pool.volume24hUsd || 0) > 0) {
+      setVolUpdated(true)
+      const timer = setTimeout(() => setVolUpdated(false), 1400)
+      return () => clearTimeout(timer)
+    }
+    prevVolRef.current = pool.volume24hUsd
+  }, [pool.volume24hUsd])
+
   const userStaked = parseFloat(pool.userPosition?.stakedAmount || '0')
   const hasDeposit = userStaked > 0
+  const earnedUsd = pool.userPosition?.earnedUsd || 0
+  const isThisPoolClaiming = isClaiming && claimingPoolId === pool.id
 
   const { formattedYield: liveCardYield, yieldPerSecond: cardYieldPerSec } = useContinuousYieldStream(
     userStaked,
@@ -262,19 +277,15 @@ export default function PoolCard({
         </div>
 
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
-            <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+            <span style={{ fontSize: 10, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>
               24H VOLUME
             </span>
             <span
               title={
                 pool.category === 'vault'
-                  ? 'Total 24-hour platform transaction volume feeding the 90% protocol revenue share distributed to vault depositors.'
-                  : pool.category === 'crosschain'
-                  ? 'Total cross-chain settlement volume routed through Circle Gateway over the last 24 hours.'
-                  : pool.clientVolumeUsd && pool.clientVolumeUsd > 0
-                  ? `Verified on-chain 24H pool volume: $${(pool.volume24hUsd || 0).toFixed(2)} (Your device: $${pool.clientVolumeUsd.toFixed(2)})`
-                  : 'Total on-chain swap trading volume executed in this pool over the last 24 hours.'
+                  ? 'Total 24-hour platform swap volume feeding protocol revenue distributed to vault depositors.'
+                  : `Verified on-chain 24H pool swap volume: $${(pool.volume24hUsd || 0).toFixed(2)}`
               }
               style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
             >
@@ -286,8 +297,10 @@ export default function PoolCard({
               style={{
                 fontSize: 12.5,
                 fontWeight: 600,
-                color: '#fff',
+                color: volUpdated ? '#34d399' : '#fff',
                 fontFamily: 'var(--fonts--space-grotesk)',
+                transition: 'color 0.4s ease, text-shadow 0.4s ease',
+                textShadow: volUpdated ? '0 0 10px rgba(52, 211, 153, 0.5)' : 'none',
               }}
             >
               {(pool.volume24hUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -470,7 +483,7 @@ export default function PoolCard({
               )
             })() : pool.userPosition?.lpTokenBalance ? (
               <span style={{ fontSize: 9.5, color: 'var(--fp-3)' }}>
-                {parseFloat(pool.userPosition.lpTokenBalance).toFixed(2)} {pool.id === 'gateway-settlement-pool' ? 'USDC Gateway Liquidity' : 'af-USDC Vault Shares'}
+                {parseFloat(pool.userPosition.lpTokenBalance).toFixed(2)} af-USDC Vault Shares
               </span>
             ) : null}
           </div>
@@ -523,6 +536,36 @@ export default function PoolCard({
                 <Info size={10} />
               </span>
             </div>
+
+            {/* Quick Claim on Position Strip */}
+            {hasDeposit && earnedUsd >= 0.01 && onClaim && (
+              <button
+                type="button"
+                onClick={() => onClaim(pool.id)}
+                disabled={isThisPoolClaiming}
+                style={{
+                  marginTop: 4,
+                  padding: '3px 10px',
+                  borderRadius: 99,
+                  background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.25) 0%, rgba(56, 189, 248, 0.2) 100%)',
+                  border: '1px solid rgba(1, 208, 98, 0.45)',
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  fontFamily: 'var(--font-app)',
+                  cursor: isThisPoolClaiming ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  boxShadow: '0 0 10px rgba(1, 208, 98, 0.2)',
+                  transition: 'all 0.15s ease',
+                }}
+                title={`Claim accrued earnings (+${earnedUsd.toFixed(2)} USDC) directly to your wallet`}
+              >
+                <Coins size={11} style={{ color: 'var(--earned-green)' }} />
+                <span>{isThisPoolClaiming ? 'Claiming...' : `Claim +$${earnedUsd.toFixed(2)}`}</span>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -543,23 +586,29 @@ export default function PoolCard({
           }}
         >
           <Plus size={13} />
-          <span>{pool.isLpPool || pool.id === 'gateway-settlement-pool' ? 'Add Liquidity' : 'Deposit'}</span>
+          <span>{pool.isLpPool ? 'Add Liquidity' : 'Deposit'}</span>
         </button>
 
-        {/* Gateway Action Buttons */}
-        {pool.isCrossChainPool && onGatewaySpend && (
+        {/* Claim Button */}
+        {hasDeposit && earnedUsd >= 0.01 && onClaim && (
           <button
             type="button"
-            onClick={() => onGatewaySpend(pool)}
+            onClick={() => onClaim(pool.id)}
+            disabled={isThisPoolClaiming}
             className="ub-action-btn"
             style={{
-              padding: '8px 12px',
-              fontSize: 11,
-              borderColor: 'rgba(99, 102, 241, 0.35)',
-              color: '#60a5fa',
+              padding: '8px 14px',
+              fontSize: 12,
+              fontWeight: 600,
+              background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.16) 0%, rgba(56, 189, 248, 0.12) 100%)',
+              border: '1px solid rgba(1, 208, 98, 0.45)',
+              color: 'var(--earned-green)',
+              boxShadow: '0 0 12px rgba(1, 208, 98, 0.15)',
             }}
+            title={`Claim ${earnedUsd.toFixed(2)} USDC in profit without unstaking principal`}
           >
-            <span>Spend</span>
+            <Coins size={13} />
+            <span>{isThisPoolClaiming ? 'Claiming...' : `Claim +$${earnedUsd.toFixed(2)}`}</span>
           </button>
         )}
 
@@ -576,7 +625,7 @@ export default function PoolCard({
             }}
           >
             <Minus size={13} />
-            <span>{pool.isLpPool || pool.id === 'gateway-settlement-pool' ? 'Remove Liquidity' : 'Withdraw'}</span>
+            <span>{pool.isLpPool ? 'Remove Liquidity' : 'Withdraw'}</span>
           </button>
         )}
 
@@ -684,39 +733,24 @@ export default function PoolCard({
             </span>
           </div>
 
-          {pool.isCrossChainPool && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Gateway Balance:</span>
-              <span style={{ color: '#60a5fa', fontWeight: 500 }}>{gatewayBalance || '—'}</span>
-            </div>
-          )}
-          {!pool.isCrossChainPool ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Contract Address:</span>
-              <a
-                href={getExplorerAddressUrl('Arc_Testnet', pool.contractAddress)}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  color: 'var(--purple-1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  textDecoration: 'none',
-                }}
-              >
-                <span>{pool.contractAddress.slice(0, 8)}...{pool.contractAddress.slice(-6)}</span>
-                <ExternalLink size={10} />
-              </a>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Settlement Infrastructure:</span>
-              <span style={{ color: '#60a5fa', fontWeight: 500, fontSize: 11 }}>
-                Circle Gateway (Sub-second Finality)
-              </span>
-            </div>
-          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Contract Address:</span>
+            <a
+              href={getExplorerAddressUrl('Arc_Testnet', pool.contractAddress)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: 'var(--purple-1)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                textDecoration: 'none',
+              }}
+            >
+              <span>{pool.contractAddress.slice(0, 8)}...{pool.contractAddress.slice(-6)}</span>
+              <ExternalLink size={10} />
+            </a>
+          </div>
 
           <div
             style={{

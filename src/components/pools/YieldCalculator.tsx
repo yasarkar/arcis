@@ -1,16 +1,12 @@
-// src/components/pools/YieldCalculator.tsx
-//
 // Interactive Yield & ROI Simulator for Arcis.
 // Allows users to simulate compounding interest across USYC, Real-Yield, and LP pools.
-
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  Calculator,
   X,
   Plus,
   Wallet,
-  Activity,
+  TrendingUp,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { ARCIS_POOLS, type PoolConfig } from '../../config/poolsConfig'
@@ -70,7 +66,6 @@ export default function YieldCalculator({
     { label: '90 Days (3 Mo)', days: 90 },
     { label: '180 Days (6 Mo)', days: 180 },
     { label: '1 Year (365 D)', days: 365 },
-    { label: '3 Years', days: 365 * 3 },
   ]
 
   const quickAmounts = ['500', '1000', '5000']
@@ -128,7 +123,7 @@ export default function YieldCalculator({
         {/* Modal Header */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <Calculator size={18} style={{ color: 'var(--purple-1)' }} />
+            <TrendingUp size={18} style={{ color: 'var(--purple-1)' }} />
             <span
               className="arc-eyebrow"
               style={{ fontSize: 12, color: 'var(--purple-1)', fontWeight: 600, letterSpacing: '1.5px' }}
@@ -207,33 +202,35 @@ export default function YieldCalculator({
           </div>
 
           {/* Quick Amount Chips */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {walletBalanceUsdc && parseFloat(walletBalanceUsdc) > 0 && (
               <button
                 type="button"
                 onClick={() => setPrincipal(parseFloat(walletBalanceUsdc).toFixed(2))}
                 style={{
-                  background: principal === parseFloat(walletBalanceUsdc).toFixed(2)
-                    ? 'rgba(1, 208, 98, 0.25)'
-                    : 'rgba(1, 208, 98, 0.1)',
-                  border: principal === parseFloat(walletBalanceUsdc).toFixed(2)
-                    ? '1px solid rgba(1, 208, 98, 0.5)'
-                    : '1px solid rgba(1, 208, 98, 0.25)',
-                  color: '#34d399',
-                  padding: '4px 12px',
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  background:
+                    principal === parseFloat(walletBalanceUsdc).toFixed(2)
+                      ? 'rgba(152, 150, 255, 0.25)'
+                      : 'rgba(255, 255, 255, 0.04)',
+                  border:
+                    principal === parseFloat(walletBalanceUsdc).toFixed(2)
+                      ? '1px solid rgba(152, 150, 255, 0.45)'
+                      : '1px solid rgba(255, 255, 255, 0.08)',
+                  color: principal === parseFloat(walletBalanceUsdc).toFixed(2) ? '#fff' : 'var(--fp-3)',
+                  padding: '4px 10px',
                   borderRadius: 99,
                   fontSize: 11,
                   fontFamily: 'var(--font-app)',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
                   transition: 'all 0.15s ease',
                 }}
               >
-                <Wallet size={11} />
-                <span>My Balance (${parseFloat(walletBalanceUsdc).toFixed(2)})</span>
+                <Wallet size={12} />
+                <span>{parseFloat(walletBalanceUsdc).toFixed(2)} USDC</span>
               </button>
             )}
             {quickAmounts.map((amt) => (
@@ -260,7 +257,7 @@ export default function YieldCalculator({
                   transition: 'all 0.15s ease',
                 }}
               >
-                ${parseInt(amt).toLocaleString()}
+                {parseInt(amt).toLocaleString()} USDC
               </button>
             ))}
           </div>
@@ -351,61 +348,7 @@ export default function YieldCalculator({
             <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', fontFamily: 'var(--font-app)' }}>
               Projected Returns: {selectedPool.name}
             </span>
-            <span
-              style={{
-                fontSize: 11,
-                fontFamily: 'var(--font-app)',
-                color: 'var(--earned-green)',
-                background: 'rgba(1, 208, 98, 0.12)',
-                padding: '2px 8px',
-                borderRadius: 99,
-                fontWeight: 600,
-              }}
-            >
-              {selectedPool.apy}% APY (Daily Accrual)
-            </span>
           </div>
-
-          {/* Live Continuous Accrual Simulator Bar */}
-          {principalNum > 0 && (
-            <div
-              style={{
-                background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.1) 0%, rgba(56, 189, 248, 0.08) 100%)',
-                border: '1px solid rgba(1, 208, 98, 0.25)',
-                borderRadius: 12,
-                padding: '10px 14px',
-                marginBottom: 12,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: 'var(--earned-green)',
-                    boxShadow: '0 0 6px var(--earned-green)',
-                    display: 'inline-block',
-                    animation: 'pulse 1.5s infinite',
-                  }}
-                />
-                <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600, fontFamily: 'var(--font-app)' }}>
-                  Sub-Second Linear Yield Projection:
-                </span>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ color: 'var(--earned-green)', fontWeight: 700, fontFamily: 'var(--fonts--space-grotesk)', fontSize: 13 }}>
-                  +${simLiveYield} USDC
-                </span>
-                <span style={{ fontSize: 9.5, color: 'var(--fp-4)', display: 'block' }}>
-                  (+${(simYieldPerSec).toFixed(6)}/sec)
-                </span>
-              </div>
-            </div>
-          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {periods.map((period) => {
@@ -436,10 +379,7 @@ export default function YieldCalculator({
                         display: 'block',
                       }}
                     >
-                      +${res.yieldEarned.toFixed(2)} USDC
-                    </span>
-                    <span style={{ fontSize: 10, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>
-                      Total: ${res.finalAmount.toFixed(2)}
+                      +{res.yieldEarned.toFixed(2)} USDC
                     </span>
                   </div>
                 </div>
@@ -447,7 +387,7 @@ export default function YieldCalculator({
             })}
           </div>
           <p style={{ fontSize: 10.5, color: 'var(--fp-4)', margin: '12px 0 0 0', textAlign: 'center', lineHeight: 1.4 }}>
-            * Linear stream and compound projections assume constant base APY. Realized returns compound directly on-chain into share value and fluctuate with protocol utilization and swap volume.
+            Linear stream and compound projections assume constant base APY. Realized returns compound directly on-chain into share value and fluctuate with protocol utilization and swap volume.
           </p>
         </div>
 
@@ -469,7 +409,7 @@ export default function YieldCalculator({
             }}
           >
             <Plus size={16} />
-            <span>{selectedPool.isLpPool || selectedPool.id === 'gateway-settlement-pool' ? 'Add Liquidity to' : 'Deposit to'} {selectedPool.name}</span>
+            <span>{selectedPool.isLpPool ? 'Add Liquidity' : 'Deposit'}</span>
           </button>
         )}
       </div>
