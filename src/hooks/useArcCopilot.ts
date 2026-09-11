@@ -674,8 +674,8 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
                 receipt: {
                   id: `rcpt_err_${Date.now()}`,
                   actionType: dynamicActionType,
-                  title: cleanErr.title,
-                  status: 'FAILED',
+                  title: cleanErr.isCanceled ? 'Operation Canceled' : cleanErr.title,
+                  status: cleanErr.isCanceled ? 'CANCELED' : 'FAILED',
                   txHash: '',
                   gasUsdc: 0,
                   settlementLatencyMs: 0,
@@ -1253,7 +1253,7 @@ USDC routed through Circle Gateway earns routing yield while staying instantly s
 • <strong>USDC / EURC Stable Pool (6.15% APR):</strong>
 Stablecoin LP pair with near-zero impermanent loss, earning FX fees from euro (EURC) swaps.
 
-• <strong>USDC / tcirBTC Test Pool (12.8% APR):</strong>
+• <strong>USDC / cirBTC Liquidity Pool (12.8% APR):</strong>
 Volatile BTC pair with the highest yield but Medium impermanent-loss risk.
 
 Use the Yield Calculator in the Pools tab to simulate compounding before you deposit.`,
@@ -1335,7 +1335,7 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
       totalCost += s2.priceUsdc
       steps[1].status = 'completed'
       steps[1].durationMs = r2.executionTimeMs
-      steps[1].resultSummary = `Net Profit: $${r2.data?.bestRoute?.netProfitUsdc} USDC (${r2.data?.bestRoute?.netProfitPct}%)`
+      steps[1].resultSummary = `Net Profit: ${r2.data?.bestRoute?.netProfitUsdc} USDC (${r2.data?.bestRoute?.netProfitPct}%)`
       setCurrentSteps([...steps])
 
       // Step 3: MEV Risk Check
@@ -1365,11 +1365,11 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
 
 An optimal cross-DEX cycle on Arc L1 has been detected for a 25,000 USDC trade:
 
-• <strong>Buy Pool:</strong> ${r2.data?.bestRoute?.buyDex} @ $${r2.data?.bestRoute?.buyPriceUsdc}
-• <strong>Sell Pool:</strong> ${r2.data?.bestRoute?.sellDex} @ $${r2.data?.bestRoute?.sellPriceUsdc}
+• <strong>Buy Pool:</strong> ${r2.data?.bestRoute?.buyDex} @ ${r2.data?.bestRoute?.buyPriceUsdc}
+• <strong>Sell Pool:</strong> ${r2.data?.bestRoute?.sellDex} @ ${r2.data?.bestRoute?.sellPriceUsdc}
 • <strong>Gross Spread:</strong> ${r2.data?.bestRoute?.grossSpreadPct}%
-• <strong>Arc L1 Gas Cost:</strong> $${r2.data?.bestRoute?.estimatedGasCostUsdc} USDC
-• <strong>Estimated Net Profit:</strong> +$${r2.data?.bestRoute?.netProfitUsdc} USDC (${r2.data?.bestRoute?.netProfitPct}%)
+• <strong>Arc L1 Gas Cost:</strong> ${r2.data?.bestRoute?.estimatedGasCostUsdc} USDC
+• <strong>Estimated Net Profit:</strong> +${r2.data?.bestRoute?.netProfitUsdc} USDC (${r2.data?.bestRoute?.netProfitPct}%)
 
 <strong>MEV Shielding:</strong>
 Execution is secured via private Arcis relayer tunnels to ensure zero sandwich exploitation.`,

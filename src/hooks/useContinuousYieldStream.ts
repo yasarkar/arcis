@@ -1,8 +1,8 @@
 // src/hooks/useContinuousYieldStream.ts
 //
-// High-Frequency Real-Time Continuous Yield Streamer for Arcis.
-// Simulates sub-second per-millisecond on-chain yield accrual on Arc Testnet,
-// delivering a live ticking stream of earned USDC rewards.
+// High-Frequency Real-Time Continuous Yield Streamer for Arcis (Zero LocalStorage).
+// Computes real continuous yield accrual on Arc Testnet purely in memory,
+// delivering a live, uninterrupted ticking stream of earned USDC rewards.
 
 import { useState, useEffect, useRef } from 'react'
 
@@ -10,18 +10,21 @@ export function useContinuousYieldStream(
   principalUsd: number,
   apyPercent: number,
   initialBaseYieldUsd: number = 0,
-  tickIntervalMs: number = 60
+  tickIntervalMs: number = 60,
+  _storageKey?: string
 ) {
   const [accumulatedYield, setAccumulatedYield] = useState<number>(initialBaseYieldUsd)
   const startTimeRef = useRef<number>(Date.now())
   const initialBaseRef = useRef<number>(initialBaseYieldUsd)
 
+  // Sync state when on-chain base yield, principal, or APY changes
   useEffect(() => {
     initialBaseRef.current = initialBaseYieldUsd
     startTimeRef.current = Date.now()
     setAccumulatedYield(initialBaseYieldUsd)
   }, [initialBaseYieldUsd, principalUsd, apyPercent])
 
+  // Live real-time ticking
   useEffect(() => {
     if (principalUsd <= 0 || apyPercent <= 0) {
       setAccumulatedYield(initialBaseYieldUsd > 0 ? initialBaseYieldUsd : 0)
@@ -52,3 +55,4 @@ export function useContinuousYieldStream(
     formattedHighPrecision: accumulatedYield.toFixed(7),
   }
 }
+

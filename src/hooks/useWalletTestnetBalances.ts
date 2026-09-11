@@ -4,26 +4,12 @@
 // across supported EVM testnet RPCs for Gateway deposit.
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createPublicClient, http, erc20Abi, formatUnits, type Chain } from 'viem'
+import { erc20Abi, formatUnits, type Chain } from 'viem'
 import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig'
-import { arcTestnet } from '../config/arcChain'
-import { sepolia, baseSepolia, arbitrumSepolia, optimismSepolia, polygonAmoy, avalancheFuji } from 'wagmi/chains'
-import { hyperEVMTestnet, seiTestnet, sonicTestnet, unichainSepolia, worldChainSepolia } from '../config/wagmi'
+import { CHAIN_DEFS } from '../config/chainMeta'
+import { getResilientPublicClient, resilientReadContract } from '../services/rpc'
 
-export const TESTNET_CHAINS: Record<string, Chain> = {
-  Arc_Testnet: arcTestnet,
-  Ethereum_Sepolia: sepolia,
-  Base_Sepolia: baseSepolia,
-  Arbitrum_Sepolia: arbitrumSepolia,
-  Optimism_Sepolia: optimismSepolia,
-  Polygon_Amoy_Testnet: polygonAmoy,
-  Avalanche_Fuji: avalancheFuji,
-  HyperEVM_Testnet: hyperEVMTestnet,
-  Sei_Testnet: seiTestnet,
-  Sonic_Testnet: sonicTestnet,
-  Unichain_Sepolia: unichainSepolia,
-  World_Chain_Sepolia: worldChainSepolia,
-}
+export const TESTNET_CHAINS: Record<string, Chain> = CHAIN_DEFS
 
 export interface WalletChainBalance {
   chainKey: string
@@ -77,18 +63,15 @@ export function useWalletTestnetBalances(walletAddress: string) {
           const eurcAddress = EURC_ADDRESSES[chainKey]
           const cirbtcAddress = CIRBTC_ADDRESSES[chainKey]
 
-          const rpcUrl = chainDef.rpcUrls?.default?.http?.[0]
-          if (!rpcUrl || !usdcAddress) {
-            throw new Error(`RPC URL or USDC address missing for ${chainKey}`)
+          if (!usdcAddress) {
+            throw new Error(`USDC address missing for ${chainKey}`)
           }
 
-          const client = createPublicClient({
-            chain: chainDef,
-            transport: http(rpcUrl, { timeout: 6000, retryCount: 1 }),
-          })
+          // Use pooled singleton resilient client with automatic multi-RPC failover
+          const client = getResilientPublicClient(chainKey)
 
-          // Fetch USDC balance
-          const usdcRaw = await client.readContract({
+          // Fetch USDC balance with in-flight deduplication
+          const usdcRaw = await resilientReadContract(client, {
             address: usdcAddress,
             abi: erc20Abi,
             functionName: 'balanceOf',
@@ -100,7 +83,7 @@ export function useWalletTestnetBalances(walletAddress: string) {
           let eurcFormatted: string | undefined = undefined
           if (eurcAddress) {
             try {
-              const eurcRaw = await client.readContract({
+              const eurcRaw = await resilientReadContract(client, {
                 address: eurcAddress,
                 abi: erc20Abi,
                 functionName: 'balanceOf',
@@ -116,7 +99,7 @@ export function useWalletTestnetBalances(walletAddress: string) {
           let cirbtcFormatted: string | undefined = undefined
           if (cirbtcAddress) {
             try {
-              const cirbtcRaw = await client.readContract({
+              const cirbtcRaw = await resilientReadContract(client, {
                 address: cirbtcAddress,
                 abi: erc20Abi,
                 functionName: 'balanceOf',

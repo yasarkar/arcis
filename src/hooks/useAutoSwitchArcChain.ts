@@ -1,89 +1,59 @@
+// src/hooks/useAutoSwitchArcChain.ts
+/**
+ * Auto-switch hook for Arc L1.
+ * Automatically prompts the user to switch their wallet to the active Arc network
+ * upon initial connection, if on another chain.
+ * Backed by the centralized chainSwitchService.
+ */
+
 import { useEffect, useRef, useCallback } from 'react'
-import { useAccount, useSwitchChain } from 'wagmi'
-import { arcTestnet } from '../config/arcChain'
-import { useBroadcast } from '../components/BroadcastNotification'
+import { useAccount } from 'wagmi'
+import { arcTestnet, arcMainnet, arcActiveChain } from '../config/networks/networkRegistry'
+import {
+  ensureArcNetwork,
+  buildAddEthereumChainParameter,
+} from '../services/chainSwitchService'
+import { useChainSwitch } from './useChainSwitch'
 
+export const ARC_ACTIVE_CHAIN_ID = arcActiveChain.id
 export const ARC_TESTNET_CHAIN_ID = arcTestnet.id
+export const ARC_MAINNET_CHAIN_ID = arcMainnet.id
 export const ARC_TESTNET_HEX_ID = `0x${arcTestnet.id.toString(16)}` as const
+export const ARC_ACTIVE_HEX_ID = `0x${arcActiveChain.id.toString(16)}` as const
 
-export const ARC_TESTNET_ADD_ETHEREUM_CHAIN_PARAMS = {
-  chainId: ARC_TESTNET_HEX_ID,
-  chainName: arcTestnet.name,
-  nativeCurrency: arcTestnet.nativeCurrency,
-  rpcUrls: arcTestnet.rpcUrls.default.http,
-  blockExplorerUrls: arcTestnet.blockExplorers?.default?.url,
-}
+export const ARC_TESTNET_ADD_ETHEREUM_CHAIN_PARAMS = buildAddEthereumChainParameter(arcTestnet)
+export const ARC_ACTIVE_ADD_ETHEREUM_CHAIN_PARAMS = buildAddEthereumChainParameter(arcActiveChain)
 
 export function useAutoSwitchArcChain() {
   const { isConnected, chainId, connector } = useAccount()
-  const { switchChainAsync } = useSwitchChain()
-  const { addBroadcast } = useBroadcast()
+  const { switchToArc } = useChainSwitch()
   const hasAttemptedThisSession = useRef<boolean>(false)
 
-  // Manual trigger function to switch/add Arc Testnet
-  const switchToArcTestnet = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+  // Trigger function to switch or add Arc network
+  const handleSwitchToArc = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    if (!isConnected) {
+      return { success: false, error: 'Wallet is not connected.' }
+    }
+
     try {
-      if (!isConnected) {
-        return { success: false, error: 'Wallet is not connected.' }
-      }
-
-      // Try Wagmi standard switch first
-      try {
-        await switchChainAsync({ chainId: ARC_TESTNET_CHAIN_ID })
-        addBroadcast({
-          type: 'system',
-          status: 'success',
-          title: 'Arc Testnet Switched',
-          message: 'Your wallet has been successfully switched to the Arc Testnet network.',
-          badgeText: 'Arc L1',
-        })
-        return { success: true }
-      } catch (switchErr: any) {
-        const errCode = switchErr?.code || switchErr?.cause?.code
-        const errMsg = switchErr?.message || ''
-
-        // 4902 means the chain has not been added to the wallet yet
-        if (errCode === 4902 || errMsg.includes('Unrecognized chain') || errMsg.includes('wallet_addEthereumChain')) {
-          const provider = (await connector?.getProvider()) as any
-          if (provider && typeof provider.request === 'function') {
-            await provider.request({
-              method: 'wallet_addEthereumChain',
-              params: [ARC_TESTNET_ADD_ETHEREUM_CHAIN_PARAMS],
-            })
-            addBroadcast({
-              type: 'system',
-              status: 'success',
-              title: 'Arc Testnet Added to Wallet',
-              message: 'Arc Testnet network has been added to your wallet and selected as the active network.',
-              badgeText: 'Arc L1',
-            })
-            return { success: true }
-          }
-        }
-
-        // 4001 means user canceled the prompt
-        if (errCode === 4001 || errMsg.includes('canceled') || errMsg.includes('User canceled')) {
-          return { success: false, error: 'The network switch request was canceled in the wallet.' }
-        }
-
-        throw switchErr
-      }
+      const provider = (await connector?.getProvider()) as any
+      const res = await ensureArcNetwork(provider)
+      return { success: res.success, error: res.error }
     } catch (err: any) {
       console.error('[useAutoSwitchArcChain] Switch error:', err)
-      const msg = err?.message || 'Arc Testnet switch failed.'
-      return { success: false, error: msg }
+      return { success: false, error: err?.message || 'Arc network switch failed.' }
     }
-  }, [isConnected, switchChainAsync, connector, addBroadcast])
+  }, [isConnected, connector])
 
   // Automatic one-shot trigger on initial wallet connection
   useEffect(() => {
     // Only trigger if wallet is connected and on a different EVM network
-    if (!isConnected || chainId === ARC_TESTNET_CHAIN_ID) return
+    if (!isConnected || chainId === arcActiveChain.id) return
 
-    // Prevent annoying infinite popup loops in the current session
+    // Prevent repeated prompts in the current session
     if (hasAttemptedThisSession.current) return
 
-    // Check if user already declined in this browser tab
+    // Check if user already declined in this browser session
     const alreadyDeclined = sessionStorage.getItem('arcis_auto_switch_declined')
     if (alreadyDeclined === 'true') return
 
@@ -92,8 +62,8 @@ export function useAutoSwitchArcChain() {
     // Small delay to let wallet connection UI settle
     const timer = setTimeout(async () => {
       try {
-        const res = await switchToArcTestnet()
-        if (!res.success && res.error?.includes('iptal')) {
+        const res = await switchToArc()
+        if (!res.success && res.isCanceled) {
           sessionStorage.setItem('arcis_auto_switch_declined', 'true')
         }
       } catch (e) {
@@ -102,12 +72,13 @@ export function useAutoSwitchArcChain() {
     }, 600)
 
     return () => clearTimeout(timer)
-  }, [isConnected, chainId, switchToArcTestnet])
+  }, [isConnected, chainId, switchToArc])
 
   return {
-    isWrongNetwork: Boolean(isConnected && chainId && chainId !== ARC_TESTNET_CHAIN_ID),
+    isWrongNetwork: Boolean(isConnected && chainId && chainId !== arcActiveChain.id),
     currentChainId: chainId,
-    targetChainId: ARC_TESTNET_CHAIN_ID,
-    switchToArcTestnet,
+    targetChainId: arcActiveChain.id,
+    switchToArc: handleSwitchToArc,
+    switchToArcTestnet: handleSwitchToArc, // Backward compatibility alias
   }
 }

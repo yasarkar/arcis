@@ -3,16 +3,15 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  createPublicClient,
   createWalletClient,
-  http,
   custom,
   parseUnits,
   encodeFunctionData,
   type Hex,
   type Address,
 } from 'viem'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
+import { arcTestnet } from '../config/arcChain'
+import { getArcPublicClient, resilientReadContract, resilientWaitForReceipt } from '../services/rpc'
 import {
   AGENT_BOUNTIES_LIST,
   DEFAULT_AGENT_BOUNTY_ADDRESS,
@@ -23,8 +22,6 @@ import {
 } from '../config/poolsConfig'
 import { sendModularUserOperation, getActiveSmartAccount } from '../services/modularWalletService'
 import { addTransaction } from '../utils/history'
-
-const STORAGE_KEY = 'arcis_agent_bounties_state_v2'
 
 async function executeEscrowDeposit(amountUsdc: number, userAddress: string): Promise<string> {
   const amountUnits = parseUnits(amountUsdc.toString(), 6)
@@ -68,12 +65,9 @@ async function executeEscrowDeposit(amountUsdc: number, userAddress: string): Pr
       chain: arcTestnet,
       transport: custom(provider),
     })
-    const publicClient = createPublicClient({
-      chain: arcTestnet,
-      transport: http(ARC_METADATA.rpcHttpUrl),
-    })
+    const publicClient = getArcPublicClient()
 
-    const allowance = await publicClient.readContract({
+    const allowance = await resilientReadContract(publicClient, {
       address: POOL_CONTRACTS.USDC,
       abi: ERC20_ABI,
       functionName: 'allowance',
@@ -89,7 +83,7 @@ async function executeEscrowDeposit(amountUsdc: number, userAddress: string): Pr
         chain: arcTestnet,
         account,
       })
-      await publicClient.waitForTransactionReceipt({ hash: approveTx })
+      await resilientWaitForReceipt(publicClient, approveTx, 'Bounty Approve')
     }
 
     const depositTx = await walletClient.writeContract({
@@ -100,82 +94,56 @@ async function executeEscrowDeposit(amountUsdc: number, userAddress: string): Pr
       chain: arcTestnet,
       account,
     })
-    await publicClient.waitForTransactionReceipt({ hash: depositTx })
+    await resilientWaitForReceipt(publicClient, depositTx, 'Bounty Deposit')
     return depositTx
   }
 
-  throw new Error('Lütfen emanet işlemi için bir cüzdan bağlayın (Passkey veya MetaMask).')
+  throw new Error('Please connect a wallet (Passkey or MetaMask) to proceed with escrow deposit.')
 }
 
 export function useAgentBounties(walletAddress: string) {
-  const [bounties, setBounties] = useState<AgentBountyTask[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) return JSON.parse(saved)
-    } catch (e) {
-      console.warn('Failed to load agent bounties from localStorage:', e)
-    }
-    return AGENT_BOUNTIES_LIST
+  const [bounties, setBounties] = useState<AgentBountyTask[]>(AGENT_BOUNTIES_LIST)
+
+  const [userSponsored, setUserSponsored] = useState<Record<string, number>>({
+    'bounty-1': 100,
+    'bounty-3': 50,
   })
 
-  const [userSponsored, setUserSponsored] = useState<Record<string, number>>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_user_${walletAddress}`)
-      if (saved) return JSON.parse(saved)
-    } catch (e) {}
-    return {
-      'bounty-1': 100,
-      'bounty-3': 50,
-    }
-  })
+  const [claimedYields, setClaimedYields] = useState<Record<string, number>>({})
 
-  const [claimedYields, setClaimedYields] = useState<Record<string, number>>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_claimed_${walletAddress}`)
-      if (saved) return JSON.parse(saved)
-    } catch (e) {}
-    return {}
-  })
-
-  // Sync to local storage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(bounties))
-    } catch (e) {}
+  // Compute live continuous yield accrual for all bounties in real-time
+  const liveBounties = useMemo(() => {
+    const now = Date.now()
+    return bounties.map((b) => {
+      const startTime = b.escrowStartTime || (now - 1000 * 60 * 60 * 24 * 10)
+      const elapsedDays = Math.max(0, (now - startTime) / (1000 * 60 * 60 * 24))
+      const apr = b.yieldApr || 8.42
+      const dynamicYield = (b.escrowLockedUsdc * (apr / 100) * elapsedDays) / 365
+      return {
+        ...b,
+        accumulatedYieldUsdc: parseFloat(dynamicYield.toFixed(2)),
+      }
+    })
   }, [bounties])
 
-  useEffect(() => {
-    if (!walletAddress) return
-    try {
-      localStorage.setItem(`${STORAGE_KEY}_user_${walletAddress}`, JSON.stringify(userSponsored))
-    } catch (e) {}
-  }, [userSponsored, walletAddress])
-
-  useEffect(() => {
-    if (!walletAddress) return
-    try {
-      localStorage.setItem(`${STORAGE_KEY}_claimed_${walletAddress}`, JSON.stringify(claimedYields))
-    } catch (e) {}
-  }, [claimedYields, walletAddress])
-
   // Total USDC in active escrow across all agent tasks
-  const totalEscrowUsdc = bounties.reduce((acc, b) => acc + b.escrowLockedUsdc, 0)
+  const totalEscrowUsdc = liveBounties.reduce((acc, b) => acc + b.escrowLockedUsdc, 0)
 
   // Total sponsored principal by this user
   const userTotalSponsoredUsdc = Object.values(userSponsored).reduce((acc, val) => acc + val, 0)
 
   // Total live yield generated across all escrow funds (at ~8.42% APY)
   const totalEscrowYieldEarnedUsdc = useMemo(() => {
-    return bounties.reduce((acc, b) => {
+    return liveBounties.reduce((acc, b) => {
       const baseYield = b.accumulatedYieldUsdc || 0
       return acc + baseYield
     }, 0)
-  }, [bounties])
+  }, [liveBounties])
 
   // User's personal claimable escrow yield dividend
   const userTotalSponsorYieldEarnedUsdc = useMemo(() => {
     let total = 0
-    bounties.forEach((b) => {
+    liveBounties.forEach((b) => {
       const userStake = userSponsored[b.id] || 0
       if (userStake > 0 && b.escrowLockedUsdc > 0) {
         const poolYield = b.accumulatedYieldUsdc || 0
@@ -185,14 +153,14 @@ export function useAgentBounties(walletAddress: string) {
       }
     })
     return total
-  }, [bounties, userSponsored, claimedYields])
+  }, [liveBounties, userSponsored, claimedYields])
 
   // ── Sponsor / Fund an Agent Bounty ─────────────────────────────────────────
   const sponsorBounty = useCallback(
     async (bountyId: string, amountStr: string): Promise<{ txHash: string; newTotal: number }> => {
       const amt = parseFloat(amountStr)
       if (isNaN(amt) || amt <= 0) {
-        throw new Error('Geçersiz sponsorluk miktarı')
+        throw new Error('Invalid sponsorship amount')
       }
 
       const txHash = await executeEscrowDeposit(amt, walletAddress)
@@ -246,7 +214,7 @@ export function useAgentBounties(walletAddress: string) {
     ): Promise<{ txHash: string; bounty: AgentBountyTask }> => {
       const reward = parseFloat(rewardUsdc)
       if (isNaN(reward) || reward <= 0) {
-        throw new Error('Geçersiz ödül miktarı')
+        throw new Error('Invalid bounty reward amount')
       }
 
       const txHash = await executeEscrowDeposit(reward, walletAddress)
@@ -303,7 +271,7 @@ export function useAgentBounties(walletAddress: string) {
       if (!targetBounty) throw new Error('Bounty not found')
 
       const userStake = userSponsored[bountyId] || 0
-      if (userStake <= 0) throw new Error('Bu görevde kilitli emanet payınız bulunmuyor')
+      if (userStake <= 0) throw new Error('You do not have any locked escrow stake in this bounty task')
 
       const poolYield = targetBounty.accumulatedYieldUsdc || 0
       const userShare = (userStake / targetBounty.escrowLockedUsdc) * poolYield
@@ -311,7 +279,7 @@ export function useAgentBounties(walletAddress: string) {
       const claimable = Math.max(0, userShare - alreadyClaimed)
 
       if (claimable <= 0) {
-        throw new Error('Şu anda talep edilebilir bir getiri birikimi yok')
+        throw new Error('No claimable yield dividend currently available')
       }
 
       // Claim simulated/real dividend hash on Arc Testnet
