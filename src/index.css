@@ -1138,5 +1138,25 @@
   }
 }
 
+/* ── Interactive Pool Card Highlight Pulse ── */
+@keyframes arcCardPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(152, 150, 255, 0.7);
+    border-color: rgba(152, 150, 255, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 24px 4px rgba(152, 150, 255, 0.35);
+    border-color: rgba(152, 150, 255, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(152, 150, 255, 0);
+  }
+}
+
+.arc-highlight-pulse {
+  animation: arcCardPulse 1.8s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  border-color: rgba(152, 150, 255, 0.8) !important;
+}
+
 
 

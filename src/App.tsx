@@ -30,6 +30,11 @@ export default function App() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'home' | 'unified' | 'pools' | 'send' | 'swap' | 'bridge' | 'ai-services' | 'history'>('home')
   
+  // Controlled dev test hook for GlobalErrorBoundary verification (?testCrash=true)
+  if (typeof window !== 'undefined' && window.location.search.includes('testCrash=true')) {
+    throw new Error('SimulationFault: Synthetic UI Render Exception triggered for ErrorBoundary verification.')
+  }
+  
   // Auto-scroll to top when switching tabs so user starts at the top of the tab
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
