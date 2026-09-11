@@ -1,12 +1,8 @@
-// src/components/common/FeeBreakdownCard.tsx
-//
 // Standardized, transparent Fee & Route Breakdown component for Arc and Circle-powered apps.
 // Compliant with Arc L1 native USDC gas (18-decimal) and Circle AppKit (90/10 revenue share).
 // Reusable across BridgeModal, SwapModal, and SendModal.
-
 import React, { useState } from 'react'
 import { ChevronDown, Info, Coins, Zap, ShieldCheck, Clock, CheckCircle2 } from 'lucide-react'
-import { REVENUE_SHARE_LABEL, REVENUE_SHARE_TOOLTIP } from '../../config/treasuryConfig'
 
 export interface FeeBreakdownItem {
   label: string
@@ -170,22 +166,6 @@ export const FeeBreakdownCard: React.FC<FeeBreakdownCardProps> = ({
               </div>
             )
           })}
-
-          {/* Revenue Share Footnote */}
-          {shouldShowRevShare && (
-            <div
-              className="pt-2 mt-1 border-t border-white/[0.06] flex items-center justify-between text-[10px] text-slate-400"
-              title={REVENUE_SHARE_TOOLTIP}
-            >
-              <span className="flex items-center gap-1 text-slate-400">
-                {showItemIcons && <Coins className="w-3 h-3 text-[var(--purple-1,#9896ff)] shrink-0" />}
-                Arcis Revenue Share
-              </span>
-              <span className="text-[11px] text-slate-300 font-medium px-1.5 py-0.2 rounded">
-                {REVENUE_SHARE_LABEL}
-              </span>
-            </div>
-          )}
         </div>
       )}
     </div>
