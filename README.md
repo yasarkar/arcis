@@ -379,8 +379,8 @@ arcis-protocol/
 ├── src/
 │   ├── assets/                      # SVG Icons & Token Graphics
 │   ├── components/
-│   │   ├── pools/                   # PoolsTab, PoolCard, AgentBountyHubModal,
-│   │   │                            # GatewayRebalanceWizard, YieldCalculator
+│   │   ├── pools/                   # PoolsTab, PoolCard, YieldCalculator,
+│   │   │                            # GatewayRebalanceWizard, PoolActionModal
 │   │   ├── privacy/                 # APS Privacy Toggles & Encryption Badges
 │   │   ├── common/                  # SpeedFeeSelector, UI Components
 │   │   ├── Header.tsx               # Top Navigation & UCW Profile
