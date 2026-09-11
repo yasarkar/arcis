@@ -113,3 +113,41 @@ export function calculatePoolShare(lpMintedRaw: bigint, totalLpAfter: bigint): n
   const scaled = (lpMintedRaw * 100_000n) / totalLpAfter
   return Number(scaled) / 1000
 }
+
+/**
+ * Calculates the vault shares to redeem corresponding to a target USD profit.
+ * @param profitUsd The claimable profit in USD (e.g. 5.50)
+ * @param totalAssets Total assets held by the ERC-4626 vault (raw uint256, 6 decimals)
+ * @param totalSupply Total shares of the ERC-4626 vault (raw uint256, 6 decimals)
+ * @param userShares Total shares owned by the user (raw uint256)
+ */
+export function calculateVaultClaimShares(
+  profitUsd: number,
+  totalAssets: bigint,
+  totalSupply: bigint,
+  userShares: bigint
+): bigint {
+  if (profitUsd <= 0 || totalAssets <= 0n || totalSupply <= 0n || userShares <= 0n) return 0n
+  const profitAssets = BigInt(Math.floor(profitUsd * 1e6))
+  const sharesNeeded = (profitAssets * totalSupply) / totalAssets
+  return sharesNeeded > userShares ? userShares : sharesNeeded
+}
+
+/**
+ * Calculates the LP tokens to withdraw corresponding to a target USD profit.
+ * @param profitUsd The claimable fee profit in USD
+ * @param userStakedUsd The user's total staked value in USD
+ * @param userLpRaw The user's total LP balance (raw 18 decimals)
+ */
+export function calculateLpClaimAmount(
+  profitUsd: number,
+  userStakedUsd: number,
+  userLpRaw: bigint
+): bigint {
+  if (profitUsd <= 0 || userStakedUsd <= 0 || userLpRaw <= 0n) return 0n
+  if (profitUsd >= userStakedUsd) return userLpRaw
+  const ratioScaled = BigInt(Math.round((profitUsd / userStakedUsd) * 1_000_000))
+  const lpToRedeem = (userLpRaw * ratioScaled) / 1_000_000n
+  return lpToRedeem > userLpRaw ? userLpRaw : lpToRedeem
+}
+

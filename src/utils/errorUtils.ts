@@ -1,8 +1,13 @@
 // src/utils/errorUtils.ts
-// Arcis Protocol Standard Error Utilities (100% English - Delegated to errorNormalizer)
+// Arcis Protocol Centralized Error Utilities Facade (100% English)
+// Re-exports and adapts core normalizer functions for backward compatibility.
 
-import { normalizeAppError, isUserCanceledError } from './errorNormalizer'
-import type { ArcisAppError, ErrorCategory } from '../types/errors'
+import { normalizeAppError, normalizePasskeyError, parsePasskeyError, isUserCanceledError } from './errorNormalizer'
+import type { ArcisAppError, ErrorCategory, ParsedPasskeyError } from '../types/errors'
+
+export { normalizeAppError, normalizePasskeyError, parsePasskeyError, isUserCanceledError }
+export type { ArcisAppError, ErrorCategory, ParsedPasskeyError }
+
 
 export interface ParsedTransactionError {
   isCanceled: boolean

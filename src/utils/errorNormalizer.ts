@@ -98,16 +98,32 @@ function extractRevertReason(err: any): string | null {
 
   for (const text of searchTexts) {
     const p1 = text.match(/reverted with the following reason:\s*([^\n\r]+)/i)
-    if (p1 && p1[1]?.trim()) return p1[1].trim()
+    if (p1 && p1[1]?.trim()) {
+      const r = p1[1].trim()
+      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      return r
+    }
 
     const p2 = text.match(/execution reverted:\s*([^\n\r]+)/i)
-    if (p2 && p2[1]?.trim()) return p2[1].trim()
+    if (p2 && p2[1]?.trim()) {
+      const r = p2[1].trim()
+      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      return r
+    }
 
     const p3 = text.match(/reason:\s*([^\n\r]+)/i)
-    if (p3 && p3[1]?.trim()) return p3[1].trim()
+    if (p3 && p3[1]?.trim()) {
+      const r = p3[1].trim()
+      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      return r
+    }
 
     const p4 = text.match(/revert:\s*([^\n\r]+)/i)
-    if (p4 && p4[1]?.trim()) return p4[1].trim()
+    if (p4 && p4[1]?.trim()) {
+      const r = p4[1].trim()
+      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      return r
+    }
   }
 
   return null
@@ -542,6 +558,34 @@ export function normalizeAppError(err: unknown): ArcisAppError {
     }
   }
 
+  // 7b. RPC Rate / Request Limit Exceeded (Must be evaluated BEFORE Contract Revert!)
+  if (
+    (err as any)?.code === -32005 ||
+    ((err as any)?.code === -32603 && (lowMsg.includes('rate limit') || lowMsg.includes('limit exceeded'))) ||
+    (err as any)?.cause?.code === -32005 ||
+    (err as any)?.name === 'LimitExceededRpcError' ||
+    lowMsg.includes('request exceeds defined limit') ||
+    lowMsg.includes('request is being rate limited') ||
+    lowMsg.includes('limit exceeded') ||
+    lowMsg.includes('limitexceeded') ||
+    lowMsg.includes('-32005') ||
+    lowMsg.includes('rate limit') ||
+    lowMsg.includes('rate-limited') ||
+    lowMsg.includes('too many requests')
+  ) {
+    const def = ERROR_DEFINITIONS.RPC_LIMIT_EXCEEDED
+    return {
+      category: def.category,
+      code: 'RPC_LIMIT_EXCEEDED',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: true,
+      rawMessage,
+    }
+  }
+
   // 8. Smart Contract Revert
   if (
     lowMsg.includes('execution reverted') ||
@@ -551,6 +595,25 @@ export function normalizeAppError(err: unknown): ArcisAppError {
   ) {
     const revertReason = extractRevertReason(err)
     const lowReason = revertReason ? revertReason.toLowerCase() : ''
+
+    if (
+      lowReason.includes('rate limit') ||
+      lowReason.includes('rate-limited') ||
+      lowReason.includes('limit exceeded') ||
+      lowReason.includes('too many requests')
+    ) {
+      const def = ERROR_DEFINITIONS.RPC_LIMIT_EXCEEDED
+      return {
+        category: def.category,
+        code: 'RPC_LIMIT_EXCEEDED',
+        title: def.title,
+        message: def.message,
+        actionHint: def.actionHint,
+        isCanceled: false,
+        isRetryable: true,
+        rawMessage,
+      }
+    }
 
     if (lowReason.includes('max fee must be less than amount')) {
       const def = ERROR_DEFINITIONS.CCTP_MIN_FEE_VIOLATION
