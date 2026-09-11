@@ -1,10 +1,14 @@
 // src/config/gatewayConfig.ts
-//
-// Circle Gateway configuration — contract addresses, domain IDs, and API endpoints.
-// Gateway provides a unified USDC balance across multiple blockchains with
-// instant (<500ms) crosschain transfers.
+// Circle Gateway Configuration (100% English)
+// Master contract addresses, domain IDs, and API endpoints.
+// Backed dynamically by src/config/networks/networkRegistry.ts.
 
-import { IS_TESTNET } from './arcChain'
+import {
+  IS_TESTNET,
+  TESTNET_NETWORKS,
+  MAINNET_NETWORKS,
+  ACTIVE_NETWORKS,
+} from './networks/networkRegistry'
 
 // ── Gateway REST API ─────────────────────────────────────────────────────────
 export const GATEWAY_API = {
@@ -28,113 +32,70 @@ export const GATEWAY_CONTRACTS = {
 
 export const ACTIVE_GATEWAY_CONTRACTS = IS_TESTNET ? GATEWAY_CONTRACTS.testnet : GATEWAY_CONTRACTS.mainnet
 
-// ── Gateway Domain IDs ───────────────────────────────────────────────────────
-export const GATEWAY_DOMAINS_TESTNET: Record<string, number> = {
-  Arc_Testnet: 26,
-  Ethereum_Sepolia: 0,
-  Base_Sepolia: 6,
-  Arbitrum_Sepolia: 3,
-  Optimism_Sepolia: 2,
-  Polygon_Amoy_Testnet: 7,
-  Avalanche_Fuji: 1,
-  HyperEVM_Testnet: 19,
-  Sei_Testnet: 16,
-  Solana_Devnet: 5,
-  Sonic_Testnet: 13,
-  Unichain_Sepolia: 10,
-  World_Chain_Sepolia: 14,
-}
+// ── Gateway Domain IDs (Derived dynamically from Master Network Registry) ────
+export const GATEWAY_DOMAINS_TESTNET: Record<string, number> = Object.fromEntries(
+  Object.entries(TESTNET_NETWORKS)
+    .filter(([_, net]) => net.cctpDomain !== undefined)
+    .map(([key, net]) => [key, net.cctpDomain!])
+)
 
-export const GATEWAY_DOMAINS_MAINNET: Record<string, number> = {
-  Arc: 26,
-  Ethereum: 0,
-  Base: 6,
-  Arbitrum: 3,
-  Optimism: 2,
-  Polygon: 7,
-  Avalanche: 1,
-  Solana: 5,
-}
+export const GATEWAY_DOMAINS_MAINNET: Record<string, number> = Object.fromEntries(
+  Object.entries(MAINNET_NETWORKS)
+    .filter(([_, net]) => net.cctpDomain !== undefined)
+    .map(([key, net]) => [key, net.cctpDomain!])
+)
 
 export const GATEWAY_DOMAINS = IS_TESTNET ? GATEWAY_DOMAINS_TESTNET : GATEWAY_DOMAINS_MAINNET
 
-// ── USDC Contract Addresses ──────────────────────────────────────────────────
-export const USDC_ADDRESSES_TESTNET: Record<string, `0x${string}`> = {
-  Arc_Testnet: '0x3600000000000000000000000000000000000000',
-  Ethereum_Sepolia: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-  Base_Sepolia: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-  Arbitrum_Sepolia: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
-  Optimism_Sepolia: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
-  Polygon_Amoy_Testnet: '0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582',
-  Avalanche_Fuji: '0x5425890298aed601595a70ab815c96711a31bc65',
-  HyperEVM_Testnet: '0x2B3370eE501B4a559b57D449569354196457D8Ab',
-  Sei_Testnet: '0x4fCF1784B31630811181f670Aea7A7bEF803eaED',
-  Sonic_Testnet: '0x0BA304580ee7c9a980CF72e55f5Ed2E9fd30Bc51',
-  Unichain_Sepolia: '0x31d0220469e10c4E71834a79b1f276d740d3768F',
-  World_Chain_Sepolia: '0x66145f38cBAC35Ca6F1Dfb4914dF98F1614aeA88',
-}
+export const DOMAIN_TO_CHAIN: Record<number, string> = Object.entries(GATEWAY_DOMAINS).reduce(
+  (acc, [chainKey, domainId]) => {
+    acc[domainId] = chainKey
+    return acc
+  },
+  {} as Record<number, string>
+)
 
-export const USDC_ADDRESSES_MAINNET: Record<string, `0x${string}`> = {
-  Arc: '0x3600000000000000000000000000000000000000',
-  Ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-  Base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  Arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  Optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
-  Polygon: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
-  Avalanche: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
-}
+// ── USDC Contract Addresses (Derived dynamically from Master Network Registry)
+export const USDC_ADDRESSES_TESTNET: Record<string, `0x${string}`> = Object.fromEntries(
+  Object.entries(TESTNET_NETWORKS)
+    .filter(([_, net]) => net.tokens.USDC && !net.ui.isSolana)
+    .map(([key, net]) => [key, net.tokens.USDC as `0x${string}`])
+)
+
+export const USDC_ADDRESSES_MAINNET: Record<string, `0x${string}`> = Object.fromEntries(
+  Object.entries(MAINNET_NETWORKS)
+    .filter(([_, net]) => net.tokens.USDC && !net.ui.isSolana)
+    .map(([key, net]) => [key, net.tokens.USDC as `0x${string}`])
+)
 
 export const USDC_ADDRESSES = IS_TESTNET ? USDC_ADDRESSES_TESTNET : USDC_ADDRESSES_MAINNET
 
-// ── EURC Contract Addresses ──────────────────────────────────────────────────
-export const EURC_ADDRESSES_TESTNET: Record<string, `0x${string}`> = {
-  Arc_Testnet: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a',
-  Ethereum_Sepolia: '0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4',
-  Base_Sepolia: '0x808007a79a5b6f3d99d3e8e21adbfcecfec11124',
-  Arbitrum_Sepolia: '0xA8C865719483955250774276726980b0D0008d68',
-  Avalanche_Fuji: '0x3231cb76718CDef2155FC47b5286d82e6eDA273f',
-  Optimism_Sepolia: '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8',
-}
+// ── EURC Contract Addresses (Derived dynamically from Master Network Registry)
+export const EURC_ADDRESSES_TESTNET: Record<string, `0x${string}`> = Object.fromEntries(
+  Object.entries(TESTNET_NETWORKS)
+    .filter(([_, net]) => net.tokens.EURC && !net.ui.isSolana)
+    .map(([key, net]) => [key, net.tokens.EURC as `0x${string}`])
+)
 
-export const EURC_ADDRESSES_MAINNET: Record<string, `0x${string}`> = {
-  Arc: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a',
-  Ethereum: '0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c',
-  Base: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1DD429',
-  Avalanche: '0xC891EB4cbdEFf6e073e859e987815Ed43c477641',
-}
+export const EURC_ADDRESSES_MAINNET: Record<string, `0x${string}`> = Object.fromEntries(
+  Object.entries(MAINNET_NETWORKS)
+    .filter(([_, net]) => net.tokens.EURC && !net.ui.isSolana)
+    .map(([key, net]) => [key, net.tokens.EURC as `0x${string}`])
+)
 
 export const EURC_ADDRESSES = IS_TESTNET ? EURC_ADDRESSES_TESTNET : EURC_ADDRESSES_MAINNET
 
 // ── cirBTC Contract Addresses ────────────────────────────────────────────────
-export const CIRBTC_ADDRESSES: Record<string, `0x${string}`> = {
-  Arc_Testnet: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF',
-  Arc: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF',
-}
+export const CIRBTC_ADDRESSES: Record<string, `0x${string}`> = Object.fromEntries(
+  Object.entries(ACTIVE_NETWORKS)
+    .filter(([_, net]) => net.tokens.cirBTC)
+    .map(([key, net]) => [key, net.tokens.cirBTC as `0x${string}`])
+)
 
 // ── Chain Display Names ──────────────────────────────────────────────────────
-export const GATEWAY_CHAIN_NAMES: Record<string, string> = {
-  Arc_Testnet: 'Arc Testnet',
-  Arc: 'Arc Mainnet',
-  Ethereum_Sepolia: 'Ethereum Sepolia',
-  Ethereum: 'Ethereum',
-  Base_Sepolia: 'Base Sepolia',
-  Base: 'Base',
-  Arbitrum_Sepolia: 'Arbitrum Sepolia',
-  Arbitrum: 'Arbitrum One',
-  Optimism_Sepolia: 'Optimism Sepolia',
-  Optimism: 'OP Mainnet',
-  Polygon_Amoy_Testnet: 'Polygon Amoy',
-  Polygon: 'Polygon',
-  Avalanche_Fuji: 'Avalanche Fuji',
-  Avalanche: 'Avalanche C-Chain',
-  HyperEVM_Testnet: 'HyperEVM Testnet',
-  Sei_Testnet: 'Sei Testnet',
-  Solana_Devnet: 'Solana Devnet',
-  Solana: 'Solana',
-  Sonic_Testnet: 'Sonic Testnet',
-  Unichain_Sepolia: 'Unichain Sepolia',
-  World_Chain_Sepolia: 'World Chain Sepolia',
-}
+export const GATEWAY_CHAIN_NAMES: Record<string, string> = Object.fromEntries(
+  Object.entries(ACTIVE_NETWORKS).map(([key, net]) => [key, net.name])
+)
 
 // ── Supported Gateway Chains ─────────────────────────────────────────────────
 export const GATEWAY_SUPPORTED_CHAINS = Object.keys(GATEWAY_DOMAINS)
@@ -146,6 +107,10 @@ export const GATEWAY_EIP712_DOMAIN = {
 } as const
 
 export const GATEWAY_EIP712_TYPES = {
+  EIP712Domain: [
+    { name: 'name', type: 'string' },
+    { name: 'version', type: 'string' },
+  ],
   BurnIntent: [
     { name: 'maxBlockHeight', type: 'uint256' },
     { name: 'maxFee', type: 'uint256' },

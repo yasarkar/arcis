@@ -1,4 +1,18 @@
-import { CHAIN_META, CHAIN_DEFS, getChainIconId, getChainDisplayName, type ChainMetaItem } from './chainMeta'
+// src/config/sendConfig.ts
+// Arcis Protocol Send Module Configuration (100% English)
+// Backed dynamically by the Master Network Registry (src/config/networks/networkRegistry.ts).
+
+import {
+  CHAIN_META,
+  CHAIN_DEFS,
+  getChainIconId,
+  getChainDisplayName,
+} from './chainMeta'
+import {
+  ACTIVE_NETWORKS,
+  getNetwork,
+  type NetworkConfig,
+} from './networks/networkRegistry'
 
 export { CHAIN_META, CHAIN_DEFS, getChainIconId, getChainDisplayName }
 export const SEND_CHAIN_META = CHAIN_META
@@ -13,195 +27,60 @@ export interface ChainConfig {
   explorerUrl: string
 }
 
-// Arc Testnet only supports USDC and EURC (cirBTC is NOT supported on Arc Testnet)
-const ARC_TESTNET_TOKENS = ['USDC', 'EURC']
-
-// Other testnets that support USDC, EURC, and cirBTC
-const FULL_TOKENS = ['USDC', 'EURC', 'cirBTC']
-
-export const SUPPORTED_SEND_CHAINS: ChainConfig[] = [
-  {
-    chain: 'Arbitrum_Sepolia',
-    name: 'Arbitrum Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://sepolia.arbiscan.io/tx/{hash}'
-  },
-  {
-    chain: 'Arc_Testnet',
-    name: 'Arc Testnet',
-    tokens: ARC_TESTNET_TOKENS,
-    nativeSymbol: 'USDC',
-    explorerUrl: 'https://testnet.arcscan.app/tx/{hash}'
-  },
-  {
-    chain: 'Avalanche_Fuji',
-    name: 'Avalanche Fuji',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'AVAX',
-    explorerUrl: 'https://testnet.snowtrace.io/tx/{hash}'
-  },
-  {
-    chain: 'Base_Sepolia',
-    name: 'Base Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://sepolia.basescan.org/tx/{hash}'
-  },
-  {
-    chain: 'Ethereum_Sepolia',
-    name: 'Ethereum Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://sepolia.etherscan.io/tx/{hash}'
-  },
-  {
-    chain: 'HyperEVM_Testnet',
-    name: 'HyperEVM Testnet',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'HYPER',
-    explorerUrl: 'https://testnet.hyperscan.io/tx/{hash}'
-  },
-  {
-    chain: 'Injective_Testnet',
-    name: 'Injective Testnet',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'INJ',
-    explorerUrl: 'https://testnet.explorer.injective.network/transaction/{hash}'
-  },
-  {
-    chain: 'Ink_Testnet',
-    name: 'Ink Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://explorer.inkonchain.com/tx/{hash}'
-  },
-  {
-    chain: 'Linea_Sepolia',
-    name: 'Linea Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://sepolia.lineascan.build/tx/{hash}'
-  },
-  {
-    chain: 'Monad_Testnet',
-    name: 'Monad Testnet',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'MONAD',
-    explorerUrl: 'https://testnet.monadexplorer.com/tx/{hash}'
-  },
-  {
-    chain: 'Optimism_Sepolia',
-    name: 'Optimism Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://sepolia-optimistic.etherscan.io/tx/{hash}'
-  },
-  {
-    chain: 'Plume_Testnet',
-    name: 'Plume Testnet',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'PLUME',
-    explorerUrl: 'https://testnet-explorer.plumenetwork.xyz/tx/{hash}'
-  },
-  {
-    chain: 'Polygon_Amoy_Testnet',
-    name: 'Polygon PoS Amoy',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'POL',
-    explorerUrl: 'https://amoy.polygonscan.com/tx/{hash}'
-  },
-  {
-    chain: 'Sei_Testnet',
-    name: 'Sei Testnet',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'SEI',
-    explorerUrl: 'https://seitrace.com/tx/{hash}?cluster=testnet'
-  },
-  {
-    chain: 'Solana_Devnet',
-    name: 'Solana Devnet',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'SOL',
-    explorerUrl: 'https://explorer.solana.com/tx/{hash}?cluster=devnet'
-  },
-  {
-    chain: 'Sonic_Testnet',
-    name: 'Sonic Testnet',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'S',
-    explorerUrl: 'https://testnet.sonicscan.org/tx/{hash}'
-  },
-  {
-    chain: 'Unichain_Sepolia',
-    name: 'Unichain Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://sepolia.unichainscan.io/tx/{hash}'
-  },
-  {
-    chain: 'World_Chain_Sepolia',
-    name: 'World Chain Sepolia',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'ETH',
-    explorerUrl: 'https://sepolia.worldscan.org/tx/{hash}'
-  },
-  {
-    chain: 'XDC_Apothem',
-    name: 'Apothem Network',
-    tokens: FULL_TOKENS,
-    nativeSymbol: 'XDC',
-    explorerUrl: 'https://apothem.xdcscan.io/tx/{hash}'
+/**
+ * Dynamically derived supported chains for Send / Transfer operations.
+ * Single source of truth from ACTIVE_NETWORKS.
+ */
+export const SUPPORTED_SEND_CHAINS: ChainConfig[] = Object.values(ACTIVE_NETWORKS).map((net) => {
+  const explorerBase = net.blockExplorers?.url || 'https://testnet.arcscan.app'
+  const isTxPath = net.key.toLowerCase().includes('injective') ? '/transaction/{hash}' : '/tx/{hash}'
+  return {
+    chain: net.key,
+    name: net.name,
+    tokens: Object.keys(net.tokens),
+    nativeSymbol: net.nativeCurrency.symbol,
+    explorerUrl: `${explorerBase}${isTxPath}`,
   }
-]
+})
 
+/**
+ * Resolves the transaction link on the appropriate block explorer for any chain.
+ */
 export function getExplorerTxUrl(chainKey?: string, txHash?: string): string {
   if (!txHash) return '#'
-  const target = (chainKey || 'Arc_Testnet').toLowerCase()
-  const found = SUPPORTED_SEND_CHAINS.find(
-    c => c.chain.toLowerCase() === target || c.name.toLowerCase() === target || target.includes(c.chain.toLowerCase())
-  )
-  if (found?.explorerUrl) {
-    return found.explorerUrl.replace('{hash}', txHash)
+  const net = getNetwork(chainKey || 'Arc_Testnet')
+  const baseUrl = net?.blockExplorers?.url || 'https://testnet.arcscan.app'
+
+  if (net?.ui.isSolana) {
+    return `${baseUrl}/tx/${txHash}?cluster=devnet`
   }
-  return `https://testnet.arcscan.app/tx/${txHash}`
+  if (net?.key.toLowerCase().includes('injective')) {
+    return `${baseUrl}/transaction/${txHash}`
+  }
+  return `${baseUrl}/tx/${txHash}`
 }
 
+/**
+ * Resolves the address link on the appropriate block explorer for any chain.
+ */
 export function getExplorerAddressUrl(chainKey?: string, address?: string): string {
   if (!address) return '#'
-  const target = (chainKey || 'Arc_Testnet').toLowerCase()
-  const found = SUPPORTED_SEND_CHAINS.find(
-    c => c.chain.toLowerCase() === target || c.name.toLowerCase() === target || target.includes(c.chain.toLowerCase())
-  )
-  if (found?.explorerUrl) {
-    if (found.explorerUrl.includes('/transaction/')) {
-      return found.explorerUrl.replace('/transaction/{hash}', `/account/${address}`)
-    }
-    return found.explorerUrl.replace('/tx/{hash}', `/address/${address}`)
+  const net = getNetwork(chainKey || 'Arc_Testnet')
+  const baseUrl = net?.blockExplorers?.url || 'https://testnet.arcscan.app'
+
+  if (net?.ui.isSolana) {
+    return `${baseUrl}/address/${address}?cluster=devnet`
   }
-  return `https://testnet.arcscan.app/address/${address}`
+  if (net?.key.toLowerCase().includes('injective')) {
+    return `${baseUrl}/account/${address}`
+  }
+  return `${baseUrl}/address/${address}`
 }
 
+/**
+ * Returns the human-readable block explorer name (e.g. ArcScan, Basescan, Arbiscan).
+ */
 export function getExplorerName(chainKey?: string): string {
-  const target = (chainKey || '').toLowerCase().replace(/_/g, '-')
-  if (target.includes('arc')) return 'ArcScan'
-  if (target.includes('base')) return 'Basescan'
-  if (target.includes('arbitrum')) return 'Arbiscan'
-  if (target.includes('optimism') || target.includes('op-sepolia')) return 'OP Etherscan'
-  if (target.includes('polygon') || target.includes('amoy')) return 'Polygonscan'
-  if (target.includes('avalanche') || target.includes('fuji')) return 'Snowtrace'
-  if (target.includes('monad')) return 'Monad Explorer'
-  if (target.includes('hyper')) return 'HyperEVM'
-  if (target.includes('sei')) return 'Seitrace'
-  if (target.includes('ink')) return 'Ink Explorer'
-  if (target.includes('plume')) return 'Plume Explorer'
-  if (target.includes('sonic')) return 'Sonicscan'
-  if (target.includes('unichain')) return 'Unichain Explorer'
-  if (target.includes('world')) return 'Worldscan'
-  if (target.includes('linea')) return 'Lineascan'
-  if (target.includes('xdc') || target.includes('apothem')) return 'XDCScan'
-  if (target.includes('solana')) return 'Solana Explorer'
-  if (target.includes('injective')) return 'Injective Explorer'
-  if (target.includes('eth') || target.includes('sepolia')) return 'Etherscan'
-  return 'ArcScan'
+  const net = getNetwork(chainKey || 'Arc_Testnet')
+  return net?.blockExplorers?.name || 'ArcScan'
 }

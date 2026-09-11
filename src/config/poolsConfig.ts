@@ -1,8 +1,5 @@
-// src/config/poolsConfig.ts
-//
 // Arcis Pools & Yield — Testnet-first configuration (Phase 5 rewrite).
 // 3 clear categories: Liquidity, Vault, Cross-Chain.
-
 import { ARC_TOKENS } from './arcChain'
 import { CHAIN_META, CHAIN_DEFS, getChainIconId, getChainDisplayName } from './chainMeta'
 
@@ -77,6 +74,7 @@ export interface PoolConfig {
   apyBadge: string
   tvlUsd: number
   volume24hUsd: number
+  clientVolumeUsd?: number
   lockPeriod: string
   riskLevel: PoolRiskLevel
   feeShare: string
@@ -85,7 +83,7 @@ export interface PoolConfig {
   rewardTokenSymbol: string
   isFeatured?: boolean
   isLiveOnChain?: boolean
-  executionMode?: 'testnet_sandbox' | 'onchain_verified' | 'preview'
+  executionMode?: 'onchain_verified' | 'preview'
   tags: string[]
   yieldOrigin: string
   yieldOriginDetails: string
@@ -214,17 +212,60 @@ export const AGENT_BOUNTIES_LIST: AgentBountyTask[] = [
   },
 ]
 
-// ── Deployed Contract Addresses (Arc Testnet) ────────────────────────────────
+// ── Deployed Contract Addresses (Arc Testnet — V3, mainnet-bound) ─────────────
+// V3 restores the canonical Curve amplification constant Ann = A*4 (V2 silently used
+// A*2 — see contracts/test/StableMathComparison.t.sol). These addresses were produced
+// by `forge script script/DeployV3.s.sol --rpc-url arc_testnet --broadcast --verify`
+// and verified on ArcScan testnet.
 export const POOL_CONTRACTS = {
   USDC: ARC_TOKENS.USDC,
   EURC: ARC_TOKENS.EURC,
   cirBTC: ARC_TOKENS.cirBTC,
-  tcirBTC: '0x6a32d40a9f9aca0c2b244c53d7c35c0dffbbb8d2' as const,
-  STABLE_SWAP_POOL: '0x6d8fda7557d1c0a945a955557e10a4e70a129d20' as const,
-  CONSTANT_PRODUCT_POOL: '0x179c9d7f75b0aee8ffe9451fec060b9639220fe6' as const,
-  CONSTANT_PRODUCT_POOL_TCIRBTC: '0x24f09544f554b26c44cf309cfafe448a1a9d3c1f' as const,
-  YIELD_VAULT: '0x4a4f0c1dd34c5433a228cbc3a499fabf18e3156d' as const,
+  // Deployed 2026-09-11 — hardened V3.2 set (24h rolling volume counters, totalYieldDistributed)
+  // Owner: 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772
+  STABLE_SWAP_POOL: '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22' as const, // StableSwapPoolV3
+  CONSTANT_PRODUCT_POOL: '0xF3742bDF819211dd1dcBbF577F031Bb743318903' as const, // ConstantProductPoolV3
+  YIELD_VAULT: '0x5e618f7f6591868827da40f73f869e3dE8F387CD' as const, // YieldVaultV3
 }
+
+// ── V3 (verified testnet) Deploy Targets ───────────────────────────────────────
+// Same addresses as POOL_CONTRACTS; kept for mainnet migration. When deploying to
+// Arc Mainnet, re-run contracts/script/DeployV3.s.sol --rpc-url arc_mainnet and
+// update these to the mainnet addresses, then repoint POOL_CONTRACTS here.
+export const POOL_CONTRACTS_V3 = {
+  STABLE_SWAP_POOL: POOL_CONTRACTS.STABLE_SWAP_POOL as `0x${string}`,
+  CONSTANT_PRODUCT_POOL: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL as `0x${string}`,
+  YIELD_VAULT: POOL_CONTRACTS.YIELD_VAULT as `0x${string}`,
+}
+
+// ── Pool Version & Slippage Helpers ───────────────────────────────────────────
+// LIVE contracts are now V3 (mainnet-bound) on Arc Testnet.
+export const POOL_VERSION_V3: boolean = (import.meta.env.VITE_POOL_VERSION ?? 'v3') === 'v3'
+export const POOL_VERSION_V2: boolean = import.meta.env.VITE_POOL_V2 === 'true'
+
+// Default AMM LP operation slippage tolerance (0.5%).
+export const POOL_DEFAULT_SLIPPAGE_BPS = 50
+
+// Converts a percent tolerance (e.g. 0.5) to bps, clamped to [10, 1000].
+export function poolSlippageBps(tolerancePercent: number): number {
+  if (!Number.isFinite(tolerancePercent) || tolerancePercent <= 0) return POOL_DEFAULT_SLIPPAGE_BPS
+  return Math.max(10, Math.min(1000, Math.round(tolerancePercent * 100)))
+}
+
+// minOut = expectedOut * (10000 - slipBps) / 10000 — mirrors zapIn guard.
+export function poolMinOut(expectedOut: bigint, slipBps: number): bigint {
+  if (expectedOut <= 0n) return 0n
+  return (expectedOut * (10000n - BigInt(slipBps))) / 10000n
+}
+
+// minLpShares = expectedShares * (10000 - slipBps) / 10000.
+export function poolMinLpShares(expectedShares: bigint, slipBps: number): bigint {
+  return poolMinOut(expectedShares, slipBps)
+}
+
+// Canonical Gateway Constants (O2)
+export const GATEWAY_BASE_LIQUIDITY = 3_145_000
+export const GATEWAY_ROUTING_APY = 7.25
 
 // ── Master Pools Directory ───────────────────────────────────────────────────
 export const ARCIS_POOLS: PoolConfig[] = [
@@ -238,113 +279,111 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
       { symbol: 'EURC', name: 'Euro Coin', address: POOL_CONTRACTS.EURC, iconType: 'eurc', decimals: 6 },
     ],
-    apy: 6.15, apyType: 'APR', apyBadge: '6.15% FX Fee APR',
-    tvlUsd: 532000, volume24hUsd: 142300, lockPeriod: 'No Lock',
+    apy: 6.15, apyType: 'APY', apyBadge: '6.15% FX Fee Est. APY',
+    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'No Lock',
     riskLevel: 'Safe', feeShare: '0.12% Swap Fee to LPs',
     contractAddress: POOL_CONTRACTS.STABLE_SWAP_POOL,
     depositTokenSymbol: 'USDC + EURC', rewardTokenSymbol: 'LP Fees (USDC/EURC)',
     isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    yieldOrigin: 'FX Swap Fees',
-    yieldOriginDetails: 'A 0.12% fee from users exchanging between USDC and EURC is distributed to liquidity providers on every swap.',
+    yieldOrigin: 'FX Swap Fees (Direct Reserve Accrual)',
+    yieldOriginDetails: 'A 0.12% fee from users exchanging between USDC and EURC is added directly to pool reserves on every swap, increasing LP share value.',
     gasBenefitNote: 'Gas fees on Arc are paid in USDC — no ETH needed.',
     howItWorksSteps: [
-      { step: 1, title: 'Provide Liquidity', desc: 'Deposit USDC + EURC (or use 1-Click Zap with USDC).' },
+      { step: 1, title: 'Provide Liquidity', desc: 'Deposit USDC + EURC (or single-token USDC via Zap).' },
       { step: 2, title: 'Receive LP Token', desc: 'Get af-USDC-EURC representing your pool share.' },
-      { step: 3, title: 'Collect FX Fees', desc: 'Earn a fee on every USD–EUR conversion.' },
-      { step: 4, title: 'Zero IL', desc: 'Stable fiat pegs eliminate impermanent loss.' },
+      { step: 3, title: 'Accumulate FX Fees', desc: 'Swap fees compound directly into pool reserves.' },
+      { step: 4, title: 'Realize Upon Exit', desc: 'Burn LP tokens to withdraw principal + accumulated fee share.' },
     ],
-    tags: ['StableSwap', 'FX Market', 'Zero IL', '1-Click Zap'],
+    tags: ['StableSwap', 'FX Market', 'Zero IL', 'Single Asset'],
     isLpPool: true, lpTokenName: 'Arcis USDC-EURC LP', lpTokenSymbol: 'af-USDC-EURC',
     supportsZap: true, exchangeRate: 1.082, feeTierPercent: 0.12,
-    reserves: { tokenA: 266000, tokenB: 245841, ratioA: 50, ratioB: 50 },
+    reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Zero (Stable)',
   },
   {
-    id: 'usdc-tcirbtc-pool',
-    name: 'USDC / tcirBTC Test Pool',
-    subtitle: 'Test with mintable tcirBTC — get free tokens from the faucet.',
-    description: 'Practice providing Bitcoin liquidity using mintable tcirBTC. Every user can mint test tokens instantly.',
+    id: 'usdc-cirbtc-pool',
+    name: 'USDC / cirBTC Liquidity Pool',
+    subtitle: 'Provide liquidity for Circle Wrapped Bitcoin on Arc Testnet.',
+    description: 'AMM pool for swaps between native USDC and Circle Wrapped Bitcoin (cirBTC) using constant-product pricing.',
     category: 'liquidity',
     tokens: [
       { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
-      { symbol: 'tcirBTC', name: 'Test cirBTC', address: POOL_CONTRACTS.tcirBTC, iconType: 'btc', decimals: 8 },
+      { symbol: 'cirBTC', name: 'Circle Wrapped Bitcoin', address: POOL_CONTRACTS.cirBTC, iconType: 'btc', decimals: 8 },
     ],
-    apy: 12.8, apyType: 'APR', apyBadge: '12.80% Test Yield',
-    tvlUsd: 50000, volume24hUsd: 10000, lockPeriod: 'No Lock',
+    apy: 12.8, apyType: 'APY', apyBadge: '12.80% Fee Est. APY',
+    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'No Lock',
     riskLevel: 'Medium', feeShare: '0.25% Swap Fee to LPs',
-    contractAddress: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL_TCIRBTC,
-    depositTokenSymbol: 'USDC + tcirBTC', rewardTokenSymbol: 'LP Fees',
+    contractAddress: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
+    depositTokenSymbol: 'USDC + cirBTC', rewardTokenSymbol: 'LP Fees (USDC/cirBTC)',
     isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    yieldOrigin: 'Test Swap Volume Fees (0.25%)',
-    yieldOriginDetails: 'Practice pool with mintable tcirBTC. Get free tokens from the faucet to test liquidity provision and swaps.',
-    gasBenefitNote: 'Click "Get tcirBTC" on the pool card to receive free test tokens.',
+    yieldOrigin: 'Swap Volume Fees (0.25% Direct Accrual)',
+    yieldOriginDetails: 'A 0.25% fee from traders swapping between USDC and cirBTC accrues inside the constant-product reserves.',
+    gasBenefitNote: 'Gas fees on Arc are paid in USDC — zero ETH or BTC needed for gas.',
     howItWorksSteps: [
-      { step: 1, title: 'Get tcirBTC', desc: 'Click the faucet button to mint free test Bitcoin tokens.' },
-      { step: 2, title: 'Add Liquidity', desc: 'Deposit USDC + tcirBTC or use 1-Click Zap.' },
-      { step: 3, title: 'Swap & Earn', desc: 'Test swap fees and LP mechanics risk-free.' },
-      { step: 4, title: 'Reset Anytime', desc: 'No real value — perfect for learning.' },
+      { step: 1, title: 'Provide Liquidity', desc: 'Deposit USDC + cirBTC (or single-token USDC via Zap).' },
+      { step: 2, title: 'Receive LP Token', desc: 'Get af-USDC-cirBTC representing your pool share.' },
+      { step: 3, title: 'Earn Trading Fees', desc: 'Trading fees automatically grow the reserve ratio.' },
+      { step: 4, title: 'Flexible Withdraw', desc: 'Redeem LP tokens anytime to claim principal + fee growth.' },
     ],
-    tags: ['Testnet', 'Faucet', 'Practice', 'No Real Value'],
-    isLpPool: true, lpTokenName: 'Arcis USDC-tcirBTC LP', lpTokenSymbol: 'af-USDC-tcBTC',
+    tags: ['ConstantProduct', 'Bitcoin', 'Dual AMM', 'Single Asset'],
+    isLpPool: true, lpTokenName: 'Arcis USDC-cirBTC LP', lpTokenSymbol: 'af-USDC-cirBTC',
     supportsZap: true, exchangeRate: 96500, feeTierPercent: 0.25,
-    reserves: { tokenA: 25000, tokenB: 0.259, ratioA: 50, ratioB: 50 },
+    reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Medium',
-    isFaucetToken: true,
-    faucetTokenAddress: POOL_CONTRACTS.tcirBTC,
   },
   {
     id: 'usdc-yield-vault',
     name: 'USDC Yield Vault',
-    subtitle: 'Deposit USDC, earn real USDC yield — no lockup, no inflation.',
-    description: 'A single-asset ERC-4626 vault. Deposit USDC and receive vault shares that appreciate.',
+    subtitle: 'Deposit USDC, earn real USDC yield via ERC-4626 share appreciation.',
+    description: 'A single-asset ERC-4626 vault. Deposited USDC receives shares that appreciate as protocol fees are distributed.',
     category: 'vault',
     tokens: [
       { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
     ],
-    apy: 8.42, apyType: 'APR', apyBadge: '8.42% Real Yield (USDC)',
-    tvlUsd: 785300, volume24hUsd: 195400, lockPeriod: 'Flexible (Unstake Anytime)',
+    apy: 8.42, apyType: 'APY', apyBadge: '8.42% Vault Yield (Baseline Est.)',
+    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'Flexible (Unstake Anytime)',
     riskLevel: 'Low', feeShare: '90% Protocol Revenue Share',
     contractAddress: POOL_CONTRACTS.YIELD_VAULT,
     depositTokenSymbol: 'USDC', rewardTokenSymbol: 'USDC',
     isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    yieldOrigin: 'Arcis Protocol Revenue Share',
-    yieldOriginDetails: '90% of protocol fees from Send, Swap, and Bridge transactions are paid to vault depositors.',
-    gasBenefitNote: 'Zero token inflation. Rewards are paid in 100% real USDC cash.',
+    yieldOrigin: 'Arcis Protocol Revenue Share (ERC-4626)',
+    yieldOriginDetails: '90% of protocol fees from Send, Swap, and Bridge transactions are distributed into the vault, raising totalAssets and share price.',
+    gasBenefitNote: 'Zero token inflation. Rewards are paid in 100% real USDC cash upon redeeming shares.',
     howItWorksSteps: [
-      { step: 1, title: 'Deposit USDC', desc: 'Lock USDC in the revenue vault.' },
-      { step: 2, title: 'Track Volume', desc: 'Platform trading fees accumulate in real time.' },
-      { step: 3, title: 'Claim in USDC', desc: 'Claim your accrued USDC dividend rewards.' },
-      { step: 4, title: 'Flexible Exit', desc: 'Unstake anytime with zero penalty.' },
+      { step: 1, title: 'Deposit USDC', desc: 'Deposit USDC into the ERC-4626 yield vault.' },
+      { step: 2, title: 'Share Appreciation', desc: 'Protocol revenue increases totalAssets, driving up each share value.' },
+      { step: 3, title: 'Auto-Compounding', desc: 'Yield compounds automatically without manual claiming or harvest gas.' },
+      { step: 4, title: 'Redeem for USDC', desc: 'Redeem your shares anytime to withdraw principal + accumulated USDC yield.' },
     ],
-    tags: ['Real Yield', 'Fee Sharing', 'Revenue Share', 'USDC Payout'],
+    tags: ['ERC-4626', 'Real Yield', 'Revenue Share', 'USDC Payout'],
     supportsZap: true,
   },
   {
     id: 'gateway-settlement-pool',
-    name: 'Gateway Cross-Chain Settlement Pool',
-    subtitle: 'Provide instant USDC settlement liquidity across 9 testnet chains.',
-    description: 'Liquidity for Circle Gateway sub-second (<500ms) cross-chain burn and mint settlements.',
+    name: 'Gateway Cross-Chain Settlement',
+    subtitle: 'Cross-chain settlement liquidity buffer across 9 testnet chains via Circle Gateway.',
+    description: 'Infrastructure liquidity powering Circle Gateway sub-second (<500ms) cross-chain burn and mint settlements.',
     category: 'crosschain',
     tokens: [
       { symbol: 'USDC', name: 'USD Coin (Gateway)', address: POOL_CONTRACTS.USDC, iconType: 'gateway', decimals: 6 },
     ],
-    apy: 7.25, apyType: 'APR', apyBadge: '7.25% Cross-Chain Routing APR',
-    tvlUsd: 2100000, volume24hUsd: 540000, lockPeriod: 'Flexible (Instant Settlement)',
+    apy: GATEWAY_ROUTING_APY, apyType: 'APY', apyBadge: `${GATEWAY_ROUTING_APY}% Cross-Chain Routing APY`,
+    tvlUsd: 0, volume24hUsd: 0, lockPeriod: 'Flexible (Instant Settlement)',
     riskLevel: 'Low', feeShare: '0.03% Gateway Settlement Fee to LPs',
     contractAddress: POOL_CONTRACTS.USDC,
     depositTokenSymbol: 'USDC (Any Chain)', rewardTokenSymbol: 'USDC',
     isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
     isCrossChainPool: true, supportedChainsCount: 9,
     yieldOrigin: '9-Chain Instant Routing & Settlement Fees',
-    yieldOriginDetails: 'Capital powers the liquidity buffer for sub-second cross-chain transfers.',
+    yieldOriginDetails: 'Capital powers the liquidity buffer for sub-second cross-chain transfers via Circle Gateway.',
     gasBenefitNote: 'Circle Gateway allows multi-chain capital efficiency.',
     howItWorksSteps: [
-      { step: 1, title: 'Deposit USDC', desc: 'Add your unified USDC balance to the Gateway vault.' },
-      { step: 2, title: 'Multi-Chain Buffer', desc: 'Funds power instant transfers on 9 chains.' },
-      { step: 3, title: 'Collect Routing Fees', desc: 'Earn 0.03% protocol fee on settlements.' },
-      { step: 4, title: 'Instant Exit', desc: 'Release and withdraw your USDC anytime.' },
+      { step: 1, title: 'Deposit USDC', desc: 'Add unified USDC to the Gateway cross-chain balance.' },
+      { step: 2, title: 'Multi-Chain Buffer', desc: 'Funds power instant transfers across 9 supported testnets.' },
+      { step: 3, title: 'Routing Rewards', desc: 'Earn protocol routing fees on cross-chain settlements.' },
+      { step: 4, title: 'Instant Exit', desc: 'Burn and mint or spend unified USDC across chains anytime.' },
     ],
-    tags: ['Gateway', 'Cross-Chain', '<500ms Finality', '9 Testnet Chains'],
+    tags: ['Gateway', 'Infrastructure', '<500ms Finality', '9 Testnet Chains'],
     supportsZap: true,
   },
 ]
@@ -359,24 +398,65 @@ export const ERC20_ABI = [
 ] as const
 
 export const STABLE_SWAP_ABI = [
-  { type: 'function', name: 'addLiquidity', stateMutability: 'nonpayable', inputs: [{ name: 'amountAIn', type: 'uint256' }, { name: 'amountBIn', type: 'uint256' }], outputs: [{ name: 'lpShares', type: 'uint256' }] },
-  { type: 'function', name: 'removeLiquidity', stateMutability: 'nonpayable', inputs: [{ name: 'lpAmount', type: 'uint256' }], outputs: [{ name: 'outA', type: 'uint256' }, { name: 'outB', type: 'uint256' }] },
+  // SECURITY: only slippage-guarded overloads are exposed. The old 2-arg addLiquidity /
+  // 1-arg removeLiquidity ABI entries were REMOVED together with the contract overloads —
+  // callers must always pass explicit minLpShares / minOut values.
+  { type: 'function', name: 'addLiquidity', stateMutability: 'nonpayable', inputs: [{ name: 'amountAIn', type: 'uint256' }, { name: 'amountBIn', type: 'uint256' }, { name: 'minLpShares', type: 'uint256' }], outputs: [{ name: 'lpShares', type: 'uint256' }] },
+  { type: 'function', name: 'removeLiquidity', stateMutability: 'nonpayable', inputs: [{ name: 'lpAmount', type: 'uint256' }, { name: 'minOutA', type: 'uint256' }, { name: 'minOutB', type: 'uint256' }], outputs: [{ name: 'outA', type: 'uint256' }, { name: 'outB', type: 'uint256' }] },
   { type: 'function', name: 'swap', stateMutability: 'nonpayable', inputs: [{ name: 'tokenIn', type: 'address' }, { name: 'tokenOut', type: 'address' }, { name: 'amountIn', type: 'uint256' }, { name: 'minOut', type: 'uint256' }], outputs: [{ name: 'amountOut', type: 'uint256' }] },
   { type: 'function', name: 'reserveA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'reserveB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'totalLp', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'unclaimedFeeA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'unclaimedFeeB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'accumulatedFeeA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'accumulatedFeeB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'swapFeeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'pause', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+  { type: 'function', name: 'unpause', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+  { type: 'function', name: 'paused', stateMutability: 'view', inputs: [], outputs: [{ type: 'bool' }] },
+  // 24H rolling counters (V3.2 lazy reset)
+  { type: 'function', name: 'e24hVolumeA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'e24hVolumeB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'e24hWindowStart', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'volume24hA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'volume24hB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  // Events for transaction receipt decoding (K1, K2)
+  {
+    type: 'event',
+    name: 'LiquidityAdded',
+    inputs: [
+      { name: 'provider', type: 'address', indexed: true },
+      { name: 'amountA', type: 'uint256', indexed: false },
+      { name: 'amountB', type: 'uint256', indexed: false },
+      { name: 'lpMinted', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'LiquidityRemoved',
+    inputs: [
+      { name: 'provider', type: 'address', indexed: true },
+      { name: 'lpAmount', type: 'uint256', indexed: false },
+      { name: 'amountA', type: 'uint256', indexed: false },
+      { name: 'amountB', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'Swapped',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'tokenIn', type: 'address', indexed: false },
+      { name: 'amountIn', type: 'uint256', indexed: false },
+      { name: 'amountOut', type: 'uint256', indexed: false },
+    ],
+  },
 ] as const
 
 export const CONSTANT_PRODUCT_ABI = STABLE_SWAP_ABI
 
-// MockERC20 (mintable) ABI — used for tcirBTC faucet
-export const MOCK_ERC20_ABI = [
-  ...ERC20_ABI,
-  { type: 'function', name: 'mint', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [] as undefined[] },
-] as const
 
 export const YIELD_VAULT_ABI = [
   { type: 'function', name: 'deposit', stateMutability: 'nonpayable', inputs: [{ name: 'assets', type: 'uint256' }, { name: 'receiver', type: 'address' }], outputs: [{ name: 'shares', type: 'uint256' }] },

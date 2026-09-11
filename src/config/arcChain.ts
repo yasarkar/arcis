@@ -1,114 +1,45 @@
-import { defineChain } from 'viem'
+// src/config/arcChain.ts
+// Arc L1 Chain Configuration Facade (100% English)
+// Backed by the Master Network Registry (src/config/networks/networkRegistry.ts)
+// Single Source of Truth for Arc Testnet & Mainnet definitions.
 
-// ─────────────────────────────────────────────────────────────
-// 1. ENVIRONMENT & NETWORK SELECTION
-// ─────────────────────────────────────────────────────────────
-const envSetting = (
-  (typeof process !== 'undefined' && process.env && (process.env.VITE_APP_ENV || process.env.VITE_NETWORK || process.env.APP_ENV)) ||
-  (typeof import.meta !== 'undefined' && import.meta.env && (import.meta.env.VITE_APP_ENV || import.meta.env.VITE_NETWORK)) ||
-  'testnet'
-).toLowerCase()
+import {
+  APP_ENV,
+  IS_TESTNET,
+  arcTestnet,
+  arcMainnet,
+  TESTNET_NETWORKS,
+  MAINNET_NETWORKS,
+} from './networks/networkRegistry'
 
-export const APP_ENV: 'testnet' | 'mainnet' = envSetting === 'mainnet' ? 'mainnet' : 'testnet'
-export const IS_TESTNET = APP_ENV === 'testnet'
+export { APP_ENV, IS_TESTNET, arcTestnet, arcMainnet }
 
-// Custom RPC override from environment
-const customRpcUrl = (
-  (typeof process !== 'undefined' && process.env && process.env.VITE_ARC_RPC_URL) ||
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ARC_RPC_URL) ||
-  ''
-).trim()
-
-// ─────────────────────────────────────────────────────────────
-// 2. ARC CHAIN DEFINITIONS (Testnet & Mainnet)
-// ─────────────────────────────────────────────────────────────
-export const arcTestnet = defineChain({
-  id: 5042002,
-  name: 'Arc Testnet',
-  nativeCurrency: {
-    name: 'USDC',
-    symbol: 'USDC',
-    decimals: 18, // Native gas view has 18 decimals on Arc
-  },
-  rpcUrls: {
-    default: {
-      http: customRpcUrl
-        ? [customRpcUrl, 'https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io']
-        : ['https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io'],
-      webSocket: ['wss://rpc.testnet.arc.network'],
-    },
-    public: {
-      http: customRpcUrl
-        ? [customRpcUrl, 'https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io']
-        : ['https://rpc.testnet.arc.network', 'https://rpc.testnet.arc.io'],
-      webSocket: ['wss://rpc.testnet.arc.network'],
-    },
-  },
-  blockExplorers: {
-    default: {
-      name: 'ArcScan',
-      url: 'https://testnet.arcscan.app',
-    },
-  },
-  testnet: true,
-})
-
-export const arcMainnet = defineChain({
-  id: 5042001,
-  name: 'Arc',
-  nativeCurrency: {
-    name: 'USDC',
-    symbol: 'USDC',
-    decimals: 18,
-  },
-  rpcUrls: {
-    default: {
-      http: customRpcUrl
-        ? [customRpcUrl, 'https://rpc.arc.io']
-        : ['https://rpc.arc.io'],
-      webSocket: ['wss://rpc.arc.io'],
-    },
-    public: {
-      http: customRpcUrl
-        ? [customRpcUrl, 'https://rpc.arc.io']
-        : ['https://rpc.arc.io'],
-      webSocket: ['wss://rpc.arc.io'],
-    },
-  },
-  blockExplorers: {
-    default: {
-      name: 'ArcScan',
-      url: 'https://arcscan.app',
-    },
-  },
-  testnet: false,
-})
-
-// Active chain according to environment
+/** Active Arc chain definition according to environment */
 export const arcActiveChain = IS_TESTNET ? arcTestnet : arcMainnet
 
-// ─────────────────────────────────────────────────────────────
-// 3. TOKEN ADDRESSES & METADATA
-// ─────────────────────────────────────────────────────────────
+/** Token addresses for Arc Testnet */
 export const ARC_TESTNET_TOKENS = {
-  USDC: '0x3600000000000000000000000000000000000000' as const,
-  EURC: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a' as const,
-  cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF' as const,
-}
+  USDC: TESTNET_NETWORKS.Arc_Testnet.tokens.USDC as `0x${string}`,
+  EURC: TESTNET_NETWORKS.Arc_Testnet.tokens.EURC as `0x${string}`,
+  cirBTC: (TESTNET_NETWORKS.Arc_Testnet.tokens.cirBTC || '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF') as `0x${string}`,
+} as const
 
+/** Token addresses for Arc Mainnet */
 export const ARC_MAINNET_TOKENS = {
-  USDC: '0x3600000000000000000000000000000000000000' as const,
-  EURC: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a' as const,
-  cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF' as const,
-}
+  USDC: (MAINNET_NETWORKS.Arc?.tokens.USDC || '0x3600000000000000000000000000000000000000') as `0x${string}`,
+  EURC: (MAINNET_NETWORKS.Arc?.tokens.EURC || '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a') as `0x${string}`,
+  cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF' as `0x${string}`,
+} as const
 
+/** Active token addresses according to environment */
 export const ARC_TOKENS = IS_TESTNET ? ARC_TESTNET_TOKENS : ARC_MAINNET_TOKENS
 
+/** Arc network metadata for UI and telemetry */
 export const ARC_METADATA = {
-  cctpDomain: IS_TESTNET ? 26 : 26,
+  cctpDomain: 26,
   faucetUrl: 'https://faucet.circle.com',
-  rpcHttpUrl: customRpcUrl || (IS_TESTNET ? 'https://rpc.testnet.arc.network' : 'https://rpc.arc.io'),
-  rpcWsUrl: IS_TESTNET ? 'wss://rpc.testnet.arc.network' : 'wss://rpc.arc.io',
-  explorerUrl: IS_TESTNET ? 'https://testnet.arcscan.app' : 'https://arcscan.app',
+  rpcHttpUrl: arcActiveChain.rpcUrls.default.http[0],
+  rpcWsUrl: arcActiveChain.rpcUrls.default.webSocket?.[0] || (IS_TESTNET ? 'wss://rpc.testnet.arc.network' : 'wss://rpc.arc.io'),
+  explorerUrl: arcActiveChain.blockExplorers?.default.url || 'https://testnet.arcscan.app',
   isTestnet: IS_TESTNET,
 }

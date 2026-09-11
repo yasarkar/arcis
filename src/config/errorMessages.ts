@@ -10,6 +10,7 @@ export interface ErrorDefinition {
   actionHint?: string
   isCanceled: boolean
   isRetryable: boolean
+  isActionable?: boolean
 }
 
 export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
@@ -123,6 +124,16 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     isRetryable: true,
   },
 
+  // 11b. RPC Rate / Request Limit Exceeded (-32005 / LimitExceededRpcError)
+  RPC_LIMIT_EXCEEDED: {
+    category: 'RPC_NETWORK',
+    title: 'Network Limit Reached',
+    message: 'Network request limit reached. Please wait a few seconds and try again.',
+    actionHint: 'Wait 5–10 seconds for the network queue to clear, then retry.',
+    isCanceled: false,
+    isRetryable: true,
+  },
+
   // 12. Smart Contract Reverted
   CONTRACT_REVERT: {
     category: 'CONTRACT_REVERT',
@@ -141,6 +152,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     actionHint: 'Click to try again and authenticate on your device.',
     isCanceled: true,
     isRetryable: true,
+    isActionable: true,
   },
   PASSKEY_ALREADY_EXISTS: {
     category: 'PASSKEY_AUTH',
@@ -149,6 +161,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     actionHint: 'Use "Login with FaceID" instead of creating a new passkey.',
     isCanceled: false,
     isRetryable: false,
+    isActionable: true,
   },
   PASSKEY_DOMAIN_MISMATCH: {
     category: 'PASSKEY_AUTH',
@@ -157,6 +170,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     actionHint: 'Ensure you are accessing Arcis from an authorized domain.',
     isCanceled: false,
     isRetryable: false,
+    isActionable: true,
   },
   PASSKEY_NOT_SUPPORTED: {
     category: 'PASSKEY_AUTH',
@@ -165,6 +179,61 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     actionHint: 'Enable Windows Hello, TouchID, or connect with a standard Web3 wallet.',
     isCanceled: false,
     isRetryable: false,
+    isActionable: false,
+  },
+  CIRCLE_ENTITY_CONFIG_MISSING: {
+    category: 'PASSKEY_AUTH',
+    title: 'Circle Modular Config Missing',
+    message: 'Modular Wallets Configurator has not been completed for this domain in Circle Console.',
+    actionHint: 'Go to Circle Console > Wallets > Modular Wallets > Configurator to register your domain.',
+    isCanceled: false,
+    isRetryable: false,
+    isActionable: true,
+  },
+  CLIENT_KEY_UNAUTHORIZED: {
+    category: 'PASSKEY_AUTH',
+    title: 'Circle Client Key Unauthorized',
+    message: "The current domain is not listed under 'Allowed Domains' in Circle Developer Console.",
+    actionHint: 'Add this origin to your Allowed Domains list in the Circle Console.',
+    isCanceled: false,
+    isRetryable: false,
+    isActionable: true,
+  },
+  PAYMASTER_SPONSORSHIP_ERROR: {
+    category: 'PASSKEY_AUTH',
+    title: 'Gas Station Sponsorship Error',
+    message: 'Circle Gas Station could not sponsor gas for this transaction.',
+    actionHint: 'Check your testnet Gas Station balance in the Circle Console.',
+    isCanceled: false,
+    isRetryable: true,
+    isActionable: true,
+  },
+  WEBAUTHN_PROTOCOL_BAD_REQUEST: {
+    category: 'PASSKEY_AUTH',
+    title: 'WebAuthn Protocol Error',
+    message: 'The WebAuthn protocol rejected the request. Passkey Domain in Circle Console must not include protocol or ports (e.g. use "localhost" directly).',
+    actionHint: 'In Circle Console > Modular Wallets > Passkey, set the domain name to "localhost" or your app domain without port/protocol.',
+    isCanceled: false,
+    isRetryable: true,
+    isActionable: true,
+  },
+  NO_STORED_PASSKEY: {
+    category: 'PASSKEY_AUTH',
+    title: 'No Stored Passkey Found',
+    message: 'No registered passkey credential was found on this device.',
+    actionHint: 'Please click "Create New Passkey" to register your initial smart wallet.',
+    isCanceled: false,
+    isRetryable: true,
+    isActionable: true,
+  },
+  UNKNOWN_PASSKEY_ERROR: {
+    category: 'PASSKEY_AUTH',
+    title: 'Passkey Operation Failed',
+    message: 'An unknown biometric verification error occurred.',
+    actionHint: 'Please refresh the page and try authenticating again.',
+    isCanceled: false,
+    isRetryable: true,
+    isActionable: true,
   },
 
   // 14. Validation Errors
