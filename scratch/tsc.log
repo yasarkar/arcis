@@ -1,0 +1,17 @@
+npm warn Unknown project config "strict-peer-dependencies". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+src/hooks/usePoolsData.ts(1204,13): error TS2322: Type '[bigint, bigint]' is not assignable to type 'readonly [bigint, bigint, bigint]'.
+  Source has 2 element(s) but target requires 3.
+src/hooks/usePoolsData.ts(1300,9): error TS2322: Type '[bigint, bigint]' is not assignable to type 'readonly [bigint, bigint, bigint]'.
+  Source has 2 element(s) but target requires 3.
+src/hooks/usePoolsData.ts(1414,13): error TS2322: Type 'readonly [bigint, bigint, bigint] | readonly [bigint, bigint]' is not assignable to type 'readonly [bigint, bigint, bigint]'.
+  Type 'readonly [bigint, bigint]' is not assignable to type 'readonly [bigint, bigint, bigint]'.
+    Source has 2 element(s) but target requires 3.
+src/hooks/usePoolsData.ts(1474,9): error TS2322: Type 'readonly [bigint, bigint, bigint] | readonly [bigint, bigint]' is not assignable to type 'readonly [bigint, bigint, bigint]'.
+  Type 'readonly [bigint, bigint]' is not assignable to type 'readonly [bigint, bigint, bigint]'.
+    Source has 2 element(s) but target requires 3.
+src/hooks/usePoolsData.ts(1822,13): error TS2322: Type 'readonly [lpAmount: bigint] | readonly [lpAmount: bigint, minOutA: bigint, minOutB: bigint]' is not assignable to type 'readonly [lpAmount: bigint, bigint, bigint]'.
+  Type 'readonly [lpAmount: bigint]' is not assignable to type 'readonly [lpAmount: bigint, bigint, bigint]'.
+    Source has 1 element(s) but target requires 3.
+src/hooks/usePoolsData.ts(1842,11): error TS2322: Type 'readonly [lpAmount: bigint] | readonly [lpAmount: bigint, minOutA: bigint, minOutB: bigint]' is not assignable to type 'readonly [lpAmount: bigint, bigint, bigint]'.
+  Type 'readonly [lpAmount: bigint]' is not assignable to type 'readonly [lpAmount: bigint, bigint, bigint]'.
+    Source has 1 element(s) but target requires 3.

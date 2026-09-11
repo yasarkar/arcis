@@ -1,0 +1,125 @@
+No files changed, compilation skipped
+
+Ran 6 tests for test/ConstantProductPoolV3.t.sol:ConstantProductPoolV3Test
+[PASS] test_FeeGettersCompatibility() (gas: 370705)
+[PASS] test_LpDecimalsStandardized18() (gas: 5710)
+[PASS] test_MinLpSharesGuardReverts() (gas: 327645)
+[PASS] test_MinimumLiquidityLockedToDead() (gas: 267825)
+[PASS] test_PauseBlocksOperations() (gas: 281812)
+[PASS] test_RevertDegenerateTokenPair() (gas: 132941)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 1.54ms (997.00µs CPU time)
+
+Ran 7 tests for test/ConstantProductPool.t.sol:ConstantProductPoolTest
+[PASS] test_BalanceOfTracking() (gas: 313040)
+[PASS] test_CannotWithdrawMoreThanBalance() (gas: 295959)
+[PASS] test_ERC20Composability() (gas: 336068)
+[PASS] test_InitialLiquidity() (gas: 290954)
+[PASS] test_KInvariantIncreasing() (gas: 362182)
+[PASS] test_NativeReceiveReverts() (gas: 12150)
+[PASS] test_SwapMinOut() (gas: 365530)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 4.07ms (1.57ms CPU time)
+
+Ran 5 tests for test/YieldVault.t.sol:YieldVaultTest
+[PASS] test_Deposit() (gas: 127022)
+[PASS] test_NativeReceiveReverts() (gas: 12055)
+[PASS] test_OnlyOwnerCanDistribute() (gas: 11339)
+[PASS] test_Redeem() (gas: 105975)
+[PASS] test_YieldDistributionAppreciatesShares() (gas: 200279)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 1.44ms (476.70µs CPU time)
+
+Ran 2 tests for test/YieldVaultV2.t.sol:YieldVaultV2Test
+[PASS] test_DepositPaused() (gas: 134885)
+[PASS] test_DistributeYieldIncreasesShareValue() (gas: 198009)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 719.40µs (288.50µs CPU time)
+
+Ran 7 tests for test/ConstantProductPoolV2.t.sol:ConstantProductPoolV2Test
+[PASS] test_FeeGettersCompatibility() (gas: 370159)
+[PASS] test_LpDecimalsStandardized18() (gas: 5688)
+[PASS] test_MinLpSharesGuardReverts() (gas: 327109)
+[PASS] test_MinimumLiquidityLockedToDead() (gas: 267279)
+[PASS] test_PauseBlocksOperations() (gas: 281178)
+[PASS] test_RemoveLiquidityMinOutGuardReverts() (gas: 272102)
+[PASS] test_RemoveLiquidityZeroSlippagePermitsFullExit() (gas: 265806)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 1.40ms (1.26ms CPU time)
+
+Ran 2 tests for test/StableMathComparison.t.sol:StableMathComparisonTest
+[PASS] test_ImbalancedDeviationIsMeaningful() (gas: 714084)
+[PASS] test_InvariantAnnDeviationBps() (gas: 703804)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 1.40ms (780.70µs CPU time)
+
+Ran 9 tests for test/StableSwapPool.t.sol:StableSwapPoolTest
+[PASS] test_AddSecondDeposit() (gas: 340174)
+[PASS] test_BalanceOfTracking() (gas: 305502)
+[PASS] test_CannotWithdrawMoreThanBalance() (gas: 293221)
+[PASS] test_DrainAttackFails() (gas: 509862)
+[PASS] test_ERC20Composability() (gas: 333441)
+[PASS] test_InitialLiquidity() (gas: 288258)
+[PASS] test_NativeReceiveReverts() (gas: 12061)
+[PASS] test_SwapStable() (gas: 365343)
+[PASS] test_UnclaimedFeeAccrues() (gas: 363635)
+Suite result: ok. 9 passed; 0 failed; 0 skipped; finished in 24.67ms (6.24ms CPU time)
+
+Ran 2 tests for test/YieldVaultV3.t.sol:YieldVaultV3Test
+[PASS] test_DepositPaused() (gas: 134864)
+[PASS] test_DistributeYieldIncreasesShareValue() (gas: 197943)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 10.92ms (320.80µs CPU time)
+
+Ran 9 tests for test/StableSwapPoolV3.t.sol:StableSwapPoolV3Test
+[PASS] test_AddLiquidityMinLpGuardReverts() (gas: 427101)
+[PASS] test_CanonicalParityWithV1() (gas: 687270)
+[PASS] test_FeeGettersCompatibility() (gas: 473564)
+[PASS] test_LpDecimalsStandardized() (gas: 5677)
+[PASS] test_MinimumLiquidityLockedToDead() (gas: 312898)
+[PASS] test_PauseBlocksLiquidity() (gas: 326853)
+[PASS] test_RemoveLiquidityMinOutGuardReverts() (gas: 317588)
+[PASS] test_RemoveLiquidityZeroSlippagePermitsFullExit() (gas: 311403)
+[PASS] test_RevertDegenerateTokenPair() (gas: 133111)
+Suite result: ok. 9 passed; 0 failed; 0 skipped; finished in 11.25ms (3.78ms CPU time)
+
+Ran 7 tests for test/StableSwapPoolV2.t.sol:StableSwapPoolV2Test
+[PASS] test_AddLiquidityMinLpGuardReverts() (gas: 323617)
+[PASS] test_FeeGettersCompatibility() (gas: 370117)
+[PASS] test_LpDecimalsStandardized() (gas: 5655)
+[PASS] test_MinimumLiquidityLockedToDead() (gas: 260136)
+[PASS] test_PauseBlocksLiquidity() (gas: 274089)
+[PASS] test_RemoveLiquidityMinOutGuardReverts() (gas: 264937)
+[PASS] test_RemoveLiquidityZeroSlippagePermitsFullExit() (gas: 258641)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 4.08ms (3.08ms CPU time)
+
+Ran 19 tests for test/SessionKeyModule.t.sol:SessionKeyModuleTest
+[PASS] test_Construction() (gas: 13835)
+[FAIL: TargetNotApproved()] test_ERC20TransferWithinLimitSucceeds() (gas: 139060)
+[FAIL: TargetNotApproved()] test_ExecuteFromSessionKey() (gas: 134134)
+[PASS] test_ExecuteSignedRevertsInvalidSignature() (gas: 141227)
+[PASS] test_ExecuteSignedRevertsWrongSigner() (gas: 146208)
+[FAIL: InvalidSignature()] test_ExecuteSignedValidSignatureSucceeds() (gas: 143571)
+[PASS] test_RegisterSessionKey() (gas: 130906)
+[PASS] test_RevertDuplicateRegistration() (gas: 130987)
+[FAIL: Error != expected error: TargetNotApproved() != ExceedsMaxPerTx()] test_RevertERC20ExceedsMaxPerTx() (gas: 139449)
+[FAIL: TargetNotApproved()] test_RevertERC20ExceedsMaxSpend() (gas: 139105)
+[FAIL: Error != expected error: TargetNotApproved() != ExceedsMaxPerTx()] test_RevertExceedsMaxPerTx() (gas: 134632)
+[FAIL: Error != expected error: TargetNotApproved() != SessionKeyExpired()] test_RevertExpiredKeyExecution() (gas: 135021)
+[PASS] test_RevertNonMSCAExecution() (gas: 134551)
+[PASS] test_RevertNonOwnerRegistration() (gas: 13733)
+[PASS] test_RevertZeroMsca() (gas: 39127)
+[PASS] test_RevertZeroOwner() (gas: 39177)
+[PASS] test_RevokeSessionKey() (gas: 113367)
+[PASS] test_ValidateInvalidKey() (gas: 10389)
+[PASS] test_ValidateSignatureWithModernV() (gas: 132998)
+Suite result: FAILED. 12 passed; 7 failed; 0 skipped; finished in 4.52ms (4.54ms CPU time)
+
+Ran 11 test suites in 33.55ms (65.99ms CPU time): 68 tests passed, 7 failed, 0 skipped (75 total tests)
+
+Failing tests:
+Encountered 7 failing tests in test/SessionKeyModule.t.sol:SessionKeyModuleTest
+[FAIL: TargetNotApproved()] test_ERC20TransferWithinLimitSucceeds() (gas: 139060)
+[FAIL: TargetNotApproved()] test_ExecuteFromSessionKey() (gas: 134134)
+[FAIL: InvalidSignature()] test_ExecuteSignedValidSignatureSucceeds() (gas: 143571)
+[FAIL: Error != expected error: TargetNotApproved() != ExceedsMaxPerTx()] test_RevertERC20ExceedsMaxPerTx() (gas: 139449)
+[FAIL: TargetNotApproved()] test_RevertERC20ExceedsMaxSpend() (gas: 139105)
+[FAIL: Error != expected error: TargetNotApproved() != ExceedsMaxPerTx()] test_RevertExceedsMaxPerTx() (gas: 134632)
+[FAIL: Error != expected error: TargetNotApproved() != SessionKeyExpired()] test_RevertExpiredKeyExecution() (gas: 135021)
+
+Encountered a total of 7 failing tests, 68 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 7 failed tests
