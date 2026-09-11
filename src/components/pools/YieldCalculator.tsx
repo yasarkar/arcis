@@ -8,7 +8,8 @@ import { createPortal } from 'react-dom'
 import {
   Calculator,
   X,
-  Zap,
+  Plus,
+  Wallet,
   Activity,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
@@ -19,22 +20,25 @@ interface YieldCalculatorProps {
   isOpen: boolean
   onClose: () => void
   onSelectPoolToDeposit?: (pool: PoolConfig) => void
+  walletBalanceUsdc?: string
+  pools?: PoolConfig[]
 }
 
 export default function YieldCalculator({
   isOpen,
   onClose,
   onSelectPoolToDeposit,
+  walletBalanceUsdc,
+  pools,
 }: YieldCalculatorProps) {
+  const activePools = pools && pools.length > 0 ? pools : ARCIS_POOLS
   const [principal, setPrincipal] = useState<string>('5000')
-  const defaultPoolId = ARCIS_POOLS.length > 0 ? ARCIS_POOLS[0].id : ''
+  const defaultPoolId = activePools.length > 0 ? activePools[0].id : ''
   const [selectedPoolId, setSelectedPoolId] = useState<string>(defaultPoolId)
   const [compoundFreq] = useState<'daily' | 'monthly' | 'yearly'>('daily')
 
-  if (!isOpen) return null
-
   const principalNum = Math.max(0, parseFloat(principal) || 0)
-  const selectedPool = ARCIS_POOLS.find((p) => p.id === selectedPoolId) || ARCIS_POOLS[0]
+  const selectedPool = activePools.find((p) => p.id === selectedPoolId) || activePools[0]
 
   const { formattedYield: simLiveYield, yieldPerSecond: simYieldPerSec } = useContinuousYieldStream(
     principalNum,
@@ -42,6 +46,8 @@ export default function YieldCalculator({
     0,
     70
   )
+
+  if (!isOpen) return null
 
   // Compounding math: A = P * (1 + r/n)^(n*t)
   const calculateCompoundReturn = (days: number, apyPercent: number) => {
@@ -73,38 +79,24 @@ export default function YieldCalculator({
 
   return createPortal(
     <div
+      className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width: '100vw',
-        height: '100vh',
-        zIndex: 99999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-        background: 'rgba(0, 0, 0, 0.75)',
+        background: 'rgba(5, 7, 15, 0.78)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        animation: 'arc-reveal 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
       <div
-        className="ub-hero-card"
+        className="relative w-full max-w-[680px] my-auto rounded-3xl overflow-hidden shadow-2xl transition-all border animate-in fade-in zoom-in-95 duration-200"
         style={{
-          width: '100%',
-          maxWidth: 680,
-          maxHeight: '90vh',
+          maxHeight: 'min(90vh, 880px)',
           overflowY: 'auto',
-          background: 'linear-gradient(180deg, rgba(17, 21, 38, 0.98) 0%, rgba(11, 13, 24, 0.99) 100%)',
-          border: '1px solid rgba(152, 150, 255, 0.35)',
-          boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(152, 150, 255, 0.15)',
+          background: 'linear-gradient(180deg, rgba(20, 24, 44, 0.96) 0%, rgba(12, 14, 26, 0.98) 100%)',
+          borderColor: 'rgba(152, 150, 255, 0.35)',
+          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(99, 102, 241, 0.15)',
           borderRadius: 24,
           padding: '28px',
           position: 'relative',
@@ -112,6 +104,9 @@ export default function YieldCalculator({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Glow ambient header accent */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-gradient-to-r from-blue-500/20 via-indigo-500/30 to-purple-500/20 blur-3xl pointer-events-none" />
+
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -123,6 +118,7 @@ export default function YieldCalculator({
             right: 20,
             padding: 8,
             borderRadius: '50%',
+            zIndex: 10,
           }}
           title="Close Simulator"
         >
@@ -211,7 +207,35 @@ export default function YieldCalculator({
           </div>
 
           {/* Quick Amount Chips */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {walletBalanceUsdc && parseFloat(walletBalanceUsdc) > 0 && (
+              <button
+                type="button"
+                onClick={() => setPrincipal(parseFloat(walletBalanceUsdc).toFixed(2))}
+                style={{
+                  background: principal === parseFloat(walletBalanceUsdc).toFixed(2)
+                    ? 'rgba(1, 208, 98, 0.25)'
+                    : 'rgba(1, 208, 98, 0.1)',
+                  border: principal === parseFloat(walletBalanceUsdc).toFixed(2)
+                    ? '1px solid rgba(1, 208, 98, 0.5)'
+                    : '1px solid rgba(1, 208, 98, 0.25)',
+                  color: '#34d399',
+                  padding: '4px 12px',
+                  borderRadius: 99,
+                  fontSize: 11,
+                  fontFamily: 'var(--font-app)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Wallet size={11} />
+                <span>My Balance (${parseFloat(walletBalanceUsdc).toFixed(2)})</span>
+              </button>
+            )}
             {quickAmounts.map((amt) => (
               <button
                 key={amt}
@@ -265,7 +289,7 @@ export default function YieldCalculator({
               gap: 8,
             }}
           >
-            {ARCIS_POOLS.map((p) => {
+            {activePools.map((p) => {
               const isSelected = selectedPoolId === p.id
               const shortName = p.isLpPool && p.tokens.length >= 2
                 ? `${p.tokens[0].symbol} / ${p.tokens[1].symbol}`
@@ -305,7 +329,7 @@ export default function YieldCalculator({
                     {shortName}
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--earned-green)', fontFamily: 'var(--fonts--space-grotesk)' }}>
-                    {p.apy}% {p.apyType}
+                    {p.apy.toFixed(2)}% {p.apyType}
                   </div>
                 </button>
               )
@@ -369,7 +393,7 @@ export default function YieldCalculator({
                   }}
                 />
                 <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600, fontFamily: 'var(--font-app)' }}>
-                  Sub-Second Real-Time Yield Accrual:
+                  Sub-Second Linear Yield Projection:
                 </span>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -422,6 +446,9 @@ export default function YieldCalculator({
               )
             })}
           </div>
+          <p style={{ fontSize: 10.5, color: 'var(--fp-4)', margin: '12px 0 0 0', textAlign: 'center', lineHeight: 1.4 }}>
+            * Linear stream and compound projections assume constant base APY. Realized returns compound directly on-chain into share value and fluctuate with protocol utilization and swap volume.
+          </p>
         </div>
 
         {/* Deposit Shortcut Button */}
@@ -441,8 +468,8 @@ export default function YieldCalculator({
               borderRadius: 99,
             }}
           >
-            <Zap size={16} />
-            <span>Deposit ${principalNum.toLocaleString()} to {selectedPool.name}</span>
+            <Plus size={16} />
+            <span>{selectedPool.isLpPool || selectedPool.id === 'gateway-settlement-pool' ? 'Add Liquidity to' : 'Deposit to'} {selectedPool.name}</span>
           </button>
         )}
       </div>

@@ -1,22 +1,24 @@
 // Interactive Cross-Chain Liquidity Rebalance Wizard for Arcis.
 // Scans idle USDC across 12+ networks and aggregates funds into Arc Testnet via Circle Gateway in <500ms.
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X,
   Zap,
   CheckCircle2,
   RefreshCw,
+  ExternalLink,
 } from 'lucide-react'
-import ArcLogo from '../../assets/Arc-Icon.svg'
-import { useGatewayBalancer} from '../../hooks/useGatewayBalancer'
+import { NetworkIcon } from '@web3icons/react/dynamic'
+import { getChainIconId } from '../../config/chainMeta'
+import { useGatewayBalancer } from '../../hooks/useGatewayBalancer'
 
 interface GatewayRebalanceWizardProps {
   isOpen: boolean
   onClose: () => void
   walletAddress: string
   totalStakedUsd: number
-  onSuccess?: (totalMoved: string) => void
+  onSuccess?: (totalMoved: string, txHash?: string, explorerUrl?: string) => void
 }
 
 export default function GatewayRebalanceWizard({
@@ -28,9 +30,12 @@ export default function GatewayRebalanceWizard({
 }: GatewayRebalanceWizardProps) {
   const {
     rebalanceableChains,
+    consolidatedChains,
     totalIdleUsdc,
     capitalEfficiencyScore,
     executeRebalance,
+    resetConsolidatedLedger,
+    refreshAll,
   } = useGatewayBalancer(walletAddress, totalStakedUsd)
 
   const [selectedChainKeys, setSelectedChainKeys] = useState<string[]>(() =>
@@ -38,11 +43,20 @@ export default function GatewayRebalanceWizard({
   )
   const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [completedResult, setCompletedResult] = useState<{
+  const [successNotice, setSuccessNotice] = useState<{
     totalMoved: string
     timeMs: number
     txHash: string
+    explorerUrl?: string
   } | null>(null)
+
+  // Keep selected chains synchronized when balances update
+  useEffect(() => {
+    setSelectedChainKeys((prev) => {
+      const validKeys = rebalanceableChains.map((c) => c.chainKey)
+      return prev.filter((k) => validKeys.includes(k))
+    })
+  }, [rebalanceableChains])
 
   if (!isOpen) return null
 
@@ -80,12 +94,15 @@ export default function GatewayRebalanceWizard({
     setErrorMsg(null)
     try {
       const res = await executeRebalance(selectedChainKeys, 'Arc_Testnet')
-      setCompletedResult({
+      const explorerUrl = res.explorerUrl || `https://testnet.arcscan.app/tx/${res.txHash}`
+      setSuccessNotice({
         totalMoved: res.totalMovedUsdc,
         timeMs: res.executionTimeMs,
         txHash: res.txHash,
+        explorerUrl,
       })
-      if (onSuccess) onSuccess(res.totalMovedUsdc)
+      if (refreshAll) refreshAll()
+      if (onSuccess) onSuccess(res.totalMovedUsdc, res.txHash, explorerUrl)
     } catch (err: any) {
       console.error('[GatewayRebalanceWizard] Error:', err)
       setErrorMsg(err.message || 'Rebalancing failed. Please try again.')
@@ -98,38 +115,24 @@ export default function GatewayRebalanceWizard({
 
   return createPortal(
     <div
+      className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width: '100vw',
-        height: '100vh',
-        zIndex: 99999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-        background: 'rgba(0, 0, 0, 0.75)',
+        background: 'rgba(5, 7, 15, 0.78)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        animation: 'arc-reveal 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget && !isProcessing) onClose()
       }}
     >
       <div
-        className="ub-hero-card"
+        className="relative w-full max-w-[640px] my-auto rounded-3xl overflow-hidden shadow-2xl transition-all border animate-in fade-in zoom-in-95 duration-200"
         style={{
-          width: '100%',
-          maxWidth: 640,
-          maxHeight: '90vh',
+          maxHeight: 'min(90vh, 880px)',
           overflowY: 'auto',
-          background: 'linear-gradient(180deg, rgba(17, 21, 38, 0.98) 0%, rgba(11, 13, 24, 0.99) 100%)',
-          border: '1px solid rgba(152, 150, 255, 0.35)',
-          boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(152, 150, 255, 0.15)',
+          background: 'linear-gradient(180deg, rgba(20, 24, 44, 0.96) 0%, rgba(12, 14, 26, 0.98) 100%)',
+          borderColor: 'rgba(152, 150, 255, 0.35)',
+          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(99, 102, 241, 0.15)',
           borderRadius: 24,
           padding: '28px',
           position: 'relative',
@@ -137,6 +140,9 @@ export default function GatewayRebalanceWizard({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Glow ambient header accent */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-gradient-to-r from-blue-500/20 via-indigo-500/30 to-purple-500/20 blur-3xl pointer-events-none" />
+
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -149,6 +155,7 @@ export default function GatewayRebalanceWizard({
             right: 20,
             padding: 8,
             borderRadius: '50%',
+            zIndex: 10,
           }}
           title="Close Rebalancer"
         >
@@ -181,45 +188,84 @@ export default function GatewayRebalanceWizard({
           </p>
         </div>
 
-        {/* Success State View */}
-        {completedResult ? (
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
-            <div
+        {/* Success Feedback Banner */}
+        {successNotice && (
+          <div
+            style={{
+              padding: '14px 16px',
+              background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.14) 0%, rgba(16, 185, 129, 0.08) 100%)',
+              border: '1px solid rgba(1, 208, 98, 0.38)',
+              borderRadius: 16,
+              marginBottom: 20,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  background: 'rgba(1, 208, 98, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--earned-green)',
+                  flexShrink: 0,
+                }}
+              >
+                <CheckCircle2 size={18} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <span style={{ fontSize: 13, color: '#fff', fontWeight: 600, display: 'block' }}>
+                  Rebalanced {successNotice.totalMoved} USDC to Arc Testnet ({successNotice.timeMs}ms)
+                </span>
+                {successNotice.txHash && (
+                  <a
+                    href={successNotice.explorerUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--purple-1)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      textDecoration: 'underline',
+                      marginTop: 2,
+                    }}
+                  >
+                    <span>View on ArcScan: {successNotice.txHash.slice(0, 8)}...{successNotice.txHash.slice(-6)}</span>
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSuccessNotice(null)}
               style={{
-                width: 64,
-                height: 64,
+                background: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
                 borderRadius: '50%',
-                background: 'rgba(1, 208, 98, 0.15)',
-                border: '1px solid rgba(1, 208, 98, 0.4)',
+                width: 26,
+                height: 26,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                margin: '0 auto 16px auto',
-                color: 'var(--earned-green)',
+                color: 'var(--fp-3)',
+                cursor: 'pointer',
+                flexShrink: 0,
               }}
+              title="Dismiss"
             >
-              <CheckCircle2 size={32} />
-            </div>
-
-            <h3 style={{ fontSize: 20, color: '#fff', margin: '0 0 6px 0', fontFamily: 'var(--fonts--space-grotesk)' }}>
-              Rebalance Complete!
-            </h3>
-            <p style={{ fontSize: 14, color: 'var(--fp-3)', margin: '0 0 20px 0' }}>
-              Successfully consolidated <strong>{completedResult.totalMoved} USDC</strong> to Arc Testnet in{' '}
-              <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>{completedResult.timeMs}ms</span>.
-            </p>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="ub-action-btn ub-action-btn-primary"
-              style={{ padding: '12px 32px', borderRadius: 99, fontSize: 14 }}
-            >
-              Back to Pools & Yield
+              <X size={13} />
             </button>
           </div>
-        ) : (
-          <>
+        )}
             {/* ── Capital Efficiency Header Card ── */}
             <div
               style={{
@@ -251,7 +297,7 @@ export default function GatewayRebalanceWizard({
                     {capitalEfficiencyScore}%
                   </span>
                   <span style={{ fontSize: 12, color: 'var(--fp-3)' }}>
-                    ({totalStakedUsd > 0 ? `$${totalStakedUsd.toFixed(2)} active yield` : 'No active yield'})
+                    ({totalStakedUsd > 0 ? `${totalStakedUsd.toFixed(2)} active yield` : 'No active yield'})
                   </span>
                 </div>
               </div>
@@ -270,7 +316,7 @@ export default function GatewayRebalanceWizard({
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', fontFamily: 'var(--font-app)' }}>
-                  Select Source Chains to Consolidate
+                  Select Chain to Consolidate
                 </span>
 
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -337,13 +383,15 @@ export default function GatewayRebalanceWizard({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {}} // Handled by parent div
-                          style={{ cursor: 'pointer', accentColor: '#6366f1' }}
-                        />
-                        <span style={{ fontSize: 13, color: '#fff', fontWeight: 500, fontFamily: 'var(--font-app)' }}>
+                        <div className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                          <NetworkIcon
+                            name={getChainIconId(c.chainKey)}
+                            variant={getChainIconId(c.chainKey) === 'solana' ? 'branded' : 'background'}
+                            size={20}
+                            className="rounded-full"
+                          />
+                        </div>
+                        <span style={{ fontSize: 13, color: isChecked ? '#fff' : 'var(--fp-3)', fontWeight: isChecked ? 600 : 500, fontFamily: 'var(--font-app)', transition: 'all 0.15s ease' }}>
                           {c.chainName}
                         </span>
                       </div>
@@ -352,17 +400,32 @@ export default function GatewayRebalanceWizard({
                         <span style={{ fontSize: 14, fontWeight: 600, color: isChecked ? '#fff' : 'var(--fp-3)', fontFamily: 'var(--fonts--space-grotesk)' }}>
                           {c.balanceUsdc} USDC
                         </span>
-                        <span style={{ fontSize: 10, color: 'var(--fp-4)', display: 'block' }}>
-                          ~{c.depthInfo?.avgSettlementMs || 420}ms speed
-                        </span>
                       </div>
                     </div>
                   )
                 })}
 
                 {rebalanceableChains.length === 0 && (
-                  <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--fp-3)', fontSize: 13 }}>
-                    No idle USDC found on other chains. All funds are already concentrated or earning yield!
+                  <div
+                    style={{
+                      padding: '24px 16px',
+                      textAlign: 'center',
+                      background: 'rgba(34, 197, 94, 0.04)',
+                      border: '1px dashed rgba(34, 197, 94, 0.25)',
+                      borderRadius: 12,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(34, 197, 94, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CheckCircle2 size={20} style={{ color: '#4ade80' }} />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 4 }}>
+                      All External Funds Consolidated!
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--fp-3)' }}>
+                      No remaining idle USDC detected on external testnets. Your liquidity is concentrated on Arc Testnet.
+                    </div>
                   </div>
                 )}
               </div>
@@ -381,7 +444,14 @@ export default function GatewayRebalanceWizard({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 11, color: 'var(--fp-3)' }}>Destination Network:</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <img src={ArcLogo} alt="Arc" style={{ width: 18, height: 18 }} />
+                  <div className="w-[18px] h-[18px] rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                    <NetworkIcon
+                      name={getChainIconId('Arc_Testnet')}
+                      variant="background"
+                      size={18}
+                      className="rounded-full"
+                    />
+                  </div>
                   <strong style={{ color: '#fff', fontSize: 13 }}>Arc Testnet</strong>
                 </div>
               </div>
@@ -429,10 +499,12 @@ export default function GatewayRebalanceWizard({
                 borderRadius: 99,
                 border: 'none',
                 background:
-                  isProcessing || selectedTotalUsdc <= 0
+                  isProcessing
                     ? 'rgba(152, 150, 255, 0.25)'
+                    : selectedTotalUsdc <= 0
+                    ? 'rgba(255, 255, 255, 0.08)'
                     : 'linear-gradient(135deg, #9896ff 0%, #6366f1 100%)',
-                color: '#fff',
+                color: isProcessing ? '#fff' : selectedTotalUsdc <= 0 ? 'var(--fp-3)' : '#fff',
                 fontSize: 14,
                 fontFamily: 'var(--font-app)',
                 fontWeight: 600,
@@ -453,15 +525,18 @@ export default function GatewayRebalanceWizard({
                   <RefreshCw size={15} className="arcis-spin" />
                   <span>CONSOLIDATING VIA GATEWAY (&lt;500MS)...</span>
                 </>
+              ) : selectedTotalUsdc <= 0 ? (
+                <>
+                  <CheckCircle2 size={16} style={{ color: consolidatedChains.length > 0 ? '#4ade80' : 'var(--fp-3)' }} />
+                  <span>{consolidatedChains.length > 0 ? 'ALL NETWORKS CONSOLIDATED' : 'NO IDLE FUNDS TO REBALANCE'}</span>
+                </>
               ) : (
                 <>
                   <Zap size={16} />
-                  <span>REBALANCE ${selectedTotalUsdc.toFixed(2)} TO ARC TESTNET</span>
+                  <span>REBALANCE</span>
                 </>
               )}
             </button>
-          </>
-        )}
       </div>
     </div>,
     document.body

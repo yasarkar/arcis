@@ -11,8 +11,7 @@ import {
   Zap,
   Globe,
   TrendingUp,
-  ArrowRightLeft,
-  Droplets,
+  Info,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
@@ -28,14 +27,10 @@ interface PoolCardProps {
   walletConnected: boolean
   onDeposit: (pool: PoolConfig) => void
   onWithdraw: (pool: PoolConfig) => void
-  onClaim: (poolId: string) => void
   onOpenAgentBounties?: (pool: PoolConfig) => void
-  onSwap?: (pool: PoolConfig) => void
-  onFaucetMint?: (pool: PoolConfig) => void
   onGatewayDeposit?: (pool: PoolConfig) => void
   onGatewaySpend?: (pool: PoolConfig) => void
   gatewayBalance?: string
-  isClaiming?: boolean
 }
 
 export default function PoolCard({
@@ -43,8 +38,6 @@ export default function PoolCard({
   walletConnected,
   onDeposit,
   onWithdraw,
-  onSwap,
-  onFaucetMint,
   onGatewaySpend,
   gatewayBalance,
 }: PoolCardProps) {
@@ -56,8 +49,9 @@ export default function PoolCard({
   const { formattedYield: liveCardYield, yieldPerSecond: cardYieldPerSec } = useContinuousYieldStream(
     userStaked,
     pool.apy,
-    0,
-    75
+    pool.userPosition?.earnedUsd || 0,
+    75,
+    pool.id
   )
 
   // Meaningful Right-Aligned Pool Icon Renderer (Clean, Prominent, No Border, No Background)
@@ -118,7 +112,7 @@ export default function PoolCard({
   const getCategoryBadge = () => {
     switch (pool.category) {
       case 'liquidity':
-        return { bg: 'rgba(1, 208, 98, 0.14)', border: 'rgba(1, 208, 98, 0.3)', text: 'var(--earned-green)', label: 'LIKIDITE' }
+        return { bg: 'rgba(1, 208, 98, 0.14)', border: 'rgba(1, 208, 98, 0.3)', text: 'var(--earned-green)', label: 'LIQUIDITY' }
       case 'vault':
         return { bg: 'rgba(152, 150, 255, 0.14)', border: 'rgba(152, 150, 255, 0.3)', text: 'var(--purple-1)', label: 'VAULT' }
       case 'crosschain':
@@ -147,6 +141,7 @@ export default function PoolCard({
 
   return (
     <div
+      id={`pool-card-${pool.id}`}
       className="ub-asset-card glow-card"
       style={{
         marginBottom: 12,
@@ -223,38 +218,96 @@ export default function PoolCard({
         </div>
       </div>
 
-      {/* ── Key Metrics Grid (Sleek 3-Column Strip: TVL, Risk, APY) ── */}
+      {/* ── Key Metrics Grid (Sleek 4-Column Strip: TVL, 24h Vol, Fee/Risk, APY) ── */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 8,
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: 6,
           background: 'rgba(11, 13, 24, 0.55)',
           border: '1px solid rgba(255, 255, 255, 0.05)',
           borderRadius: 10,
-          padding: '8px 14px',
-          marginBottom: 12,
+          padding: '8px 12px',
+          marginBottom: pool.isLpPool && pool.reserves ? 8 : 12,
         }}
       >
         <div>
           <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block', marginBottom: 2 }}>
             TVL
           </span>
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#fff',
-              fontFamily: 'var(--fonts--space-grotesk)',
-            }}
-          >
-            ${pool.tvlUsd.toLocaleString('en-US')}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: '#fff',
+                fontFamily: 'var(--fonts--space-grotesk)',
+              }}
+            >
+              {pool.tvlUsd >= 1000
+                ? Math.floor(pool.tvlUsd).toLocaleString('en-US')
+                : pool.tvlUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span
+              style={{
+                fontSize: 9.5,
+                color: 'var(--fp-4)',
+                fontFamily: 'var(--font-app)',
+                fontWeight: 500,
+              }}
+            >
+              USDC
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+            <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>
+              24H VOLUME
+            </span>
+            <span
+              title={
+                pool.category === 'vault'
+                  ? 'Total 24-hour platform transaction volume feeding the 90% protocol revenue share distributed to vault depositors.'
+                  : pool.category === 'crosschain'
+                  ? 'Total cross-chain settlement volume routed through Circle Gateway over the last 24 hours.'
+                  : pool.clientVolumeUsd && pool.clientVolumeUsd > 0
+                  ? `Verified on-chain 24H pool volume: $${(pool.volume24hUsd || 0).toFixed(2)} (Your device: $${pool.clientVolumeUsd.toFixed(2)})`
+                  : 'Total on-chain swap trading volume executed in this pool over the last 24 hours.'
+              }
+              style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
+            >
+              <Info size={9.5} />
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                fontSize: 12.5,
+                fontWeight: 600,
+                color: '#fff',
+                fontFamily: 'var(--fonts--space-grotesk)',
+              }}
+            >
+              {(pool.volume24hUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span
+              style={{
+                fontSize: 9.5,
+                color: 'var(--fp-4)',
+                fontFamily: 'var(--font-app)',
+                fontWeight: 500,
+              }}
+            >
+              USDC
+            </span>
+          </div>
         </div>
 
         <div>
           <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block', marginBottom: 2 }}>
-            Risk Level
+            FEE TIER
           </span>
           <span
             style={{
@@ -267,8 +320,8 @@ export default function PoolCard({
               gap: 4,
             }}
           >
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: riskConfig.color, display: 'inline-block' }} />
-            {riskConfig.shortLabel}
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: riskConfig.color, display: 'inline-block' }} />
+            {pool.feeTierPercent ? `${pool.feeTierPercent}%` : 'RevShare'}
           </span>
         </div>
 
@@ -277,20 +330,76 @@ export default function PoolCard({
             {pool.apyType}
           </span>
           <span
+            title={pool.apyBadge}
             style={{
-              fontSize: 13.5,
+              fontSize: 13,
               fontWeight: 700,
               color: 'var(--earned-green)',
               fontFamily: 'var(--fonts--space-grotesk)',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
+              cursor: 'help',
             }}
           >
             {pool.apy.toFixed(2)}%
           </span>
         </div>
       </div>
+
+      {/* ── LP Reserve Ratio Bar (For Dual Asset Pools) ── */}
+      {pool.isLpPool && pool.reserves && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: 'var(--fp-4)', marginBottom: 4 }}>
+            <span>
+              {pool.tokens[0]?.symbol}: {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? `${pool.reserves.ratioA}%` : '0.00'}
+            </span>
+            <span style={{ color: 'var(--fp-3)', fontWeight: 500 }}>
+              {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? 'Pool Composition' : 'No Reserves (0.00)'}
+            </span>
+            <span>
+              {pool.tokens[1]?.symbol}: {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? `${pool.reserves.ratioB}%` : '0.00'}
+            </span>
+          </div>
+          <div
+            style={{
+              width: '100%',
+              height: 4,
+              borderRadius: 99,
+              background: 'rgba(255, 255, 255, 0.08)',
+              overflow: 'hidden',
+              display: 'flex',
+            }}
+          >
+            {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? (
+              <>
+                <div
+                  style={{
+                    width: `${pool.reserves.ratioA}%`,
+                    background: 'linear-gradient(90deg, #38bdf8 0%, #818cf8 100%)',
+                    height: '100%',
+                  }}
+                />
+                <div
+                  style={{
+                    width: `${pool.reserves.ratioB}%`,
+                    background: 'linear-gradient(90deg, #c084fc 0%, #f472b6 100%)',
+                    height: '100%',
+                  }}
+                />
+              </>
+            ) : (
+              <div
+                style={{
+                  width: '100%',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  height: '100%',
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── User Position Strip (When User Has Active Balance) ── */}
       {walletConnected && hasDeposit && (
@@ -310,10 +419,10 @@ export default function PoolCard({
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: 'var(--fp-4)' }}>My Stake:</span>
+              <span style={{ color: 'var(--fp-4)' }}>My Stake: </span>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ color: '#fff', fontWeight: 700, fontFamily: 'var(--fonts--space-grotesk)', fontSize: 12 }}>
-                  ${userStaked.toFixed(2)}
+                  {userStaked.toFixed(2)} USDC
                 </span>
                 {pool.userPosition?.poolSharePct !== undefined && pool.userPosition.poolSharePct > 0 && (
                   <span
@@ -331,13 +440,37 @@ export default function PoolCard({
                 )}
               </div>
             </div>
-            {pool.isLpPool && pool.userPosition?.tokenAStaked && pool.userPosition?.tokenBStaked ? (
+            {pool.isLpPool && pool.userPosition?.tokenAStaked && pool.userPosition?.tokenBStaked ? (() => {
+              const valA = parseFloat(pool.userPosition.tokenAStaked || '0')
+              const valB = parseFloat(pool.userPosition.tokenBStaked || '0') * (pool.exchangeRate || 1)
+              const totalVal = valA + valB
+              const pctA = totalVal > 0 ? Math.round((valA / totalVal) * 100) : (pool.reserves?.ratioA || 50)
+              const pctB = totalVal > 0 ? Math.max(0, 100 - pctA) : (pool.reserves?.ratioB || 50)
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+                  <span style={{ fontSize: 9.5, color: 'var(--fp-3)' }}>
+                    ≈ {pool.userPosition.tokenAStaked} USDC (${valA.toFixed(2)}) + {pool.userPosition.tokenBStaked} {pool.tokens[1]?.symbol} (${valB.toFixed(2)})
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 8.5,
+                      padding: '1px 5px',
+                      borderRadius: 4,
+                      background: 'rgba(255, 255, 255, 0.07)',
+                      color: 'var(--fp-3)',
+                      fontFamily: 'var(--font-app)',
+                      fontWeight: 600,
+                      letterSpacing: '0.2px',
+                    }}
+                    title="Asset Value Ratio"
+                  >
+                    {pctA}% / {pctB}%
+                  </span>
+                </div>
+              )
+            })() : pool.userPosition?.lpTokenBalance ? (
               <span style={{ fontSize: 9.5, color: 'var(--fp-3)' }}>
-                ≈ {pool.userPosition.tokenAStaked} USDC + {pool.userPosition.tokenBStaked} {pool.tokens[1]?.symbol}
-              </span>
-            ) : pool.userPosition?.lpTokenBalance ? (
-              <span style={{ fontSize: 9.5, color: 'var(--fp-3)' }}>
-                {parseFloat(pool.userPosition.lpTokenBalance).toFixed(2)} af-USDC Vault Shares
+                {parseFloat(pool.userPosition.lpTokenBalance).toFixed(2)} {pool.id === 'gateway-settlement-pool' ? 'USDC Gateway Liquidity' : 'af-USDC Vault Shares'}
               </span>
             ) : null}
           </div>
@@ -349,20 +482,47 @@ export default function PoolCard({
                   width: 5,
                   height: 5,
                   borderRadius: '50%',
-                  background: 'var(--earned-green)',
+                  background: pool.apy > 0 ? 'var(--earned-green)' : '#64748b',
                   display: 'inline-block',
-                  boxShadow: '0 0 6px var(--earned-green)',
-                  animation: 'pulse 1.5s infinite',
+                  boxShadow: pool.apy > 0 ? '0 0 6px var(--earned-green)' : 'none',
+                  animation: pool.apy > 0 ? 'pulse 1.5s infinite' : 'none',
                 }}
               />
-              <span style={{ fontSize: 9.5, color: '#34d399', fontWeight: 600 }}>Streaming Yield</span>
+              <span
+                style={{
+                  fontSize: 9.5,
+                  color: pool.apy > 0 ? '#34d399' : 'var(--fp-4)',
+                  fontWeight: 600,
+                }}
+              >
+                {pool.apy > 0 ? 'Est. Yield (Linear Stream)' : 'Yield Idle (0 Vol)'}
+              </span>
             </div>
-            <span style={{ color: 'var(--earned-green)', fontWeight: 700, fontFamily: 'var(--fonts--space-grotesk)', fontSize: 12 }}>
-              +${liveCardYield}
+            <span
+              style={{
+                color: pool.apy > 0 ? 'var(--earned-green)' : 'var(--fp-3)',
+                fontWeight: 700,
+                fontFamily: 'var(--fonts--space-grotesk)',
+                fontSize: 12,
+              }}
+            >
+              +{liveCardYield}
             </span>
-            <span style={{ fontSize: 9, color: 'var(--fp-4)' }}>
-              (+${(cardYieldPerSec * 86400).toFixed(4)}/d)
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ fontSize: 9, color: 'var(--fp-4)' }}>
+                {pool.apy > 0 ? `(+${(cardYieldPerSec * 86400).toFixed(4)}/d)` : '(Waiting for swaps)'}
+              </span>
+              <span
+                title={
+                  pool.isLpPool
+                    ? 'Real-time linear projection of fee earnings based on current dynamic APY and your pool share (not a stream of separate on-chain transactions).'
+                    : 'Real-time linear projection of earnings based on current vault APY (not a stream of separate on-chain transactions).'
+                }
+                style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
+              >
+                <Info size={10} />
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -382,45 +542,9 @@ export default function PoolCard({
             fontWeight: 600,
           }}
         >
-          {pool.isLpPool ? <Zap size={13} /> : <Plus size={13} />}
-          <span>{pool.isLpPool ? 'Add Liquidity' : `Deposit ${pool.depositTokenSymbol}`}</span>
+          <Plus size={13} />
+          <span>{pool.isLpPool || pool.id === 'gateway-settlement-pool' ? 'Add Liquidity' : 'Deposit'}</span>
         </button>
-
-        {/* Faucet Button (only for pools with isFaucetToken) */}
-        {pool.isFaucetToken && onFaucetMint && (
-          <button
-            type="button"
-            onClick={() => onFaucetMint(pool)}
-            className="ub-action-btn"
-            style={{
-              padding: '8px 12px',
-              fontSize: 11,
-              borderColor: 'rgba(251, 191, 36, 0.35)',
-              color: '#fbbf24',
-            }}
-          >
-            <Droplets size={13} />
-            <span>Get {pool.tokens[1]?.symbol || 'tcirBTC'}</span>
-          </button>
-        )}
-
-        {/* Swap Button (only for LP pools) */}
-        {pool.isLpPool && onSwap && (
-          <button
-            type="button"
-            onClick={() => onSwap(pool)}
-            className="ub-action-btn"
-            style={{
-              padding: '8px 12px',
-              fontSize: 12,
-              borderColor: 'rgba(99, 102, 241, 0.3)',
-              color: 'var(--purple-1)',
-            }}
-          >
-            <ArrowRightLeft size={13} />
-            <span>Swap</span>
-          </button>
-        )}
 
         {/* Gateway Action Buttons */}
         {pool.isCrossChainPool && onGatewaySpend && (
@@ -452,7 +576,7 @@ export default function PoolCard({
             }}
           >
             <Minus size={13} />
-            <span>Withdraw</span>
+            <span>{pool.isLpPool || pool.id === 'gateway-settlement-pool' ? 'Remove Liquidity' : 'Withdraw'}</span>
           </button>
         )}
 
@@ -566,23 +690,50 @@ export default function PoolCard({
               <span style={{ color: '#60a5fa', fontWeight: 500 }}>{gatewayBalance || '—'}</span>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Contract Address:</span>
-            <a
-              href={getExplorerAddressUrl('Arc_Testnet', pool.contractAddress)}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                color: 'var(--purple-1)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 3,
-                textDecoration: 'none',
-              }}
-            >
-              <span>{pool.contractAddress.slice(0, 8)}...{pool.contractAddress.slice(-6)}</span>
-              <ExternalLink size={10} />
-            </a>
+          {!pool.isCrossChainPool ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Contract Address:</span>
+              <a
+                href={getExplorerAddressUrl('Arc_Testnet', pool.contractAddress)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: 'var(--purple-1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  textDecoration: 'none',
+                }}
+              >
+                <span>{pool.contractAddress.slice(0, 8)}...{pool.contractAddress.slice(-6)}</span>
+                <ExternalLink size={10} />
+              </a>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Settlement Infrastructure:</span>
+              <span style={{ color: '#60a5fa', fontWeight: 500, fontSize: 11 }}>
+                Circle Gateway (Sub-second Finality)
+              </span>
+            </div>
+          )}
+
+          <div
+            style={{
+              background: 'rgba(56, 189, 248, 0.08)',
+              border: '1px solid rgba(56, 189, 248, 0.2)',
+              borderRadius: 8,
+              padding: '7px 10px',
+              color: '#7dd3fc',
+              fontSize: 10.5,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginTop: 4,
+            }}
+          >
+            <Zap size={12} style={{ color: '#38bdf8', flexShrink: 0 }} />
+            <span><strong>Arc Gas Benefit:</strong> Gas settled natively in USDC (~0.001) — zero ETH required.</span>
           </div>
         </div>
       )}

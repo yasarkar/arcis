@@ -1,15 +1,20 @@
-// src/components/pools/PoolsHeroStats.tsx
-//
 // Hero statistics banner & control sidebar for Pools & Yield Hub.
 // Displays Total Value Locked, Average APY, User Staked Assets, Claimable Rewards,
 // Capital Efficiency, and Quick Actions (Auto-Rebalancer, Yield Calculator, Claim All).
-import { TrendingUp, Gift, Zap, Layers, Bot, Activity } from 'lucide-react'
-import { ARCIS_POOLS } from '../../config/poolsConfig'
+import { TrendingUp, Gift, Zap, Layers, Bot, Info } from 'lucide-react'
+import { ARCIS_POOLS, GATEWAY_BASE_LIQUIDITY, type PoolConfig } from '../../config/poolsConfig'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
+import type { UserPoolPosition } from '../../hooks/usePoolsData'
+import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
+import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
+import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
+import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
 
 interface PoolsHeroStatsProps {
   totalTvlUsd: number
-  averageApy: string
+  localTvlUsd?: number
+  gatewayTvlUsd?: number
+  pools?: (PoolConfig & { userPosition?: UserPoolPosition })[]
   userTotalDepositedUsd: number
   userTotalClaimableRewardsUsd: number
   dailyYieldGeneratedUsd: number
@@ -24,7 +29,9 @@ interface PoolsHeroStatsProps {
 
 export default function PoolsHeroStats({
   totalTvlUsd,
-  averageApy,
+  localTvlUsd,
+  gatewayTvlUsd = GATEWAY_BASE_LIQUIDITY,
+  pools,
   userTotalDepositedUsd,
   userTotalClaimableRewardsUsd,
   dailyYieldGeneratedUsd,
@@ -36,13 +43,87 @@ export default function PoolsHeroStats({
   onOpenRebalancer,
   onOpenAgentBounties,
 }: PoolsHeroStatsProps) {
-  const apyNumber = parseFloat(averageApy) || 8.42
+  const userPortfolioApy = userTotalDepositedUsd > 0
+    ? ((dailyYieldGeneratedUsd * 365) / userTotalDepositedUsd) * 100
+    : 0
   const { formattedYield: liveHeroYield, yieldPerSecond: heroYieldPerSec } = useContinuousYieldStream(
     userTotalDepositedUsd,
-    apyNumber,
+    userPortfolioApy,
     userTotalClaimableRewardsUsd,
-    60
+    60,
+    'hero_total'
   )
+
+  // Resolve pool TVL metrics across the 4 Arcis protocols
+  const poolList = (pools && pools.length > 0) ? pools : ARCIS_POOLS
+
+  const getPoolTvl = (id: string, defaultVal: number = 0) => {
+    const found = poolList.find((p) => p.id === id)
+    if (found && typeof found.tvlUsd === 'number') {
+      return found.tvlUsd
+    }
+    return defaultVal
+  }
+
+  const formatTvl = (val: number) => {
+    if (!val || val <= 0) return '$0.00'
+    if (val >= 1_000_000) {
+      return `$${(val / 1_000_000).toFixed(2)}M`
+    }
+    if (val >= 1_000) {
+      return `$${Math.floor(val).toLocaleString('en-US')}`
+    }
+    return `$${val.toFixed(2)}`
+  }
+
+  // 4 active pools and vaults on Arcis
+  const poolItems = [
+    {
+      id: 'usdc-eurc-stable-pool',
+      shortName: 'USDC / EURC',
+      name: 'USDC / EURC Stable Pool',
+      tag: 'Stable LP',
+      accentColor: '#818cf8',
+      icons: [UsdcIcon, EurcIcon],
+      tvl: getPoolTvl('usdc-eurc-stable-pool', 0),
+    },
+    {
+      id: 'usdc-cirbtc-pool',
+      shortName: 'USDC / cirBTC',
+      name: 'USDC / cirBTC Liquidity Pool',
+      tag: 'AMM LP',
+      accentColor: '#f59e0b',
+      icons: [UsdcIcon, CirBtcIcon],
+      tvl: getPoolTvl('usdc-cirbtc-pool', 0),
+    },
+    {
+      id: 'usdc-yield-vault',
+      shortName: 'USDC Vault',
+      name: 'USDC Yield Vault',
+      tag: 'ERC-4626',
+      accentColor: '#10b981',
+      icons: [UsdcIcon],
+      tvl: getPoolTvl('usdc-yield-vault', 0),
+    },
+    {
+      id: 'gateway-settlement-pool',
+      shortName: 'Gateway Buffer',
+      name: 'Gateway Settlement Buffer',
+      tag: 'Cross-Chain',
+      accentColor: '#38bdf8',
+      icons: [CircleIcon],
+      tvl: getPoolTvl('gateway-settlement-pool', gatewayTvlUsd || GATEWAY_BASE_LIQUIDITY),
+    },
+  ]
+
+  const calculatedTotal = poolItems.reduce((acc, item) => acc + item.tvl, 0)
+  const effectiveTotalTvl = totalTvlUsd > 0 ? totalTvlUsd : calculatedTotal
+
+  const itemsWithMetrics = poolItems.map((item) => {
+    const pct = effectiveTotalTvl > 0 ? (item.tvl / effectiveTotalTvl) * 100 : 0
+    const pctLabel = pct > 0 ? (pct < 0.1 ? '<0.1%' : `${pct.toFixed(1)}%`) : '0.0%'
+    return { ...item, pct, pctLabel }
+  })
 
   return (
     <div
@@ -50,65 +131,68 @@ export default function PoolsHeroStats({
       style={{
         position: 'relative',
         overflow: 'hidden',
-        padding: '24px 20px',
+        padding: '30px 24px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 20,
+        gap: 24,
       }}
     >
       {/* Background ambient glow accents */}
       <div
         style={{
           position: 'absolute',
-          top: -50,
-          right: -50,
-          width: 220,
-          height: 220,
+          top: -60,
+          right: -60,
+          width: 260,
+          height: 260,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(152, 150, 255, 0.18) 0%, transparent 70%)',
-          filter: 'blur(35px)',
+          background: 'radial-gradient(circle, rgba(152, 150, 255, 0.2) 0%, transparent 70%)',
+          filter: 'blur(40px)',
           pointerEvents: 'none',
         }}
       />
       <div
         style={{
           position: 'absolute',
-          bottom: -40,
-          left: -40,
-          width: 200,
-          height: 200,
+          bottom: -50,
+          left: -50,
+          width: 240,
+          height: 240,
           borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(1, 208, 98, 0.14) 0%, transparent 70%)',
-          filter: 'blur(30px)',
+          background: 'radial-gradient(circle, rgba(1, 208, 98, 0.16) 0%, transparent 70%)',
+          filter: 'blur(35px)',
           pointerEvents: 'none',
         }}
       />
 
       {/* ── 1. Card Header & Live Badges ── */}
       <div style={{ position: 'relative', zIndex: 2 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                width: 32,
-                height: 32,
-                borderRadius: '50%',
+                width: 38,
+                height: 38,
+                borderRadius: '12px',
+                background: 'rgba(152, 150, 255, 0.12)',
+                border: '1px solid rgba(152, 150, 255, 0.25)',
+                boxShadow: '0 0 16px rgba(152, 150, 255, 0.15)',
                 flexShrink: 0,
               }}
             >
-              <Layers size={16} style={{ color: 'var(--purple-1)' }} />
+              <Layers size={20} style={{ color: 'var(--purple-1)' }} />
             </div>
             <div>
               <span
                 className="arc-eyebrow"
                 style={{
-                  fontSize: 16,
+                  fontSize: 18,
                   color: 'var(--base-colors--white)',
                   fontWeight: 700,
-                  letterSpacing: '1.8px',
+                  letterSpacing: '2px',
                   display: 'block',
                   lineHeight: 1.2,
                 }}
@@ -121,74 +205,79 @@ export default function PoolsHeroStats({
 
         <p
           style={{
-            fontSize: 12,
+            fontSize: 13,
             color: 'var(--fp-3)',
             fontFamily: 'var(--font-app)',
-            margin: '6px 0 0 0',
-            lineHeight: 1.4,
+            margin: '8px 0 0 0',
+            lineHeight: 1.5,
           }}
         >
           Liquidity provision, USDC yield vaults & cross-chain settlement on Arc Testnet.
         </p>
       </div>
 
-      {/* ── 2. TVL & Average APY Showcase Block ── */}
+      {/* ── 2. Total Vault & Pool TVL Showcase Block ── */}
       <div
         style={{
           position: 'relative',
           zIndex: 2,
-          background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: 18,
-          padding: '16px 18px',
+          background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 100%)',
+          border: '1px solid rgba(255, 255, 255, 0.09)',
+          borderRadius: 20,
+          padding: '18px 20px',
+          boxShadow: '0 8px 24px -6px rgba(0, 0, 0, 0.35)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <span
             style={{
-              fontSize: 11,
+              fontSize: 14,
               fontFamily: 'var(--font-app)',
               color: 'var(--fp-4)',
-              fontWeight: 600,
-              letterSpacing: '0.6px',
+              fontWeight: 700,
+              letterSpacing: '0.8px',
             }}
           >
-            TOTAL PROTOCOL TVL
-          </span>
-          <span className="ub-live-badge" title="Live Arc Testnet Protocol Average APY" style={{ padding: '3px 8px 3px 10px' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.4px' }}>AVG {averageApy}%</span>
-            <svg className="ub-ecg-svg" viewBox="0 0 48 16" fill="none" aria-hidden="true" style={{ width: 32, height: 12, marginLeft: 2 }}>
-              <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-bg" />
-              <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-pulse" />
-            </svg>
+            TOTAL VAULT & POOL TVL
           </span>
         </div>
 
         <div
           className="arc-display-hero"
           style={{
-            fontSize: 'clamp(1.85rem, 3.5vw, 2.35rem)',
-            lineHeight: 1.1,
-            fontWeight: 500,
+            fontSize: 'clamp(2rem, 3.5vw, 2.5rem)',
+            lineHeight: 1.15,
+            fontWeight: 600,
             color: '#fff',
             fontFamily: 'var(--fonts--space-grotesk)',
+            margin: '4px 0 4px',
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 8,
           }}
         >
-          ${totalTvlUsd.toLocaleString('en-US')}
+          <span>{Math.floor(effectiveTotalTvl).toLocaleString('en-US')}</span>
+          <span
+            style={{
+              fontSize: 'clamp(1rem, 1.6vw, 1.25rem)',
+              color: 'var(--fp-4)',
+              fontWeight: 500,
+              fontFamily: 'var(--font-app)',
+            }}
+          >
+            USDC
+          </span>
         </div>
 
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            marginTop: 8,
             fontSize: 11,
             color: 'var(--fp-3)',
             fontFamily: 'var(--font-app)',
+            marginBottom: 12,
           }}
         >
-          <span>Active across {ARCIS_POOLS.length} pools on Arc Network</span>
+          Aggregated TVL across all 4 liquidity pools & vaults
         </div>
       </div>
 
@@ -199,7 +288,7 @@ export default function PoolsHeroStats({
           zIndex: 2,
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: 10,
+          gap: 12,
         }}
       >
         {/* Metric 1: My Staked Assets */}
@@ -207,35 +296,35 @@ export default function PoolsHeroStats({
           style={{
             background: 'rgba(11, 13, 24, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.06)',
-            borderRadius: 14,
-            padding: '12px 14px',
+            borderRadius: 16,
+            padding: '14px 16px',
           }}
         >
           <span
             style={{
-              fontSize: 10,
+              fontSize: 11,
               fontFamily: 'var(--font-app)',
               color: 'var(--fp-4)',
               fontWeight: 600,
-              letterSpacing: '0.4px',
+              letterSpacing: '0.5px',
               display: 'block',
-              marginBottom: 4,
+              marginBottom: 5,
             }}
           >
             STAKED ASSETS
           </span>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
             <span
               style={{
-                fontSize: 16,
+                fontSize: 18,
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontWeight: 700,
                 color: '#fff',
               }}
             >
-              {walletConnected ? `${userTotalDepositedUsd.toFixed(2)}` : '$0.00'}
+              {walletConnected ? `${userTotalDepositedUsd.toFixed(2)}` : '0.00'}
             </span>
-            <span style={{ fontSize: 10, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>
+            <span style={{ fontSize: 11, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>
           </div>
         </div>
 
@@ -248,31 +337,31 @@ export default function PoolsHeroStats({
             border: walletConnected && userTotalDepositedUsd > 0
               ? '1px solid rgba(1, 208, 98, 0.45)'
               : '1px solid rgba(255, 255, 255, 0.06)',
-            borderRadius: 14,
-            padding: '12px 14px',
+            borderRadius: 16,
+            padding: '14px 16px',
             boxShadow: walletConnected && userTotalDepositedUsd > 0
               ? '0 0 16px rgba(1, 208, 98, 0.15)'
               : 'none',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
             <span
               style={{
-                fontSize: 10,
+                fontSize: 11,
                 fontFamily: 'var(--font-app)',
                 color: walletConnected && userTotalDepositedUsd > 0 ? '#34d399' : 'var(--fp-4)',
                 fontWeight: 700,
-                letterSpacing: '0.4px',
+                letterSpacing: '0.5px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: 5,
               }}
             >
               {walletConnected && userTotalDepositedUsd > 0 && (
                 <span
                   style={{
-                    width: 6,
-                    height: 6,
+                    width: 7,
+                    height: 7,
                     borderRadius: '50%',
                     background: 'var(--earned-green)',
                     boxShadow: '0 0 6px var(--earned-green)',
@@ -281,29 +370,35 @@ export default function PoolsHeroStats({
                   }}
                 />
               )}
-              LIVE STREAMING YIELD
+              EST. PROJECTED YIELD
+            </span>
+            <span
+              title="Real-time projected yield accrual based on active deposits. ERC-4626 vault yield appreciates share value, and AMM swap fees grow pool reserves automatically."
+              style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
+            >
+              <Info size={10} />
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
             <span
               style={{
-                fontSize: 16,
+                fontSize: 18,
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontWeight: 700,
                 color: walletConnected && userTotalDepositedUsd > 0 ? 'var(--earned-green)' : '#fff',
               }}
             >
               {walletConnected && userTotalDepositedUsd > 0
-                ? `+$${liveHeroYield}`
+                ? `+${liveHeroYield}`
                 : userTotalClaimableRewardsUsd > 0
-                ? `+$${userTotalClaimableRewardsUsd.toFixed(3)}`
-                : '$0.00'}
+                ? `+${userTotalClaimableRewardsUsd.toFixed(3)}`
+                : '0.00'}
             </span>
-            <span style={{ fontSize: 10, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>
+            <span style={{ fontSize: 11, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>
           </div>
           {walletConnected && userTotalDepositedUsd > 0 && (
-            <span style={{ fontSize: 9.5, color: '#34d399', display: 'block', marginTop: 2 }}>
-              ⚡ +${(heroYieldPerSec).toFixed(6)}/sec
+            <span style={{ fontSize: 10.5, color: '#34d399', display: 'block', marginTop: 3 }}>
+              +{(heroYieldPerSec).toFixed(6)}/sec
             </span>
           )}
         </div>
@@ -313,34 +408,46 @@ export default function PoolsHeroStats({
           style={{
             background: 'rgba(11, 13, 24, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.06)',
-            borderRadius: 14,
-            padding: '12px 14px',
+            borderRadius: 16,
+            padding: '14px 16px',
           }}
         >
-          <span
-            style={{
-              fontSize: 10,
-              fontFamily: 'var(--font-app)',
-              color: 'var(--fp-4)',
-              fontWeight: 600,
-              letterSpacing: '0.4px',
-              display: 'block',
-              marginBottom: 4,
-            }}
-          >
-            EST. DAILY YIELD
-          </span>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
             <span
               style={{
-                fontSize: 16,
+                fontSize: 11,
+                fontFamily: 'var(--font-app)',
+                color: 'var(--fp-4)',
+                fontWeight: 600,
+                letterSpacing: '0.5px',
+              }}
+            >
+              EST. DAILY YIELD
+            </span>
+            <span
+              title="Estimated daily earnings based on your pool shares, 24h trading volume, and protocol revenue distributions."
+              style={{
+                cursor: 'help',
+                display: 'inline-flex',
+                alignItems: 'center',
+                color: 'var(--fp-4)',
+              }}
+            >
+              <Info size={12} />
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+            <span
+              style={{
+                fontSize: 18,
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontWeight: 700,
                 color: 'var(--purple-1)',
               }}
             >
-              {walletConnected ? `+$${dailyYieldGeneratedUsd.toFixed(3)}` : '$0.00'}
+              {walletConnected ? `+${dailyYieldGeneratedUsd.toFixed(3)}` : '0.00'}
             </span>
+            <span style={{ fontSize: 11, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>
           </div>
         </div>
 
@@ -349,19 +456,19 @@ export default function PoolsHeroStats({
           style={{
             background: 'rgba(11, 13, 24, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.06)',
-            borderRadius: 14,
-            padding: '12px 14px',
+            borderRadius: 16,
+            padding: '14px 16px',
           }}
         >
           <span
             style={{
-              fontSize: 10,
+              fontSize: 11,
               fontFamily: 'var(--font-app)',
               color: 'var(--fp-4)',
               fontWeight: 600,
-              letterSpacing: '0.4px',
+              letterSpacing: '0.5px',
               display: 'block',
-              marginBottom: 4,
+              marginBottom: 5,
             }}
           >
             CAPITAL EFFICIENCY
@@ -369,7 +476,7 @@ export default function PoolsHeroStats({
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span
               style={{
-                fontSize: 16,
+                fontSize: 18,
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontWeight: 700,
                 color: '#60a5fa',
@@ -388,34 +495,61 @@ export default function PoolsHeroStats({
           zIndex: 2,
           display: 'flex',
           flexDirection: 'column',
-          gap: 9,
+          gap: 11,
         }}
       >
-        {/* Claim All Rewards Button (Conditional Prominent Action) */}
-        {walletConnected && userTotalClaimableRewardsUsd > 0 && (
-          <button
-            onClick={onClaimAll}
-            disabled={isClaiming}
-            type="button"
-            className="ub-action-btn ub-action-btn-primary"
+        {/* Auto-Accrued Yield & Position Appreciation Indicator */}
+        {walletConnected && (userTotalClaimableRewardsUsd > 0 || userTotalDepositedUsd > 0) ? (
+          <div
             style={{
-              width: '100%',
-              justifyContent: 'center',
-              padding: '10px 16px',
-              background: 'linear-gradient(135deg, #01d062 0%, #059669 100%)',
-              borderColor: 'rgba(1, 208, 98, 0.4)',
-              boxShadow: '0 4px 18px rgba(1, 208, 98, 0.3)',
-              fontSize: 13,
-              fontWeight: 600,
+              padding: '11px 14px',
+              background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)',
+              border: '1px solid rgba(1, 208, 98, 0.3)',
+              borderRadius: 14,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 11.5,
+              fontFamily: 'var(--font-app)',
             }}
           >
-            <Gift size={15} />
-            <span>{isClaiming ? 'Claiming Rewards...' : `Claim All (${userTotalClaimableRewardsUsd.toFixed(2)} USDC)`}</span>
-          </button>
-        )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'var(--earned-green)',
+                  boxShadow: '0 0 6px var(--earned-green)',
+                  display: 'inline-block',
+                }}
+              />
+              <span style={{ color: '#fff', fontWeight: 600 }}>
+                {userTotalClaimableRewardsUsd > 0
+                  ? `Accrued Yield: +${userTotalClaimableRewardsUsd.toFixed(2)} USDC`
+                  : 'Yield Auto-Compounding'}
+              </span>
+            </div>
+            <span
+              style={{
+                color: 'var(--earned-green)',
+                fontWeight: 700,
+                fontSize: 10.5,
+                cursor: 'help',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              title="In Arcis AMMs & ERC-4626 Vaults, swap fees and protocol yields automatically appreciate your share value. Realize all earnings upon withdrawing."
+            >
+              Realized on Exit
+              <Info size={11} />
+            </span>
+          </div>
+        ) : null}
 
         {/* 2-Button Grid for Tools */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {onOpenRebalancer && (
             <button
               onClick={onOpenRebalancer}
@@ -424,14 +558,15 @@ export default function PoolsHeroStats({
               style={{
                 width: '100%',
                 justifyContent: 'center',
-                padding: '9px 10px',
+                padding: '11px 12px',
                 background: 'rgba(152, 150, 255, 0.12)',
                 borderColor: 'rgba(152, 150, 255, 0.3)',
-                fontSize: 12,
+                fontSize: 13,
+                fontWeight: 500,
               }}
               title="Consolidate multi-chain testnet USDC to Arc"
             >
-              <Zap size={13} style={{ color: 'var(--purple-1)' }} />
+              <Zap size={15} style={{ color: 'var(--purple-1)' }} />
               <span>Auto-Rebalancer</span>
             </button>
           )}
@@ -444,12 +579,13 @@ export default function PoolsHeroStats({
               style={{
                 width: '100%',
                 justifyContent: 'center',
-                padding: '9px 10px',
-                fontSize: 12,
+                padding: '11px 12px',
+                fontSize: 13,
+                fontWeight: 500,
               }}
               title="Open Interactive Yield Simulator"
             >
-              <TrendingUp size={13} style={{ color: 'var(--purple-1)' }} />
+              <TrendingUp size={15} style={{ color: 'var(--purple-1)' }} />
               <span>Calculator</span>
             </button>
           )}
@@ -464,24 +600,24 @@ export default function PoolsHeroStats({
             style={{
               width: '100%',
               justifyContent: 'space-between',
-              padding: '9px 12px',
+              padding: '11px 14px',
               background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
               borderColor: 'rgba(236, 72, 153, 0.35)',
-              fontSize: 12,
+              fontSize: 13,
             }}
             title="Open ERC-8183 AI Agent Escrow & Bounty Hub"
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <Bot size={14} style={{ color: '#f472b6' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Bot size={16} style={{ color: '#f472b6' }} />
               <span style={{ fontWeight: 600, color: '#fff' }}>Agent Bounty Escrows</span>
             </div>
             <span
               style={{
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: 700,
                 color: 'var(--earned-green)',
                 background: 'rgba(1, 208, 98, 0.12)',
-                padding: '1px 6px',
+                padding: '2px 8px',
                 borderRadius: 99,
                 border: '1px solid rgba(1, 208, 98, 0.25)',
               }}

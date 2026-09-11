@@ -108,7 +108,7 @@ export default function AgentBountyHubModal({
     setClaimSuccessMessage(null)
     try {
       const res = await claimBountyRewards(bounty.id)
-      setClaimSuccessMessage(`Successfully claimed +$${res.claimedUsdc} USDC escrow yield dividend on Arc Testnet!`)
+      setClaimSuccessMessage(`Successfully claimed +${res.claimedUsdc} USDC escrow yield dividend on Arc Testnet!`)
     } catch (err: any) {
       setErrorMsg(err.message || 'Claim failed.')
     } finally {
@@ -154,38 +154,24 @@ export default function AgentBountyHubModal({
 
   return createPortal(
     <div
+      className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width: '100vw',
-        height: '100vh',
-        zIndex: 99999,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-        background: 'rgba(0, 0, 0, 0.75)',
+        background: 'rgba(5, 7, 15, 0.78)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        animation: 'arc-reveal 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget && !isProcessing) onClose()
       }}
     >
       <div
-        className="ub-hero-card"
+        className="relative w-full max-w-[780px] my-auto rounded-3xl overflow-hidden shadow-2xl transition-all border animate-in fade-in zoom-in-95 duration-200"
         style={{
-          width: '100%',
-          maxWidth: 780,
-          maxHeight: '90vh',
+          maxHeight: 'min(90vh, 880px)',
           overflowY: 'auto',
-          background: 'linear-gradient(180deg, rgba(17, 21, 38, 0.98) 0%, rgba(11, 13, 24, 0.99) 100%)',
-          border: '1px solid rgba(236, 72, 153, 0.35)',
-          boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(236, 72, 153, 0.15)',
+          background: 'linear-gradient(180deg, rgba(20, 24, 44, 0.96) 0%, rgba(12, 14, 26, 0.98) 100%)',
+          borderColor: 'rgba(236, 72, 153, 0.35)',
+          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(236, 72, 153, 0.15)',
           borderRadius: 24,
           padding: '28px',
           position: 'relative',
@@ -193,6 +179,9 @@ export default function AgentBountyHubModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Glow ambient header accent */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-gradient-to-r from-pink-500/20 via-purple-500/30 to-indigo-500/20 blur-3xl pointer-events-none" />
+
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -205,6 +194,7 @@ export default function AgentBountyHubModal({
             right: 20,
             padding: 8,
             borderRadius: '50%',
+            zIndex: 10,
           }}
           title="Close Hub"
         >
@@ -311,28 +301,28 @@ export default function AgentBountyHubModal({
           <div>
             <span style={{ fontSize: 10, color: 'var(--fp-4)', display: 'block' }}>TOTAL ESCROW LOCKED</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: '#fff', fontFamily: 'var(--fonts--space-grotesk)' }}>
-              ${totalEscrowUsdc.toLocaleString()} USDC
+              {totalEscrowUsdc.toLocaleString()} USDC
             </span>
           </div>
 
           <div>
             <span style={{ fontSize: 10, color: 'var(--fp-4)', display: 'block' }}>TOTAL ACCRUED YIELD</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--earned-green)', fontFamily: 'var(--fonts--space-grotesk)' }}>
-              +${totalEscrowYieldEarnedUsdc.toFixed(2)} USDC
+              +{totalEscrowYieldEarnedUsdc.toFixed(2)} USDC
             </span>
           </div>
 
           <div>
             <span style={{ fontSize: 10, color: 'var(--fp-4)', display: 'block' }}>MY SPONSORED STAKE</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: '#f472b6', fontFamily: 'var(--fonts--space-grotesk)' }}>
-              ${userTotalSponsoredUsdc.toFixed(2)} USDC
+              {userTotalSponsoredUsdc.toFixed(2)} USDC
             </span>
           </div>
 
           <div>
             <span style={{ fontSize: 10, color: 'var(--fp-4)', display: 'block' }}>MY CLAIMABLE DIVIDEND</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: '#38bdf8', fontFamily: 'var(--fonts--space-grotesk)' }}>
-              +${userTotalSponsorYieldEarnedUsdc.toFixed(2)} USDC
+              +{userTotalSponsorYieldEarnedUsdc.toFixed(2)} USDC
             </span>
           </div>
         </div>
@@ -566,7 +556,7 @@ export default function AgentBountyHubModal({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <TrendingUp size={13} style={{ color: '#38bdf8' }} />
                       <span style={{ color: '#bae6fd' }}>
-                        <strong>Escrow Yield Vault:</strong> +${poolYield.toFixed(2)} USDC generated @ {bounty.yieldApr || 8.42}% APY
+                        <strong>Escrow Yield Vault:</strong> +{poolYield.toFixed(2)} USDC generated @ {bounty.yieldApr || 8.42}% APY
                       </span>
                     </div>
 
@@ -605,7 +595,7 @@ export default function AgentBountyHubModal({
                           }}
                         >
                           <Gift size={11} />
-                          <span>{claimingBountyId === bounty.id ? 'Claiming...' : `Claim +$${userClaimable.toFixed(2)} Dividend`}</span>
+                          <span>{claimingBountyId === bounty.id ? 'Claiming...' : `Claim +${userClaimable.toFixed(2)} Dividend`}</span>
                         </button>
                       )}
                     </div>
@@ -644,12 +634,12 @@ export default function AgentBountyHubModal({
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <span>
-                        Escrow: <strong style={{ color: '#fff' }}>${bounty.escrowLockedUsdc.toLocaleString()} USDC</strong> ({bounty.sponsorCount} sponsors)
+                        Escrow: <strong style={{ color: '#fff' }}>{bounty.escrowLockedUsdc.toLocaleString()} USDC</strong> ({bounty.sponsorCount} sponsors)
                       </span>
 
                       {userAmt > 0 && (
                         <span style={{ color: '#f472b6', fontWeight: 600 }}>
-                          My Stake: ${userAmt.toFixed(2)}
+                          My Stake: {userAmt.toFixed(2)} USDC
                         </span>
                       )}
 
@@ -730,9 +720,9 @@ export default function AgentBountyHubModal({
                               fontWeight: 700,
                               cursor: 'pointer',
                             }}
-                            title="Max amount reserving $0.50 for Arc gas"
+                            title="Max amount reserving 0.50 USDC for Arc gas"
                           >
-                            MAX (Keep $0.50 Gas)
+                            MAX (Keep 0.50 USDC for Gas)
                           </button>
                         </div>
                       </div>
@@ -775,7 +765,7 @@ export default function AgentBountyHubModal({
                             fontSize: 12,
                           }}
                         >
-                          {isProcessing ? 'Confirming on Arc...' : `Sponsor $${sponsorAmount} USDC`}
+                          {isProcessing ? 'Confirming on Arc...' : `Sponsor ${sponsorAmount} USDC`}
                         </button>
                       </div>
                     </div>
@@ -886,7 +876,7 @@ export default function AgentBountyHubModal({
                       cursor: 'pointer',
                     }}
                   >
-                    MAX (Keep $0.50 Gas)
+                    MAX (Keep 0.50 USDC for Gas)
                   </button>
                 </div>
                 <input
@@ -965,7 +955,7 @@ export default function AgentBountyHubModal({
               ) : (
                 <>
                   <Plus size={16} />
-                  <span>LAUNCH AGENT BOUNTY ESCROW (${newReward} USDC)</span>
+                  <span>LAUNCH AGENT BOUNTY ESCROW ({newReward} USDC)</span>
                 </>
               )}
             </button>
