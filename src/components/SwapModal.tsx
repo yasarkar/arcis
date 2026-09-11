@@ -16,6 +16,8 @@ import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import { normalizeAppError } from '../utils/errorNormalizer'
+import { useQueryClient } from '@tanstack/react-query'
+import { redisCache } from '../services/redisCacheService'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { createViemAdapter } from '../services/sendService'
 import { getSwapEstimate, executeSwap, getSupportedSwapChains } from '../services/swapService'
@@ -71,6 +73,7 @@ export default function SwapModal({
   onSuccess,
 }: SwapModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
+  const queryClient = useQueryClient()
   const [isPrivateSwap, setIsPrivateSwap] = useState(false)
 
   // Dynamic Chain Selector
@@ -467,6 +470,10 @@ export default function SwapModal({
         })
 
         refetchWalletBalances()
+        queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
+        queryClient.invalidateQueries({ queryKey: ['onchainPoolBalances'] })
+        queryClient.invalidateQueries({ queryKey: ['userPoolPositions'] })
+        redisCache.del('arcis:pools:state').catch(() => {})
 
         addTransaction({
           type: 'swap',

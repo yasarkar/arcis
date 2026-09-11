@@ -84,9 +84,11 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
     }
   }
 
+  const isCirBtcIn = tIn === 'CIRBTC' || tIn === 'BTC'
+  const isCirBtcOut = tOut === 'CIRBTC' || tOut === 'BTC'
   if (
-    (tIn === 'USDC' && tOut === 'CIRBTC') ||
-    (tIn === 'CIRBTC' && tOut === 'USDC')
+    (tIn === 'USDC' && isCirBtcOut) ||
+    (isCirBtcIn && tOut === 'USDC')
   ) {
     const isUsdcIn = tIn === 'USDC'
     return {
@@ -472,15 +474,17 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
 
         // Track 24h pool volume and dispatch reactive event
         try {
-          const isCirBtc = params.tokenIn.toUpperCase() === 'CIRBTC' || params.tokenOut.toUpperCase() === 'CIRBTC'
+          const inUpper = params.tokenIn.toUpperCase()
+          const outUpper = params.tokenOut.toUpperCase()
+          const isCirBtc = inUpper === 'CIRBTC' || inUpper === 'BTC' || outUpper === 'CIRBTC' || outUpper === 'BTC'
           const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
           let volUsd = 0
           const inAmt = parseFloat(params.amountIn) || 0
-          if (params.tokenIn.toUpperCase() === 'USDC') {
+          if (inUpper === 'USDC') {
             volUsd = inAmt
-          } else if (params.tokenIn.toUpperCase() === 'EURC') {
+          } else if (inUpper === 'EURC') {
             volUsd = inAmt * 1.08
-          } else if (params.tokenIn.toUpperCase() === 'CIRBTC') {
+          } else if (inUpper === 'CIRBTC' || inUpper === 'BTC') {
             volUsd = inAmt * 78500
           }
           if (volUsd > 0) {
@@ -597,15 +601,17 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
 
         // Track 24h pool volume and dispatch reactive event
         try {
-          const isCirBtc = params.tokenIn.toUpperCase() === 'CIRBTC' || params.tokenOut.toUpperCase() === 'CIRBTC'
+          const inUpper = params.tokenIn.toUpperCase()
+          const outUpper = params.tokenOut.toUpperCase()
+          const isCirBtc = inUpper === 'CIRBTC' || inUpper === 'BTC' || outUpper === 'CIRBTC' || outUpper === 'BTC'
           const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
           let volUsd = 0
           const inAmt = parseFloat(params.amountIn) || 0
-          if (params.tokenIn.toUpperCase() === 'USDC') {
+          if (inUpper === 'USDC') {
             volUsd = inAmt
-          } else if (params.tokenIn.toUpperCase() === 'EURC') {
+          } else if (inUpper === 'EURC') {
             volUsd = inAmt * 1.08
-          } else if (params.tokenIn.toUpperCase() === 'CIRBTC') {
+          } else if (inUpper === 'CIRBTC' || inUpper === 'BTC') {
             volUsd = inAmt * 78500
           }
           if (volUsd > 0) {
