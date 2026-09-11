@@ -90,8 +90,6 @@ function getRelayerAccount() {
     globalEnv.PRIVATE_KEY ||
     localEnv.RELAYER_PRIVATE_KEY ||
     globalEnv.RELAYER_PRIVATE_KEY ||
-    localEnv.VITE_RELAYER_PRIVATE_KEY ||
-    globalEnv.VITE_RELAYER_PRIVATE_KEY ||
     ''
   ).trim()
 

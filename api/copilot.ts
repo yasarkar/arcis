@@ -14,8 +14,6 @@ export async function POST(req: Request) {
       process.env.OPENAI_API_KEY ||
       globalEnv.OPENROUTER_API_KEY ||
       process.env.OPENROUTER_API_KEY ||
-      globalEnv.VITE_OPENAI_API_KEY ||
-      process.env.VITE_OPENAI_API_KEY ||
       ''
 
     if (!apiKey || apiKey.trim() === '') {

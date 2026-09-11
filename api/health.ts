@@ -62,8 +62,6 @@ export async function GET(req: Request) {
       globalEnv.PRIVATE_KEY ||
       localEnv.RELAYER_PRIVATE_KEY ||
       globalEnv.RELAYER_PRIVATE_KEY ||
-      localEnv.VITE_RELAYER_PRIVATE_KEY ||
-      globalEnv.VITE_RELAYER_PRIVATE_KEY ||
       ''
     ).trim()
     if (rawKey && rawKey.length >= 64) {
@@ -108,9 +106,7 @@ export async function GET(req: Request) {
     localEnv.OPENAI_API_KEY ||
     globalEnv.OPENAI_API_KEY ||
     localEnv.OPENROUTER_API_KEY ||
-    globalEnv.OPENROUTER_API_KEY ||
-    localEnv.VITE_OPENAI_API_KEY ||
-    globalEnv.VITE_OPENAI_API_KEY
+    globalEnv.OPENROUTER_API_KEY
   )
 
   const isHealthy = rpcStatus.connected

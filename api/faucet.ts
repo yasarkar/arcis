@@ -2,7 +2,7 @@ import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
 
 function getApiKey(): string {
   const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
-  const circleApiKey = globalEnv.CIRCLE_API_KEY || process.env.CIRCLE_API_KEY || globalEnv.VITE_CIRCLE_API_KEY || process.env.VITE_CIRCLE_API_KEY || ''
+  const circleApiKey = globalEnv.CIRCLE_API_KEY || process.env.CIRCLE_API_KEY || ''
   return circleApiKey.trim()
 }
 
