@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import {
   X,
-  ExternalLink,
   Loader2,
   CheckCircle2,
   AlertCircle,
@@ -14,12 +13,7 @@ import {
   ArrowUpRightFromSquare,
   TrendingUp,
   Zap,
-  Plus,
-  Minus,
   Sparkles,
-  ShieldCheck,
-  Globe,
-  Coins,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
