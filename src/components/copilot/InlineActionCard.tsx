@@ -80,8 +80,9 @@ export default function InlineActionCard({
     if (receipt) {
       if (receipt.status === 'SUCCESS') {
         playSound(receipt.actionType === 'faucet' ? 'faucet' : 'success')
-      } else if (receipt.status === 'FAILED') {
+      } else if (receipt.status === 'FAILED' || receipt.status === 'CANCELED') {
         const isCanceled =
+          receipt.status === 'CANCELED' ||
           receipt.errorMessage?.toLowerCase().includes('iptal') ||
           receipt.errorMessage?.toLowerCase().includes('reject') ||
           receipt.errorMessage?.toLowerCase().includes('denied') ||
@@ -242,8 +243,9 @@ export default function InlineActionCard({
   }
 
   // ── 3. FAILED / CANCELLED RECEIPT CARD ──
-  if (receipt && receipt.status === 'FAILED') {
+  if (receipt && (receipt.status === 'FAILED' || receipt.status === 'CANCELED')) {
     const isCanceled =
+      receipt.status === 'CANCELED' ||
       receipt.errorMessage?.toLowerCase().includes('iptal') ||
       receipt.errorMessage?.toLowerCase().includes('reject') ||
       receipt.errorMessage?.toLowerCase().includes('denied') ||
