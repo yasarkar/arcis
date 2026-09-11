@@ -15,7 +15,8 @@ import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
-import { formatUnits, createPublicClient, http, erc20Abi } from 'viem'
+import { formatUnits, erc20Abi } from 'viem'
+import { getResilientPublicClient, getArcPublicClient, resilientGetBalance, resilientReadContract } from '../services/rpc'
 import { getDisplayTokenSymbol, CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
@@ -241,10 +242,8 @@ export default function SendModal({
     const fetchNativeBal = async () => {
       try {
         if (provider) {
-          const rpcClient = createPublicClient({
-            transport: http(ARC_METADATA.rpcHttpUrl),
-          })
-          const bal = await rpcClient.getBalance({ address: connectedAddress as `0x${string}` })
+          const rpcClient = getResilientPublicClient(selectedChain)
+          const bal = await resilientGetBalance(rpcClient, { address: connectedAddress as `0x${string}` })
           const decimals = CHAIN_NATIVE_MAP[selectedChain]?.decimals || 18
           const formatted = parseFloat(formatUnits(bal, decimals)).toFixed(4)
           if (isMounted) {
@@ -280,27 +279,21 @@ export default function SendModal({
 
     const inspectToken = async () => {
       try {
-        const client = createPublicClient({
-          transport: http(
-            selectedChain === 'Arc_Testnet'
-              ? ARC_METADATA.rpcHttpUrl
-              : CHAIN_DEFS[selectedChain]?.rpcUrl || ARC_METADATA.rpcHttpUrl
-          ),
-        })
+        const client = getResilientPublicClient(selectedChain)
 
         const [symbol, decimals, balance] = await Promise.all([
-          client.readContract({
+          resilientReadContract(client, {
             address: trimmedAddress as `0x${string}`,
             abi: erc20Abi,
             functionName: 'symbol',
           }),
-          client.readContract({
+          resilientReadContract(client, {
             address: trimmedAddress as `0x${string}`,
             abi: erc20Abi,
             functionName: 'decimals',
           }),
           connectedAddress
-            ? client.readContract({
+            ? resilientReadContract(client, {
                 address: trimmedAddress as `0x${string}`,
                 abi: erc20Abi,
                 functionName: 'balanceOf',
@@ -1046,7 +1039,7 @@ export default function SendModal({
             onMaxClick={() => setAmount(activeBalance)}
             quickPercentages={[25, 50, 75, 100]}
             onSelectPercentage={handleQuickPercentage}
-            fiatEstimate={amount ? `≈ $${amount} USD` : undefined}
+            fiatEstimate={amount ? `≈ ${amount} USD` : undefined}
             disabled={isSending}
             error={isInsufficient}
           />

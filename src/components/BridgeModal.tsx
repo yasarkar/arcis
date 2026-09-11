@@ -31,12 +31,10 @@ import {
   getChainDisplayName,
 } from '../config/bridgeConfig'
 import {
-  getBridgeProtocolFee,
-  getBridgeProtocolFeeBps,
-  getBridgeProtocolFeePercent,
-  calculateBridgeProtocolFeeAmount,
-  getTreasuryRecipientAddress,
+  getBridgeFeeRecipient,
+  BRIDGE_CUSTOM_FEE_CONFIG,
 } from '../config/treasuryConfig'
+import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants'
 import { formatFeeDecimals } from '../utils/tokenUtils'
 import { addTransaction } from '../utils/history'
 import {
@@ -69,8 +67,6 @@ interface BridgeModalProps {
   ) => string
   removeToast?: (id: string) => void
 }
-
-export const MIN_DIRECT_BRIDGE_AMOUNT = 0.1
 
 export default function BridgeModal({
   isOpen,
@@ -138,11 +134,11 @@ export default function BridgeModal({
 
   const activeBalance = bridgeMode === 'direct' ? sourceWalletBalance : sourceGatewayBalance
 
-  // Custom Platform Fee configuration from Arcis Treasury Fee Engine (Dynamic per speed tier & transfer amount)
-  const platformFeeBps = getBridgeProtocolFeeBps(speedTier)
-  const platformFeePercent = getBridgeProtocolFeePercent(speedTier)
-  const platformFeeAmount = amount ? calculateBridgeProtocolFeeAmount(speedTier, amount) : 0
-  const platformFeeEnabled = platformFeeAmount > 0
+  // Custom Platform Fee configuration from Arcis Treasury Fee Engine (.env: VITE_BRIDGE_FEE_VALUE & VITE_BRIDGE_FEE_ENABLED)
+  const platformFeeEnabled =
+    BRIDGE_CUSTOM_FEE_CONFIG.enabled && parseFloat(BRIDGE_CUSTOM_FEE_CONFIG.value) > 0
+  const platformFeeAmount = platformFeeEnabled ? parseFloat(BRIDGE_CUSTOM_FEE_CONFIG.value) : 0
+  const platformFeePercent = platformFeeEnabled ? `${platformFeeAmount.toFixed(2)} USDC` : '0.00 USDC'
   const requiredDebit = amount
     ? parseFloat(amount) + (bridgeMode === 'direct' ? platformFeeAmount : 0)
     : 0
@@ -201,7 +197,7 @@ export default function BridgeModal({
               ...(platformFeeEnabled && {
                 customFee: {
                   value: platformFeeAmount.toFixed(2),
-                  recipientAddress: getTreasuryRecipientAddress(sourceChain),
+                  recipientAddress: getBridgeFeeRecipient(sourceChain),
                 },
               }),
             })
@@ -375,7 +371,7 @@ export default function BridgeModal({
           ...(platformFeeEnabled && {
             customFee: {
               value: formatFeeDecimals(platformFeeAmount),
-              recipientAddress: getTreasuryRecipientAddress(sourceChain),
+              recipientAddress: getBridgeFeeRecipient(sourceChain),
             },
           }),
         })

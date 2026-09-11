@@ -12,11 +12,20 @@ import {
   Repeat,
   Layers,
   ArrowUpRightFromSquare,
+  TrendingUp,
+  Zap,
+  Plus,
+  Minus,
+  Sparkles,
+  ShieldCheck,
+  Globe,
+  Coins,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
+import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
 import {
   CHAIN_META,
   getChainIconId,
@@ -24,9 +33,10 @@ import {
   isSolanaChain,
   isKnownChain,
 } from '../config/chainMeta'
+import { ARCIS_POOLS } from '../config/poolsConfig'
 
 export type BroadcastStatus = 'pending' | 'success' | 'failed' | 'canceled' | 'info'
-export type BroadcastType = 'send' | 'bridge' | 'swap' | 'deposit' | 'faucet' | 'system'
+export type BroadcastType = 'send' | 'bridge' | 'swap' | 'deposit' | 'pool' | 'faucet' | 'system'
 
 export interface BroadcastDetails {
   // Common / Send
@@ -38,6 +48,7 @@ export interface BroadcastDetails {
   memo?: string
   isGasless?: boolean
   txHash?: string
+  explorerUrl?: string
 
   // Bridge
   sourceChain?: string
@@ -57,6 +68,21 @@ export interface BroadcastDetails {
 
   // Deposit
   targetDomain?: string
+
+  // Pool & Yield Hub operations
+  poolId?: string
+  poolName?: string
+  poolAction?: 'deposit' | 'withdraw' | 'zap' | 'dual' | 'claim' | 'rebalance'
+  poolApy?: number | string
+  poolShare?: string | number
+  amountA?: string
+  symbolA?: string
+  iconA?: string
+  amountB?: string
+  symbolB?: string
+  iconB?: string
+  lpAmount?: string
+  rewardAmount?: string
 
   // Legacy / Faucet fields
   isBridge?: boolean
@@ -98,7 +124,11 @@ export const useBroadcast = () => {
 export const TOKEN_ICON_MAP: Record<string, string> = {
   USDC: UsdcIcon,
   EURC: EurcIcon,
-  cirBTC: CircleIcon,
+  cirBTC: CirBtcIcon,
+  BTC: CirBtcIcon,
+  'af-USDC': UsdcIcon,
+  'af-USDC-EURC': EurcIcon,
+  'af-USDC-cirBTC': CirBtcIcon,
 }
 
 export { CHAIN_META, getChainDisplayName }
@@ -211,6 +241,7 @@ function inferBroadcastType(broadcast: BroadcastMessage): BroadcastType {
   if (details?.isFaucet || title.includes('faucet') || badge === 'faucet') return 'faucet'
   if (details?.isBridge || title.includes('bridg') || badge.includes('cctp')) return 'bridge'
   if (title.includes('swap') || badge.includes('swap') || badge.includes('swapped')) return 'swap'
+  if (details?.poolName || details?.poolAction || title.includes('vault') || title.includes('pool') || title.includes('liquidity') || title.includes('zap') || title.includes('reward') || title.includes('claim')) return 'pool'
   if (title.includes('deposit') || badge.includes('deposit')) return 'deposit'
   if (title.includes('send') || title.includes('transfer') || badge.includes('gasless') || details?.recipient) return 'send'
 
@@ -488,12 +519,13 @@ function BroadcastCard({
       {opType === 'send' && <SendBroadcastContent details={details} />}
       {opType === 'bridge' && <BridgeBroadcastContent details={details} status={status} />}
       {opType === 'swap' && <SwapBroadcastContent details={details} status={status} />}
-      {opType === 'deposit' && <DepositBroadcastContent details={details} status={status} />}
+      {opType === 'pool' && <PoolBroadcastContent details={details} status={status} />}
+      {opType === 'deposit' && (details?.poolName ? <PoolBroadcastContent details={details} status={status} /> : <DepositBroadcastContent details={details} status={status} />)}
       {opType === 'faucet' && <FaucetBroadcastContent details={details} />}
-      {opType === 'system' && <SystemBroadcastContent details={details} />}
+      {opType === 'system' && (details?.poolName ? <PoolBroadcastContent details={details} status={status} /> : <SystemBroadcastContent details={details} />)}
 
       {/* ERROR / EXPLANATION MESSAGE */}
-      {message && (
+      {(isFailed || isCanceled) && message && (
         <p
           className={`mt-3 text-xs text-left leading-relaxed break-words font-sans p-2.5 rounded-xl border ${isCanceled
             ? 'text-amber-300/90 bg-amber-500/10 border-amber-500/25'
@@ -505,16 +537,15 @@ function BroadcastCard({
       )}
 
       {/* BOTTOM ROW: Explorer Link */}
-      {details?.txHash && (
-        <div className="mt-2.5 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] pl-2.5 pr-1">
+      {(details?.explorerUrl || details?.txHash) && (
+        <div className="mt-2.5 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] px-2">
           <span className="text-slate-400 font-medium">Transaction:</span>
           <a
-            href={getExplorerLink(details.txHash, explorerChain)}
+            href={details?.explorerUrl || (details?.txHash ? getExplorerLink(details.txHash, explorerChain) : '#')}
             target="_blank"
             rel="noopener noreferrer"
             className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer"
             title={`View transaction on ${getExplorerName(explorerChain)}`}
-
           >
             <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
               View on {getExplorerName(explorerChain)}</span>
@@ -763,11 +794,7 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
               $
             </div>
           )}
-          <div
-            className={`flex items-center gap-1.5 font-bold truncate ${
-              status === 'success' ? 'text-emerald-400' : 'text-white'
-            }`}
-          >
+          <div className="flex items-center gap-1.5 font-bold text-white truncate">
             {toAmount ? (
               <>
                 <span className="tabular-nums">{toAmount}</span>
@@ -803,7 +830,285 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
 }
 
 /* ========================================================================== */
-/* 4. DEPOSIT BROADCAST TEMPLATE (Cüzdan ➔ Circle Gateway)                    */
+/* 4. POOL & YIELD HUB BROADCAST TEMPLATE                                     */
+/* ========================================================================== */
+function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails; status?: BroadcastStatus }) {
+  if (!details) return null
+
+  const isFailed = status === 'failed'
+  const isCanceled = status === 'canceled'
+  const isSuccess = status === 'success'
+  const isPending = status === 'pending'
+  const poolAction = details.poolAction || 'deposit'
+  const poolName = details.poolName || 'Liquidity Vault'
+  const network = details.network || 'Arc_Testnet'
+
+  const isDual = poolAction === 'dual' || Boolean(details.amountA && details.amountB)
+  const isZap = poolAction === 'zap'
+  const isWithdraw = poolAction === 'withdraw'
+  const isClaim = poolAction === 'claim'
+  const isRebalance = poolAction === 'rebalance'
+  const isCrossChainZap = Boolean(details.sourceChain && details.sourceChain !== 'Arc_Testnet')
+
+  const amount = details.amount || details.rewardAmount || details.lpAmount || ''
+  const resolvedLpSymbol = details.poolId === 'usdc-cirbtc-pool' || poolName.toLowerCase().includes('cirbtc') || poolName.toLowerCase().includes('btc')
+    ? 'af-USDC-cirBTC'
+    : details.poolId === 'usdc-eurc-stable-pool' || poolName.toLowerCase().includes('eurc')
+      ? 'af-USDC-EURC'
+      : 'af-USDC'
+
+  const tokenSym = details.tokenSymbol && details.tokenSymbol !== 'LP'
+    ? details.tokenSymbol
+    : (isClaim ? 'USDC' : isWithdraw ? resolvedLpSymbol : 'USDC')
+
+  const tokenIconSrc = details.tokenIcon || TOKEN_ICON_MAP[tokenSym] || (
+    tokenSym.includes('cirBTC') || tokenSym.includes('BTC')
+      ? CirBtcIcon
+      : tokenSym.includes('EURC')
+        ? EurcIcon
+        : UsdcIcon
+  )
+
+  const amountA = details.amountA || amount
+  const symA = details.symbolA || 'USDC'
+  const iconA = details.iconA || TOKEN_ICON_MAP[symA] || UsdcIcon
+
+  const amountB = details.amountB || ''
+  const symB = details.symbolB || 'EURC'
+  const iconB = details.iconB || TOKEN_ICON_MAP[symB] || EurcIcon
+
+  const matchedPool = ARCIS_POOLS.find(
+    (p) =>
+      p.id === details.poolId ||
+      p.name.toLowerCase() === poolName.toLowerCase() ||
+      (details.poolId ? p.id.includes(details.poolId) : false)
+  )
+  const resolvedApy = details.poolApy ?? matchedPool?.apy
+  const displayApy = resolvedApy
+    ? `${String(resolvedApy).replace(/%+$/, '')}% APY`
+    : null
+
+  // Match the broadcast card's border colors according to transaction outcome
+  const gatewayBadgeStyle = isSuccess
+    ? {
+        background: 'rgba(52, 211, 153, 0.4)',
+        borderColor: 'rgba(52, 211, 153, 0.6)',
+      }
+    : isCanceled
+      ? {
+          background: 'rgba(245, 158, 11, 0.45)',
+          borderColor: 'rgba(245, 158, 11, 0.65)',
+        }
+      : isFailed
+        ? {
+            background: 'rgba(248, 113, 113, 0.4)',
+            borderColor: 'rgba(248, 113, 113, 0.6)',
+          }
+        : {
+            background: 'rgba(56, 189, 248, 0.4)',
+            borderColor: 'rgba(56, 189, 248, 0.6)',
+          }
+
+  const gatewayArrowColor = isSuccess
+    ? 'text-emerald-200'
+    : isCanceled
+      ? 'text-amber-200'
+      : isFailed
+        ? 'text-rose-200'
+        : 'text-sky-200'
+
+
+
+
+
+  return (
+    <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-2">
+      {/* ── 1. TOP ROW: Amount (Left) & Value (Right) for Cross-Chain Zap, OR Asset & Network Badge ── */}
+      {isCrossChainZap && details.sourceChain ? (
+        <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl border border-slate-800 bg-slate-900/60 text-xs">
+          <span className="text-slate-400 font-medium ml-1.5">
+            Amount:
+          </span>
+          <div className="flex items-center gap-1.5 font-bold text-white mr-1.5">
+            {tokenIconSrc && (
+              <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
+            )}
+            <span className="tabular-nums">{amount}</span>
+            <span>{tokenSym}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 text-xs">
+          {/* Left: Asset / Amount Pill (Matching SendModal format) */}
+          {isDual ? (
+            <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 min-w-0">
+              <div className="flex items-center gap-1 font-bold text-white">
+                <img src={iconA} alt={symA} className="w-3.5 h-3.5 object-contain shrink-0" />
+                <span className="tabular-nums">{amountA}</span>
+                <span className="text-[11px] text-slate-300 font-semibold">{symA}</span>
+              </div>
+              <span className="text-slate-500 font-bold text-xs">+</span>
+              <div className="flex items-center gap-1 font-bold text-white">
+                <img src={iconB} alt={symB} className="w-3.5 h-3.5 object-contain shrink-0" />
+                <span className="tabular-nums">{amountB}</span>
+                <span className="text-[11px] text-slate-300 font-semibold">{symB}</span>
+              </div>
+            </div>
+          ) : isClaim ? (
+            <div className="flex items-center gap-1.5 bg-emerald-950/70 px-2.5 py-1 rounded-xl border border-emerald-500/35 text-emerald-300 font-bold shadow-sm">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <img src={UsdcIcon} alt="USDC" className="w-3.5 h-3.5 object-contain shrink-0" />
+              <span className="tabular-nums font-mono text-xs">+{amount || 'Yield'}</span>
+              <span className="text-[11px] text-emerald-200">USDC</span>
+            </div>
+          ) : isRebalance ? (
+            <div className="flex items-center gap-1.5 bg-indigo-950/40 px-2.5 py-1 rounded-xl border border-indigo-500/30 shadow-sm">
+              {tokenIconSrc ? (
+                <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
+              ) : (
+                <img src={UsdcIcon} alt="USDC" className="w-3.5 h-3.5 object-contain shrink-0" />
+              )}
+              <div className="flex items-center gap-1 font-bold text-white">
+                <span className="tabular-nums">{amount}</span>
+                <span>{tokenSym}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800">
+              {tokenIconSrc ? (
+                <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
+              ) : (
+                <div className="w-3.5 h-3.5 rounded-full bg-cyan-500/20 flex items-center justify-center text-[9px] font-bold text-cyan-300">
+                  $
+                </div>
+              )}
+              <div className="flex items-center gap-1 font-bold text-white">
+                {amount ? (
+                  <>
+                    <span className="tabular-nums">{amount}</span>
+                    <span>{tokenSym}</span>
+                  </>
+                ) : (
+                  <span>{tokenSym}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Right: Network Badge (Matching SendModal & SwapModal exactly) */}
+          <div className="flex items-center gap-1.5 font-medium text-slate-300 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 shrink-0">
+            <ChainIconBadge chain={network} size={14} />
+            <span className="truncate max-w-[150px] text-[11px] font-semibold">
+              {getChainDisplayName(network)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── 2. ROUTE ROW & POOL ROW FOR CROSS-CHAIN ZAP, OR STANDARD POOL ACTION CARD ── */}
+      {isCrossChainZap && details.sourceChain ? (
+        <>
+          {/* Networks Route Row: Border only around network values & gateway badge */}
+          <div className="flex items-center justify-between gap-1.5 text-xs">
+            {/* Source Network Badge */}
+            <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1.5 rounded-xl border border-slate-800 min-w-0">
+              <ChainIconBadge chain={details.sourceChain} size={14} />
+              <span className="font-semibold text-slate-200 truncate max-w-[110px] text-[11px]" title={getChainDisplayName(details.sourceChain)}>
+                {getChainDisplayName(details.sourceChain)}
+              </span>
+            </div>
+
+            {/* Route Arrow Badge */}
+            <div
+              className="flex items-center justify-center p-1.5 rounded-full border text-white text-[10px] font-bold shadow-sm shrink-0 transition-all duration-300"
+              style={gatewayBadgeStyle}
+            >
+              <ArrowRight className={`w-3.5 h-3.5 transition-colors duration-300 ${gatewayArrowColor}`} />
+            </div>
+
+            {/* Destination Network Badge */}
+            <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1.5 rounded-xl border border-slate-800 min-w-0 justify-end">
+              <ChainIconBadge chain={network} size={14} />
+              <span className="font-semibold text-white truncate max-w-[110px] text-[11px]" title={getChainDisplayName(network)}>
+                {getChainDisplayName(network)}
+              </span>
+            </div>
+          </div>
+
+          {/* Destination Pool Details: Wrapped in its own border */}
+          <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl border border-slate-800 bg-slate-900/60 text-xs">
+            {/* Left: Layers Icon + Pool: label */}
+            <span className="text-slate-400 font-medium flex items-center gap-1.5 shrink-0 ml-1.5 text-[11px]">
+              <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              Pool:
+            </span>
+
+            {/* Right: Pool Name + Pool APY side-by-side right-aligned */}
+            <div className="flex items-center gap-2 justify-end min-w-0 mr-1.5">
+              <strong className="text-white font-semibold text-xs text-right truncate" title={poolName}>
+                {poolName}
+              </strong>
+              {displayApy && (
+                <div className="flex items-center gap-1 font-bold text-[10.5px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30 shrink-0">
+                  <TrendingUp className="w-3 h-3 text-emerald-400" />
+                  <span className="font-mono">{displayApy}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      ) : (
+        /* Action Card (Rebalancer / Pool: Ad + Rozet side-by-side on the right) */
+        <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-900/70 border border-slate-800 text-xs">
+          {/* Left: Rebalancer or Pool label */}
+          <span className="text-slate-400 font-medium flex items-center gap-1.5 shrink-0 ml-1.5 text-[11px]">
+            {isRebalance ? (
+              <>
+                <Zap className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                Rebalancer:
+              </>
+            ) : (
+              <>
+                <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                Pool:
+              </>
+            )}
+          </span>
+
+          {/* Right: Rebalancer / Pool Name + Badge */}
+          <div className="flex items-center gap-2 justify-end min-w-0 mr-1.5">
+            <strong
+              className="text-white font-semibold text-xs text-right truncate"
+              title={isRebalance ? 'Circle Gateway Auto-Rebalancer' : poolName}
+            >
+              {isRebalance ? 'Circle Gateway Auto-Rebalancer' : poolName}
+            </strong>
+            {isRebalance && (
+              <div className="flex items-center gap-1 font-bold text-[10px] text-indigo-300 bg-indigo-950/60 px-2 py-0.5 rounded-lg border border-indigo-500/30 shrink-0">
+                <Zap className="w-2.5 h-2.5 text-indigo-400" />
+                <span>&lt;500ms Instant</span>
+              </div>
+            )}
+            {!isRebalance && displayApy && (
+              <div className="flex items-center gap-1 font-bold text-[10.5px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30 shrink-0">
+                <TrendingUp className="w-3 h-3 text-emerald-400" />
+                <span className="font-mono">{displayApy}</span>
+              </div>
+            )}
+            {isClaim && (
+              <div className="flex items-center gap-1 font-semibold text-[10px] text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30 shrink-0">
+                <span>Direct Payout</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ========================================================================== */
+/* 5. DEPOSIT BROADCAST TEMPLATE (Cüzdan ➔ Circle Gateway)                    */
 /* ========================================================================== */
 function DepositBroadcastContent({ details, status }: { details?: BroadcastDetails; status?: BroadcastStatus }) {
   if (!details) return null

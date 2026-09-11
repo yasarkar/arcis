@@ -19,7 +19,6 @@ import { normalizeAppError } from '../utils/errorNormalizer'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { createViemAdapter } from '../services/sendService'
 import { getSwapEstimate, executeSwap, getSupportedSwapChains } from '../services/swapService'
-import { getDisplayTokenSymbol } from '../utils/tokenUtils'
 import { addTransaction } from '../utils/history'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
@@ -27,9 +26,8 @@ import { SpeedFeeSelector } from './common/SpeedFeeSelector'
 import { SPEED_TIERS, type SpeedTier } from '../config/feeTiers'
 import {
   getSwapProtocolFeeBps,
-  getSwapProtocolFeePercent,
-  calculateSwapProtocolFeeAmount,
-  getTreasuryRecipientAddress,
+  getSwapFeeRecipient,
+  SWAP_CUSTOM_FEE_CONFIG,
 } from '../config/treasuryConfig'
 import { getChainIconId } from '../config/swapConfig'
 import { getExplorerTxUrl } from '../config/sendConfig'
@@ -128,8 +126,6 @@ export default function SwapModal({
   const [isEstimating, setIsEstimating] = useState(false)
   const [estimateError, setEstimateError] = useState<string | null>(null)
 
-  const getTokenDisplaySymbol = getDisplayTokenSymbol
-
   // Slippage tolerance calculation
   const slippageTolerance = useMemo(() => {
     if (selectedSlippageType === 'custom') {
@@ -144,11 +140,16 @@ export default function SwapModal({
   // Speed & Network Execution Priority
   const [speedTier, setSpeedTier] = useState<SpeedTier>('fast')
 
-  // Treasury Platform Fee
-  const platformFeeBps = getSwapProtocolFeeBps(speedTier)
-  const platformFeePercent = getSwapProtocolFeePercent(speedTier)
-  const platformFeeAmount = amountIn ? calculateSwapProtocolFeeAmount(speedTier, amountIn) : null
-  const platformFeeEnabled = true
+  // Treasury Platform Fee from SWAP_CUSTOM_FEE_CONFIG (.env: VITE_SWAP_FEE_BPS & VITE_SWAP_FEE_ENABLED)
+  const platformFeeEnabled = SWAP_CUSTOM_FEE_CONFIG.enabled
+  const platformFeeBps = SWAP_CUSTOM_FEE_CONFIG.enabled
+    ? SWAP_CUSTOM_FEE_CONFIG.percentageBps
+    : getSwapProtocolFeeBps(speedTier)
+  const platformFeePercent = `${(platformFeeBps / 100).toFixed(2)}%`
+  const platformFeeAmount =
+    amountIn && platformFeeBps > 0
+      ? ((parseFloat(amountIn) * platformFeeBps) / 10000).toFixed(6)
+      : null
 
   // Validation
   const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
@@ -309,7 +310,7 @@ export default function SwapModal({
             ...(platformFeeEnabled && {
               customFee: {
                 percentageBps: platformFeeBps,
-                recipientAddress: getTreasuryRecipientAddress(fromChain),
+                recipientAddress: getSwapFeeRecipient(fromChain),
               },
             }),
           })
@@ -405,84 +406,92 @@ export default function SwapModal({
     })
 
     try {
-      if (provider) {
-        const sourceAdapter = await createViemAdapter(provider)
+      if (!provider) {
+        throw new Error('No crypto wallet provider found. Please connect your wallet.')
+      }
 
-        const finalStatus = await executeSwap({
-          fromChain,
-          toChain: toChain === fromChain ? undefined : toChain,
+      const sourceAdapter = await createViemAdapter(provider)
+
+      const finalStatus = await executeSwap({
+        fromChain,
+        toChain: toChain === fromChain ? undefined : toChain,
+        tokenIn,
+        tokenOut,
+        amountIn,
+        sourceAdapter,
+        recipientAddress: effectiveRecipient,
+        slippageTolerance,
+        allowanceStrategy,
+        speedTier,
+        ...(platformFeeEnabled && {
+          customFee: {
+            percentageBps: platformFeeBps,
+            recipientAddress: getSwapFeeRecipient(fromChain),
+          },
+        }),
+      })
+
+      if (finalStatus.status === 'DONE') {
+        setIsSwapping(false)
+        setSuccessData({
+          amountIn,
+          amountOut: estimatedOutput,
           tokenIn,
           tokenOut,
-          amountIn,
-          sourceAdapter,
-          recipientAddress: effectiveRecipient,
-          slippageTolerance,
-          allowanceStrategy,
-          speedTier,
-          ...(platformFeeEnabled && {
-            customFee: {
-              percentageBps: platformFeeBps,
-              recipientAddress: getTreasuryRecipientAddress(fromChain),
-            },
-          }),
+          txHash: finalStatus.sourceTxHash,
+          destTxHash: finalStatus.destinationTxHash,
+          recipient: effectiveRecipient,
+          rate: rate || (amountIn && estimatedOutput ? `1 ${tokenIn} ≈ ${(parseFloat(estimatedOutput) / parseFloat(amountIn)).toFixed(4)} ${tokenOut}` : undefined),
+          slippage: (slippageTolerance * 100).toFixed(1) + '%',
+          speedTier: speedTier.charAt(0).toUpperCase() + speedTier.slice(1),
+          fee: platformFeeAmount ? `${platformFeeAmount} ${tokenIn}` : undefined,
         })
 
-        if (finalStatus.status === 'DONE') {
-          setIsSwapping(false)
-          setSuccessData({
-            amountIn,
-            amountOut: estimatedOutput,
-            tokenIn,
-            tokenOut,
+        updateBroadcast(broadcastId, {
+          type: 'swap',
+          title: isCross ? 'Cross-Chain Swap Completed Successfully' : 'Swap Completed Successfully',
+          status: 'success',
+          badgeText: 'Confirmed',
+          details: {
+            fromAmount: amountIn,
+            fromSymbol: tokenIn,
+            fromIcon: TOKEN_ICONS[tokenIn],
+            fromChain: fromChain,
+            toAmount: estimatedOutput,
+            toSymbol: tokenOut,
+            toIcon: TOKEN_ICONS[tokenOut],
+            toChain: toChain || fromChain,
+            network: fromChain,
             txHash: finalStatus.sourceTxHash,
-            destTxHash: finalStatus.destinationTxHash,
-          })
+          },
+        })
 
-          updateBroadcast(broadcastId, {
-            type: 'swap',
-            title: isCross ? 'Cross-Chain Swap Success' : 'Swap Confirmed',
-            status: 'success',
-            badgeText: 'Swapped',
-            details: {
-              fromAmount: amountIn,
-              fromSymbol: tokenIn,
-              fromIcon: TOKEN_ICONS[tokenIn],
-              fromChain: fromChain,
-              toAmount: estimatedOutput,
-              toSymbol: tokenOut,
-              toIcon: TOKEN_ICONS[tokenOut],
-              toChain: toChain || fromChain,
-              network: fromChain,
-              txHash: finalStatus.sourceTxHash,
-            },
-          })
+        refetchWalletBalances()
 
-          refetchWalletBalances()
+        addTransaction({
+          type: 'swap',
+          txHash: finalStatus.sourceTxHash || '',
+          amount: amountIn,
+          tokenSymbol: tokenIn,
+          sourceChain: fromChain,
+          recipient: effectiveRecipient,
+          userAddress: connectedAddress,
+          status: 'success',
+          amountIn,
+          amountOut: estimatedOutput,
+          tokenIn,
+          tokenOut,
+          isPrivate: isPrivateSwap,
+        })
 
-          addTransaction({
-            type: 'swap',
-            txHash: finalStatus.sourceTxHash || '',
-            amount: amountIn,
-            tokenSymbol: tokenIn,
-            sourceChain: fromChain,
-            recipient: effectiveRecipient,
-            userAddress: connectedAddress,
-            status: 'success',
-            amountIn,
-            amountOut: estimatedOutput,
-            tokenIn,
-            tokenOut,
-            isPrivate: isPrivateSwap,
-          })
-
-          onSuccess(amountIn, estimatedOutput, tokenIn, tokenOut, finalStatus.sourceTxHash || '')
-        } else {
-          const swapErr: any = new Error(finalStatus.errorMessage || 'Swap failed to complete.')
-          if (finalStatus.isCanceled) {
-            swapErr.isCanceled = true
-          }
-          throw swapErr
+        onSuccess(amountIn, estimatedOutput, tokenIn, tokenOut, finalStatus.sourceTxHash || '')
+      } else {
+        const swapErr: any = new Error(finalStatus.errorMessage || 'Swap failed to complete.')
+        if (finalStatus.isCanceled) {
+          swapErr.isCanceled = true
+          swapErr.code = 4001
         }
+        throw swapErr
       }
     } catch (err: any) {
       console.error('[SwapModal] Execution error:', err)
@@ -490,7 +499,7 @@ export default function SwapModal({
       setError(normalized.message)
       setIsSwapping(false)
 
-      const isCanceled = normalized.isCanceled
+      const isCanceled = normalized.isCanceled || err?.isCanceled === true || err?.code === 4001
       setIsCanceledError(isCanceled)
       const status = isCanceled ? 'canceled' : 'failed'
       const title = isCanceled
@@ -727,9 +736,15 @@ export default function SwapModal({
           fromChain={fromChain}
           toChain={toChain}
           txHash={successData.txHash}
+          destTxHash={successData.destTxHash}
           explorerUrl={getExplorerTxUrl(fromChain, successData.txHash)}
           isCrossChain={isCrossChain}
           isInline={isInline}
+          recipient={successData.recipient}
+          rate={successData.rate}
+          slippage={successData.slippage}
+          speedTier={successData.speedTier}
+          fee={successData.fee}
           onSwapAgain={() => {
             setSuccessData(null)
             setIsSwapping(false)
@@ -784,7 +799,7 @@ export default function SwapModal({
               onMaxClick={() => setAmountIn(tokenInBalance)}
               quickPercentages={[25, 50, 75, 100]}
               onSelectPercentage={handleQuickPercentage}
-              fiatEstimate={amountIn ? `≈ $${amountIn} USD` : undefined}
+              fiatEstimate={amountIn ? `≈ ${amountIn} USD` : undefined}
               disabled={isSwapping}
               error={isInsufficient}
             />
@@ -806,7 +821,7 @@ export default function SwapModal({
               onSelectToken={() => setShowTokenOutModal(true)}
               balance={tokenOutBalance}
               isLoading={isEstimating}
-              fiatEstimate={estimatedOutput ? `≈ $${estimatedOutput} USD` : undefined}
+              fiatEstimate={estimatedOutput ? `≈ ${estimatedOutput} USD` : undefined}
               disabled={isSwapping}
             />
           </div>
