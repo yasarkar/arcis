@@ -1,42 +1,37 @@
-// src/services/gatewayService.ts
-//
 // Circle Gateway service layer — deposit, balance query, and transfer.
 // Gateway provides a unified USDC balance across multiple blockchains with
 // instant (<500ms) crosschain transfers.
-
 import {
-  createPublicClient,
   createWalletClient,
   custom,
   erc20Abi,
   getContract,
-  http,
   parseUnits,
   zeroAddress,
   type Chain,
 } from 'viem'
+import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import {
+  ACTIVE_GATEWAY_API,
+  ACTIVE_GATEWAY_CONTRACTS,
   GATEWAY_API,
   GATEWAY_CONTRACTS,
   GATEWAY_DOMAINS,
   GATEWAY_EIP712_DOMAIN,
   GATEWAY_EIP712_TYPES,
   GATEWAY_GAS_LIMITS,
-  GATEWAY_MAX_FEE,
   GATEWAY_MINTER_ABI,
   GATEWAY_WALLET_ABI,
   USDC_ADDRESSES,
   EURC_ADDRESSES,
 } from '../config/gatewayConfig'
-import { ARC_METADATA } from '../config/arcChain'
-import { CHAIN_DEFS } from '../config/chainMeta'
+import { IS_TESTNET } from '../config/arcChain'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface GatewayBalanceItem {
   domain: number
   depositor: string
-  /** Balance as a decimal string (human-readable USDC units, 6 decimals) */
   balance: string
 }
 
@@ -85,47 +80,10 @@ function randomHex32(): `0x${string}` {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}` as const
 }
 
-export async function ensureChain(provider: any, chain: Chain) {
-  const chainIdHex = `0x${chain.id.toString(16)}`
+import { assertNetwork } from './chainSwitchService'
 
-  try {
-    await provider.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{ chainId: chainIdHex }],
-    })
-  } catch {
-    try {
-      await provider.request({
-        method: 'wallet_addEthereumChain',
-        params: [
-          {
-            chainId: chainIdHex,
-            chainName: chain.name,
-            nativeCurrency: chain.nativeCurrency,
-            rpcUrls: chain.rpcUrls.default.http,
-            blockExplorerUrls: chain.blockExplorers?.default?.url
-              ? [chain.blockExplorers.default.url]
-              : [],
-          },
-        ],
-      })
-    } catch (addErr: any) {
-      console.warn('[ensureChain] Could not add chain:', addErr)
-    }
-  }
-
-  // Verify wallet is on the correct chain
-  try {
-    const activeChainHex = await provider.request({ method: 'eth_chainId' })
-    if (activeChainHex && parseInt(activeChainHex, 16) !== chain.id) {
-      throw new Error(`Cüzdanınız ${chain.name} ağına bağlı değil (Chain ID: ${chain.id}). Lütfen cüzdanınızdan ağı değiştirin.`)
-    }
-  } catch (verifyErr: any) {
-    if (verifyErr.message?.includes('bağlı değil')) {
-      throw verifyErr
-    }
-    console.warn('[ensureChain] Chain verification skipped:', verifyErr)
-  }
+export async function ensureChain(provider: any, chain: Chain): Promise<void> {
+  await assertNetwork(chain, provider)
 }
 
 // ── Balance Query ────────────────────────────────────────────────────────────
@@ -231,20 +189,8 @@ export async function depositToGateway(
     transport: custom(provider),
   })
 
-  // IMPORTANT: Use a direct HTTP RPC transport for transaction receipts, NOT
-  // the wallet provider. Wallets like MetaMask can't reliably return receipts
-  // for chains they weren't specifically configured for, causing
-  // "Timed out while waiting for transaction to be confirmed". Polling the
-  // chain's RPC endpoint directly avoids this entirely.
-  const rpcUrl = chainDef.rpcUrls?.default?.http?.[0] || ARC_METADATA.rpcHttpUrl
-  console.log(`[Gateway Deposit] Using RPC: ${rpcUrl}`)
-
-  const publicClient = createPublicClient({
-    chain: chainDef,
-    transport: http(rpcUrl, { timeout: 30_000, retryCount: 3 }),
-    batch: { multicall: false },
-    pollingInterval: 5000,
-  })
+  // Use centralized resilient RPC client with multi-endpoint fallback
+  const publicClient = getResilientPublicClient(chainDef)
 
   const tokenAddress = tokenSymbol === 'EURC' ? EURC_ADDRESSES[chainKey] : USDC_ADDRESSES[chainKey]
   if (!tokenAddress) {
@@ -256,7 +202,7 @@ export async function depositToGateway(
 
   // Pre-flight Step 0: Check token balance and enforce Arc Testnet native gas reserve
   try {
-    const userBalance = await publicClient.readContract({
+    const userBalance = await resilientReadContract(publicClient, {
       address: tokenAddress,
       abi: erc20Abi,
       functionName: 'balanceOf',
@@ -291,7 +237,7 @@ export async function depositToGateway(
   let approveTxHash = ''
   let currentAllowance = 0n
   try {
-    currentAllowance = await publicClient.readContract({
+    currentAllowance = await resilientReadContract(publicClient, {
       address: tokenAddress,
       abi: erc20Abi,
       functionName: 'allowance',
@@ -332,12 +278,16 @@ export async function depositToGateway(
         gas: gasLimit,
       })
       console.log(`[Gateway Deposit] Approve tx submitted: ${approveTxHash}`)
-      const approveReceipt = await publicClient.waitForTransactionReceipt({
-        hash: approveTxHash as `0x${string}`,
-        timeout: 120_000, // 2 minutes — Arc RPC can be slow to propagate
-        confirmations: 1,
-      })
-      console.log(`[Gateway Deposit] Approve confirmed in block ${approveReceipt.blockNumber}`)
+      const approveRes = await resilientWaitForReceipt(
+        publicClient,
+        approveTxHash as `0x${string}`,
+        'Gateway Deposit Approve',
+        120_000
+      )
+      if (approveRes.status === 'reverted') {
+        throw new Error('Token approval reverted on-chain.')
+      }
+      console.log(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}`)
     } catch (err: any) {
       console.error(`[Gateway Deposit] Approve failed:`, err)
       throw err
@@ -373,15 +323,16 @@ export async function depositToGateway(
     gas: depositGasLimit,
   })
   console.log(`[Gateway Deposit] Deposit tx submitted: ${depositTxHash}`)
-  const depositReceipt = await publicClient.waitForTransactionReceipt({
-    hash: depositTxHash as `0x${string}`,
-    timeout: 120_000, // 2 minutes
-    confirmations: 1,
-  })
-  if (depositReceipt.status === 'reverted') {
+  const depositRes = await resilientWaitForReceipt(
+    publicClient,
+    depositTxHash as `0x${string}`,
+    'Gateway Deposit',
+    120_000
+  )
+  if (depositRes.status === 'reverted') {
     throw new Error('Gateway deposit transaction reverted on-chain.')
   }
-  console.log(`[Gateway Deposit] Deposit confirmed in block ${depositReceipt.blockNumber}`)
+  console.log(`[Gateway Deposit] Deposit confirmed in block ${depositRes.blockNumber}`)
   console.log(`[Gateway Deposit] Deposit tx: ${depositTxHash}`)
 
   return {
@@ -440,8 +391,8 @@ export async function transferFromGateway(
     throw new Error(`No USDC address configured for ${sourceChain} or ${destinationChain}`)
   }
 
-  const gatewayWallet = GATEWAY_CONTRACTS.testnet.gatewayWallet
-  const gatewayMinter = GATEWAY_CONTRACTS.testnet.gatewayMinter
+  const gatewayWallet = ACTIVE_GATEWAY_CONTRACTS.gatewayWallet
+  const gatewayMinter = ACTIVE_GATEWAY_CONTRACTS.gatewayMinter
 
   // Step 1: Switch to source chain and sign the burn intent
   await ensureChain(provider, sourceChainDef)
@@ -452,9 +403,47 @@ export async function transferFromGateway(
     transport: custom(provider),
   })
 
+  // Dynamic maxFee calculation (Circle Gateway requirement: user balance must cover amount + maxFee):
+  // For same-chain withdrawal: 0 transfer fee + 0.05 USDC gas buffer (50_000 units)
+  // For cross-chain: 0.005% transfer fee + 0.05 USDC gas buffer
+  const isSameChain = sourceDomain === destinationDomain
+  const transferFee = isSameChain ? 0n : (parseUnits(amount, 6) * 5n) / 100_000n
+  const gasBuffer = 50_000n // 0.05 USDC buffer for burn execution
+  const maxFee = transferFee + gasBuffer
+
+  let burnValue = parseUnits(amount, 6)
+
+  // Pre-flight check: Ensure user balance on source domain covers burnValue + maxFee
+  try {
+    const balancesResp = await getGatewayBalances(account, IS_TESTNET ? 'testnet' : 'mainnet')
+    const sourceItem = balancesResp.balances?.find((b) => b.domain === sourceDomain)
+    if (sourceItem) {
+      const sourceBalanceUnits = parseUnits(sourceItem.balance || '0', 6)
+      if (sourceBalanceUnits < maxFee) {
+        throw new Error(
+          `Insufficient Gateway balance on ${sourceChain}. ` +
+          `Available: ${sourceItem.balance} USDC, which is less than the required Gateway routing fee buffer (${(Number(maxFee) / 1e6).toFixed(2)} USDC).`
+        )
+      }
+      // If user requested their full balance or amount + maxFee > balance, auto-adjust burnValue
+      if (burnValue + maxFee > sourceBalanceUnits) {
+        const safeBurnValue = sourceBalanceUnits - maxFee
+        console.log(
+          `[transferFromGateway] Auto-adjusted withdrawal value from ${(Number(burnValue) / 1e6).toFixed(2)} to ${(Number(safeBurnValue) / 1e6).toFixed(2)} USDC to cover ${(Number(maxFee) / 1e6).toFixed(2)} USDC Gateway routing fee.`
+        )
+        burnValue = safeBurnValue
+      }
+    }
+  } catch (checkErr: any) {
+    if (checkErr.message?.includes('Insufficient Gateway balance')) {
+      throw checkErr
+    }
+    console.warn('[transferFromGateway] Pre-flight balance check warning:', checkErr)
+  }
+
   const burnIntent = {
     maxBlockHeight: 2n ** 256n - 1n,
-    maxFee: GATEWAY_MAX_FEE,
+    maxFee,
     spec: {
       version: 1,
       sourceDomain,
@@ -467,7 +456,7 @@ export async function transferFromGateway(
       destinationRecipient: toBytes32(destRecipient),
       sourceSigner: toBytes32(account),
       destinationCaller: toBytes32(zeroAddress),
-      value: parseUnits(amount, 6),
+      value: burnValue,
       salt: randomHex32(),
       hookData: '0x' as const,
     },
@@ -481,7 +470,7 @@ export async function transferFromGateway(
   })
 
   // Step 2: Submit to the Gateway API
-  const apiResponse = await fetch(`${GATEWAY_API.testnet}/transfer`, {
+  const apiResponse = await fetch(`${ACTIVE_GATEWAY_API}/transfer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(
@@ -491,9 +480,22 @@ export async function transferFromGateway(
   })
 
   if (!apiResponse.ok) {
-    throw new Error(
-      `Gateway API request failed: ${apiResponse.status} ${await apiResponse.text()}`
-    )
+    let errorDetail = ''
+    try {
+      const errJson = await apiResponse.json()
+      errorDetail = errJson.message || errJson.error || JSON.stringify(errJson)
+    } catch {
+      errorDetail = await apiResponse.text().catch(() => '')
+    }
+
+    if (errorDetail?.toLowerCase().includes('unauthorized') || apiResponse.status === 400) {
+      throw new Error(
+        `Circle Gateway could not process withdrawal: ${errorDetail || 'Unauthorized'}. ` +
+        `Please ensure your Gateway balance is confirmed and sufficient to cover ${amount} USDC.`
+      )
+    }
+
+    throw new Error(`Gateway API request failed (${apiResponse.status}): ${errorDetail}`)
   }
 
   const { attestation, signature: mintSignature } = (await apiResponse.json()) as {
@@ -510,17 +512,8 @@ export async function transferFromGateway(
     transport: custom(provider),
   })
 
-  // Direct HTTP RPC for mint receipt polling (wallet provider can't reliably
-  // return receipts for arbitrary chains).
-  const destRpcUrl = destinationChainDef.rpcUrls?.default?.http?.[0] || CHAIN_DEFS.Base_Sepolia.rpcUrls.default.http[0]
-  console.log(`[Gateway Transfer] Destination RPC: ${destRpcUrl}`)
-
-  const destinationPublicClient = createPublicClient({
-    chain: destinationChainDef,
-    transport: http(destRpcUrl, { timeout: 30_000, retryCount: 3 }),
-    batch: { multicall: false },
-    pollingInterval: 5000,
-  })
+  // Centralized resilient client for destination chain
+  const destinationPublicClient = getResilientPublicClient(destinationChainDef)
 
   const gatewayMinterContract = getContract({
     address: gatewayMinter,
@@ -528,12 +521,27 @@ export async function transferFromGateway(
     client: destinationWalletClient,
   })
 
+  let mintGasLimit: bigint = GATEWAY_GAS_LIMITS.mint
+  try {
+    const estimatedGas = await destinationPublicClient.estimateContractGas({
+      address: gatewayMinter,
+      abi: GATEWAY_MINTER_ABI,
+      functionName: 'gatewayMint',
+      args: [attestation, mintSignature],
+      account,
+    })
+    mintGasLimit = (estimatedGas * 130n) / 100n
+  } catch (gasErr) {
+    console.warn('[transferFromGateway] Mint gas estimate fallback to 250_000:', gasErr)
+    mintGasLimit = 250_000n
+  }
+
   const mintTxHash = await gatewayMinterContract.write.gatewayMint(
     [attestation, mintSignature],
-    { account, gas: GATEWAY_GAS_LIMITS.mint }
+    { account, gas: mintGasLimit }
   )
-  const mintReceipt = await destinationPublicClient.waitForTransactionReceipt({ hash: mintTxHash })
-  if (mintReceipt.status === 'reverted') {
+  const mintRes = await resilientWaitForReceipt(destinationPublicClient, mintTxHash as `0x${string}`, 'Gateway Mint')
+  if (mintRes.status === 'reverted') {
     throw new Error('Gateway mint transaction reverted on-chain.')
   }
 

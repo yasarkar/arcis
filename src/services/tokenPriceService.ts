@@ -9,11 +9,11 @@ export interface TokenPriceMap {
 export const DEFAULT_TOKEN_PRICES: TokenPriceMap = {
   USDC: 1.0,
   EURC: 1.08,
-  WETH: 2650.0,
-  ETH: 2650.0,
-  WBTC: 63000.0,
-  BTC: 63000.0,
-  CIRBTC: 63000.0,
+  WETH: 2500.0,
+  ETH: 2500.0,
+  WBTC: 78500.0,
+  BTC: 78500.0,
+  CIRBTC: 78500.0,
   'af-USDC': 1.0842,
   AFUSDC: 1.0842,
 }
@@ -33,8 +33,7 @@ let memoryCache: { prices: TokenPriceMap; timestamp: number } = {
 export function normalizeTokenSymbol(symbol: string): string {
   const s = (symbol || '').toUpperCase().trim()
   if (s === 'ETH') return 'WETH'
-  if (s === 'BTC') return 'WBTC'
-  if (s === 'TCIRBTC' || s === 'CIRBTC') return 'CIRBTC'
+  if (s === 'BTC' || s === 'CIRBTC') return 'CIRBTC'
   if (s === 'AFUSDC' || s === 'AF-USDC') return 'af-USDC'
   return s || 'USDC'
 }
@@ -43,7 +42,7 @@ export function normalizeTokenSymbol(symbol: string): string {
  * Fetches live token prices using multi-tiered caching:
  * Tier 1: In-memory cache (<1ms)
  * Tier 2: Redis distributed cache (30s TTL)
- * Tier 3: Public CoinGecko / Binance Oracle API (2.5s timeout)
+ * Tier 3: Public CoinGecko Simple Price API (with Binance fallback)
  * Tier 4: Built-in safe fallback prices
  */
 export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
@@ -68,27 +67,59 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
     console.warn('[tokenPriceService] Redis cache lookup error:', err)
   }
 
-  // 3. Live Price Fetch (CoinGecko Simple Price)
+  // 3. Live Price Fetch (CoinGecko Simple Price with Binance fallback)
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 2500)
 
-    const res = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,euro-coin,usd-coin&vs_currencies=usd',
-      {
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
+    let ethPrice = DEFAULT_TOKEN_PRICES.WETH
+    let btcPrice = DEFAULT_TOKEN_PRICES.WBTC
+    let eurcPrice = DEFAULT_TOKEN_PRICES.EURC
+    let usdcPrice = 1.0
+    let fetchSuccess = false
+
+    try {
+      const res = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,euro-coin,usd-coin&vs_currencies=usd',
+        {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        }
+      )
+
+      if (res.ok) {
+        const data = await res.json()
+        ethPrice = Number(data?.ethereum?.usd) || ethPrice
+        btcPrice = Number(data?.bitcoin?.usd) || btcPrice
+        eurcPrice = Number(data?.['euro-coin']?.usd) || eurcPrice
+        usdcPrice = Number(data?.['usd-coin']?.usd) || 1.0
+        fetchSuccess = true
       }
-    )
+    } catch {
+      // CoinGecko failed or timed out, will try Binance fallback
+    }
+
+    // Secondary fallback: Binance Public Ticker if CoinGecko was throttled or unreachable
+    if (!fetchSuccess) {
+      try {
+        const [binanceBtc, binanceEth] = await Promise.all([
+          fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { signal: controller.signal }).then((r) => r.json()).catch(() => null),
+          fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', { signal: controller.signal }).then((r) => r.json()).catch(() => null),
+        ])
+        if (binanceBtc?.price) {
+          btcPrice = Number(binanceBtc.price) || btcPrice
+          fetchSuccess = true
+        }
+        if (binanceEth?.price) {
+          ethPrice = Number(binanceEth.price) || ethPrice
+          fetchSuccess = true
+        }
+      } catch {}
+    }
+
     clearTimeout(timeoutId)
 
-    if (res.ok) {
-      const data = await res.json()
-      const ethPrice = Number(data?.ethereum?.usd) || DEFAULT_TOKEN_PRICES.WETH
-      const btcPrice = Number(data?.bitcoin?.usd) || DEFAULT_TOKEN_PRICES.WBTC
-      const eurcPrice = Number(data?.['euro-coin']?.usd) || DEFAULT_TOKEN_PRICES.EURC
-      const usdcPrice = Number(data?.['usd-coin']?.usd) || 1.0
-
+    if (fetchSuccess) {
       const livePrices: TokenPriceMap = {
         USDC: usdcPrice,
         EURC: eurcPrice,

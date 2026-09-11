@@ -2,9 +2,10 @@
 // Live Portfolio Context & DeFi Strategist Engine for Arcis and Ask Arcis Copilot
 // Gathers real-time multi-chain balances, Vault positions, Gateway liquidity, and Session limits
 
-import { createPublicClient, http, erc20Abi, formatUnits, type Hex } from 'viem'
+import { erc20Abi, formatUnits, type Hex } from 'viem'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { POOL_CONTRACTS } from '../config/poolsConfig'
+import { getArcPublicClient, resilientGetBalance, resilientReadContract } from './rpc'
 import { getGatewayBalances } from './gatewayService'
 import { getSessionKeyConfig } from './sessionKeyService'
 import { getLiveTokenPrices, type TokenPriceMap } from './tokenPriceService'
@@ -50,10 +51,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('arcis_portfolio_updated', invalidatePortfolioCache)
 }
 
-const publicClient = createPublicClient({
-  chain: arcTestnet,
-  transport: http(ARC_METADATA.rpcHttpUrl, { timeout: 6000 }),
-})
+const publicClient = getArcPublicClient()
 
 /**
  * Fetches and computes a complete live portfolio snapshot for the connected wallet
@@ -94,20 +92,20 @@ export async function getLivePortfolioSnapshot(
 
   try {
     const [nativeBal, erc20UsdcBal, eurcBal, vaultBal] = await Promise.all([
-      publicClient.getBalance({ address: target }).catch(() => BigInt(0)),
-      publicClient.readContract({
+      resilientGetBalance(publicClient, { address: target }).catch(() => BigInt(0)),
+      resilientReadContract(publicClient, {
         address: POOL_CONTRACTS.USDC,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: [target],
       }).catch(() => BigInt(0)),
-      publicClient.readContract({
+      resilientReadContract(publicClient, {
         address: POOL_CONTRACTS.EURC,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: [target],
       }).catch(() => BigInt(0)),
-      publicClient.readContract({
+      resilientReadContract(publicClient, {
         address: POOL_CONTRACTS.YIELD_VAULT,
         abi: erc20Abi,
         functionName: 'balanceOf',
@@ -232,17 +230,17 @@ function createEmptyPortfolioSnapshot(addr: string): PortfolioSnapshot {
  */
 export function formatPortfolioForPrompt(p: PortfolioSnapshot): string {
   const gatewayInfo = p.gatewayTotalUsdc > 0
-    ? `$${p.gatewayTotalUsdc.toFixed(2)} USDC (${p.gatewayBreakdown.map((g) => `${g.chainName}: $${g.balanceUsdc}`).join(', ')})`
-    : '$0.00 USDC'
+    ? `${p.gatewayTotalUsdc.toFixed(2)} USDC (${p.gatewayBreakdown.map((g) => `${g.chainName}: ${g.balanceUsdc}`).join(', ')})`
+    : '0.00 USDC'
 
   return `LIVE USER ON-CHAIN PORTFOLIO SNAPSHOT:
 - Connected Address: ${p.walletAddress}
-- Liquid USDC (Arc Testnet): $${p.liquidUsdc.toFixed(2)} USDC (0% idle yield)
-- Liquid EURC (Arc Testnet): €${p.liquidEurc.toFixed(2)} EURC
-- Real-Yield Vault (af-USDC): $${p.vaultStakedUsdc.toFixed(2)} USDC allocated (Earning 8.42% APY = +$${p.estimatedYearlyYieldUsdc.toFixed(2)}/year passive yield)
+- Liquid USDC (Arc Testnet): ${p.liquidUsdc.toFixed(2)} USDC (0% idle yield)
+- Liquid EURC (Arc Testnet): ${p.liquidEurc.toFixed(2)} EURC
+- Real-Yield Vault (af-USDC): ${p.vaultStakedUsdc.toFixed(2)} USDC allocated (Earning 8.42% APY = +${p.estimatedYearlyYieldUsdc.toFixed(2)}/year passive yield)
 - Circle Gateway Omnichain USDC: ${gatewayInfo}
-- Total Net Worth: $${p.totalNetWorthUsd.toFixed(2)} USD
+- Total Net Worth: ${p.totalNetWorthUsd.toFixed(2)} USD
 - Portfolio DeFi Health Score: ${p.healthScore}/100
-- Recommended Vault Allocation: $${p.recommendedVaultDeposit.toFixed(2)} USDC
-- Autonomous Session Budget Remaining: $${p.sessionBudgetLeftUsdc.toFixed(2)} USDC (Session ${p.hasActiveSession ? 'Active' : 'Inactive'})`
+- Recommended Vault Allocation: ${p.recommendedVaultDeposit.toFixed(2)} USDC
+- Autonomous Session Budget Remaining: ${p.sessionBudgetLeftUsdc.toFixed(2)} USDC (Session ${p.hasActiveSession ? 'Active' : 'Inactive'})`
 }

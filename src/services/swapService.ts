@@ -1,8 +1,6 @@
 import { AppKit, getErrorCode, type ChainDefinition } from '@circle-fin/app-kit'
 import {
-  createPublicClient,
   createWalletClient,
-  http,
   custom,
   parseUnits,
   formatUnits,
@@ -14,9 +12,12 @@ import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { POOL_CONTRACTS, STABLE_SWAP_ABI, ERC20_ABI } from '../config/poolsConfig'
 import { sendModularUserOperation, getActiveSmartAccount } from './modularWalletService'
 import { getDynamicArcGasOptions, ARC_GAS_LIMITS } from '../config/feeTiers'
+import { getArcPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import type { SwapExecuteParams, SwapQuoteResult, SwapExecutionStatus } from '../types/swap'
 import { SWAP_SUPPORTED_TOKENS } from '../types/swap'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
+import { DEFAULT_SLIPPAGE_BPS } from '../config/constants'
+import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
 
 const kit = new AppKit()
 
@@ -84,15 +85,15 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
   }
 
   if (
-    (tIn === 'USDC' && (tOut === 'CIRBTC' || tOut === 'TCIRBTC')) ||
-    ((tIn === 'CIRBTC' || tIn === 'TCIRBTC') && tOut === 'USDC')
+    (tIn === 'USDC' && tOut === 'CIRBTC') ||
+    (tIn === 'CIRBTC' && tOut === 'USDC')
   ) {
     const isUsdcIn = tIn === 'USDC'
     return {
-      poolAddress: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL_TCIRBTC as Address,
+      poolAddress: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL as Address,
       isStable: false,
-      tokenInAddr: (isUsdcIn ? POOL_CONTRACTS.USDC : POOL_CONTRACTS.tcirBTC) as Address,
-      tokenOutAddr: (isUsdcIn ? POOL_CONTRACTS.tcirBTC : POOL_CONTRACTS.USDC) as Address,
+      tokenInAddr: (isUsdcIn ? POOL_CONTRACTS.USDC : POOL_CONTRACTS.cirBTC) as Address,
+      tokenOutAddr: (isUsdcIn ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.USDC) as Address,
       decIn: isUsdcIn ? 6 : 8,
       decOut: isUsdcIn ? 8 : 6,
       feeBps: 25n, // 0.25%
@@ -169,21 +170,18 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
   if (arcRoute) {
     try {
       const amountInUnits = parseUnits(params.amountIn, arcRoute.decIn)
-      const arcPublicClient = createPublicClient({
-        chain: arcTestnet,
-        transport: http(ARC_METADATA.rpcHttpUrl),
-      })
+      const arcPublicClient = getArcPublicClient()
 
       let reserveA = 0n
       let reserveB = 0n
       try {
         const [rA, rB] = await Promise.all([
-          arcPublicClient.readContract({
+          resilientReadContract(arcPublicClient, {
             address: arcRoute.poolAddress,
             abi: STABLE_SWAP_ABI,
             functionName: 'reserveA',
           }),
-          arcPublicClient.readContract({
+          resilientReadContract(arcPublicClient, {
             address: arcRoute.poolAddress,
             abi: STABLE_SWAP_ABI,
             functionName: 'reserveB',
@@ -230,7 +228,7 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
       }
 
       const estimatedOutput = formatUnits(amountOutUnits, arcRoute.decOut)
-      const slippageBps = params.slippageTolerance !== undefined ? Math.round(params.slippageTolerance * 10000) : 50
+      const slippageBps = params.slippageTolerance !== undefined ? Math.round(params.slippageTolerance * 10000) : DEFAULT_SLIPPAGE_BPS
       const minOutUnits = (amountOutUnits * BigInt(10000 - slippageBps)) / 10000n
       const stopLimit = formatUnits(minOutUnits, arcRoute.decOut)
       const amountInNum = parseFloat(params.amountIn)
@@ -367,23 +365,20 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     // ─────────────────────────────────────────────────────────────
     if (arcRoute) {
       const amountInUnits = parseUnits(params.amountIn, arcRoute.decIn)
-      const slippageBps = params.slippageTolerance !== undefined ? Math.round(params.slippageTolerance * 10000) : 50
+      const slippageBps = params.slippageTolerance !== undefined ? Math.round(params.slippageTolerance * 10000) : DEFAULT_SLIPPAGE_BPS
 
-      const arcPublicClient = createPublicClient({
-        chain: arcTestnet,
-        transport: http(ARC_METADATA.rpcHttpUrl),
-      })
+      const arcPublicClient = getArcPublicClient()
 
       let reserveA = 0n
       let reserveB = 0n
       try {
         const [rA, rB] = await Promise.all([
-          arcPublicClient.readContract({
+          resilientReadContract(arcPublicClient, {
             address: arcRoute.poolAddress,
             abi: STABLE_SWAP_ABI,
             functionName: 'reserveA',
           }),
-          arcPublicClient.readContract({
+          resilientReadContract(arcPublicClient, {
             address: arcRoute.poolAddress,
             abi: STABLE_SWAP_ABI,
             functionName: 'reserveB',
@@ -392,13 +387,14 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         reserveA = rA
         reserveB = rB
       } catch {
-        reserveA = parseUnits('100000', 6)
-        reserveB = arcRoute.isStable ? parseUnits('100000', 6) : parseUnits('1.5', 8)
+        reserveA = 0n
+        reserveB = 0n
       }
 
       if (reserveA === 0n || reserveB === 0n) {
-        reserveA = parseUnits('100000', 6)
-        reserveB = arcRoute.isStable ? parseUnits('100000', 6) : parseUnits('1.5', 8)
+        throw new Error(
+          `The ${params.tokenIn}/${params.tokenOut} liquidity pool on Arc Testnet currently has zero reserves. Please provide liquidity first before swapping.`
+        )
       }
 
       // 1. Calculate platform protocol fee (customFee) if configured
@@ -474,6 +470,26 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           throw new Error(userOpRes.error || 'Arc Testnet üzerinde Modular UserOp takas işlemi onaylanamadı.')
         }
 
+        // Track 24h pool volume and dispatch reactive event
+        try {
+          const isCirBtc = params.tokenIn.toUpperCase() === 'CIRBTC' || params.tokenOut.toUpperCase() === 'CIRBTC'
+          const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
+          let volUsd = 0
+          const inAmt = parseFloat(params.amountIn) || 0
+          if (params.tokenIn.toUpperCase() === 'USDC') {
+            volUsd = inAmt
+          } else if (params.tokenIn.toUpperCase() === 'EURC') {
+            volUsd = inAmt * 1.08
+          } else if (params.tokenIn.toUpperCase() === 'CIRBTC') {
+            volUsd = inAmt * 78500
+          }
+          if (volUsd > 0) {
+            recordClientSwapVolume(poolId, volUsd, userOpRes.txHash)
+          }
+        } catch (volErr) {
+          console.warn('[swapService] Volume tracking error:', volErr)
+        }
+
         return {
           status: 'DONE',
           sourceTxHash: userOpRes.txHash,
@@ -503,8 +519,8 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           transport: custom(provider),
         })
 
-        // Check allowance
-        const currentAllowance = await arcPublicClient.readContract({
+        // Check allowance with deduplication
+        const currentAllowance = await resilientReadContract(arcPublicClient, {
           address: arcRoute.tokenInAddr,
           abi: ERC20_ABI,
           functionName: 'allowance',
@@ -529,7 +545,10 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             maxFeePerGas: gasOptions.maxFeePerGas,
             maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
           })
-          await arcPublicClient.waitForTransactionReceipt({ hash: approveTx })
+          const approveRes = await resilientWaitForReceipt(arcPublicClient, approveTx, 'Token approval')
+          if (approveRes.status === 'reverted') {
+            throw new Error('Token approval reverted on Arc Testnet.')
+          }
         }
 
         // Execute pool swap with net input
@@ -543,7 +562,10 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           maxFeePerGas: gasOptions.maxFeePerGas,
           maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
         })
-        await arcPublicClient.waitForTransactionReceipt({ hash: swapTx })
+        const swapRes = await resilientWaitForReceipt(arcPublicClient, swapTx, 'Swap')
+        if (swapRes.status === 'reverted') {
+          throw new Error('Swap transaction reverted on Arc Testnet. Liquidity may be insufficient or slippage tolerance was exceeded.')
+        }
 
         // Collect custom platform protocol fee to Treasury if enabled
         if (customFeeUnits > 0n && params.customFee?.recipientAddress) {
@@ -558,12 +580,39 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
               maxFeePerGas: gasOptions.maxFeePerGas,
               maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
             })
-            arcPublicClient.waitForTransactionReceipt({ hash: feeTx }).catch((err) => {
+            const feeReceipt = await arcPublicClient.waitForTransactionReceipt({ hash: feeTx }).catch((err) => {
               console.warn('[swapService] Platform fee receipt error on EOA:', err)
+              return null
             })
-          } catch (feeErr) {
-            console.warn('[swapService] Platform fee transfer skipped/canceled on EOA:', feeErr)
+            if (feeReceipt && feeReceipt.status === 'reverted') {
+              console.warn('[swapService] Platform fee transfer reverted on-chain.')
+            }
+          } catch (feeErr: any) {
+            console.warn('[swapService] Platform fee transfer error on EOA:', feeErr)
+            if (isUserCanceled(feeErr) || feeErr?.isCanceled === true) {
+              throw feeErr
+            }
           }
+        }
+
+        // Track 24h pool volume and dispatch reactive event
+        try {
+          const isCirBtc = params.tokenIn.toUpperCase() === 'CIRBTC' || params.tokenOut.toUpperCase() === 'CIRBTC'
+          const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
+          let volUsd = 0
+          const inAmt = parseFloat(params.amountIn) || 0
+          if (params.tokenIn.toUpperCase() === 'USDC') {
+            volUsd = inAmt
+          } else if (params.tokenIn.toUpperCase() === 'EURC') {
+            volUsd = inAmt * 1.08
+          } else if (params.tokenIn.toUpperCase() === 'CIRBTC') {
+            volUsd = inAmt * 78500
+          }
+          if (volUsd > 0) {
+            recordClientSwapVolume(poolId, volUsd, swapTx)
+          }
+        } catch (volErr) {
+          console.warn('[swapService] Volume tracking error:', volErr)
         }
 
         return {
@@ -661,10 +710,11 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
   } catch (err: any) {
     console.error('[swapService] executeSwap failed:', err)
     const clean = formatCopilotError(err)
+    const isCanceled = clean.isCanceled || isUserCanceled(err) || err?.isCanceled === true
     return {
       status: 'FAILED',
       errorMessage: clean.message,
-      isCanceled: clean.isCanceled || isUserCanceled(err),
+      isCanceled,
     }
   }
 }

@@ -5,13 +5,12 @@
 // parent block header extra_data predictive base fee extraction, and EIP-1559 options.
 
 import {
-  createPublicClient,
-  http,
   parseGwei,
   type PublicClient,
 } from 'viem'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
+import { arcTestnet } from '../config/arcChain'
 import { type SpeedTier, SPEED_TIERS } from '../config/feeTiers'
+import { getArcPublicClient as getCentralArcPublicClient } from './rpc'
 
 // ── Arc Protocol Constants ───────────────────────────────────────────────────
 /** Minimum base fee floor enforced by Arc Testnet protocol (20 Gwei). */
@@ -28,20 +27,9 @@ export const ARC_GAS_LIMITS = {
   contractInteraction: 120_000n,
 } as const
 
-// ── Shared RPC Client ────────────────────────────────────────────────────────
-let _cachedArcPublicClient: PublicClient | null = null
-
+// ── Shared RPC Client (Delegated to Central Resilient RPC Manager) ────────────
 export function getArcPublicClient(): PublicClient {
-  if (!_cachedArcPublicClient) {
-    const rpcUrl = arcTestnet.rpcUrls?.default?.http?.[0] || ARC_METADATA.rpcHttpUrl
-    _cachedArcPublicClient = createPublicClient({
-      chain: arcTestnet,
-      transport: http(rpcUrl, { timeout: 15_000, retryCount: 3 }),
-      batch: { multicall: false },
-      pollingInterval: 4000,
-    })
-  }
-  return _cachedArcPublicClient
+  return getCentralArcPublicClient()
 }
 
 // ── Header extra_data Predictive Base Fee Extraction ─────────────────────────

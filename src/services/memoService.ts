@@ -2,14 +2,12 @@
 // Enables sending USDC on Arc Testnet with on-chain metadata (memos, invoice refs)
 // via the pre-deployed Memo contract (0x5294E9927c3306DcBaDb03fe70b92e01cCede505).
 import {
-  createPublicClient,
   createWalletClient,
   custom,
   encodeFunctionData,
   erc20Abi,
   getAddress,
   hexToString,
-  http,
   isHex,
   keccak256,
   parseAbiItem,
@@ -17,8 +15,10 @@ import {
   parseUnits,
   stringToHex,
   type Address,
+  type PublicClient,
 } from 'viem'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
+import { arcTestnet } from '../config/arcChain'
+import { getArcPublicClient as getCentralArcPublicClient, resilientWaitForReceipt } from './rpc'
 import {
   MEMO_ABI,
   MEMO_CONTRACT_ADDRESS,
@@ -32,16 +32,10 @@ import {
 } from '../config/feeTiers'
 
 /**
- * Creates a public client connected directly to Arc Testnet HTTP RPC.
+ * Returns the shared singleton Resilient PublicClient for Arc Testnet.
  */
-export function getArcPublicClient() {
-  const rpcUrl = arcTestnet.rpcUrls?.default?.http?.[0] || ARC_METADATA.rpcHttpUrl
-  return createPublicClient({
-    chain: arcTestnet,
-    transport: http(rpcUrl, { timeout: 30_000, retryCount: 3 }),
-    batch: { multicall: false },
-    pollingInterval: 5000,
-  })
+export function getArcPublicClient(): PublicClient {
+  return getCentralArcPublicClient()
 }
 
 /**
@@ -80,32 +74,13 @@ export function decodeMemoData(memoHex: string): string {
   }
 }
 
+import { assertNetwork } from './chainSwitchService'
+
 /**
  * Ensures the wallet is switched to Arc Testnet (5042002).
  */
 async function ensureArcChain(provider: any) {
-  const chainIdHex = `0x${arcTestnet.id.toString(16)}`
-  try {
-    await provider.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{ chainId: chainIdHex }],
-    })
-  } catch {
-    await provider.request({
-      method: 'wallet_addEthereumChain',
-      params: [
-        {
-          chainId: chainIdHex,
-          chainName: arcTestnet.name,
-          nativeCurrency: arcTestnet.nativeCurrency,
-          rpcUrls: arcTestnet.rpcUrls.default.http,
-          blockExplorerUrls: arcTestnet.blockExplorers?.default?.url
-            ? [arcTestnet.blockExplorers.default.url]
-            : ['https://testnet.arcscan.app'],
-        },
-      ],
-    })
-  }
+  await assertNetwork(arcTestnet, provider)
 }
 
 /**
@@ -196,15 +171,16 @@ export async function sendUsdcWithMemo(
 
   console.log(`[Arc Memo Service] Tx submitted: ${txHash}. Waiting for confirmation...`)
 
-  // 5. Wait for transaction receipt
-  const receipt = await publicClient.waitForTransactionReceipt({
-    hash: txHash,
-    timeout: 60_000,
-    confirmations: 1,
-  })
+  // 5. Wait for transaction receipt with resilient fallback
+  const receiptResult = await resilientWaitForReceipt(publicClient, txHash, 'Memo transaction', 60_000)
 
-  if (receipt.status !== 'success') {
+  if (receiptResult.status === 'reverted') {
     throw new Error(`Memo transaction reverted on Arc Testnet (tx: ${txHash})`)
+  }
+
+  const receipt = receiptResult.receipt
+  if (!receipt) {
+    throw new Error(`Transaction submitted (hash: ${txHash}) but receipt polling timed out on Arc node. Please verify on ArcScan.`)
   }
 
   // Calculate actual gas fee paid on Arc L1 (18 decimals native USDC accounting)

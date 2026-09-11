@@ -94,7 +94,7 @@ export async function executeX402Call(
     return {
       statusCode: 402,
       success: false,
-      error: `Session budget limit reached! Spent: $${budget.spentUsdc.toFixed(4)} / Max: $${budget.maxBudgetUsdc.toFixed(2)} USDC.`,
+      error: `Session budget limit reached! Spent: ${budget.spentUsdc.toFixed(4)} / Max: ${budget.maxBudgetUsdc.toFixed(2)} USDC.`,
       executionTimeMs: Math.round(performance.now() - startTime),
       costUsdc: 0,
       challenge,

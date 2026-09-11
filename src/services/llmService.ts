@@ -23,7 +23,8 @@ export interface LLMResult {
   executionTimeMs: number
 }
 
-export const DEFAULT_COPILOT_SLIPPAGE = 0.1 // 0.1% default slippage tolerance on Arc Testnet
+import { DEFAULT_COPILOT_SLIPPAGE } from '../config/constants'
+export { DEFAULT_COPILOT_SLIPPAGE }
 
 /**
  * Dynamically extracts optional custom slippage tolerance from user prompt
@@ -77,7 +78,7 @@ export function extractSwapTokens(prompt: string): { fromTok: string; toTok: str
   const normTok = (tok: string): string => {
     const t = (tok || '').toLowerCase().trim()
     if (t === 'eth' || t === 'weth' || t === 'ethereum') return 'WETH'
-    if (t === 'btc' || t === 'wbtc' || t === 'bitcoin' || t === 'cirbtc' || t === 'tcirbtc') return 'WBTC'
+    if (t === 'btc' || t === 'wbtc' || t === 'bitcoin' || t === 'cirbtc') return 'WBTC'
     if (t === 'eur' || t === 'eurc' || t === 'euro') return 'EURC'
     if (t === 'afusdc' || t === 'af-usdc' || t === 'vault') return 'af-USDC'
     if (t === 'usd' || t === 'usdc' || t === 'dolar') return 'USDC'
@@ -280,13 +281,13 @@ async function callGPT4oMini(
 
   const systemPrompt = `You are Arcis, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
 Arcis features:
-- Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~$${SPEED_TIERS.fast.arcGas.estimatedCostUsdc} USDC per tx)
+- Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~${SPEED_TIERS.fast.arcGas.estimatedCostUsdc} USDC per tx)
 - Speed: <500ms deterministic sub-second finality
 - Supported Tokens: USDC, EURC, WETH, WBTC, af-USDC
 - Real-Yield Vault (af-USDC): 8.42% APY compound real yield
 - Circle Gateway: Instant cross-chain unified balance across Ethereum, Base, Arbitrum, Solana, Polygon
 - Enterprise Send: Multicall3From batch payments with preserved msg.sender identity
-- Live Real-Time Market Prices: 1 EURC ≈ $${prices.EURC || 1.08} USDC, 1 WETH ≈ $${prices.WETH || 2650} USDC, 1 WBTC ≈ $${prices.WBTC || 63000} USDC
+- Live Real-Time Market Prices: 1 EURC ≈ ${prices.EURC || 1.08} USDC, 1 WETH ≈ ${prices.WETH || 2650} USDC, 1 WBTC ≈ ${prices.WBTC || 63000} USDC
 
 ${portfolioText}
 
@@ -294,7 +295,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
 - You act as the user's personal proactive DeFi Strategist.
 - ALWAYS execute explicit user transactional commands (e.g. "send 1 usdc to 0x...", "swap 10 usdc to eurc", "deposit 50 usdc", "bridge 25 usdc") by calling their corresponding tool (execute_send, execute_swap, execute_deposit_yield, execute_bridge). NEVER refuse or block an explicit transactional command with a faucet message; the on-chain execution engine and session key limits will validate the real-time balance.
 - When the user asks exploratory questions about their portfolio, balance, what to do with funds, advice, or strategy ("portföyümü analiz et", "ne yapmalıyım", "strateji öner", "portfolio status", "where to get yield"), analyze their exact real-time liquid vs staked vs cross-chain balances from the snapshot above:
-  - If the user has idle USDC on Arc Testnet (> $50), recommend depositing the recommended amount ($${port.recommendedVaultDeposit.toFixed(2)} USDC) into the Real-Yield Vault (8.42% APY) while keeping sufficient liquidity for gas/swaps, and call execute_deposit_yield.
+  - If the user has idle USDC on Arc Testnet (> $50), recommend depositing the recommended amount (${port.recommendedVaultDeposit.toFixed(2)} USDC) into the Real-Yield Vault (8.42% APY) while keeping sufficient liquidity for gas/swaps, and call execute_deposit_yield.
   - If the user has cross-chain USDC on Circle Gateway, recommend bridging to Arc Testnet for instant sub-second finality, and call execute_bridge.
   - If the user has $0 balance and specifically asks how to get started or requests free testnet funds, recommend opening the faucet to claim 1,000 free testnet USDC, and call execute_faucet.
 - CONTEXT & MULTI-TURN DIALOGUE:
@@ -488,7 +489,7 @@ Review and confirm the trade below to execute on-chain.`,
 🏦 <strong>Vault Deposit Overview:</strong>
 • <strong>Network:</strong> Arc Testnet
 • <strong>APY:</strong> 8.42%
-• <strong>Est. 1-Year Gain:</strong> +$${yearlyYield.toFixed(2)} USDC
+• <strong>Est. 1-Year Gain:</strong> +${yearlyYield.toFixed(2)} USDC
 • <strong>Amount:</strong> ${amount} USDC
 
 Click below to allocate your USDC into the YieldVault.`,
@@ -677,7 +678,7 @@ Confirm below to execute this updated trade on Arc Testnet.`,
 🏦 <strong>Updated Vault Deposit Overview:</strong>
 • <strong>Network:</strong> Arc Testnet
 • <strong>APY:</strong> 8.42%
-• <strong>Est. 1-Year Gain:</strong> +$${yearlyReturn.toFixed(2)} USDC
+• <strong>Est. 1-Year Gain:</strong> +${yearlyReturn.toFixed(2)} USDC
 • <strong>Deposit Amount:</strong> ${newAmount} USDC
 
 Click below to verify and lock in your updated deposit.`,
@@ -814,15 +815,15 @@ Your wallet is currently uncapitalized. Claim 1,000 free testnet USDC from the C
         message: `I have analyzed your real-time portfolio & liquidity allocation:
 
 📊 <strong>DeFi Portfolio & Capital Breakdown:</strong>
-• <strong>Total Net Worth:</strong> $${total.toFixed(2)} USD
-• <strong>Liquid (Idle 0% Yield):</strong> $${liquid.toFixed(2)} USDC
-• <strong>Real-Yield Vault (8.42% APY):</strong> $${vault.toFixed(2)} USDC (+$${yearly.toFixed(2)}/yr)
-• <strong>Circle Gateway (Cross-Chain):</strong> $${gateway.toFixed(2)} USDC
+• <strong>Total Net Worth:</strong> ${total.toFixed(2)} USD
+• <strong>Liquid (Idle 0% Yield):</strong> ${liquid.toFixed(2)} USDC
+• <strong>Real-Yield Vault (8.42% APY):</strong> ${vault.toFixed(2)} USDC (+${yearly.toFixed(2)}/yr)
+• <strong>Circle Gateway (Cross-Chain):</strong> ${gateway.toFixed(2)} USDC
 • <strong>DeFi Capital Health Score:</strong> ${score}/100
 
 💡 <strong>Chief Strategist Optimization Plan:</strong>
-You have <strong>$${liquid.toFixed(2)} USDC</strong> sitting idle earning 0%. 
-I recommend depositing <strong>$${recDeposit} USDC</strong> into the Real-Yield Vault to generate an additional <strong>+$${projExtraYield} USDC/year</strong> in compound real yield, while keeping $${(liquid - recDeposit).toFixed(2)} USDC liquid for gas and instant swaps.`,
+You have <strong>${liquid.toFixed(2)} USDC</strong> sitting idle earning 0%. 
+I recommend depositing <strong>${recDeposit} USDC</strong> into the Real-Yield Vault to generate an additional <strong>+${projExtraYield} USDC/year</strong> in compound real yield, while keeping ${(liquid - recDeposit).toFixed(2)} USDC liquid for gas and instant swaps.`,
         actionPayload: {
           type: 'interactive_deposit',
           title: `🏦 Deposit ${recDeposit} USDC into YieldVault (8.42% APY)`,
@@ -839,9 +840,9 @@ I recommend depositing <strong>$${recDeposit} USDC</strong> into the Real-Yield 
       message: `I have analyzed your real-time portfolio on Arc Testnet:
 
 📊 <strong>DeFi Portfolio & Capital Breakdown:</strong>
-• <strong>Total Net Worth:</strong> $${total.toFixed(2)} USD
-• <strong>Active Real-Yield Vault:</strong> $${vault.toFixed(2)} USDC
-• <strong>Projected Annual Earnings:</strong> +$${yearly.toFixed(2)} USDC (8.42% APY)
+• <strong>Total Net Worth:</strong> ${total.toFixed(2)} USD
+• <strong>Active Real-Yield Vault:</strong> ${vault.toFixed(2)} USDC
+• <strong>Projected Annual Earnings:</strong> +${yearly.toFixed(2)} USDC (8.42% APY)
 • <strong>DeFi Capital Health Score:</strong> 🌟 ${score}/100 (Optimal Capital Efficiency)
 
 Your capital is efficiently deployed in the Real-Yield Vault. You are continuously earning streaming compound yield on Arc Testnet with zero token inflation.`,
@@ -910,7 +911,7 @@ Confirm below to execute this trade on Arc Testnet.`,
 🏦 <strong>Vault Deposit Overview:</strong>
 • <strong>Network:</strong> Arc Testnet
 • <strong>APY:</strong> 8.42%
-• <strong>Est. 1-Year Gain:</strong> +$${yearlyReturn.toFixed(2)} USDC
+• <strong>Est. 1-Year Gain:</strong> +{yearlyReturn.toFixed(2)} USDC
 • <strong>Deposit Amount:</strong> ${parsedAmount} USDC
 
 Click below to verify and lock in your deposit.`,

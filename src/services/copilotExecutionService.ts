@@ -25,7 +25,7 @@ import { SPEED_TIERS } from '../config/feeTiers'
 import { resolveCanonicalChainKey, getChainDisplayName } from '../config/chainMeta'
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { addTransaction } from '../utils/history'
-import { formatCopilotError } from '../utils/errorUtils'
+import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
 
 // Approximate gas cost for Arc L1 operations (paid in USDC or sponsored by Paymaster)
 const ARC_GAS_COST_USDC = parseFloat(SPEED_TIERS.fast.arcGas.estimatedCostUsdc)
@@ -182,6 +182,10 @@ export async function executeDirectCopilotAction(
           }
         } catch (e: any) {
           console.warn('[copilotExecutionService] Ephemeral session swap execution warning:', e)
+          realTxHash = ''
+          if (isUserCanceled(e) || e?.isCanceled === true) {
+            throw e
+          }
         }
       }
 
@@ -365,11 +369,12 @@ export async function executeDirectCopilotAction(
       console.error('[copilotExecutionService] Swap error:', err)
       if (onProgress) onProgress('failed')
       const cleanErr = formatCopilotError(err)
+      const isCanceled = cleanErr.isCanceled || isUserCanceled(err) || err?.isCanceled === true
       return {
         id: `rcpt_err_${Date.now()}`,
         actionType: 'swap',
-        title: cleanErr.title,
-        status: 'FAILED',
+        title: isCanceled ? 'Swap Canceled' : cleanErr.title,
+        status: isCanceled ? 'CANCELED' : 'FAILED',
         txHash: '',
         fromToken: fromTok,
         toToken: toTok,
@@ -807,11 +812,12 @@ export async function executeDirectCopilotAction(
       console.error('[copilotExecutionService] Bridge error:', err)
       if (onProgress) onProgress('failed')
       const cleanErr = formatCopilotError(err)
+      const isCanceled = cleanErr.isCanceled || isUserCanceled(err) || err?.isCanceled === true
       return {
         id: `rcpt_err_${Date.now()}`,
         actionType: 'bridge',
-        title: cleanErr.title || `Bridge Failed: ${amount} USDC`,
-        status: 'FAILED',
+        title: isCanceled ? 'Bridge Canceled' : (cleanErr.title || `Bridge Failed: ${amount} USDC`),
+        status: isCanceled ? 'CANCELED' : 'FAILED',
         txHash: '',
         fromChain: fromDisplayName,
         toChain: toDisplayName,
@@ -1028,11 +1034,12 @@ export async function executeDirectCopilotAction(
       console.error('[copilotExecutionService] Send error:', err)
       if (onProgress) onProgress('failed')
       const cleanErr = formatCopilotError(err)
+      const isCanceled = cleanErr.isCanceled || isUserCanceled(err) || err?.isCanceled === true
       return {
         id: `rcpt_err_${Date.now()}`,
         actionType: 'send',
-        title: cleanErr.title || `Send Failed`,
-        status: 'FAILED',
+        title: isCanceled ? 'Send Canceled' : (cleanErr.title || `Send Failed`),
+        status: isCanceled ? 'CANCELED' : 'FAILED',
         txHash: '',
         fromToken: tokenSymbol,
         amountIn: amount,

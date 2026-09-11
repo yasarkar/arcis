@@ -202,17 +202,20 @@ export async function loginPasskey(): Promise<{
       } catch (authErr: any) {
         const raw = authErr?.message || String(authErr)
         if (raw.includes('Bad request for the Webauthn protocol') || raw.includes('Webauthn protocol') || raw.includes('No credential')) {
-          return {
-            success: false,
-            error: 'Bu cihazda kayıtlı bir Passkey bulunamadı. Lütfen önce "Yeni Passkey Aç" butonuna tıklayarak ilk cüzdanınızı oluşturun.',
-            parsedError: {
-              code: 'NO_STORED_PASSKEY',
-              title: 'Kayıtlı Passkey Bulunamadı',
-              message: 'Bu cihazda henüz bir Passkey kaydı oluşturulmamış.',
-              isActionable: true,
-              actionHint: 'Lütfen "Yeni Passkey Aç" butonuna tıklayın, bir cüzdan adı belirleyin ve biyometrik onay verin.',
-            },
-          }
+            return {
+              success: false,
+              error: 'No registered Passkey found on this device. Please click "Create New Passkey" to create your first wallet.',
+              parsedError: {
+                category: 'PASSKEY_AUTH',
+                code: 'NO_STORED_PASSKEY',
+                title: 'No Registered Passkey Found',
+                message: 'No Passkey credentials have been registered on this device yet.',
+                isCanceled: false,
+                isRetryable: true,
+                isActionable: true,
+                actionHint: 'Please click "Create New Passkey", set a wallet name, and confirm biometric prompt.',
+              },
+            }
         }
         throw authErr
       }
@@ -280,9 +283,18 @@ export async function sendModularUserOperation(params: {
       paymaster: params.paymaster !== false,
     } as any)
 
-    // Wait for inclusion (Circle paymaster + Arc sub-second finality)
-    const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash } as any)
-    const txHash = (receipt as any).receipt?.transactionHash || userOpHash
+    let txHash = userOpHash
+    try {
+      // Wait for inclusion with 45s timeout to tolerate network/bundler latency
+      const receipt = await bundlerClient.waitForUserOperationReceipt({
+        hash: userOpHash,
+        timeout: 45_000,
+        pollingInterval: 3000,
+      } as any)
+      txHash = (receipt as any).receipt?.transactionHash || userOpHash
+    } catch (receiptErr) {
+      console.warn('[ModularWallet] UserOp receipt polling notice (userOp was broadcast):', userOpHash, receiptErr)
+    }
 
     return { success: true, txHash, userOpHash }
   } catch (err: any) {
