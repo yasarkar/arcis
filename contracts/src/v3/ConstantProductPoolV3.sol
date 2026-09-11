@@ -27,6 +27,11 @@ contract ConstantProductPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
     uint256 public accumulatedFeeA;
     uint256 public accumulatedFeeB;
 
+    // 24H rolling volume counters with lazy-reset on swap (K3-B)
+    uint256 public e24hVolumeA;
+    uint256 public e24hVolumeB;
+    uint256 public e24hWindowStart;
+
     error ZeroAmount();
     error InvalidFeeBps();
     error NotEnoughLP();
@@ -55,6 +60,7 @@ contract ConstantProductPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
         tokenA = IERC20Like(_tokenA);
         tokenB = IERC20Like(_tokenB);
         swapFeeBps = _swapFeeBps;
+        e24hWindowStart = block.timestamp;
     }
 
     receive() external payable {
@@ -74,6 +80,18 @@ contract ConstantProductPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
     /// @notice Backward-compatible fee getter.
     function unclaimedFeeB() external view returns (uint256) {
         return accumulatedFeeB;
+    }
+
+    /// @notice Returns 24h rolling volume for token A (resets to 0 if window expired).
+    function volume24hA() external view returns (uint256) {
+        if (block.timestamp - e24hWindowStart >= 1 days) return 0;
+        return e24hVolumeA;
+    }
+
+    /// @notice Returns 24h rolling volume for token B (resets to 0 if window expired).
+    function volume24hB() external view returns (uint256) {
+        if (block.timestamp - e24hWindowStart >= 1 days) return 0;
+        return e24hVolumeB;
     }
 
     /// @notice Owner-only fee collection. Fees accrue inside the pool reserves; when they
@@ -183,6 +201,13 @@ contract ConstantProductPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
     {
         if (amountIn == 0) revert ZeroAmount();
 
+        // Lazy-reset 24-hour volume window
+        if (block.timestamp - e24hWindowStart >= 1 days) {
+            e24hVolumeA = 0;
+            e24hVolumeB = 0;
+            e24hWindowStart = block.timestamp;
+        }
+
         uint256 fee = (amountIn * swapFeeBps) / 10000;
         uint256 amountInAfterFee = amountIn - fee;
 
@@ -196,6 +221,7 @@ contract ConstantProductPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
             reserveA += amountIn;
             reserveB -= amountOut;
             accumulatedFeeA += fee;
+            e24hVolumeA += amountIn;
         } else if (tokenIn == address(tokenB) && tokenOut == address(tokenA)) {
             amountOut = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee);
             if (amountOut == 0 || amountOut < minOut) revert SlippageExceeded();
@@ -206,6 +232,7 @@ contract ConstantProductPoolV3 is ERC20, ReentrancyGuard, Pausable, Ownable {
             reserveB += amountIn;
             reserveA -= amountOut;
             accumulatedFeeB += fee;
+            e24hVolumeB += amountIn;
         } else {
             revert InvalidTokenPair();
         }
