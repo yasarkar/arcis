@@ -547,30 +547,6 @@ export default function SwapModal({
   const breakdownItems: BreakdownItem[] = useMemo(() => {
     if (!estimatedOutput || !rate || isEstimating) return []
 
-    const items: BreakdownItem[] = [
-      {
-        label: 'Exchange Rate',
-        value: `1 ${tokenIn} = ${rate} ${tokenOut}`,
-      },
-      {
-        label: 'Min. Guaranteed',
-        value: `${stopLimit} ${tokenOut}`,
-        tooltip: 'Minimum amount you will receive after slippage tolerance',
-      },
-      {
-        label: 'Slippage',
-        value: `${(slippageTolerance * 100).toFixed(1)}%`,
-      },
-    ]
-
-    if (platformFeeEnabled && platformFeeAmount) {
-      items.push({
-        label: `Platform Fee (${platformFeePercent})`,
-        value: `${platformFeeAmount} ${tokenIn}`,
-        tooltip: 'Arcis Treasury protocol fee for routing & liquidity optimization',
-      })
-    }
-
     const isArcNative = fromChain === 'Arc_Testnet' && (!toChain || toChain === 'Arc_Testnet')
     const lpFeePercent = isArcNative
       ? tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
@@ -578,11 +554,54 @@ export default function SwapModal({
         : '0.12% (StableSwap LP)'
       : '0.02% (AppKit Route)'
 
-    items.push({
-      label: 'Liquidity Provider Fee',
-      value: lpFeePercent,
-      tooltip: 'Fee distributed to liquidity providers powering the swap pool',
-    })
+    const routeName = isCrossChain
+      ? 'Circle AppKit Route'
+      : tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
+      ? 'Arcis AMM Pool'
+      : 'Arcis StableSwap'
+
+    const items: BreakdownItem[] = [
+      {
+        label: 'Exchange Rate',
+        tooltip: 'The current market conversion rate between the selected token pair.',
+        value: `1 ${tokenIn} = ${rate} ${tokenOut}`,
+      },
+      {
+        label: 'Min. Received',
+        tooltip: 'The guaranteed minimum amount you will receive after maximum slippage tolerance.',
+        value: `${stopLimit} ${tokenOut}`,
+        highlight: true,
+        highlightColor: 'text-indigo-400',
+      },
+      {
+        label: 'Slippage Tolerance',
+        tooltip: 'The maximum price difference tolerated before the transaction automatically reverts.',
+        value: `${(slippageTolerance * 100).toFixed(1)}%`,
+      },
+      {
+        label: 'Network Fee',
+        tooltip: 'Estimated smart contract execution gas fee paid natively in USDC on Arc.',
+        value: fromChain === 'Arc_Testnet' ? '~0.000025 USDC' : '< 0.001 ETH',
+      },
+      {
+        label: 'Liquidity Provider Fee',
+        tooltip: 'Fee rewarded directly to liquidity pool providers supporting this trade.',
+        value: lpFeePercent,
+      },
+      {
+        label: 'Platform Fee',
+        tooltip: 'Arcis Treasury protocol fee for routing and multi-token liquidity indexing.',
+        value:
+          platformFeeEnabled && platformFeeAmount
+            ? `${platformFeeAmount} ${tokenIn} (${platformFeePercent})`
+            : '0.00 USDC (Free)',
+      },
+      {
+        label: 'Execution Time',
+        tooltip: 'Estimated duration to execute and finalize the swap transaction onchain.',
+        value: isCrossChain ? '~10-15 min (CCTP)' : '< 2 sec (Instant)',
+      },
+    ]
 
     return items
   }, [
@@ -596,6 +615,9 @@ export default function SwapModal({
     platformFeeEnabled,
     platformFeeAmount,
     platformFeePercent,
+    fromChain,
+    toChain,
+    isCrossChain,
   ])
 
   // Dynamic Button State

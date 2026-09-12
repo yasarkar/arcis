@@ -29,6 +29,7 @@ import {
   CHAIN_META,
   CHAIN_DEFS,
   getChainDisplayName,
+  getChainIconId,
 } from '../config/bridgeConfig'
 import {
   getBridgeFeeRecipient,
@@ -600,7 +601,7 @@ export default function BridgeModal({
     bridgeMode,
   ])
 
-  // Clean, non-technical Fee & Route breakdown
+  // Clean, standardized Fee & Route breakdown
   const breakdownItems = useMemo(() => {
     if (!amount || parseFloat(amount) <= 0) return []
 
@@ -618,28 +619,79 @@ export default function BridgeModal({
       parseFloat(amount) - (isNaN(computedFeeNum) ? 0 : computedFeeNum)
     )
 
+    const sourceName = getChainDisplayName(sourceChain)
+    const destName = getChainDisplayName(destChain)
+    const sourceIconId = getChainIconId(sourceChain) || CHAIN_META[sourceChain]?.iconId || 'ethereum'
+    const destIconId = getChainIconId(destChain) || CHAIN_META[destChain]?.iconId || 'ethereum'
+
     const items: BreakdownItem[] = [
       {
-        label: 'Protocol Fee',
-        value: isEstimating ? 'Calculating...' : `${computedFee} USDC`,
+        label: 'Transfer Route',
+        tooltip: 'The path connecting your origin blockchain to the destination network.',
+        value: (
+          <div className="flex items-center gap-2 font-medium">
+            <div
+              className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0 border border-white/10 shadow-sm"
+              title={sourceName}
+            >
+              <NetworkIcon
+                name={sourceIconId}
+                variant={sourceIconId === 'solana' ? 'branded' : 'background'}
+                size={18}
+                className="rounded-full"
+              />
+            </div>
+            <span className="text-slate-400 text-xs font-semibold">➔</span>
+            <div
+              className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0 border border-white/10 shadow-sm"
+              title={destName}
+            >
+              <NetworkIcon
+                name={destIconId}
+                variant={destIconId === 'solana' ? 'branded' : 'background'}
+                size={18}
+                className="rounded-full"
+              />
+            </div>
+          </div>
+        ),
       },
-    ]
-
-    if (platformFeeEnabled && bridgeMode === 'direct') {
-      items.push({
-        label: `Platform Fee (${platformFeePercent})`,
-        value: `${formatFeeDecimals(platformFeeAmount)} USDC`,
-      })
-    }
-
-    items.push(
       {
         label: 'Net Received',
+        tooltip: 'The final net amount of USDC that will arrive in your destination wallet.',
         value: `${formatFeeDecimals(netReceived)} USDC`,
         highlight: true,
         highlightColor: 'text-indigo-400',
-      }
-    )
+      },
+      {
+        label: 'Protocol Fee',
+        tooltip: 'The underlying cross-chain attestation and minting protocol fee.',
+        value: isEstimating ? 'Calculating...' : `${computedFee} USDC`,
+      },
+      {
+        label: 'Source Network Fee',
+        tooltip: 'Transaction gas fee required to initiate the bridge deposit on the source chain.',
+        value: sourceChain === 'Arc_Testnet' ? '~0.000021 USDC' : '< 0.001 ETH',
+      },
+      {
+        label: 'Platform Fee',
+        tooltip: 'Arcis platform routing fee for cross-chain transaction management.',
+        value:
+          platformFeeEnabled && bridgeMode === 'direct' && platformFeeAmount
+            ? `${formatFeeDecimals(platformFeeAmount)} USDC`
+            : '0.00 USDC (Free)',
+      },
+      {
+        label: 'Estimated Arrival',
+        tooltip: 'Expected time until the bridged funds are unlocked and available on the target network.',
+        value:
+          bridgeMode === 'gateway'
+            ? '< 500 ms (Instant)'
+            : speedTier === 'fast'
+            ? '15-30 sec'
+            : '~10-15 min',
+      },
+    ]
 
     return items
   }, [
@@ -651,6 +703,8 @@ export default function BridgeModal({
     platformFeeAmount,
     platformFeePercent,
     isEstimating,
+    sourceChain,
+    destChain,
   ])
 
   // Header actions with Privacy, Settings and Close
@@ -963,6 +1017,7 @@ export default function BridgeModal({
               items={breakdownItems}
               defaultOpen={false}
               context="bridge"
+              isGatewayMode={bridgeMode === 'gateway'}
               showItemIcons={false}
             />
           )}

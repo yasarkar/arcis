@@ -800,10 +800,12 @@ export default function SendModal({
   const breakdownItems: BreakdownItem[] = useMemo(() => {
     const chainDisplayName = selectedChain.replace(/_/g, ' ')
     const chainIconId = getChainIconId(selectedChain)
+    const amtNum = parseFloat(amount || '0')
 
     const items: BreakdownItem[] = [
       {
-        label: 'Network',
+        label: 'Destination Network',
+        tooltip: 'The blockchain network where the recipient will receive the assets.',
         value: (
           <div className="flex items-center gap-1.5 font-medium text-slate-200">
             <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
@@ -815,42 +817,74 @@ export default function SendModal({
               />
             </div>
             <span>{chainDisplayName}</span>
+            {sendMode === 'gateway' && (
+              <span className="text-[11px] font-mono text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1 py-0.2 rounded">
+                Gateway
+              </span>
+            )}
           </div>
         ),
       },
       {
+        label: 'Recipient Gets',
+        tooltip: 'The exact net amount that will be delivered to the recipient address.',
+        value: `${amount && amtNum > 0 ? amount : '0.00'} ${tokenSymbol}`,
+        highlight: true,
+        highlightColor: 'text-indigo-400',
+      },
+      {
         label: 'Network Fee',
+        tooltip: 'Blockchain transaction gas fee paid in USDC on Arc or native gas on destination.',
         value: isGaslessActive ? (
-          <span className="text-indigo-400 font-medium text-[12px]">Free (Sponsored by Arcis)</span>
+          'Free (Sponsored by Arcis)'
         ) : sendMode === 'gateway' ? (
-          <span className="text-indigo-400 font-medium text-[12px]">Free (Gateway Unified)</span>
+          'Free (Gateway Unified)'
         ) : estimatedFee ? (
           `${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
         ) : selectedChain === 'Arc_Testnet' ? (
-          `~${SPEED_TIERS[speedTier].arcGas.estimatedCostUsdc} USDC`
+          `~${SPEED_TIERS[speedTier]?.arcGas?.estimatedCostUsdc || '0.000021'} USDC`
         ) : (
           '<0.001 USDC'
         ),
-        highlight: isGaslessActive || sendMode === 'gateway',
-        highlightColor: isGaslessActive ? 'text-indigo-400' : undefined,
       },
       {
         label: 'Platform Fee',
-        value: '0.00 USDC',
+        tooltip: 'Arcis charges 0% platform fee for standard wallet-to-wallet transfers.',
+        value: '0.00 USDC (Free)',
       },
       {
-        label: 'Estimated Time',
+        label: 'Estimated Arrival',
+        tooltip: 'The estimated time required for the transfer to achieve onchain finality.',
         value:
           sendMode === 'gateway'
             ? '< 1 sec'
             : isGaslessActive
             ? '1-2 sec'
-            : SPEED_TIERS[speedTier].timeEstimate.arcL1 || '< 5 sec',
+            : SPEED_TIERS[speedTier]?.timeEstimate?.arcL1 || '< 5 sec',
+      },
+      {
+        label: 'Total Debited',
+        tooltip: 'The total amount that will be deducted from your wallet balance including fees.',
+        value: (() => {
+          if (!amount || amtNum <= 0) return `0.00 ${tokenSymbol}`
+          if (isGaslessActive || sendMode === 'gateway') {
+            return `${amount} ${tokenSymbol}`
+          }
+          const gasCost = estimatedFee
+            ? parseFloat(estimatedFee)
+            : selectedChain === 'Arc_Testnet'
+            ? parseFloat(SPEED_TIERS[speedTier]?.arcGas?.estimatedCostUsdc || '0.000021')
+            : 0.0005
+          if (tokenSymbol === 'USDC' && (selectedChain === 'Arc_Testnet' || !CHAIN_NATIVE_MAP[selectedChain] || CHAIN_NATIVE_MAP[selectedChain]?.symbol === 'USDC')) {
+            return `${(amtNum + gasCost).toFixed(selectedChain === 'Arc_Testnet' ? 6 : 4)} USDC`
+          }
+          return `${amount} ${tokenSymbol} + ${gasCost} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
+        })(),
       },
     ]
 
     return items
-  }, [sendMode, isGaslessActive, estimatedFee, speedTier, selectedChain])
+  }, [sendMode, isGaslessActive, estimatedFee, speedTier, selectedChain, amount, tokenSymbol])
 
   // Dynamic Button State
   const ctaButtonState = useMemo(() => {
