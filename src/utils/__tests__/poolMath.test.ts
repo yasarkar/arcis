@@ -95,4 +95,60 @@ describe('poolMath', () => {
       expect(outInUnits).toBeCloseTo(987.64, 1)
     })
   })
+
+  describe('usePoolsV2MinLpShares (Curve Invariant Slippage Guard)', () => {
+    // Import helper from usePoolsData
+    it('calculates exact Curve LP shares with 0.5% slippage on balanced reserves', async () => {
+      const { usePoolsV2MinLpShares } = await import('../../hooks/usePoolsData')
+      const pool = { id: 'usdc-eurc-stable-pool' }
+      const poolAddress = '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22'
+      const poolState = {
+        [poolAddress]: {
+          reserveA: '50.00',
+          reserveB: '50.00',
+          totalLp: '100.00',
+        },
+      }
+      // Add 10 USDC and 10 EURC
+      const amountA = 10_000_000n // 10 USDC
+      const amountB = 10_000_000n // 10 EURC
+      const minLp = usePoolsV2MinLpShares(pool, poolAddress, poolState, amountA, amountB, 6, 0.5)
+
+      // In a 50+50 pool adding 10+10, expected LP is exactly 20. With 0.5% slippage, minLp is 19.9
+      const minLpUnits = Number(minLp) / 1e18
+      expect(minLpUnits).toBeCloseTo(19.9, 1)
+    })
+
+    it('calculates accurate Curve LP shares without inflating on imbalanced reserves', async () => {
+      const { usePoolsV2MinLpShares } = await import('../../hooks/usePoolsData')
+      const pool = { id: 'usdc-eurc-stable-pool' }
+      const poolAddress = '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22'
+      const poolState = {
+        [poolAddress]: {
+          reserveA: '15.071538',
+          reserveB: '40.879707',
+          totalLp: '55.859232',
+        },
+      }
+      // Adding 15 USDC and 34.93 EURC (real testnet user deposit scenario)
+      const amountA = 15_000_000n
+      const amountB = 34_930_293n
+      const minLp = usePoolsV2MinLpShares(pool, poolAddress, poolState, amountA, amountB, 6, 0.5)
+
+      const minLpUnits = Number(minLp) / 1e18
+      // Real Curve invariant gives ~49.85 LP tokens -> with 0.5% slippage guard: ~49.60 LP tokens
+      expect(minLpUnits).toBeGreaterThan(45)
+      expect(minLpUnits).toBeLessThan(52)
+      // Must NEVER return the old buggy 11,653 LP tokens!
+      expect(minLpUnits).toBeLessThan(100)
+    })
+
+    it('returns 0n when pool is unseeded or reserves are missing', async () => {
+      const { usePoolsV2MinLpShares } = await import('../../hooks/usePoolsData')
+      const pool = { id: 'usdc-eurc-stable-pool' }
+      const poolAddress = '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22'
+      const minLp = usePoolsV2MinLpShares(pool, poolAddress, {}, 10_000_000n, 10_000_000n, 6, 0.5)
+      expect(minLp).toBe(0n)
+    })
+  })
 })
