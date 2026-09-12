@@ -335,7 +335,7 @@ export default function PoolsHeroStats({
                   }}
                 />
               )}
-              EST. PROJECTED YIELD
+              EST. YIELD
             </span>
             <span
               title="Real-time projected yield accrual based on active deposits. ERC-4626 vault yield appreciates share value, and AMM swap fees grow pool reserves automatically."
@@ -356,16 +356,11 @@ export default function PoolsHeroStats({
               {walletConnected && userTotalDepositedUsd > 0
                 ? `+${liveHeroYield}`
                 : userTotalClaimableRewardsUsd > 0
-                ? `+${userTotalClaimableRewardsUsd.toFixed(3)}`
+                ? `+${userTotalClaimableRewardsUsd.toFixed(4)}`
                 : '0.00'}
             </span>
             <span style={{ fontSize: 11, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>
           </div>
-          {walletConnected && userTotalDepositedUsd > 0 && (
-            <span style={{ fontSize: 10.5, color: '#34d399', display: 'block', marginTop: 3 }}>
-              +{(heroYieldPerSec).toFixed(6)}/sec
-            </span>
-          )}
         </div>
 
         {/* Metric 3: Est. Daily Yield */}
@@ -410,7 +405,7 @@ export default function PoolsHeroStats({
                 color: 'var(--purple-1)',
               }}
             >
-              {walletConnected ? `+${dailyYieldGeneratedUsd.toFixed(3)}` : '0.00'}
+              {walletConnected ? `+${dailyYieldGeneratedUsd.toFixed(4)}` : '0.00'}
             </span>
             <span style={{ fontSize: 11, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>
           </div>
@@ -500,7 +495,7 @@ export default function PoolsHeroStats({
             <span>
               {isClaiming
                 ? 'Claiming Rewards...'
-                : `Claim All Rewards (+${userTotalClaimableRewardsUsd.toFixed(2)} USDC)`}
+                : `Claim All Rewards (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC)`}
             </span>
           </button>
         )}

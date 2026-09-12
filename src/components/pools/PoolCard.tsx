@@ -247,7 +247,7 @@ export default function PoolCard({
         }}
       >
         <div>
-          <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block', marginBottom: 2 }}>
+          <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block', marginBottom: 6 }}>
             TVL
           </span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexWrap: 'wrap' }}>
@@ -277,19 +277,9 @@ export default function PoolCard({
         </div>
 
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
             <span style={{ fontSize: 10, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>
               24H VOLUME
-            </span>
-            <span
-              title={
-                pool.category === 'vault'
-                  ? 'Total 24-hour platform swap volume feeding protocol revenue distributed to vault depositors.'
-                  : `Verified on-chain 24H pool swap volume: $${(pool.volume24hUsd || 0).toFixed(2)}`
-              }
-              style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
-            >
-              <Info size={9.5} />
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexWrap: 'wrap' }}>
@@ -319,7 +309,7 @@ export default function PoolCard({
         </div>
 
         <div>
-          <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block', marginBottom: 2 }}>
+          <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block' }}>
             FEE TIER
           </span>
           <span
@@ -339,7 +329,7 @@ export default function PoolCard({
         </div>
 
         <div style={{ textAlign: 'right' }}>
-          <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block', marginBottom: 2 }}>
+          <span style={{ fontSize: 9.5, color: 'var(--fp-4)', fontFamily: 'var(--font-app)', display: 'block' }}>
             {pool.apyType}
           </span>
           <span
@@ -461,16 +451,16 @@ export default function PoolCard({
               const pctB = totalVal > 0 ? Math.max(0, 100 - pctA) : (pool.reserves?.ratioB || 50)
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-                  <span style={{ fontSize: 9.5, color: 'var(--fp-3)' }}>
-                    ≈ {pool.userPosition.tokenAStaked} USDC (${valA.toFixed(2)}) + {pool.userPosition.tokenBStaked} {pool.tokens[1]?.symbol} (${valB.toFixed(2)})
+                  <span style={{ fontSize: 10, color: 'var(--fp-3)' }}>
+                    ≈ {pool.userPosition.tokenAStaked} USDC + {pool.userPosition.tokenBStaked} {pool.tokens[1]?.symbol}
                   </span>
                   <span
                     style={{
-                      fontSize: 8.5,
+                      fontSize: 9,
                       padding: '1px 5px',
                       borderRadius: 4,
-                      background: 'rgba(255, 255, 255, 0.07)',
-                      color: 'var(--fp-3)',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      color: '#38bdf8',
                       fontFamily: 'var(--font-app)',
                       fontWeight: 600,
                       letterSpacing: '0.2px',
@@ -508,7 +498,7 @@ export default function PoolCard({
                   fontWeight: 600,
                 }}
               >
-                {pool.apy > 0 ? 'Est. Yield (Linear Stream)' : 'Yield Idle (0 Vol)'}
+                {pool.apy > 0 ? 'Est. Yield' : 'Yield Idle'}
               </span>
             </div>
             <span
@@ -522,50 +512,10 @@ export default function PoolCard({
               +{liveCardYield}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ fontSize: 9, color: 'var(--fp-4)' }}>
+              <span style={{ fontSize: 10, color: 'var(--fp-4)' }}>
                 {pool.apy > 0 ? `(+${(cardYieldPerSec * 86400).toFixed(4)}/d)` : '(Waiting for swaps)'}
               </span>
-              <span
-                title={
-                  pool.isLpPool
-                    ? 'Real-time linear projection of fee earnings based on current dynamic APY and your pool share (not a stream of separate on-chain transactions).'
-                    : 'Real-time linear projection of earnings based on current vault APY (not a stream of separate on-chain transactions).'
-                }
-                style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
-              >
-                <Info size={10} />
-              </span>
             </div>
-
-            {/* Quick Claim on Position Strip */}
-            {hasDeposit && earnedUsd >= 0.01 && onClaim && (
-              <button
-                type="button"
-                onClick={() => onClaim(pool.id)}
-                disabled={isThisPoolClaiming}
-                style={{
-                  marginTop: 4,
-                  padding: '3px 10px',
-                  borderRadius: 99,
-                  background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.25) 0%, rgba(56, 189, 248, 0.2) 100%)',
-                  border: '1px solid rgba(1, 208, 98, 0.45)',
-                  color: '#fff',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  fontFamily: 'var(--font-app)',
-                  cursor: isThisPoolClaiming ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  boxShadow: '0 0 10px rgba(1, 208, 98, 0.2)',
-                  transition: 'all 0.15s ease',
-                }}
-                title={`Claim accrued earnings (+${earnedUsd.toFixed(2)} USDC) directly to your wallet`}
-              >
-                <Coins size={11} style={{ color: 'var(--earned-green)' }} />
-                <span>{isThisPoolClaiming ? 'Claiming...' : `Claim +$${earnedUsd.toFixed(2)}`}</span>
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -605,10 +555,10 @@ export default function PoolCard({
               color: 'var(--earned-green)',
               boxShadow: '0 0 12px rgba(1, 208, 98, 0.15)',
             }}
-            title={`Claim ${earnedUsd.toFixed(2)} USDC in profit without unstaking principal`}
+            title={`Claim ${earnedUsd.toFixed(4)} USDC in profit without unstaking principal`}
           >
             <Coins size={13} />
-            <span>{isThisPoolClaiming ? 'Claiming...' : `Claim +$${earnedUsd.toFixed(2)}`}</span>
+            <span>{isThisPoolClaiming ? 'Claiming...' : `Claim +$${earnedUsd.toFixed(4)}`}</span>
           </button>
         )}
 
@@ -635,9 +585,9 @@ export default function PoolCard({
           onClick={() => setShowDetails((prev) => !prev)}
           className="ub-action-btn"
           style={{
-            padding: '8px 12px',
-            fontSize: 11,
-            color: 'var(--fp-3)',
+            padding: '8px 14px',
+            fontSize: 12,
+            borderColor: 'rgba(255, 255, 255, 0.15)',
           }}
           title="Show Details"
         >
