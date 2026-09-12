@@ -620,10 +620,6 @@ export default function BridgeModal({
 
     const items: BreakdownItem[] = [
       {
-        label: 'Bridge Method',
-        value: bridgeMode === 'gateway' ? 'Circle Gateway' : 'Circle CCTP V2',
-      },
-      {
         label: 'Protocol Fee',
         value: isEstimating ? 'Calculating...' : `${computedFee} USDC`,
       },
@@ -637,15 +633,6 @@ export default function BridgeModal({
     }
 
     items.push(
-      {
-        label: 'Estimated Arrival',
-        value:
-          bridgeMode === 'gateway'
-            ? '< 500ms Instant'
-            : speedTier === 'standard'
-            ? '~10-20 min'
-            : '~15-30 sec',
-      },
       {
         label: 'Net Received',
         value: `${formatFeeDecimals(netReceived)} USDC`,

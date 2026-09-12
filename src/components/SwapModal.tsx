@@ -25,7 +25,7 @@ import { addTransaction } from '../utils/history'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
-import { SPEED_TIERS, type SpeedTier } from '../config/feeTiers'
+import { type SpeedTier } from '../config/feeTiers'
 import {
   getSwapProtocolFeeBps,
   getSwapFeeRecipient,
@@ -148,7 +148,7 @@ export default function SwapModal({
   const platformFeeBps = SWAP_CUSTOM_FEE_CONFIG.enabled
     ? SWAP_CUSTOM_FEE_CONFIG.percentageBps
     : getSwapProtocolFeeBps(speedTier)
-  const platformFeePercent = `${(platformFeeBps / 100).toFixed(2)}%`
+  const platformFeePercent = `%${(platformFeeBps / 100).toFixed(2)}`
   const platformFeeAmount =
     amountIn && platformFeeBps > 0
       ? ((parseFloat(amountIn) * platformFeeBps) / 10000).toFixed(6)
@@ -558,7 +558,7 @@ export default function SwapModal({
         tooltip: 'Minimum amount you will receive after slippage tolerance',
       },
       {
-        label: 'Slippage Tolerance',
+        label: 'Slippage',
         value: `${(slippageTolerance * 100).toFixed(1)}%`,
       },
     ]
@@ -584,12 +584,6 @@ export default function SwapModal({
       tooltip: 'Fee distributed to liquidity providers powering the swap pool',
     })
 
-    items.push({
-      label: 'Execution Speed',
-      value: `${SPEED_TIERS[speedTier].label} (${SPEED_TIERS[speedTier].timeEstimate.swap})`,
-      highlight: speedTier === 'turbo',
-    })
-
     return items
   }, [
     estimatedOutput,
@@ -602,7 +596,6 @@ export default function SwapModal({
     platformFeeEnabled,
     platformFeeAmount,
     platformFeePercent,
-    speedTier,
   ])
 
   // Dynamic Button State
