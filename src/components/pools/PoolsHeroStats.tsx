@@ -1,6 +1,6 @@
 // Hero statistics banner & control sidebar for Pools & Yield Hub.
 // Displays Total Value Locked, Average APY, User Staked Assets, Claimable Rewards,
-// Capital Efficiency, and Quick Actions (Auto-Rebalancer, Yield Calculator, Claim All).
+// Capital Efficiency, and Quick Actions (Yield Calculator, Claim All).
 import { TrendingUp, Layers, Info, Coins, RefreshCw } from 'lucide-react'
 import { type PoolConfig } from '../../config/poolsConfig'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
@@ -22,7 +22,6 @@ interface PoolsHeroStatsProps {
   onClaimAll: () => void
   isClaiming?: boolean
   onOpenCalculator?: () => void
-  onOpenRebalancer?: () => void
 }
 
 export default function PoolsHeroStats({
@@ -466,36 +465,47 @@ export default function PoolsHeroStats({
         }}
       >
         {/* Claim All Rewards Button */}
-        {walletConnected && userTotalClaimableRewardsUsd >= 0.01 && onClaimAll && (
+        {walletConnected && userTotalDepositedUsd > 0 && onClaimAll && (
           <button
-            onClick={onClaimAll}
-            disabled={isClaiming}
+            onClick={userTotalClaimableRewardsUsd >= 0.01 ? onClaimAll : undefined}
+            disabled={isClaiming || userTotalClaimableRewardsUsd < 0.01}
             type="button"
             className="ub-action-btn"
             style={{
               width: '100%',
               justifyContent: 'center',
               padding: '12px 14px',
-              background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.22) 0%, rgba(56, 189, 248, 0.18) 100%)',
-              borderColor: 'rgba(1, 208, 98, 0.45)',
+              background: userTotalClaimableRewardsUsd >= 0.01
+                ? 'linear-gradient(135deg, rgba(1, 208, 98, 0.22) 0%, rgba(56, 189, 248, 0.18) 100%)'
+                : 'rgba(255, 255, 255, 0.04)',
+              borderColor: userTotalClaimableRewardsUsd >= 0.01
+                ? 'rgba(1, 208, 98, 0.45)'
+                : 'rgba(255, 255, 255, 0.08)',
               fontSize: 13,
               fontWeight: 600,
-              color: '#fff',
-              boxShadow: '0 0 16px rgba(1, 208, 98, 0.2)',
-              cursor: isClaiming ? 'not-allowed' : 'pointer',
+              color: userTotalClaimableRewardsUsd >= 0.01 ? '#fff' : 'var(--fp-4)',
+              boxShadow: userTotalClaimableRewardsUsd >= 0.01 ? '0 0 16px rgba(1, 208, 98, 0.2)' : 'none',
+              cursor: isClaiming ? 'wait' : userTotalClaimableRewardsUsd >= 0.01 ? 'pointer' : 'not-allowed',
+              opacity: userTotalClaimableRewardsUsd >= 0.01 ? 1 : 0.65,
               transition: 'all 0.2s ease',
             }}
-            title="Claim all accumulated earnings directly into your USDC wallet"
+            title={
+              userTotalClaimableRewardsUsd >= 0.01
+                ? "Claim all accumulated earnings directly into your USDC wallet"
+                : `Yield is currently accruing (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC). Minimum claim amount is 0.01 USDC.`
+            }
           >
             {isClaiming ? (
               <RefreshCw size={15} className="arcis-spin" style={{ color: 'var(--earned-green)' }} />
             ) : (
-              <Coins size={15} style={{ color: 'var(--earned-green)' }} />
+              <Coins size={15} style={{ color: userTotalClaimableRewardsUsd >= 0.01 ? 'var(--earned-green)' : 'var(--fp-4)' }} />
             )}
             <span>
               {isClaiming
                 ? 'Claiming Rewards...'
-                : `Claim All Rewards (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC)`}
+                : userTotalClaimableRewardsUsd >= 0.01
+                ? `Claim All Rewards (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC)`
+                : `Claim All Rewards (< 0.01 USDC)`}
             </span>
           </button>
         )}

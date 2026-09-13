@@ -1,7 +1,7 @@
-// Master Pools & Yield Hub view for Arcis (Phase 4 Enhanced).
+// Master Pools & Yield Hub view for Arcis.
 // Combines USYC RWA Vault, Circle Gateway Cross-Chain Settlement Vault,
 // Arcis Real-Yield Staking, DEX Liquidity Pools,
-// 1-Click Zap, Auto-Rebalance Wizard, and live Arc Testnet state.
+// 1-Click Zap, and live Arc Testnet state.
 import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Search,
@@ -331,7 +331,7 @@ export default function PoolsTab({
     setIsClaiming(true)
 
     const notif = notifyPending(
-      `Claiming Yield from ${poolName}...`,
+      `Claiming Yield...`,
       `Redeeming ${earnedUsd.toFixed(2)} USDC in profit without unstaking your principal`,
       {
         poolId,
@@ -406,11 +406,11 @@ export default function PoolsTab({
 
     const pendingTitle = isPool
       ? (mode === 'deposit' ? 'Adding Liquidity...' : 'Removing Liquidity...')
-      : (mode === 'deposit' ? 'Depositing to Vault...' : 'Withdrawing from Vault...')
+      : (mode === 'deposit' ? 'Depositing to Vault...' : 'Redeeming from Vault...')
 
     const pendingMsg = isPool
       ? `${mode === 'deposit' ? 'Adding' : 'Removing'} ${amount} ${tokenSymbol} liquidity on Arc Testnet`
-      : `${mode === 'deposit' ? 'Depositing' : 'Withdrawing'} ${amount} ${tokenSymbol} on Arc Testnet`
+      : `${mode === 'deposit' ? 'Depositing' : 'Redeeming'} ${amount} ${tokenSymbol} on Arc Testnet`
 
     const notif = notifyPending(
       pendingTitle,

@@ -61,13 +61,16 @@ export default function PoolCard({
   const earnedUsd = pool.userPosition?.earnedUsd || 0
   const isThisPoolClaiming = isClaiming && claimingPoolId === pool.id
 
-  const { formattedYield: liveCardYield, yieldPerSecond: cardYieldPerSec } = useContinuousYieldStream(
+  const { formattedYield: liveCardYield, yieldPerSecond: cardYieldPerSec, accumulatedYield } = useContinuousYieldStream(
     userStaked,
     pool.apy,
     pool.userPosition?.earnedUsd || 0,
     1000,
     pool.id
   )
+
+  const effectiveClaimableUsd = Math.max(earnedUsd, accumulatedYield || 0, parseFloat(liveCardYield) || 0)
+  const isClaimReady = effectiveClaimableUsd >= 0.01
 
   // Meaningful Right-Aligned Pool Icon Renderer (Clean, Prominent, No Border, No Background)
   const renderPoolRightIcon = () => {
@@ -166,7 +169,7 @@ export default function PoolCard({
           marginBottom: 8,
         }}
       >
-        {/* Left: Title, Category Badge & 1-Sentence Subtitle */}
+        {/* Left: , Category Badge & 1-Sentence Subtitle */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <h3
@@ -317,7 +320,6 @@ export default function PoolCard({
             {pool.apyType}
           </span>
           <span
-            title={pool.apyBadge}
             style={{
               fontSize: 13,
               fontWeight: 700,
@@ -449,7 +451,6 @@ export default function PoolCard({
                       fontWeight: 600,
                       letterSpacing: '0.2px',
                     }}
-                    title="Asset Value Ratio"
                   >
                     {pctA}% / {pctB}%
                   </span>
@@ -482,7 +483,6 @@ export default function PoolCard({
                   fontWeight: 600,
                   cursor: 'help',
                 }}
-                title="Estimated real-time yield accrual preview based on current APY. Actual claimable balance is verified on-chain."
               >
                 {pool.apy > 0 ? 'Est. Yield' : 'Yield Idle'}
               </span>
@@ -494,7 +494,6 @@ export default function PoolCard({
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontSize: 12,
               }}
-              title="Real-time estimated yield accrual preview"
             >
               {pool.apy > 0 ? `≈ +${liveCardYield}` : '+0.00'}
             </span>
@@ -527,25 +526,37 @@ export default function PoolCard({
         </button>
 
         {/* Claim Button */}
-        {hasDeposit && earnedUsd >= 0.01 && onClaim && (
+        {hasDeposit && onClaim && (
           <button
             type="button"
-            onClick={() => onClaim(pool.id)}
-            disabled={isThisPoolClaiming}
+            onClick={() => isClaimReady && onClaim(pool.id)}
+            disabled={isThisPoolClaiming || !isClaimReady}
             className="ub-action-btn"
             style={{
               padding: '8px 14px',
               fontSize: 12,
               fontWeight: 600,
-              background: 'linear-gradient(135deg, rgba(1, 208, 98, 0.16) 0%, rgba(56, 189, 248, 0.12) 100%)',
-              border: '1px solid rgba(1, 208, 98, 0.45)',
-              color: 'var(--earned-green)',
-              boxShadow: '0 0 12px rgba(1, 208, 98, 0.15)',
+              background: isClaimReady
+                ? 'linear-gradient(135deg, rgba(1, 208, 98, 0.16) 0%, rgba(56, 189, 248, 0.12) 100%)'
+                : 'rgba(255, 255, 255, 0.04)',
+              border: isClaimReady
+                ? '1px solid rgba(1, 208, 98, 0.45)'
+                : '1px solid rgba(255, 255, 255, 0.08)',
+              color: isClaimReady ? 'var(--earned-green)' : 'var(--fp-4)',
+              boxShadow: isClaimReady ? '0 0 12px rgba(1, 208, 98, 0.15)' : 'none',
+              cursor: isThisPoolClaiming ? 'wait' : isClaimReady ? 'pointer' : 'not-allowed',
+              opacity: isClaimReady ? 1 : 0.65,
+              transition: 'all 0.2s ease',
             }}
-            title={`Claim ${earnedUsd.toFixed(4)} USDC in profit without unstaking principal`}
           >
             <Coins size={13} />
-            <span>{isThisPoolClaiming ? 'Claiming...' : `Claim +$${earnedUsd.toFixed(4)}`}</span>
+            <span>
+              {isThisPoolClaiming
+                ? 'Claiming...'
+                : isClaimReady
+                ? `Claim +${effectiveClaimableUsd.toFixed(4)}`
+                : `Claim (< 0.01)`}
+            </span>
           </button>
         )}
 
@@ -566,11 +577,6 @@ export default function PoolCard({
               cursor: hasDeposit ? 'pointer' : 'not-allowed',
               transition: 'all 0.2s ease',
             }}
-            title={
-              hasDeposit
-                ? 'Redeem your af-USDC shares for USDC principal + accumulated yield'
-                : 'Deposit USDC first to redeem shares and yield'
-            }
           >
             <Minus size={13} />
             <span>Redeem</span>
@@ -603,7 +609,6 @@ export default function PoolCard({
             fontSize: 12,
             borderColor: 'rgba(255, 255, 255, 0.15)',
           }}
-          title="Show Details"
         >
           <span>Details</span>
           <ChevronDown

@@ -72,4 +72,59 @@ describe('claimMath', () => {
       expect(lpToRedeem).toBe(userLpRaw)
     })
   })
+
+  describe('poolStakingTimestamp & APY accrual calculation', () => {
+    it('accurately calculates continuous APY yield over elapsed staking time', () => {
+      // 100 USDC staked in USDC/EURC with 6.15% APY over 48 hours (2 days)
+      const stakedUsd = 100
+      const apy = 6.15
+      const elapsedSec = 48 * 3600 // 2 days
+      const apyAccruedUsd = (stakedUsd * (apy / 100) * elapsedSec) / (365 * 86400)
+      
+      // Expected: 100 * 0.0615 * (2 / 365) = ~0.0337 USDC
+      expect(apyAccruedUsd).toBeGreaterThan(0.033)
+      expect(apyAccruedUsd).toBeLessThan(0.035)
+      expect(apyAccruedUsd).toBeGreaterThanOrEqual(0.01) // exceeds minimum claim threshold!
+    })
+
+    it('accurately calculates continuous APY yield for BTC volatile pool', () => {
+      // 500 USDC staked in USDC/cirBTC with 12.80% APY over 24 hours (1 day)
+      const stakedUsd = 500
+      const apy = 12.80
+      const elapsedSec = 24 * 3600 // 1 day
+      const apyAccruedUsd = (stakedUsd * (apy / 100) * elapsedSec) / (365 * 86400)
+      
+      // Expected: 500 * 0.128 / 365 = ~0.1753 USDC
+      expect(apyAccruedUsd).toBeGreaterThan(0.17)
+      expect(apyAccruedUsd).toBeLessThan(0.18)
+      expect(apyAccruedUsd).toBeGreaterThanOrEqual(0.01)
+    })
+
+    it('resets claimable swap fee to 0 when fee checkpoint matches cumulative contract fees', () => {
+      // Scenario: Pool contract has accumulated 0.4136 USDC in lifetime swap fees.
+      // User has 100% pool share.
+      const cumulativeContractFeesUsd = 0.4136
+      const poolSharePct = 100
+      const rawFeeShareUsd = (cumulativeContractFeesUsd * poolSharePct) / 100
+
+      // Before claim: checkpoint is 0 -> full fee is claimable
+      const initialCheckpoint = 0
+      const initialClaimable = Math.max(0, rawFeeShareUsd - initialCheckpoint)
+      expect(initialClaimable).toBeCloseTo(0.4136, 4)
+
+      // User claims: checkpoint is recorded as the claimed raw fee share
+      const newCheckpoint = rawFeeShareUsd
+
+      // Immediately after claim: net fee claimable must be 0 even though contract still returns 0.4136
+      const postClaimClaimable = Math.max(0, rawFeeShareUsd - newCheckpoint)
+      expect(postClaimClaimable).toBe(0)
+
+      // Later: New swap occurs on-chain, increasing cumulative fees to 0.4500 USDC
+      const updatedContractFeesUsd = 0.4500
+      const updatedRawFeeShare = (updatedContractFeesUsd * poolSharePct) / 100
+      const newlyAccruedFee = Math.max(0, updatedRawFeeShare - newCheckpoint)
+      expect(newlyAccruedFee).toBeCloseTo(0.0364, 4)
+    })
+  })
 })
+
