@@ -5,7 +5,7 @@ import { formatUnits, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { arcActiveChain, ARC_TOKENS, APP_ENV, IS_TESTNET, ARC_METADATA } from '../src/config/arcChain'
 import { getArcPublicClient, resilientReadContract, ACTIVE_ARC_RPCS } from '../src/services/rpc'
-import { isRedisConnected, getRedisInstance } from './rateLimiter'
+import { isRedisConnected, getRedisInstance } from './_utils/rateLimiter'
 
 const USDC_ADDRESS = ARC_TOKENS.USDC
 

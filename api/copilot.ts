@@ -3,7 +3,7 @@
 // Interacts with OpenAI / OpenRouter GPT-4o-mini without exposing API keys to the client browser.
 
 import { arcTestnet } from '../src/config/arcChain'
-import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 
 export async function POST(req: Request) {
   try {

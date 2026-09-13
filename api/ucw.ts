@@ -1,6 +1,6 @@
 import { initiateUserControlledWalletsClient } from "@circle-fin/user-controlled-wallets";
-import { checkRateLimit } from "./rateLimiter";
-import { apiSuccess, apiError, safeJsonParse } from "./utils/apiResponse";
+import { checkRateLimit } from "./_utils/rateLimiter";
+import { apiSuccess, apiError, safeJsonParse } from "./_utils/apiResponse";
 
 // ─────────────────────────────────────────────────────────────
 // 1. IP RESOLUTION HELPER

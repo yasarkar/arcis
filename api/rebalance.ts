@@ -15,7 +15,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts'
 import { arcTestnet, ARC_TOKENS } from '../src/config/arcChain'
 import { getArcPublicClient, resilientWaitForReceipt, resilientReadContract, ACTIVE_ARC_RPCS } from '../src/services/rpc'
-import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 
 function getRelayerAccount() {
   const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}

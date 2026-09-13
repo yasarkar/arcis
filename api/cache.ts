@@ -3,14 +3,14 @@
 // Redis cache layer with TTL support for Arcis Pool & Position states.
 // Connects to Vercel KV / Upstash Redis with a graceful in-memory TTL fallback.
 
-import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 import {
   kvGet,
   kvSet,
   kvDel,
   kvTtl,
   getStorageDriver,
-} from './utils/redisStorage'
+} from './_utils/redisStorage'
 
 export async function GET(req: Request) {
   const url = new URL(req.url)

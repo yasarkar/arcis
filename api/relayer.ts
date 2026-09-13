@@ -14,8 +14,8 @@ import { DEFAULT_GASLESS_DAILY_LIMIT } from '../src/services/gaslessService'
 import {
   getGaslessDailyQuota,
   incrementGaslessDailyQuota,
-} from './rateLimiter'
-import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+} from './_utils/rateLimiter'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 
 const USDC_ADDRESS = ARC_TOKENS.USDC
 const DAILY_FREE_LIMIT = DEFAULT_GASLESS_DAILY_LIMIT

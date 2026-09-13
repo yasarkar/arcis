@@ -32,14 +32,14 @@ export interface ServerHistoryItem {
   memoIndex?: number
 }
 
-import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 import {
   kvGet,
   kvSet,
   kvDel,
   isStorageAvailable,
   getStorageDriver,
-} from './utils/redisStorage'
+} from './_utils/redisStorage'
 
 // In-memory fallback array on server for offline or cold-start fallback
 const memoryHistory: ServerHistoryItem[] = []

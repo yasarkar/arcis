@@ -1,0 +1,8 @@
+# Ignore development, test and contract files
+contracts
+scratch
+scripts
+arcis-mini-app
+.agents
+.freebuff
+*.log

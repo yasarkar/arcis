@@ -1,6 +1,6 @@
 import { AppKit } from "@circle-fin/app-kit";
 import { createCircleWalletsAdapter } from "@circle-fin/adapter-circle-wallets";
-import { apiSuccess, apiError, safeJsonParse } from "./utils/apiResponse";
+import { apiSuccess, apiError, safeJsonParse } from "./_utils/apiResponse";
 
 const kit = new AppKit();
 
