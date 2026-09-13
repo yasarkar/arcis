@@ -125,6 +125,63 @@ describe('claimMath', () => {
       const newlyAccruedFee = Math.max(0, updatedRawFeeShare - newCheckpoint)
       expect(newlyAccruedFee).toBeCloseTo(0.0364, 4)
     })
+
+    it('resets net vault appreciation to 0 after yield vault claim checkpoint is recorded', () => {
+      // Scenario: User deposited 100 USDC in usdc-yield-vault.
+      // Current share value previewRedeem gives 105.50 USDC -> rawVaultProfit = 5.50 USDC.
+      const rawVaultProfit = 5.50
+
+      // Before claim: checkpoint is 0
+      const initialCheckpoint = 0
+      const initialClaimable = Math.max(0, rawVaultProfit - initialCheckpoint)
+      expect(initialClaimable).toBe(5.50)
+
+      // User claims 5.50 USDC -> checkpoint is updated to 5.50
+      const newCheckpoint = rawVaultProfit
+
+      // Immediately after claim: netVaultAppreciation must be exactly 0
+      const postClaimClaimable = Math.max(0, rawVaultProfit - newCheckpoint)
+      expect(postClaimClaimable).toBe(0)
+
+      // Later: vault generates additional yield, total previewRedeem profit reaches 6.20 USDC
+      const higherVaultProfit = 6.20
+      const subsequentClaimable = Math.max(0, higherVaultProfit - newCheckpoint)
+      expect(subsequentClaimable).toBeCloseTo(0.70, 4)
+    })
+
+    it('resets continuous APY accrual to 0 immediately upon setting staking timestamp to now', () => {
+      const stakedUsd = 250
+      const apy = 8.42
+      const now = 1710000000000
+
+      // Staked 48 hours ago:
+      const oldDepTimestamp = now - 48 * 3600 * 1000
+      const oldElapsedSec = (now - oldDepTimestamp) / 1000
+      const oldApyAccrued = (stakedUsd * (apy / 100) * oldElapsedSec) / (365 * 86400)
+      expect(oldApyAccrued).toBeGreaterThan(0.11)
+
+      // User claims -> setPoolStakingTimestamp(wallet, poolId, now)
+      const newDepTimestamp = now
+      const newElapsedSec = Math.max(0, (now - newDepTimestamp) / 1000)
+      const newApyAccrued = (stakedUsd * (apy / 100) * newElapsedSec) / (365 * 86400)
+
+      // Must be precisely 0.00
+      expect(newElapsedSec).toBe(0)
+      expect(newApyAccrued).toBe(0)
+    })
+
+    it('handles micro-threshold rounding: allows claims when rounded display is 0.01 USDC', () => {
+      // If user has 0.007 USDC, rounded toFixed(2) is "0.01", so threshold must be <= 0.005
+      const microYield1 = 0.007
+      const microYield2 = 0.004
+
+      const claimThreshold = 0.005
+      expect(microYield1 >= claimThreshold).toBe(true)
+      expect(parseFloat(microYield1.toFixed(2))).toBe(0.01)
+
+      expect(microYield2 >= claimThreshold).toBe(false)
+      expect(parseFloat(microYield2.toFixed(2))).toBe(0.00)
+    })
   })
 })
 

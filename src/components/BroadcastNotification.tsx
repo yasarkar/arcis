@@ -77,6 +77,7 @@ export interface BroadcastDetails {
   iconB?: string
   lpAmount?: string
   rewardAmount?: string
+  isClaimAll?: boolean
 
   // Legacy / Faucet fields
   isBridge?: boolean
@@ -529,7 +530,7 @@ function BroadcastCard({
 
       {/* BOTTOM ROW: Explorer Link */}
       {(details?.explorerUrl || details?.txHash) && (
-        <div className="mt-2.5 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] px-2">
+        <div className="mt-2 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] px-2">
           <span className={`text-slate-400 font-medium`}>Transaction:</span>
           <a
             href={details?.explorerUrl || (details?.txHash ? getExplorerLink(details.txHash, explorerChain) : '#')}
@@ -905,9 +906,20 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
       p.name.toLowerCase() === poolName.toLowerCase() ||
       (details.poolId ? p.id.includes(details.poolId) : false)
   )
+  const isMultiplePools = Boolean(details.isClaimAll) || poolName === 'All Active Pools' || poolName.toLowerCase().startsWith('all ')
   const resolvedApy = details.poolApy ?? matchedPool?.apy
-  const displayApy = resolvedApy
-    ? `%${String(resolvedApy).replace(/%+$/, '')} APY`
+  const displayApy = resolvedApy !== undefined && resolvedApy !== null && resolvedApy !== ''
+    ? (() => {
+        const str = String(resolvedApy).trim()
+        if (str.toLowerCase().startsWith('avg')) {
+          return str.toLowerCase().endsWith('apy') ? str : `${str} APY`
+        }
+        const cleanNum = str.replace(/[%a-zA-Z\s]/g, '')
+        if (isMultiplePools) {
+          return `Avg %${cleanNum} APY`
+        }
+        return `%${cleanNum} APY`
+      })()
     : null
 
   // Match the broadcast card's border colors according to transaction outcome
@@ -1065,10 +1077,10 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
       ) : (
         /* Action Card (Pool: Ad + Rozet side-by-side on the right) */
         <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-900/70 border border-slate-800 text-xs">
-          {/* Left: Pool label */}
+          {/* Left: Pool / Pools label */}
           <span className="text-slate-400 font-medium flex items-center gap-1.5 shrink-0 ml-1.5 text-[11px]">
             <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            Pool:
+            {isMultiplePools ? 'Pools:' : 'Pool:'}
           </span>
 
           {/* Right: Pool Name + Badge */}
@@ -1084,7 +1096,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
                 <span className="font-mono">{displayApy}</span>
               </div>
             )}
-            {isClaim && (
+            {isClaim && !isMultiplePools && (
               <div className="flex items-center gap-1 font-semibold text-[10px] text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30 shrink-0">
                 <span>Direct Payout</span>
               </div>

@@ -61,13 +61,20 @@ export default function PoolCard({
   const earnedUsd = pool.userPosition?.earnedUsd || 0
   const isThisPoolClaiming = isClaiming && claimingPoolId === pool.id
 
-  const { formattedYield: liveCardYield, yieldPerSecond: cardYieldPerSec, accumulatedYield } = useContinuousYieldStream(
+  const { formattedYield: liveCardYield, yieldPerSecond: cardYieldPerSec, accumulatedYield, resetStream } = useContinuousYieldStream(
     userStaked,
     pool.apy,
     pool.userPosition?.earnedUsd || 0,
     1000,
     pool.id
   )
+
+  // Immediately reset live stream when on-chain or optimistic earnedUsd drops to 0 after claim
+  useEffect(() => {
+    if (earnedUsd <= 0.0001 && accumulatedYield > 0.0001) {
+      resetStream(0)
+    }
+  }, [earnedUsd, resetStream])
 
   const effectiveClaimableUsd = Math.max(earnedUsd, accumulatedYield || 0, parseFloat(liveCardYield) || 0)
   const isClaimReady = effectiveClaimableUsd >= 0.01
@@ -529,7 +536,12 @@ export default function PoolCard({
         {hasDeposit && onClaim && (
           <button
             type="button"
-            onClick={() => isClaimReady && onClaim(pool.id)}
+            onClick={() => {
+              if (isClaimReady) {
+                resetStream(0)
+                onClaim(pool.id)
+              }
+            }}
             disabled={isThisPoolClaiming || !isClaimReady}
             className="ub-action-btn"
             style={{

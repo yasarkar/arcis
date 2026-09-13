@@ -542,7 +542,7 @@ export default function HomePage({
           {/* Motto / Slogan */}
           <p className="text-base sm:text-lg md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl">
             <strong className="text-white font-semibold">Arcis</strong> is the all-in-one financial operating system built on Arc.
-            Pay gas in native USDC, access unified liquidity across 13+ chains, and earn sustainable real yield without bridges or seed phrases.
+            Pay gas in native USDC, access unified liquidity across 12+ chains, and earn sustainable real yield without bridges or seed phrases.
           </p>
 
           {/* Fast Bullet Points */}

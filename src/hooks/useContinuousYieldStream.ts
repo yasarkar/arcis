@@ -4,7 +4,7 @@
 // Computes real continuous yield accrual on Arc Testnet purely in memory,
 // delivering a live, uninterrupted ticking stream of earned USDC rewards.
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 export function useContinuousYieldStream(
   principalUsd: number,
@@ -16,6 +16,13 @@ export function useContinuousYieldStream(
   const [accumulatedYield, setAccumulatedYield] = useState<number>(initialBaseYieldUsd)
   const startTimeRef = useRef<number>(Date.now())
   const initialBaseRef = useRef<number>(initialBaseYieldUsd)
+
+  // Explicit reset method callable upon successful harvest / claim
+  const resetStream = useCallback((newBaseYield: number = 0) => {
+    initialBaseRef.current = newBaseYield
+    startTimeRef.current = Date.now()
+    setAccumulatedYield(newBaseYield)
+  }, [])
 
   // Sync state when on-chain base yield, principal, or APY changes
   useEffect(() => {
@@ -50,6 +57,7 @@ export function useContinuousYieldStream(
     accumulatedYield,
     yieldPerSecond,
     yieldPerDay,
+    resetStream,
     formattedYield: accumulatedYield.toFixed(4),
     formattedShort: accumulatedYield.toFixed(2),
     formattedHighPrecision: accumulatedYield.toFixed(6),

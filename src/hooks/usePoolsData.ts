@@ -42,6 +42,7 @@ import { redisCache } from '../services/redisCacheService'
 import { sendModularUserOperation, getActiveSmartAccount } from '../services/modularWalletService'
 import { getLiveTokenPrices, getCachedTokenPrice } from '../services/tokenPriceService'
 import { recordClientSwapVolume, getRollingClientSwapVolume, startLiveVolumeSimulation } from '../utils/poolVolumeUtils'
+import { isUserCanceled } from '../utils/errorUtils'
 
 export { recordClientSwapVolume, getRollingClientSwapVolume, startLiveVolumeSimulation }
 
@@ -86,32 +87,104 @@ function isDeployed(address: string): boolean {
   return Boolean(address && address !== zeroAddress && address.startsWith('0x'))
 }
 
-// Memory-only pool staking timestamp tracking (Zero LocalStorage - pure live on-chain & RAM)
+// Safe storage helper with SSR & sandbox protection
+const safeStorage = {
+  get: (key: string): string | null => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key)
+      }
+    } catch {}
+    return null
+  },
+  set: (key: string, val: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, val)
+      }
+    } catch {}
+  },
+}
+
+// Staking timestamp tracking (RAM + persistent fallback so page reloads do not restore artificial 48h history)
 const memoryStakingTimestamps = new Map<string, number>()
 
 export function getPoolStakingTimestamp(userAddr: string, poolId: string): number {
   if (!userAddr) return 0
-  return memoryStakingTimestamps.get(`${userAddr.toLowerCase()}:${poolId}`) || 0
+  const key = `${userAddr.toLowerCase()}:${poolId}`
+  const mem = memoryStakingTimestamps.get(key)
+  if (mem !== undefined) return mem
+  const stored = safeStorage.get(`arcis:pool:timestamp:${key}`)
+  if (stored) {
+    const parsed = Number(stored)
+    if (!isNaN(parsed) && parsed > 0) {
+      memoryStakingTimestamps.set(key, parsed)
+      return parsed
+    }
+  }
+  return 0
 }
 
 export function setPoolStakingTimestamp(userAddr: string, poolId: string, timestamp: number = Date.now()): void {
   if (!userAddr) return
-  memoryStakingTimestamps.set(`${userAddr.toLowerCase()}:${poolId}`, timestamp)
+  const key = `${userAddr.toLowerCase()}:${poolId}`
+  memoryStakingTimestamps.set(key, timestamp)
+  safeStorage.set(`arcis:pool:timestamp:${key}`, String(timestamp))
 }
 
-// Memory-only pool claim fee checkpoints (Zero LocalStorage - pure live on-chain & RAM)
+// Pool claim fee checkpoints
 // Tracks cumulative contract swap fees already claimed by the user, ensuring on-chain fee counters
 // don't cause duplicate claim displays after successful harvest.
 const memoryClaimFeeCheckpoints = new Map<string, number>()
 
 export function getPoolClaimFeeCheckpoint(userAddr: string, poolId: string): number {
   if (!userAddr) return 0
-  return memoryClaimFeeCheckpoints.get(`${userAddr.toLowerCase()}:${poolId}`) || 0
+  const key = `${userAddr.toLowerCase()}:${poolId}`
+  const mem = memoryClaimFeeCheckpoints.get(key)
+  if (mem !== undefined) return mem
+  const stored = safeStorage.get(`arcis:pool:fee_checkpoint:${key}`)
+  if (stored) {
+    const parsed = Number(stored)
+    if (!isNaN(parsed)) {
+      memoryClaimFeeCheckpoints.set(key, parsed)
+      return parsed
+    }
+  }
+  return 0
 }
 
 export function setPoolClaimFeeCheckpoint(userAddr: string, poolId: string, checkpointUsd: number): void {
   if (!userAddr) return
-  memoryClaimFeeCheckpoints.set(`${userAddr.toLowerCase()}:${poolId}`, checkpointUsd)
+  const key = `${userAddr.toLowerCase()}:${poolId}`
+  memoryClaimFeeCheckpoints.set(key, checkpointUsd)
+  safeStorage.set(`arcis:pool:fee_checkpoint:${key}`, String(checkpointUsd))
+}
+
+// Yield Vault Claim Checkpoints
+// Tracks cumulative share-appreciation profit claimed from the ERC-4626 vault
+const memoryYieldClaimCheckpoints = new Map<string, number>()
+
+export function getPoolYieldClaimCheckpoint(userAddr: string, poolId: string): number {
+  if (!userAddr) return 0
+  const key = `${userAddr.toLowerCase()}:${poolId}`
+  const mem = memoryYieldClaimCheckpoints.get(key)
+  if (mem !== undefined) return mem
+  const stored = safeStorage.get(`arcis:pool:vault_claimed:${key}`)
+  if (stored) {
+    const parsed = Number(stored)
+    if (!isNaN(parsed)) {
+      memoryYieldClaimCheckpoints.set(key, parsed)
+      return parsed
+    }
+  }
+  return 0
+}
+
+export function setPoolYieldClaimCheckpoint(userAddr: string, poolId: string, checkpointUsd: number): void {
+  if (!userAddr) return
+  const key = `${userAddr.toLowerCase()}:${poolId}`
+  memoryYieldClaimCheckpoints.set(key, checkpointUsd)
+  safeStorage.set(`arcis:pool:vault_claimed:${key}`, String(checkpointUsd))
 }
 
 // Memory-only Gateway deposit tracking (Zero LocalStorage)
@@ -451,7 +524,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     queryFn: async () => {
       if (!isAddressValid) return {}
       const targetAddr = walletAddress as `0x${string}`
-      const cacheKey = `arcis:pools:positions:${walletAddress}`
+      const cacheKey = `arcis:pools:positions:${walletAddress.toLowerCase()}`
 
       // Short memory cache debounce (20s)
       const cached = await redisCache.get<Record<string, UserPoolPosition>>(cacheKey)
@@ -477,6 +550,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             // In ERC-4626, shares are 6 decimals matching underlying USDC
             const principalUsdc = parseFloat(formatUnits(sharesRaw, 6))
 
+            let rawVaultProfit = 0
             // Call previewRedeem directly on the contract to get accurate current USDC assets
             try {
               const previewAssets = (await resilientReadContract(publicClient, {
@@ -487,7 +561,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
               })) as bigint
               assetsUsdc = parseFloat(formatUnits(previewAssets, 6))
               if (assetsUsdc > principalUsdc) {
-                userEarnedUsd = assetsUsdc - principalUsdc
+                rawVaultProfit = assetsUsdc - principalUsdc
               }
             } catch {
               let totalAssets = 0n
@@ -510,7 +584,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
                 const userAssetsRaw = (sharesRaw * totalAssets) / totalSupply
                 assetsUsdc = parseFloat(formatUnits(userAssetsRaw, 6))
                 if (assetsUsdc > principalUsdc) {
-                  userEarnedUsd = assetsUsdc - principalUsdc
+                  rawVaultProfit = assetsUsdc - principalUsdc
                 }
               } else {
                 assetsUsdc = principalUsdc
@@ -533,6 +607,10 @@ export function usePoolsData(walletAddress: string, provider?: any) {
               ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(2))))
               : 0
 
+            // Apply yield vault claim checkpoint to prevent claimed profit from persistently reappearing
+            const vaultClaimCheckpoint = getPoolYieldClaimCheckpoint(targetAddr, 'usdc-yield-vault')
+            const netVaultAppreciation = Math.max(0, rawVaultProfit - vaultClaimCheckpoint)
+
             // Calculate time-based continuous yield based on vault APY
             const vaultApy = 8.42
             let depTimestamp = getPoolStakingTimestamp(targetAddr, 'usdc-yield-vault')
@@ -542,7 +620,10 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             }
             const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
             const apyAccruedUsd = (assetsUsdc * (vaultApy / 100) * elapsedSec) / (365 * 86400)
-            if (userEarnedUsd === 0 && apyAccruedUsd > 0) {
+
+            if (netVaultAppreciation > 0) {
+              userEarnedUsd = netVaultAppreciation
+            } else if (apyAccruedUsd > 0) {
               userEarnedUsd = apyAccruedUsd
             }
 
@@ -555,6 +636,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
               lastUpdatedTimestamp: Date.now(),
               lpTokenBalance: formatUnits(sharesRaw, 6),
               poolSharePct,
+              earnedFeesUsd: rawVaultProfit,
             }
           }
         } catch (err) {
@@ -1005,7 +1087,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       await Promise.all([
         redisCache.del('arcis:pools:state'),
         walletAddress ? redisCache.del(`arcis:pools:balances:${walletAddress}`) : Promise.resolve(),
+        walletAddress ? redisCache.del(`arcis:pools:balances:${walletAddress.toLowerCase()}`) : Promise.resolve(),
         walletAddress ? redisCache.del(`arcis:pools:positions:${walletAddress}`) : Promise.resolve(),
+        walletAddress ? redisCache.del(`arcis:pools:positions:${walletAddress.toLowerCase()}`) : Promise.resolve(),
       ])
     } catch (delErr) {
       console.warn('[usePoolsData] Redis cache purge warning:', delErr)
@@ -1788,7 +1872,8 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       tokenIn: string,
       tokenOut: string,
       amountInStr: string,
-      minOutStr?: string
+      minOutStr?: string,
+      skipCacheInvalidation: boolean = false
     ): Promise<{ txHash: string; amountOut: string }> => {
       const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool || !pool.isLpPool) throw new Error('Pool does not support swapping')
@@ -1880,7 +1965,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         if (swapVolUsd > 0) {
           recordClientSwapVolume(poolId, swapVolUsd, opRes.txHash)
         }
-        await invalidatePoolCaches()
+        if (!skipCacheInvalidation) {
+          await invalidatePoolCaches()
+        }
         return { txHash: opRes.txHash, amountOut: actualAmountOutStr }
       }
 
@@ -1924,7 +2011,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         recordClientSwapVolume(poolId, swapVolUsd, txHash)
       }
 
-      await invalidatePoolCaches()
+      if (!skipCacheInvalidation) {
+        await invalidatePoolCaches()
+      }
       return { txHash, amountOut: actualAmountOutStr }
     },
     [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, walletAddress, liveBtcPrice, liveEurcPrice]
@@ -1937,7 +2026,8 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       amountStr: string,
       payoutMode: 'standard' | 'dual' | 'usdc' = 'standard',
       _provider?: any,
-      _slippage: number = 0.5
+      _slippage: number = 0.5,
+      skipCacheInvalidation: boolean = false
     ): Promise<PoolWithdrawResult> => {
       const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool) throw new Error('Pool not found')
@@ -2039,7 +2129,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             throw new Error(opRes.error || 'Modular UserOperation redeem failed.')
           }
           applyYieldVaultOptimisticWithdraw()
-          await invalidatePoolCaches()
+          if (!skipCacheInvalidation) {
+            await invalidatePoolCaches()
+          }
           return { txHash: opRes.txHash }
         }
 
@@ -2058,7 +2150,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         })
         await waitForReceiptSafe(txHash, 'Yield vault redeem')
         applyYieldVaultOptimisticWithdraw()
-        await invalidatePoolCaches()
+        if (!skipCacheInvalidation) {
+          await invalidatePoolCaches()
+        }
         return { txHash }
       }
 
@@ -2251,7 +2345,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             }
 
             // Execute swap back to USDC with slippage protection
-            await swapInPool(poolId, counterToken.symbol, 'USDC', counterBalStr, minOutUsdcStr)
+            await swapInPool(poolId, counterToken.symbol, 'USDC', counterBalStr, minOutUsdcStr, skipCacheInvalidation)
           }
         } catch (swapErr) {
           autoSwapFailed = true
@@ -2259,7 +2353,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         }
       }
 
-      await invalidatePoolCaches()
+      if (!skipCacheInvalidation) {
+        await invalidatePoolCaches()
+      }
       return { 
         txHash, 
         autoSwapFailed, 
@@ -2290,37 +2386,57 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       if (!targetAccount) throw new Error('Wallet not connected')
 
       // Use withdrawFromPool with exact earnedUsd amount and single-token 'usdc' payout
-      // For YieldVault: redeems exact shares corresponding to earnedUsd
-      // For LP Pools: redeems exact proportional LP shares and auto-converts to 100% USDC
+      // Pass skipCacheInvalidation = true so caches are NOT invalidated before checkpoints & timestamps are saved
       const claimAmountStr = earnedUsd.toFixed(2)
-      const res = await withdrawFromPool(poolId, claimAmountStr, 'usdc', provider)
+      const res = await withdrawFromPool(poolId, claimAmountStr, 'usdc', provider, 0.5, true)
 
-      // Optimistically reset earned yield for this pool to 0
-      queryClient.setQueryData<Record<string, UserPoolPosition>>(
-        ['userPoolPositions', targetAccount],
-        (old) => {
-          if (!old) return old
-          const curr = old[poolId]
-          if (!curr) return old
-          return {
-            ...old,
-            [poolId]: {
-              ...curr,
-              earnedRewards: '0.00',
-              earnedUsd: 0,
-            },
-          }
-        }
-      )
+      // 1. Reset staking timestamp to current time so continuous APY yield starts accumulating anew from 0
+      const now = Date.now()
+      setPoolStakingTimestamp(targetAccount, poolId, now)
+      if (walletAddress) setPoolStakingTimestamp(walletAddress, poolId, now)
 
-      // Reset staking timestamp to current time so yield starts accumulating anew
-      setPoolStakingTimestamp(targetAccount, poolId, Date.now())
-
-      // For LP pools: checkpoint cumulative contract swap fees so already-claimed fees are not re-accrued
+      // 2. For LP pools: checkpoint cumulative contract swap fees so already-claimed fees are not re-accrued
       if (pos?.earnedFeesUsd !== undefined) {
         setPoolClaimFeeCheckpoint(targetAccount, poolId, pos.earnedFeesUsd)
+        if (walletAddress) setPoolClaimFeeCheckpoint(walletAddress, poolId, pos.earnedFeesUsd)
       }
 
+      // 3. For Yield Vault: checkpoint cumulative vault appreciation profit
+      if (poolId === 'usdc-yield-vault') {
+        const currentVaultProfit = pos?.earnedFeesUsd !== undefined ? pos.earnedFeesUsd : (pos?.earnedUsd || 0)
+        setPoolYieldClaimCheckpoint(targetAccount, poolId, currentVaultProfit)
+        if (walletAddress) setPoolYieldClaimCheckpoint(walletAddress, poolId, currentVaultProfit)
+      }
+
+      // 4. Optimistically reset earned yield for this pool to 0 across all address representations in React Query
+      const updateQuery = (addrKey: string) => {
+        queryClient.setQueryData<Record<string, UserPoolPosition>>(
+          ['userPoolPositions', addrKey],
+          (old) => {
+            if (!old) return old
+            const curr = old[poolId]
+            if (!curr) return old
+            return {
+              ...old,
+              [poolId]: {
+                ...curr,
+                earnedRewards: '0.00',
+                earnedUsd: 0,
+              },
+            }
+          }
+        )
+      }
+      if (targetAccount) {
+        updateQuery(targetAccount)
+        updateQuery(targetAccount.toLowerCase())
+      }
+      if (walletAddress) {
+        updateQuery(walletAddress)
+        updateQuery(walletAddress.toLowerCase())
+      }
+
+      // 5. Invalidate caches safely now that all checkpoints and timestamps are written
       await invalidatePoolCaches()
       return {
         amountClaimed: claimAmountStr,
@@ -2336,6 +2452,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     txHashes: string[];
     successfulPools: string[];
     failedPools: string[];
+    isCanceled?: boolean;
   }> => {
     if (!userPoolPositions) {
       throw new Error('No active pool positions found.')
@@ -2355,6 +2472,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     const txHashes: string[] = []
     const successfulPools: string[] = []
     const failedPools: string[] = []
+    let userCanceledError: any = null
 
     for (const pool of claimablePools) {
       try {
@@ -2366,19 +2484,30 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           txHashes.push(res.txHash)
         }
         successfulPools.push(pool.name)
-      } catch (err) {
+      } catch (err: any) {
+        if (isUserCanceled(err) || err?.isCanceled === true || err?.code === 4001) {
+          userCanceledError = err
+          console.info(`[usePoolsData] Claim canceled by user for ${pool.name}`)
+          break // Stop prompt cascade immediately when user cancels wallet signature
+        }
         console.warn(`[usePoolsData] Claim failed for ${pool.name}:`, err)
         failedPools.push(pool.name)
       }
     }
 
     await invalidatePoolCaches()
+
+    if (userCanceledError && successfulPools.length === 0) {
+      throw userCanceledError
+    }
+
     return {
       totalClaimed: totalClaimed.toFixed(2),
       txHash: lastTxHash,
       txHashes,
       successfulPools,
       failedPools,
+      isCanceled: Boolean(userCanceledError),
     }
   }, [userPoolPositions, claimPoolRewards, invalidatePoolCaches])
 

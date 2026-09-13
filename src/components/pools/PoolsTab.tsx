@@ -213,8 +213,8 @@ export default function PoolsTab({
     details?: any
   ) => {
     if (ids.toastId && removeToast) removeToast(ids.toastId)
-    const isCanceled = isUserCanceled(err) || err?.isCanceled === true
-    const title = isCanceled ? 'Transaction Canceled' : defaultTitle
+    const isCanceled = isUserCanceled(err) || err?.isCanceled === true || err?.code === 4001
+    const title = isCanceled ? (defaultTitle.includes('Claim') ? 'Claim Canceled' : 'Transaction Canceled') : defaultTitle
     const message = isCanceled
       ? 'You canceled the confirmation request in your wallet. No balance was deducted.'
       : (formatWalletError(err) || err?.shortMessage || err?.message || 'Transaction failed on Arc Testnet')
@@ -231,7 +231,7 @@ export default function PoolsTab({
   }
 
   const handleClaimAll = async () => {
-    if (userTotalClaimableRewardsUsd < 0.01) {
+    if (userTotalClaimableRewardsUsd < 0.005) {
       if (addToast) {
         addToast(
           'No Claimable Yield',
@@ -245,11 +245,28 @@ export default function PoolsTab({
     }
 
     setIsClaiming(true)
+
+    // Calculate portfolio or active pools average APY
+    const userPortfolioApy = userTotalDepositedUsd > 0 && dailyYieldGeneratedUsd > 0
+      ? ((dailyYieldGeneratedUsd * 365) / userTotalDepositedUsd) * 100
+      : 0
+    const claimablePools = pools.filter(
+      (p) => (p.userPosition?.earnedUsd || 0) >= 0.005 || (p.userPosition?.stakedAmount && parseFloat(p.userPosition.stakedAmount) > 0)
+    )
+    const poolsForApy = claimablePools.length > 0 ? claimablePools : pools
+    const simpleAvgApy = poolsForApy.reduce((sum, p) => sum + (p.apy || 0), 0) / (poolsForApy.length || 1)
+    const avgApy = userPortfolioApy > 0 ? userPortfolioApy : simpleAvgApy
+    const formattedAvgApy = `Avg %${avgApy.toFixed(1)} APY`
+
     const notif = notifyPending(
       'Claiming All Yield...',
       `Redeeming ${userTotalClaimableRewardsUsd.toFixed(2)} USDC in accumulated profit across your pools`,
       {
+        poolName: 'All Active Pools',
+        isClaimAll: true,
+        poolApy: formattedAvgApy,
         amount: userTotalClaimableRewardsUsd.toFixed(2),
+        rewardAmount: userTotalClaimableRewardsUsd.toFixed(2),
         tokenSymbol: 'USDC',
         tokenIcon: UsdcIcon,
         network: 'Arc_Testnet',
@@ -259,7 +276,24 @@ export default function PoolsTab({
 
     try {
       const res = await claimAllRewards()
-      if (res.failedPools && res.failedPools.length > 0) {
+      if (res.isCanceled && res.successfulPools && res.successfulPools.length > 0) {
+        notifySuccess(
+          notif,
+          'Partial Yield Claimed',
+          `Claimed ${res.totalClaimed} USDC from ${res.successfulPools.join(', ')}. Remaining claim requests were canceled in wallet.`,
+          res.txHash,
+          {
+            poolName: 'All Active Pools',
+            isClaimAll: true,
+            poolApy: formattedAvgApy,
+            amount: res.totalClaimed,
+            rewardAmount: res.totalClaimed,
+            tokenSymbol: 'USDC',
+            tokenIcon: UsdcIcon,
+            network: 'Arc_Testnet',
+          }
+        )
+      } else if (res.failedPools && res.failedPools.length > 0) {
         if (res.successfulPools && res.successfulPools.length > 0) {
           notifySuccess(
             notif,
@@ -267,7 +301,11 @@ export default function PoolsTab({
             `Claimed ${res.totalClaimed} USDC from ${res.successfulPools.join(', ')}. Note: Claim failed for ${res.failedPools.join(', ')}.`,
             res.txHash,
             {
+              poolName: 'All Active Pools',
+              isClaimAll: true,
+              poolApy: formattedAvgApy,
               amount: res.totalClaimed,
+              rewardAmount: res.totalClaimed,
               tokenSymbol: 'USDC',
               tokenIcon: UsdcIcon,
               network: 'Arc_Testnet',
@@ -275,7 +313,11 @@ export default function PoolsTab({
           )
         } else {
           notifyError(notif, 'Claim Failed', new Error(`Claim failed for: ${res.failedPools.join(', ')}`), {
+            poolName: 'All Active Pools',
+            isClaimAll: true,
+            poolApy: formattedAvgApy,
             amount: userTotalClaimableRewardsUsd.toFixed(2),
+            rewardAmount: userTotalClaimableRewardsUsd.toFixed(2),
             tokenSymbol: 'USDC',
             tokenIcon: UsdcIcon,
             network: 'Arc_Testnet',
@@ -288,7 +330,11 @@ export default function PoolsTab({
           `Successfully claimed ${res.totalClaimed} USDC across ${res.successfulPools.length} pool(s) directly to your wallet!`,
           res.txHash,
           {
+            poolName: 'All Active Pools',
+            isClaimAll: true,
+            poolApy: formattedAvgApy,
             amount: res.totalClaimed,
+            rewardAmount: res.totalClaimed,
             tokenSymbol: 'USDC',
             tokenIcon: UsdcIcon,
             network: 'Arc_Testnet',
@@ -299,7 +345,11 @@ export default function PoolsTab({
       refreshGatewayBalance()
     } catch (err: any) {
       notifyError(notif, 'Claim Failed', err, {
+        poolName: 'All Active Pools',
+        isClaimAll: true,
+        poolApy: formattedAvgApy,
         amount: userTotalClaimableRewardsUsd.toFixed(2),
+        rewardAmount: userTotalClaimableRewardsUsd.toFixed(2),
         tokenSymbol: 'USDC',
         tokenIcon: UsdcIcon,
         network: 'Arc_Testnet',
@@ -314,11 +364,11 @@ export default function PoolsTab({
     const poolName = targetPool?.name || 'Pool'
     const earnedUsd = targetPool?.userPosition?.earnedUsd || 0
 
-    if (earnedUsd < 0.01) {
+    if (earnedUsd < 0.005) {
       if (addToast) {
         addToast(
           'No Claimable Yield',
-          `No accrued yield available to claim for ${poolName}.`,
+          `No accrued yield available to claim for ${poolName} (minimum 0.01 USDC).`,
           'info',
           undefined,
           'Arc Testnet'
