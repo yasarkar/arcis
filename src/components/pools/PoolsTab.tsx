@@ -259,18 +259,42 @@ export default function PoolsTab({
 
     try {
       const res = await claimAllRewards()
-      notifySuccess(
-        notif,
-        'Yield Claimed Successfully!',
-        `Successfully claimed ${res.totalClaimed} USDC in profits directly to your wallet!`,
-        res.txHash,
-        {
-          amount: res.totalClaimed,
-          tokenSymbol: 'USDC',
-          tokenIcon: UsdcIcon,
-          network: 'Arc_Testnet',
+      if (res.failedPools && res.failedPools.length > 0) {
+        if (res.successfulPools && res.successfulPools.length > 0) {
+          notifySuccess(
+            notif,
+            'Partial Yield Claimed',
+            `Claimed ${res.totalClaimed} USDC from ${res.successfulPools.join(', ')}. Note: Claim failed for ${res.failedPools.join(', ')}.`,
+            res.txHash,
+            {
+              amount: res.totalClaimed,
+              tokenSymbol: 'USDC',
+              tokenIcon: UsdcIcon,
+              network: 'Arc_Testnet',
+            }
+          )
+        } else {
+          notifyError(notif, 'Claim Failed', new Error(`Claim failed for: ${res.failedPools.join(', ')}`), {
+            amount: userTotalClaimableRewardsUsd.toFixed(2),
+            tokenSymbol: 'USDC',
+            tokenIcon: UsdcIcon,
+            network: 'Arc_Testnet',
+          })
         }
-      )
+      } else {
+        notifySuccess(
+          notif,
+          'Yield Claimed Successfully!',
+          `Successfully claimed ${res.totalClaimed} USDC across ${res.successfulPools.length} pool(s) directly to your wallet!`,
+          res.txHash,
+          {
+            amount: res.totalClaimed,
+            tokenSymbol: 'USDC',
+            tokenIcon: UsdcIcon,
+            network: 'Arc_Testnet',
+          }
+        )
+      }
       refreshBalances()
       refreshGatewayBalance()
     } catch (err: any) {
@@ -640,23 +664,44 @@ export default function PoolsTab({
 
     try {
       const result = await withdrawFromPool(poolId, lpAmount, payoutMode, provider, slippage)
-      notifySuccess(
-        notif,
-        'Liquidity Removed!',
-        `Successfully redeemed ${lpAmount} ${lpTokenSymbol} from ${poolName}`,
-        result.txHash,
-        {
-          poolId,
-          poolName,
-          poolAction: 'withdraw',
-          lpAmount,
-          amount: lpAmount,
-          tokenSymbol: lpTokenSymbol,
-          tokenIcon,
-          poolApy,
-          network: 'Arc_Testnet',
-        }
-      )
+      
+      if (result.autoSwapFailed) {
+        notifySuccess(
+          notif,
+          'Liquidity Removed (Auto-Swap Incomplete)',
+          `Successfully redeemed ${lpAmount} ${lpTokenSymbol} from ${poolName}. Note: Auto-swap of ${result.counterTokenSymbol || 'counter token'} to USDC failed. Your tokens remain safely in your wallet.`,
+          result.txHash,
+          {
+            poolId,
+            poolName,
+            poolAction: 'withdraw',
+            lpAmount,
+            amount: lpAmount,
+            tokenSymbol: lpTokenSymbol,
+            tokenIcon,
+            poolApy,
+            network: 'Arc_Testnet',
+          }
+        )
+      } else {
+        notifySuccess(
+          notif,
+          'Liquidity Removed!',
+          `Successfully redeemed ${lpAmount} ${lpTokenSymbol} from ${poolName}`,
+          result.txHash,
+          {
+            poolId,
+            poolName,
+            poolAction: 'withdraw',
+            lpAmount,
+            amount: lpAmount,
+            tokenSymbol: lpTokenSymbol,
+            tokenIcon,
+            poolApy,
+            network: 'Arc_Testnet',
+          }
+        )
+      }
 
       refreshBalances()
       refreshGatewayBalance()

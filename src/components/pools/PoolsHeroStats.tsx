@@ -354,9 +354,9 @@ export default function PoolsHeroStats({
               }}
             >
               {walletConnected && userTotalDepositedUsd > 0
-                ? `+${liveHeroYield}`
+                ? `≈ +${liveHeroYield}`
                 : userTotalClaimableRewardsUsd > 0
-                ? `+${userTotalClaimableRewardsUsd.toFixed(4)}`
+                ? `≈ +${userTotalClaimableRewardsUsd.toFixed(4)}`
                 : '0.00'}
             </span>
             <span style={{ fontSize: 11, color: 'var(--fp-4)', fontFamily: 'var(--font-app)' }}>USDC</span>

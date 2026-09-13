@@ -65,7 +65,7 @@ export default function PoolCard({
     userStaked,
     pool.apy,
     pool.userPosition?.earnedUsd || 0,
-    75,
+    1000,
     pool.id
   )
 
@@ -127,11 +127,9 @@ export default function PoolCard({
   const getCategoryBadge = () => {
     switch (pool.category) {
       case 'liquidity':
-        return { bg: 'rgba(1, 208, 98, 0.14)', border: 'rgba(1, 208, 98, 0.3)', text: 'var(--earned-green)', label: 'LIQUIDITY' }
+        return { bg: 'rgba(152, 150, 255, 0.14)', border: 'rgba(152, 150, 255, 0.3)', text: 'var(--purple-1)', label: 'LIQUIDITY' }
       case 'vault':
         return { bg: 'rgba(152, 150, 255, 0.14)', border: 'rgba(152, 150, 255, 0.3)', text: 'var(--purple-1)', label: 'VAULT' }
-      case 'crosschain':
-        return { bg: 'rgba(99, 102, 241, 0.15)', border: 'rgba(99, 102, 241, 0.35)', text: '#a5b4fc', label: 'CROSS-CHAIN' }
       default:
         return { bg: 'rgba(255, 255, 255, 0.08)', border: 'rgba(255, 255, 255, 0.15)', text: '#fff', label: 'POOL' }
     }
@@ -139,20 +137,6 @@ export default function PoolCard({
 
   const categoryBadge = getCategoryBadge()
   const riskConfig = POOL_RISK_LEVELS[pool.riskLevel] || POOL_RISK_LEVELS['Low']
-
-  // Mini token icon for inline displays (e.g., Staked balance)
-  const renderInlineTokenIcon = (iconType: string) => {
-    if (iconType === 'eurc') {
-      return <img src={EurcIcon} alt="EURC" style={{ width: 13, height: 13, objectFit: 'contain' }} />
-    } else if (iconType === 'arc') {
-      return <img src={ArcLogo} alt="Arc" style={{ width: 13, height: 13, objectFit: 'contain' }} />
-    } else if (iconType === 'btc') {
-      return <img src={CirBtcIcon} alt="cirBTC" style={{ width: 13, height: 13, objectFit: 'contain' }} />
-    } else if (iconType === 'gateway') {
-      return <Globe size={12} style={{ color: '#60a5fa' }} />
-    }
-    return <img src={UsdcIcon} alt="USDC" style={{ width: 13, height: 13, objectFit: 'contain' }} />
-  }
 
   return (
     <div
@@ -496,7 +480,9 @@ export default function PoolCard({
                   fontSize: 9.5,
                   color: pool.apy > 0 ? '#34d399' : 'var(--fp-4)',
                   fontWeight: 600,
+                  cursor: 'help',
                 }}
+                title="Estimated real-time yield accrual preview based on current APY. Actual claimable balance is verified on-chain."
               >
                 {pool.apy > 0 ? 'Est. Yield' : 'Yield Idle'}
               </span>
@@ -508,8 +494,9 @@ export default function PoolCard({
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontSize: 12,
               }}
+              title="Real-time estimated yield accrual preview"
             >
-              +{liveCardYield}
+              {pool.apy > 0 ? `≈ +${liveCardYield}` : '+0.00'}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
               <span style={{ fontSize: 10, color: 'var(--fp-4)' }}>
@@ -562,21 +549,48 @@ export default function PoolCard({
           </button>
         )}
 
-        {/* Withdraw Button */}
-        {hasDeposit && (
+        {/* Withdraw / Redeem Button */}
+        {pool.category === 'vault' ? (
           <button
             type="button"
             onClick={() => onWithdraw(pool)}
+            disabled={!hasDeposit}
             className="ub-action-btn"
             style={{
               padding: '8px 14px',
               fontSize: 12,
-              borderColor: 'rgba(255, 255, 255, 0.15)',
+              fontWeight: 600,
+              borderColor: hasDeposit ? 'rgba(152, 150, 255, 0.35)' : 'rgba(255, 255, 255, 0.1)',
+              color: hasDeposit ? '#fff' : 'var(--fp-4)',
+              opacity: hasDeposit ? 1 : 0.45,
+              cursor: hasDeposit ? 'pointer' : 'not-allowed',
+              transition: 'all 0.2s ease',
             }}
+            title={
+              hasDeposit
+                ? 'Redeem your af-USDC shares for USDC principal + accumulated yield'
+                : 'Deposit USDC first to redeem shares and yield'
+            }
           >
             <Minus size={13} />
-            <span>{pool.isLpPool ? 'Remove Liquidity' : 'Withdraw'}</span>
+            <span>Redeem</span>
           </button>
+        ) : (
+          hasDeposit && (
+            <button
+              type="button"
+              onClick={() => onWithdraw(pool)}
+              className="ub-action-btn"
+              style={{
+                padding: '8px 14px',
+                fontSize: 12,
+                borderColor: 'rgba(255, 255, 255, 0.15)',
+              }}
+            >
+              <Minus size={13} />
+              <span>{pool.isLpPool ? 'Remove Liquidity' : 'Withdraw'}</span>
+            </button>
+          )
         )}
 
         {/* Details Toggle Button */}

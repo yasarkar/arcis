@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Wallet,
   Shield,
+  Info,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
@@ -187,6 +188,7 @@ export default function PoolActionModal({
 
   const isLp = Boolean(pool.isLpPool)
   const isPool = isLp
+  const isVault = pool.category === 'vault'
   const isPoolEmpty = Boolean(
     isLp && (
       pool.tvlUsd === 0 ||
@@ -236,7 +238,7 @@ export default function PoolActionModal({
       : UsdcIcon
 
   const depositLabel = activeMode === 'withdraw'
-    ? 'AMOUNT TO WITHDRAW'
+    ? (isVault ? 'AMOUNT OF USDC TO REDEEM' : 'AMOUNT TO WITHDRAW')
     : 'AMOUNT TO DEPOSIT'
 
   const numericBalanceStr = activeMode === 'deposit'
@@ -775,7 +777,9 @@ export default function PoolActionModal({
               : activeMode === 'withdraw'
                 ? isPool
                   ? 'Remove Liquidity'
-                  : 'Withdraw'
+                  : isVault
+                    ? 'Redeem'
+                    : 'Withdraw'
                 : `Swap (${pool.tokens[0]?.symbol} ↔ ${pool.tokens[1]?.symbol})`}
           </h2>
         </div>
@@ -866,10 +870,17 @@ export default function PoolActionModal({
                     type="number"
                     step="0.1"
                     min="0.01"
-                    max="50"
-                    placeholder="e.g. 2.5"
+                    max="5.0"
+                    placeholder="e.g. 1.0"
                     value={customSlippage}
-                    onChange={(e) => setCustomSlippage(e.target.value)}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value)
+                      if (!isNaN(val) && val > 5.0) {
+                        setCustomSlippage('5.0')
+                      } else {
+                        setCustomSlippage(e.target.value)
+                      }
+                    }}
                     autoFocus
                     style={{
                       width: '100%',
@@ -886,10 +897,10 @@ export default function PoolActionModal({
                     %
                   </span>
                 </div>
-                {slippage > 5.0 && (
+                {slippage > 3.0 && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#f59e0b' }}>
                     <AlertTriangle size={12} />
-                    <span>High slippage may result in unfavorable execution prices.</span>
+                    <span>High slippage may result in unfavorable execution (strictly capped at 5.0% max).</span>
                   </div>
                 )}
               </div>
@@ -1024,7 +1035,7 @@ export default function PoolActionModal({
             }}
           >
             <Minus size={14} />
-            <span>{isPool ? 'Remove Liquidity' : 'Withdraw'}</span>
+            <span>{isPool ? 'Remove Liquidity' : isVault ? 'Redeem' : 'Withdraw'}</span>
           </button>
         </div>
 
@@ -1593,6 +1604,36 @@ export default function PoolActionModal({
                 </div>
               )}
 
+              {activeMode === 'withdraw' && isVault && inputAmountNum > 0 && (
+                <div
+                  style={{
+                    background: 'rgba(15, 18, 35, 0.85)',
+                    border: '1px solid rgba(152, 150, 255, 0.2)',
+                    borderRadius: 12,
+                    padding: '10px 14px',
+                    marginBottom: 16,
+                    fontSize: 11,
+                    fontFamily: 'var(--font-app)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                    <span>Redeeming Asset:</span>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>Pure USDC (Direct to Wallet)</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                    <span>Vault Shares Burned:</span>
+                    <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{inputAmountNum.toFixed(2)} af-USDC</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                    <span>Protocol Lockup / Penalty:</span>
+                    <span style={{ color: '#34d399', fontWeight: 600 }}>0% (Flexible / No Penalty)</span>
+                  </div>
+                </div>
+              )}
+
               {errorMsg && (
                 <div
                   style={{
@@ -1619,6 +1660,68 @@ export default function PoolActionModal({
                   <span>{errorMsg}</span>
                 </div>
               )}
+
+              {/* ── Transaction Cost & Route Summary Panel ── */}
+              <div
+                style={{
+                  background: 'rgba(15, 18, 35, 0.75)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 14,
+                  padding: '10px 14px',
+                  marginBottom: 14,
+                  fontSize: 11.5,
+                  fontFamily: 'var(--font-app)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--fp-4)' }}>Network Gas Fee</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ color: '#34d399', fontWeight: 600 }}>~0.001 USDC</span>
+                    <span style={{ fontSize: 10, color: 'var(--fp-4)' }}>(Zero ETH required)</span>
+                  </div>
+                </div>
+
+                {activeMode === 'deposit' && isLp && lpDepositMethod === 'zap' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--fp-4)' }}>Execution Route</span>
+                    <span style={{ color: 'var(--purple-1)', fontWeight: 500 }}>
+                      ⚡ 1-Click Zap (Auto-Swap + LP Mint)
+                    </span>
+                  </div>
+                )}
+
+                {activeMode === 'withdraw' && isLp && lpPayoutMode === 'usdc' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--fp-4)' }}>Payout Route</span>
+                    <span style={{ color: 'var(--purple-1)', fontWeight: 500 }}>
+                      ⚡ 100% USDC (LP Redeem + Auto-Swap)
+                    </span>
+                  </div>
+                )}
+
+                {activeMode === 'deposit' && depositSource === 'native' && percentage === 100 && (
+                  <div
+                    style={{
+                      background: 'rgba(96, 165, 250, 0.1)',
+                      border: '1px solid rgba(96, 165, 250, 0.25)',
+                      borderRadius: 8,
+                      padding: '5px 8px',
+                      marginTop: 2,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      color: '#93c5fd',
+                      fontSize: 10.5,
+                    }}
+                  >
+                    <Info size={12} style={{ flexShrink: 0 }} />
+                    <span>0.50 USDC reserved for future network gas buffer</span>
+                  </div>
+                )}
+              </div>
 
               <button
                 type="submit"
@@ -1661,7 +1764,9 @@ export default function PoolActionModal({
                               : 'DEPOSITING...'
                           : isPool
                             ? 'REMOVING LIQUIDITY...'
-                            : 'WITHDRAWING...'}
+                            : isVault
+                              ? 'REDEEMING...'
+                              : 'WITHDRAWING...'}
                     </span>
                   </>
                 ) : activeMode === 'swap' ? (
@@ -1716,13 +1821,13 @@ export default function PoolActionModal({
                   )
                 ) : (
                   inputAmountNum <= 0 ? (
-                    <span>ENTER WITHDRAW AMOUNT</span>
+                    <span>{isVault ? 'ENTER REDEEM AMOUNT' : 'ENTER WITHDRAW AMOUNT'}</span>
                   ) : isWithdrawExceeds ? (
                     <span>AMOUNT EXCEEDS STAKED BALANCE</span>
                   ) : (
                     <>
                       <Minus size={16} />
-                      <span>{isPool ? 'REMOVE LIQUIDITY' : 'WITHDRAW'}</span>
+                      <span>{isPool ? 'REMOVE LIQUIDITY' : isVault ? 'REDEEM USDC' : 'WITHDRAW'}</span>
                     </>
                   )
                 )}
