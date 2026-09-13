@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
+import './utils/logger' // Side-effect: installs safe console.warn/info polyfills at startup
 import './index.css'
 import '@rainbow-me/rainbowkit/styles.css'
 
@@ -13,7 +14,15 @@ import { MultiChainWalletProvider } from './context/MultiChainWalletContext'
 import { WagmiProvider } from 'wagmi'
 import { GlobalErrorBoundary } from './components/common/GlobalErrorBoundary'
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false, // Prevents sudden burst of dozens of RPC queries on alt-tab
+      retry: 2,
+      staleTime: 15_000,
+    },
+  },
+})
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

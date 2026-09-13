@@ -1,4 +1,3 @@
-// src/services/rpc/resilientRpcService.ts
 // Centralized Resilient Blockchain RPC Manager for Arcis Protocol.
 // Features:
 // 1. Singleton PublicClient Connection Pooling (zero socket leaks)
@@ -6,7 +5,6 @@
 // 3. In-flight request deduplication (prevents redundant parallel RPC spam)
 // 4. Safe transaction receipt polling with transaction fallback check
 // 5. Latency and health monitoring
-
 import {
   createPublicClient,
   http,
@@ -22,9 +20,8 @@ import {
   type ReadContractReturnType,
   type GetBalanceParameters,
   type TransactionReceipt,
-  defineChain,
 } from 'viem'
-import { arcTestnet, arcActiveChain, IS_TESTNET, ARC_METADATA } from '../../config/arcChain'
+import { arcTestnet, arcActiveChain} from '../../config/arcChain'
 import { CHAIN_DEFS } from '../../config/chainMeta'
 import {
   TESTNET_RPC_FALLBACKS,
@@ -36,12 +33,100 @@ import {
 } from './rpcConfig'
 
 // ─────────────────────────────────────────────────────────────
-// 1. SINGLETON CLIENT POOL (Map by Chain ID or Key)
+// 1. SINGLETON CLIENT POOL & COOLDOWN CIRCUIT BREAKER
 // ─────────────────────────────────────────────────────────────
 const clientPool = new Map<string | number, PublicClient>()
 
 // In-flight request deduplication cache to prevent hammering nodes with duplicate queries
 const inFlightRequests = new Map<string, Promise<any>>()
+
+// Short-term read micro-cache to instantly serve identical queries within 2.5s
+interface MicroCacheEntry<T> {
+  data: T
+  expiresAt: number
+}
+const readMicroCache = new Map<string, MicroCacheEntry<any>>()
+export const DEFAULT_MICRO_CACHE_TTL_MS = 2500 // 2.5 seconds
+
+export function getFromMicroCache<T>(key: string): T | undefined {
+  const entry = readMicroCache.get(key)
+  if (!entry) return undefined
+  if (Date.now() > entry.expiresAt) {
+    readMicroCache.delete(key)
+    return undefined
+  }
+  return entry.data as T
+}
+
+export function setInMicroCache<T>(key: string, data: T, ttlMs: number = DEFAULT_MICRO_CACHE_TTL_MS): void {
+  if (readMicroCache.size > 1000) {
+    const oldestKey = readMicroCache.keys().next().value
+    if (oldestKey) readMicroCache.delete(oldestKey)
+  }
+  readMicroCache.set(key, { data, expiresAt: Date.now() + ttlMs })
+}
+
+/**
+ * Invalidates read micro-cache (optionally matching a key substring).
+ */
+export function invalidateRpcCache(pattern?: string): void {
+  if (!pattern) {
+    readMicroCache.clear()
+    return
+  }
+  const clean = pattern.toLowerCase()
+  for (const key of readMicroCache.keys()) {
+    if (key.toLowerCase().includes(clean)) {
+      readMicroCache.delete(key)
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENDPOINT COOLDOWN & CIRCUIT BREAKER
+// ─────────────────────────────────────────────────────────────
+const endpointCooldowns = new Map<string, number>()
+export const RPC_COOLDOWN_DURATION_MS = 30_000 // 30 seconds quarantine
+
+export function markEndpointCooldown(url: string, durationMs: number = RPC_COOLDOWN_DURATION_MS): void {
+  if (!url) return
+  endpointCooldowns.set(url, Date.now() + durationMs)
+}
+
+export function isEndpointInCooldown(url: string): boolean {
+  const expiresAt = endpointCooldowns.get(url)
+  if (!expiresAt) return false
+  if (Date.now() > expiresAt) {
+    endpointCooldowns.delete(url)
+    return false
+  }
+  return true
+}
+
+export function resetEndpointCooldowns(): void {
+  endpointCooldowns.clear()
+}
+
+/**
+ * Returns RPC URLs reordered so healthy (non-cooldown) endpoints appear first.
+ */
+export function getOrderedRpcUrls(urls: string[]): string[] {
+  const now = Date.now()
+  const healthy: string[] = []
+  const cooldown: string[] = []
+
+  for (const url of urls) {
+    const expiresAt = endpointCooldowns.get(url)
+    if (expiresAt && expiresAt > now) {
+      cooldown.push(url)
+    } else {
+      if (expiresAt) endpointCooldowns.delete(url)
+      healthy.push(url)
+    }
+  }
+
+  return healthy.length > 0 ? [...healthy, ...cooldown] : urls
+}
 
 /**
  * Builds a robust Fallback transport from a list of HTTP RPC URLs.
@@ -52,12 +137,18 @@ function buildFallbackTransport(
   retryCount: number = RPC_DEFAULT_RETRIES
 ) {
   const uniqueUrls = rpcUrls.filter((u, idx, arr) => u && arr.indexOf(u) === idx)
+  const orderedUrls = getOrderedRpcUrls(uniqueUrls)
 
-  const httpTransports = uniqueUrls.map((url) =>
+  const httpTransports = orderedUrls.map((url) =>
     http(url, {
       timeout: timeoutMs,
       retryCount,
       retryDelay: RPC_DEFAULT_RETRY_DELAY_MS,
+      onFetchResponse(response) {
+        if (response && (response.status === 429 || response.status === 503)) {
+          markEndpointCooldown(url)
+        }
+      },
     })
   )
 
@@ -186,10 +277,14 @@ export function getResilientPublicClient(chainInput?: any): PublicClient {
 
   const transport = buildFallbackTransport(rpcUrls, RPC_DEFAULT_TIMEOUT_MS, RPC_DEFAULT_RETRIES)
 
+  const hasMulticall = Boolean((chain as any)?.contracts?.multicall3?.address)
+
   const client = createPublicClient({
     chain,
     transport,
-    batch: { multicall: false }, // Avoid forcing Multicall3 on chains that do not support it
+    batch: {
+      multicall: hasMulticall ? { batchSize: 64, wait: 20 } : false,
+    },
     pollingInterval: chain.id === arcTestnet.id ? 4000 : 8000,
   })
 
@@ -206,13 +301,14 @@ export function getArcPublicClient(): PublicClient {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3. RESILIENT READ CONTRACT (With In-Flight Deduplication)
+// 3. RESILIENT READ CONTRACT (With In-Flight Deduplication & Rate Limit Retry)
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Resilient readContract with automatic in-flight deduplication.
+ * Resilient readContract with automatic in-flight deduplication and rate-limit backoff.
  * If 3 components call the same function on the same contract at once,
  * only 1 RPC call is fired, and all 3 await the same result.
+ * Automatically retries with exponential backoff on HTTP 429 / -32005 / rate limits.
  */
 export async function resilientReadContract<
   const abi extends Abi | readonly unknown[] = Abi,
@@ -220,7 +316,8 @@ export async function resilientReadContract<
   args extends ContractFunctionArgs<abi, 'pure' | 'view', functionName> = ContractFunctionArgs<abi, 'pure' | 'view', functionName>,
 >(
   client: PublicClient,
-  params: ReadContractParameters<abi, functionName, args>
+  params: ReadContractParameters<abi, functionName, args>,
+  maxRetries: number = 3
 ): Promise<ReadContractReturnType<abi, functionName, args>> {
   const chainId = client.chain?.id || 'unknown'
   const dedupeKey = `read:${chainId}:${params.address}:${params.functionName}:${JSON.stringify(
@@ -228,14 +325,59 @@ export async function resilientReadContract<
     (_k, v) => (typeof v === 'bigint' ? v.toString() : v)
   )}`
 
+  // 1. Check Micro-cache
+  const cached = getFromMicroCache<ReadContractReturnType<abi, functionName, args>>(dedupeKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  // 2. Check In-Flight Deduplication
   if (inFlightRequests.has(dedupeKey)) {
     return inFlightRequests.get(dedupeKey)!
   }
 
   const promise = (async () => {
+    let attempt = 0
     try {
-      const res = await (client.readContract as any)(params)
-      return res as ReadContractReturnType<abi, functionName, args>
+      while (true) {
+        try {
+          const res = await (client.readContract as any)(params)
+          setInMicroCache(dedupeKey, res, DEFAULT_MICRO_CACHE_TTL_MS)
+          return res as ReadContractReturnType<abi, functionName, args>
+        } catch (err: any) {
+          attempt++
+          const msg = (
+            err?.shortMessage ||
+            err?.details ||
+            err?.message ||
+            err?.cause?.message ||
+            err?.cause?.details ||
+            ''
+          ).toLowerCase()
+
+          const isRateLimited =
+            msg.includes('rate limit') ||
+            msg.includes('rate-limited') ||
+            msg.includes('limit exceeded') ||
+            msg.includes('limitexceeded') ||
+            msg.includes('too many requests') ||
+            msg.includes('request is being rate limited') ||
+            err?.code === -32005 ||
+            err?.code === 429 ||
+            err?.cause?.code === -32005 ||
+            err?.cause?.code === 429
+
+          if (isRateLimited && attempt <= maxRetries) {
+            const delayMs = attempt * 800 + Math.floor(Math.random() * 200)
+            console.warn(
+              `[resilientRpc] readContract rate-limited by RPC node (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`
+            )
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
+            continue
+          }
+          throw err
+        }
+      }
     } finally {
       inFlightRequests.delete(dedupeKey)
     }
@@ -246,7 +388,7 @@ export async function resilientReadContract<
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. RESILIENT GET BALANCE (Native Token with Deduplication)
+// 4. RESILIENT GET BALANCE (Native Token with Deduplication & Micro-Cache)
 // ─────────────────────────────────────────────────────────────
 
 export async function resilientGetBalance(
@@ -256,6 +398,13 @@ export async function resilientGetBalance(
   const chainId = client.chain?.id || 'unknown'
   const dedupeKey = `bal:${chainId}:${params.address}:${params.blockTag || 'latest'}`
 
+  // 1. Check Micro-cache
+  const cached = getFromMicroCache<bigint>(dedupeKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  // 2. Check In-Flight Deduplication
   if (inFlightRequests.has(dedupeKey)) {
     return inFlightRequests.get(dedupeKey)!
   }
@@ -263,7 +412,118 @@ export async function resilientGetBalance(
   const promise = (async () => {
     try {
       const bal = await client.getBalance(params)
+      setInMicroCache(dedupeKey, bal, DEFAULT_MICRO_CACHE_TTL_MS)
       return bal
+    } finally {
+      inFlightRequests.delete(dedupeKey)
+    }
+  })()
+
+  inFlightRequests.set(dedupeKey, promise)
+  return promise
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5. RESILIENT MULTICALL3 (Batched Contract Reads with Partial Fault Tolerance)
+// ─────────────────────────────────────────────────────────────
+
+export type MulticallItem = {
+  address: Address
+  abi: Abi | readonly unknown[]
+  functionName: string
+  args?: readonly unknown[]
+}
+
+export type MulticallItemResult<T = any> =
+  | { error: Error; result?: undefined; status: 'failure' }
+  | { error?: undefined; result: T; status: 'success' }
+
+/**
+ * Batches multiple contract read calls into a single Multicall3 RPC query.
+ * Benefits:
+ * - Aggregates N contract queries into 1 single HTTP request.
+ * - allowFailure = true guarantees partial reverts do not fail the entire batch.
+ * - In-flight deduplication and short-term micro-caching prevent redundant node stress.
+ */
+export async function resilientMulticall<T = any>(
+  client: PublicClient,
+  contracts: readonly MulticallItem[],
+  options?: {
+    allowFailure?: boolean
+    maxRetries?: number
+    ttlMs?: number
+  }
+): Promise<MulticallItemResult<T>[]> {
+  if (!contracts || contracts.length === 0) {
+    return []
+  }
+
+  const allowFailure = options?.allowFailure ?? true
+  const maxRetries = options?.maxRetries ?? 3
+  const ttlMs = options?.ttlMs ?? DEFAULT_MICRO_CACHE_TTL_MS
+  const chainId = client.chain?.id || 'unknown'
+
+  const dedupeKey = `multicall:${chainId}:${JSON.stringify(
+    contracts.map((c) => [c.address, c.functionName, c.args]),
+    (_k, v) => (typeof v === 'bigint' ? v.toString() : v)
+  )}`
+
+  // 1. Check Micro-cache
+  const cached = getFromMicroCache<MulticallItemResult<T>[]>(dedupeKey)
+  if (cached !== undefined) {
+    return cached
+  }
+
+  // 2. In-flight request deduplication
+  if (inFlightRequests.has(dedupeKey)) {
+    return inFlightRequests.get(dedupeKey)!
+  }
+
+  const promise = (async () => {
+    let attempt = 0
+    try {
+      while (true) {
+        try {
+          const res = await (client.multicall as any)({
+            contracts,
+            allowFailure,
+          })
+          setInMicroCache(dedupeKey, res, ttlMs)
+          return res as MulticallItemResult<T>[]
+        } catch (err: any) {
+          attempt++
+          const msg = (
+            err?.shortMessage ||
+            err?.details ||
+            err?.message ||
+            err?.cause?.message ||
+            err?.cause?.details ||
+            ''
+          ).toLowerCase()
+
+          const isRateLimited =
+            msg.includes('rate limit') ||
+            msg.includes('rate-limited') ||
+            msg.includes('limit exceeded') ||
+            msg.includes('limitexceeded') ||
+            msg.includes('too many requests') ||
+            msg.includes('request is being rate limited') ||
+            err?.code === -32005 ||
+            err?.code === 429 ||
+            err?.cause?.code === -32005 ||
+            err?.cause?.code === 429
+
+          if (isRateLimited && attempt <= maxRetries) {
+            const delayMs = attempt * 800 + Math.floor(Math.random() * 200)
+            console.warn(
+              `[resilientRpc] multicall rate-limited by RPC node (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`
+            )
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
+            continue
+          }
+          throw err
+        }
+      }
     } finally {
       inFlightRequests.delete(dedupeKey)
     }
@@ -414,7 +674,10 @@ export async function resilientWriteContract(
   let attempt = 0
   while (true) {
     try {
-      return await walletClient.writeContract(params)
+      const txHash = await walletClient.writeContract(params)
+      // On successful transaction broadcast, bust the read micro-cache
+      invalidateRpcCache()
+      return txHash
     } catch (err: any) {
       attempt++
       const msg = (
@@ -439,7 +702,7 @@ export async function resilientWriteContract(
         err?.cause?.code === -32603
 
       if (isRateLimited && attempt <= maxRetries) {
-        const delayMs = attempt * 1200
+        const delayMs = attempt * 1200 + Math.floor(Math.random() * 300)
         console.warn(
           `[resilientRpc] writeContract rate-limited by RPC node (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`
         )
@@ -450,3 +713,11 @@ export async function resilientWriteContract(
     }
   }
 }
+
+// Invalidate micro-cache on window state changes
+if (typeof window !== 'undefined') {
+  window.addEventListener('arcis_session_key_updated', () => invalidateRpcCache())
+  window.addEventListener('arcis_portfolio_updated', () => invalidateRpcCache())
+  window.addEventListener('arcis:swap-volume-updated', () => invalidateRpcCache())
+}
+

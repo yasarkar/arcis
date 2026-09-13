@@ -146,19 +146,20 @@ export async function GET(req: Request) {
  * Adds or updates a transaction in server storage.
  */
 export async function POST(req: Request) {
-  const jsonResult = await safeJsonParse(req)
-  if (!jsonResult.success) {
-    return apiError(
-      jsonResult.error || 'Invalid or malformed JSON payload in request body.',
-      'INVALID_JSON',
-      400
-    )
-  }
+  try {
+    const jsonResult = await safeJsonParse(req)
+    if (!jsonResult.success) {
+      return apiError(
+        jsonResult.error || 'Invalid or malformed JSON payload in request body.',
+        'INVALID_JSON',
+        400
+      )
+    }
 
-  const body = jsonResult.data
-  if (!body || typeof body !== 'object') {
-    return apiError('Invalid request body.', 'INVALID_BODY', 400)
-  }
+    const body = jsonResult.data
+    if (!body || typeof body !== 'object') {
+      return apiError('Invalid request body.', 'INVALID_BODY', 400)
+    }
 
     const {
       type = 'send',
@@ -241,6 +242,7 @@ export async function POST(req: Request) {
     return apiSuccess({
       transaction: newItem,
     })
+    
   } catch (error: any) {
     console.error('[History API] POST Error:', error)
     return apiError(error.message || 'Internal server error in History save', 'HISTORY_POST_ERROR', 500)
