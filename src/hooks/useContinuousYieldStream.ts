@@ -10,7 +10,7 @@ export function useContinuousYieldStream(
   principalUsd: number,
   apyPercent: number,
   initialBaseYieldUsd: number = 0,
-  tickIntervalMs: number = 60,
+  tickIntervalMs: number = 1000,
   _storageKey?: string
 ) {
   const [accumulatedYield, setAccumulatedYield] = useState<number>(initialBaseYieldUsd)
@@ -24,7 +24,7 @@ export function useContinuousYieldStream(
     setAccumulatedYield(initialBaseYieldUsd)
   }, [initialBaseYieldUsd, principalUsd, apyPercent])
 
-  // Live real-time ticking
+  // Live real-time ticking (throttled to 1s intervals to eliminate CPU thrashing)
   useEffect(() => {
     if (principalUsd <= 0 || apyPercent <= 0) {
       setAccumulatedYield(initialBaseYieldUsd > 0 ? initialBaseYieldUsd : 0)
@@ -50,9 +50,10 @@ export function useContinuousYieldStream(
     accumulatedYield,
     yieldPerSecond,
     yieldPerDay,
-    formattedYield: accumulatedYield.toFixed(6),
-    formattedShort: accumulatedYield.toFixed(4),
-    formattedHighPrecision: accumulatedYield.toFixed(7),
+    formattedYield: accumulatedYield.toFixed(4),
+    formattedShort: accumulatedYield.toFixed(2),
+    formattedHighPrecision: accumulatedYield.toFixed(6),
+    formattedApprox: `≈ +${accumulatedYield.toFixed(4)}`,
   }
 }
 

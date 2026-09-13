@@ -14,12 +14,10 @@ import {
   type ChainSwitchResult,
 } from '../services/chainSwitchService'
 import { arcActiveChain } from '../config/networks/networkRegistry'
-import { useBroadcast } from '../components/BroadcastNotification'
 
 export function useChainSwitch() {
   const { isConnected, chainId, connector } = useAccount()
   const { switchChainAsync } = useSwitchChain()
-  const { addBroadcast } = useBroadcast()
   const [isSwitching, setIsSwitching] = useState(false)
 
   const isArcActive = Boolean(isConnected && chainId === arcActiveChain.id)
@@ -64,15 +62,6 @@ export function useChainSwitch() {
           }
         }
 
-        // Notify user of successful network switch
-        addBroadcast({
-          type: 'system',
-          status: 'success',
-          title: `${chain.name} Switched`,
-          message: `Your wallet is now connected to ${chain.name}.`,
-          badgeText: chain.id === arcActiveChain.id ? 'Arc L1' : 'Network',
-        })
-
         return { success: true, chainId: chain.id }
       } catch (err: any) {
         const msg = err?.message || 'Failed to switch network.'
@@ -81,7 +70,7 @@ export function useChainSwitch() {
         setIsSwitching(false)
       }
     },
-    [isConnected, connector, switchChainAsync, addBroadcast]
+    [isConnected, connector, switchChainAsync]
   )
 
   const switchToArc = useCallback(async (): Promise<ChainSwitchResult> => {

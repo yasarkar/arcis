@@ -1,7 +1,7 @@
 // Arcis Pools & Yield — Real on-chain testnet data hook (Phase 5 rewrite).
 // Reads real reserves / vault state from Arc Testnet contracts and submits
 // real transactions via the connected wallet provider.
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   erc20Abi,
@@ -16,7 +16,7 @@ import {
   type TransactionReceipt,
 } from 'viem'
 import { arcTestnet } from '../config/arcChain'
-import { getArcPublicClient, resilientReadContract, resilientWaitForReceipt, resilientWriteContract } from '../services/rpc'
+import { getArcPublicClient, resilientReadContract, resilientMulticall, resilientWaitForReceipt, resilientWriteContract } from '../services/rpc'
 import {
   ARCIS_POOLS,
   POOL_CONTRACTS,
@@ -30,7 +30,14 @@ import {
   poolMinLpShares,
   type PoolConfig,
 } from '../config/poolsConfig'
-import { calculateStableSwapExpectedOut, calculatePoolShare, calculateVaultClaimShares, calculateLpClaimAmount } from '../utils/poolMath'
+import {
+  calculateStableSwapExpectedOut,
+  calculateConstantProductExpectedOut,
+  calculatePoolShare,
+  calculateVaultClaimShares,
+  calculateLpClaimAmount,
+  getStableSwapD,
+} from '../utils/poolMath'
 import { redisCache } from '../services/redisCacheService'
 import { sendModularUserOperation, getActiveSmartAccount } from '../services/modularWalletService'
 import { getLiveTokenPrices, getCachedTokenPrice } from '../services/tokenPriceService'
@@ -68,6 +75,13 @@ export interface UserPoolPosition {
   earnedFeesUsd?: number
 }
 
+export interface PoolWithdrawResult {
+  txHash: string
+  autoSwapFailed?: boolean
+  counterTokenSymbol?: string
+  counterAmount?: string
+}
+
 function isDeployed(address: string): boolean {
   return Boolean(address && address !== zeroAddress && address.startsWith('0x'))
 }
@@ -77,9 +91,9 @@ export const recordGatewayDeposit = (_userAddr: string, _amount: number) => {}
 export const recordGatewayWithdrawal = (_userAddr: string, _amount: number) => {}
 export const getLocalGatewayDeposits = (_userAddr: string): number => 0
 
-// V2-only helper: estimate expected LP shares from on-chain reserves and derive a
-// conservative minLpShares slippage guard. Returns 0n (no guard) when V1 is active,
-// the pool is not yet seeded, or reserves are unavailable, so it never falsely reverts.
+// V2/V3 helper: estimate expected LP shares from on-chain reserves and derive a
+// conservative minLpShares slippage guard. For Curve StableSwap pools, uses the exact
+// invariant _getD matching StableSwapPoolV3.sol to prevent false SlippageExceeded reverts.
 export function usePoolsV2MinLpShares(
   pool: { id: string; tokens?: readonly { decimals?: number }[] },
   poolAddress: string,
@@ -96,7 +110,7 @@ export function usePoolsV2MinLpShares(
   if (totalLpRaw <= 0n || reserveARaw <= 0n) return 0n
 
   const slipBps = poolSlippageBps(slippage)
-  let expectedLp: bigint
+  let expectedLp: bigint = 0n
   const counterDecimals =
     counterDecimalsInput ?? pool.tokens?.[1]?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : 6)
 
@@ -107,8 +121,19 @@ export function usePoolsV2MinLpShares(
     const lpB = (amountB * totalLpRaw) / reserveBRaw
     expectedLp = lpA < lpB ? lpA : lpB
   } else {
-    // Stable constant-sum pool: proportional to USDC reserve (valid near 1:1 peg).
-    expectedLp = (amountA * totalLpRaw) / reserveARaw
+    // StableSwap pool: Exact Curve invariant calculation matching StableSwapPoolV3.sol
+    const reserveBRaw = st.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
+    if (reserveBRaw > 0n && amountA > 0n && amountB > 0n) {
+      const d0 = getStableSwapD(reserveARaw, reserveBRaw, 100n)
+      const d1 = getStableSwapD(reserveARaw + amountA, reserveBRaw + amountB, 100n)
+      if (d1 > d0 && d0 > 0n) {
+        expectedLp = ((d1 - d0) * totalLpRaw) / d0
+      }
+    }
+    // Fallback if reserveB is 0 or d1 <= d0
+    if (expectedLp <= 0n && reserveARaw > 0n) {
+      expectedLp = (amountA * totalLpRaw) / reserveARaw
+    }
   }
   if (expectedLp <= 0n) return 0n
   return poolMinLpShares(expectedLp, slipBps)
@@ -138,19 +163,17 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const stopSim = startLiveVolumeSimulation()
     const handleVolumeUpdate = () => {
+      // Pure UI state revision bump — does NOT trigger expensive on-chain RPC query invalidations
       setVolumeRevision((prev) => prev + 1)
-      queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
     }
     window.addEventListener('arcis:swap-volume-updated', handleVolumeUpdate)
     window.addEventListener('storage', handleVolumeUpdate)
     return () => {
-      stopSim()
       window.removeEventListener('arcis:swap-volume-updated', handleVolumeUpdate)
       window.removeEventListener('storage', handleVolumeUpdate)
     }
-  }, [queryClient])
+  }, [])
 
   // Public read client for Arc Testnet (Multi-RPC pooled resilient client)
   const publicClient = useMemo(() => {
@@ -239,8 +262,8 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       return result
     },
     enabled: isAddressValid,
-    staleTime: 12_000,
-    refetchInterval: 25_000,
+    staleTime: 30_000,
+    refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 60_000),
     gcTime: 1000 * 60 * 5,
   })
 
@@ -259,120 +282,135 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
       const state: Record<string, any> = {}
 
-      // StableSwapPool (USDC/EURC)
+      // StableSwapPool (USDC/EURC) via Multicall3
       if (isDeployed(POOL_CONTRACTS.STABLE_SWAP_POOL)) {
         try {
-          const [reserveA, reserveB, totalLp, ufA, ufB, accA, accB, feeBps, vol24A, vol24B] = await Promise.all([
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeB' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'accumulatedFeeA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'accumulatedFeeB' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'swapFeeBps' }).catch(() => 12n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'volume24hA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'volume24hB' }).catch(() => 0n),
-          ])
+          const fnNames = [
+            'reserveA',
+            'reserveB',
+            'totalLp',
+            'unclaimedFeeA',
+            'unclaimedFeeB',
+            'accumulatedFeeA',
+            'accumulatedFeeB',
+            'swapFeeBps',
+            'volume24hA',
+            'volume24hB',
+          ] as const
+
+          const calls = fnNames.map((fn) => ({
+            address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
+            abi: STABLE_SWAP_ABI,
+            functionName: fn,
+          }))
+
+          const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+          const val = (idx: number, fallback: bigint = 0n) =>
+            results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
           state[POOL_CONTRACTS.STABLE_SWAP_POOL] = {
-            reserveA: formatUnits(reserveA as bigint, 6),
-            reserveB: formatUnits(reserveB as bigint, 6),
-            totalLp: formatUnits(totalLp as bigint, 18),
-            unclaimedFeeA: formatUnits(ufA as bigint, 6),
-            unclaimedFeeB: formatUnits(ufB as bigint, 6),
-            accumulatedFeeA: formatUnits(accA as bigint, 6),
-            accumulatedFeeB: formatUnits(accB as bigint, 6),
-            swapFeeBps: Number(feeBps as bigint),
-            volume24hA: formatUnits((vol24A || 0n) as bigint, 6),
-            volume24hB: formatUnits((vol24B || 0n) as bigint, 6),
+            reserveA: formatUnits(val(0), 6),
+            reserveB: formatUnits(val(1), 6),
+            totalLp: formatUnits(val(2), 18),
+            unclaimedFeeA: formatUnits(val(3), 6),
+            unclaimedFeeB: formatUnits(val(4), 6),
+            accumulatedFeeA: formatUnits(val(5), 6),
+            accumulatedFeeB: formatUnits(val(6), 6),
+            swapFeeBps: Number(val(7, 12n)),
+            volume24hA: formatUnits(val(8), 6),
+            volume24hB: formatUnits(val(9), 6),
           }
         } catch (err) {
-          console.warn('[usePoolsData] StableSwap state read failed:', err)
+          console.warn('[usePoolsData] StableSwap multicall state read failed:', err)
         }
       }
 
-      // ConstantProductPool (USDC/cirBTC)
+      // ConstantProductPool (USDC/cirBTC) via Multicall3
       const cpAddresses = [
         POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
       ].filter((addr, idx, arr) => isDeployed(addr) && arr.indexOf(addr) === idx)
 
       for (const cpAddr of cpAddresses) {
         try {
-          const [reserveA, reserveB, totalLp, ufA, ufB, accA, accB, feeBps, vol24A, vol24B] = await Promise.all([
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'accumulatedFeeA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'accumulatedFeeB' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'swapFeeBps' }).catch(() => 25n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'volume24hA' }).catch(() => 0n),
-            resilientReadContract(publicClient, { address: cpAddr, abi: CONSTANT_PRODUCT_ABI, functionName: 'volume24hB' }).catch(() => 0n),
-          ])
+          const fnNames = [
+            'reserveA',
+            'reserveB',
+            'totalLp',
+            'unclaimedFeeA',
+            'unclaimedFeeB',
+            'accumulatedFeeA',
+            'accumulatedFeeB',
+            'swapFeeBps',
+            'volume24hA',
+            'volume24hB',
+          ] as const
+
+          const calls = fnNames.map((fn) => ({
+            address: cpAddr as Address,
+            abi: CONSTANT_PRODUCT_ABI,
+            functionName: fn,
+          }))
+
+          const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+          const val = (idx: number, fallback: bigint = 0n) =>
+            results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
           state[cpAddr] = {
-            reserveA: formatUnits(reserveA as bigint, 6),
-            reserveB: formatUnits(reserveB as bigint, 8),
-            totalLp: formatUnits(totalLp as bigint, 18),
-            unclaimedFeeA: formatUnits(ufA as bigint, 6),
-            unclaimedFeeB: formatUnits(ufB as bigint, 8),
-            accumulatedFeeA: formatUnits(accA as bigint, 6),
-            accumulatedFeeB: formatUnits(accB as bigint, 8),
-            swapFeeBps: Number(feeBps as bigint),
-            volume24hA: formatUnits((vol24A || 0n) as bigint, 6),
-            volume24hB: formatUnits((vol24B || 0n) as bigint, 8),
+            reserveA: formatUnits(val(0), 6),
+            reserveB: formatUnits(val(1), 8),
+            totalLp: formatUnits(val(2), 18),
+            unclaimedFeeA: formatUnits(val(3), 6),
+            unclaimedFeeB: formatUnits(val(4), 8),
+            accumulatedFeeA: formatUnits(val(5), 6),
+            accumulatedFeeB: formatUnits(val(6), 8),
+            swapFeeBps: Number(val(7, 25n)),
+            volume24hA: formatUnits(val(8), 6),
+            volume24hB: formatUnits(val(9), 8),
           }
         } catch (err) {
-          console.warn(`[usePoolsData] ConstantProduct state read failed for ${cpAddr}:`, err)
+          console.warn(`[usePoolsData] ConstantProduct multicall state read failed for ${cpAddr}:`, err)
         }
       }
 
-      // YieldVault (ERC-4626)
+      // YieldVault (ERC-4626) via Multicall3
       if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
         try {
-          const [totalAssets, totalSupply, totalYield] = await Promise.all([
-            resilientReadContract(publicClient, {
-              address: POOL_CONTRACTS.YIELD_VAULT,
-              abi: YIELD_VAULT_ABI,
-              functionName: 'totalAssets',
-            }).catch(() => 0n),
-            resilientReadContract(publicClient, {
-              address: POOL_CONTRACTS.YIELD_VAULT,
-              abi: YIELD_VAULT_ABI,
-              functionName: 'totalSupply',
-            }).catch(() => 0n),
-            resilientReadContract(publicClient, {
-              address: POOL_CONTRACTS.YIELD_VAULT,
-              abi: [
-                {
-                  type: 'function',
-                  name: 'totalYieldDistributed',
-                  stateMutability: 'view',
-                  inputs: [],
-                  outputs: [{ type: 'uint256' }],
-                },
-              ] as const,
-              functionName: 'totalYieldDistributed',
-            }).catch(() => 0n),
-          ])
+          const totalYieldAbi = [
+            {
+              type: 'function',
+              name: 'totalYieldDistributed',
+              stateMutability: 'view',
+              inputs: [],
+              outputs: [{ type: 'uint256' }],
+            },
+          ] as const
+
+          const calls = [
+            { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalAssets' },
+            { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalSupply' },
+            { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: totalYieldAbi, functionName: 'totalYieldDistributed' },
+          ]
+
+          const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+          const val = (idx: number) =>
+            results[idx]?.status === 'success' ? (results[idx].result as bigint) : 0n
+
           state[POOL_CONTRACTS.YIELD_VAULT] = {
-            totalAssets: formatUnits(totalAssets as bigint, 6),
-            totalSupply: formatUnits(totalSupply as bigint, 6),
-            totalYieldDistributed: formatUnits((totalYield || 0n) as bigint, 6),
+            totalAssets: formatUnits(val(0), 6),
+            totalSupply: formatUnits(val(1), 6),
+            totalYieldDistributed: formatUnits(val(2), 6),
           }
         } catch (err) {
-          console.warn('[usePoolsData] YieldVault state read failed:', err)
+          console.warn('[usePoolsData] YieldVault multicall state read failed:', err)
         }
       }
-
-
 
       await redisCache.set(cacheKey, state, 20)
       return state
     },
     enabled: true,
-    staleTime: 12_000,
-    refetchInterval: 25_000,
+    staleTime: 30_000,
+    refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 45_000),
     gcTime: 1000 * 60 * 5,
   })
 
@@ -381,7 +419,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     data: userPoolPositions,
     refetch: refetchUserPositions,
   } = useQuery({
-    queryKey: ['userPoolPositions', walletAddress, onchainPoolState, liveBtcPrice, liveEurcPrice],
+    queryKey: ['userPoolPositions', walletAddress],
     queryFn: async () => {
       if (!isAddressValid) return {}
       const targetAddr = walletAddress as `0x${string}`
@@ -464,7 +502,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             }
 
             const poolSharePct = liveTotalSupply > 0n
-              ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(4))))
+              ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(2))))
               : 0
 
             positions['usdc-yield-vault'] = {
@@ -528,7 +566,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
               userB = parseFloat(formatUnits(userBRaw, 6))
               const exchangeRate = liveEurcPrice
               stakedUsd = userA + userB * exchangeRate
-              poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(4))))
+              poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
 
               const poolState = onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]
               const ufA = parseFloat(poolState?.unclaimedFeeA || '0')
@@ -604,7 +642,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
               userB = parseFloat(formatUnits(userBRaw, 8))
               const btcPrice = liveBtcPrice
               stakedUsd = userA + userB * btcPrice
-              poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(4))))
+              poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
 
               let poolState = onchainPoolState?.[cpAddress]
               const ufA = parseFloat(poolState?.unclaimedFeeA || '0')
@@ -643,8 +681,8 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       return positions
     },
     enabled: isAddressValid,
-    staleTime: 12_000,
-    refetchInterval: 25_000,
+    staleTime: 20_000,
+    refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 45_000),
     gcTime: 1000 * 60 * 5,
   })
 
@@ -887,7 +925,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       console.warn('[usePoolsData] Redis cache purge warning:', delErr)
     }
 
-    // Invalidate React Query cache entries
+    // Invalidate React Query cache entries (which automatically and cooperatively schedule refetches)
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['onchainPoolBalances'] }),
       queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] }),
@@ -897,20 +935,20 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       queryClient.invalidateQueries({ queryKey: ['gatewayBalances'] }),
     ])
 
-    // Coordinated refetch order: pool state and balances first, then user positions
-    try {
-      await Promise.all([
-        refetchOnchainBalances(),
-        refetchPoolState(),
-      ])
-      await refetchUserPositions()
-    } catch (refetchErr) {
-      console.warn('[usePoolsData] Refetch after cache invalidation warning:', refetchErr)
-    }
-
     // Bump volume revision to refresh 24h metrics
     setVolumeRevision((prev) => prev + 1)
-  }, [refetchOnchainBalances, refetchPoolState, refetchUserPositions, queryClient, walletAddress])
+  }, [queryClient, walletAddress])
+
+  // Debounced cache invalidator to prevent RPC flooding from rapid events
+  const debounceInvalidateTimerRef = useRef<any>(null)
+  const debouncedInvalidatePoolCaches = useCallback(() => {
+    if (debounceInvalidateTimerRef.current) {
+      clearTimeout(debounceInvalidateTimerRef.current)
+    }
+    debounceInvalidateTimerRef.current = setTimeout(() => {
+      invalidatePoolCaches()
+    }, 1500)
+  }, [invalidatePoolCaches])
 
   // ── Standard deposit (Yield Vault & Gateway Settlement Pool) ────────────
   const depositToPool = useCallback(
@@ -937,7 +975,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           const oldUsdc = parseFloat(old.usdc || '0')
           return { ...old, usdc: Math.max(0, oldUsdc - depositAmt).toFixed(2) }
         })
-        queryClient.setQueryData<Record<string, UserPoolPosition>>(['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice], (old) => {
+        queryClient.setQueryData<Record<string, UserPoolPosition>>(['userPoolPositions', targetAccount], (old) => {
           if (!old) return old
           const curr = old['usdc-yield-vault']
           const oldStaked = curr?.stakedUsd || 0
@@ -1127,11 +1165,34 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           throw new Error('Failed to receive counter token from AMM swap output.')
         }
 
+        // Fetch fresh on-chain reserves directly from pool to ensure exact post-swap slippage math
+        let freshPoolState = onchainPoolState
+        try {
+          const [freshReserveA, freshReserveB, freshTotalLp] = await Promise.all([
+            resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }).catch(() => 0n),
+            resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }).catch(() => 0n),
+            resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }).catch(() => 0n),
+          ])
+          if ((freshTotalLp as bigint) > 0n) {
+            freshPoolState = {
+              ...(onchainPoolState || {}),
+              [poolAddress]: {
+                ...(onchainPoolState?.[poolAddress] || {}),
+                reserveA: formatUnits(freshReserveA as bigint, 6),
+                reserveB: formatUnits(freshReserveB as bigint, counterDecimals),
+                totalLp: formatUnits(freshTotalLp as bigint, 18),
+              },
+            }
+          }
+        } catch (freshErr) {
+          console.warn('[zapIn] Note: using cached reserves for minLpShares:', freshErr)
+        }
+
         // Step 2: Approve counter token & addLiquidity
         const minLpShares = usePoolsV2MinLpShares(
           pool,
           poolAddress,
-          onchainPoolState,
+          freshPoolState,
           poolRemainingUsdc,
           actualCounter,
           counterDecimals,
@@ -1197,7 +1258,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             return { ...old, usdc: Math.max(0, oldUsdc - inputVal).toFixed(2) }
           })
           queryClient.setQueryData<Record<string, UserPoolPosition>>(
-            ['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice],
+            ['userPoolPositions', targetAccount],
             (old) => {
               if (!old) return old
               const curr = old[pool.id]
@@ -1263,27 +1324,64 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         throw new Error('Failed to receive counter token from AMM swap output.')
       }
 
+      // Fetch fresh on-chain reserves directly from pool to ensure exact post-swap slippage math
+      let freshPoolState = onchainPoolState
+      try {
+        const [freshReserveA, freshReserveB, freshTotalLp] = await Promise.all([
+          resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }).catch(() => 0n),
+          resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }).catch(() => 0n),
+          resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }).catch(() => 0n),
+        ])
+        if ((freshTotalLp as bigint) > 0n) {
+          freshPoolState = {
+            ...(onchainPoolState || {}),
+            [poolAddress]: {
+              ...(onchainPoolState?.[poolAddress] || {}),
+              reserveA: formatUnits(freshReserveA as bigint, 6),
+              reserveB: formatUnits(freshReserveB as bigint, counterDecimals),
+              totalLp: formatUnits(freshTotalLp as bigint, 18),
+            },
+          }
+        }
+      } catch (freshErr) {
+        console.warn('[zapIn] Note: using cached reserves for minLpShares:', freshErr)
+      }
+
+      // Verify allowances for both USDC and counter token
+      await approveToken(POOL_CONTRACTS.USDC, poolAddress, poolRemainingUsdc)
       await approveToken(counterTokenAddress, poolAddress, actualCounterAmount)
 
       const minLpShares = usePoolsV2MinLpShares(
         pool,
         poolAddress,
-        onchainPoolState,
+        freshPoolState,
         poolRemainingUsdc,
         actualCounterAmount,
         counterDecimals,
         slippageTolerance
       )
 
-      const txHash = await resilientWriteContract(walletClient, {
-        address: poolAddress,
-        abi: STABLE_SWAP_ABI,
-        functionName: 'addLiquidity',
-        args: [poolRemainingUsdc, actualCounterAmount, minLpShares],
-        account: targetAccount,
-        chain: arcTestnet,
-        gas: 450_000n,
-      })
+      let txHash: Hex
+      try {
+        txHash = await resilientWriteContract(walletClient, {
+          address: poolAddress,
+          abi: STABLE_SWAP_ABI,
+          functionName: 'addLiquidity',
+          args: [poolRemainingUsdc, actualCounterAmount, minLpShares],
+          account: targetAccount,
+          chain: arcTestnet,
+          gas: 450_000n,
+        })
+      } catch (addLiqErr: any) {
+        console.error('[zapIn] Liquidity addition failed after swap:', addLiqErr)
+        const counterSymbol = counterToken?.symbol || 'counter tokens'
+        const counterFormatted = formatUnits(actualCounterAmount, counterDecimals)
+        throw new Error(
+          `Zap swap completed successfully (${counterFormatted} ${counterSymbol} added to wallet), but liquidity addition failed: ${
+            addLiqErr?.shortMessage || addLiqErr?.message || 'Transaction reverted'
+          }. Your ${counterSymbol} is safe in your wallet; you can provide dual liquidity or swap back to USDC.`
+        )
+      }
       const receipt = await waitForReceiptSafe(txHash, 'Add liquidity')
 
       // Decode LiquidityAdded event from receipt to get actual lpMinted (K1)
@@ -1321,7 +1419,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           return { ...old, usdc: Math.max(0, oldUsdc - inputVal).toFixed(2) }
         })
         queryClient.setQueryData<Record<string, UserPoolPosition>>(
-          ['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice],
+          ['userPoolPositions', targetAccount],
           (old) => {
             if (!old) return old
             const curr = old[pool.id]
@@ -1380,10 +1478,32 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       const amountB = parseUnits(amountBStr, counterDecimals)
       const counterTokenAddress = (counterToken?.address || POOL_CONTRACTS.cirBTC) as `0x${string}`
 
-      // V2: compute a conservative minLpShares guard from on-chain reserves
-      // (proportional / constant-product estimate) so a material price move
+      // V2/V3: compute a conservative minLpShares guard from on-chain reserves
+      // (proportional / constant-product / Curve invariant estimate) so a material price move
       // triggers SlippageExceeded instead of burning the user's LP value.
-      const minLpShares = usePoolsV2MinLpShares(pool, poolAddress, onchainPoolState, amountA, amountB, counterDecimals, _slippage)
+      let freshPoolState = onchainPoolState
+      try {
+        const [freshReserveA, freshReserveB, freshTotalLp] = await Promise.all([
+          resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }).catch(() => 0n),
+          resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }).catch(() => 0n),
+          resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }).catch(() => 0n),
+        ])
+        if ((freshTotalLp as bigint) > 0n) {
+          freshPoolState = {
+            ...(onchainPoolState || {}),
+            [poolAddress]: {
+              ...(onchainPoolState?.[poolAddress] || {}),
+              reserveA: formatUnits(freshReserveA as bigint, 6),
+              reserveB: formatUnits(freshReserveB as bigint, counterDecimals),
+              totalLp: formatUnits(freshTotalLp as bigint, 18),
+            },
+          }
+        }
+      } catch (freshErr) {
+        console.warn('[depositDual] Note: using cached reserves for minLpShares:', freshErr)
+      }
+
+      const minLpShares = usePoolsV2MinLpShares(pool, poolAddress, freshPoolState, amountA, amountB, counterDecimals, _slippage)
       const addLiquidityArgs = [amountA, amountB, minLpShares] as const
 
       const totalUsdAdded = parseFloat(amountAStr) + parseFloat(amountBStr) * (pool.exchangeRate || 1)
@@ -1457,7 +1577,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             return { ...old, usdc: Math.max(0, oldUsdc - decA).toFixed(2) }
           })
           queryClient.setQueryData<Record<string, UserPoolPosition>>(
-            ['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice],
+            ['userPoolPositions', targetAccount],
             (old) => {
               if (!old) return old
               const curr = old[pool.id]
@@ -1542,7 +1662,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           return { ...old, usdc: Math.max(0, oldUsdc - decA).toFixed(2) }
         })
         queryClient.setQueryData<Record<string, UserPoolPosition>>(
-          ['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice],
+          ['userPoolPositions', targetAccount],
           (old) => {
             if (!old) return old
             const curr = old[pool.id]
@@ -1573,289 +1693,6 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       return { txHash, lpMinted, poolShare }
     },
     [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, poolsWithUserStats]
-  )
-
-  // ── Withdraw (vault redeem OR LP removeLiquidity) ─────────────────────────
-  const withdrawFromPool = useCallback(
-    async (
-      poolId: string,
-      amountStr: string,
-      payoutMode: 'standard' | 'dual' | 'usdc' = 'standard',
-      _provider?: any,
-      _slippage: number = 0.5
-    ): Promise<{ txHash: string }> => {
-      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
-      if (!pool) throw new Error('Pool not found')
-
-      const targetAccount = (walletAddress || (await (await getWalletClient())?.getAddresses())?.[0]) as Address
-      if (!targetAccount) throw new Error('Wallet not connected')
-
-
-
-      // 1. YieldVault Withdrawal (ERC-4626)
-      if (pool.id === 'usdc-yield-vault') {
-        requireDeployed(POOL_CONTRACTS.YIELD_VAULT, pool.name)
-
-        const walletSharesRaw = (await resilientReadContract(publicClient, {
-          address: POOL_CONTRACTS.YIELD_VAULT,
-          abi: YIELD_VAULT_ABI,
-          functionName: 'balanceOf',
-          args: [targetAccount],
-        })) as bigint
-
-        if (walletSharesRaw === 0n) {
-          throw new Error('No vault shares deposited')
-        }
-
-        const totalAssets = (await resilientReadContract(publicClient, {
-          address: POOL_CONTRACTS.YIELD_VAULT,
-          abi: YIELD_VAULT_ABI,
-          functionName: 'totalAssets',
-        })) as bigint
-
-        const totalSupply = (await resilientReadContract(publicClient, {
-          address: POOL_CONTRACTS.YIELD_VAULT,
-          abi: YIELD_VAULT_ABI,
-          functionName: 'totalSupply',
-        })) as bigint
-
-        const userPos = userPoolPositions?.['usdc-yield-vault']
-        const userStakedUsd = userPos?.stakedUsd || 0
-        const withdrawAmountUsd = parseFloat(amountStr) || 0
-
-        let sharesToRedeem: bigint
-        if (withdrawAmountUsd >= userStakedUsd * 0.999 || userStakedUsd <= 0) {
-          sharesToRedeem = walletSharesRaw
-        } else {
-          // YieldVault has 6 decimals, matching underlying USDC
-          const amountAssets = parseUnits(amountStr, 6)
-          if (totalAssets > 0n && totalSupply > 0n) {
-            sharesToRedeem = (amountAssets * totalSupply) / totalAssets
-          } else {
-            sharesToRedeem = amountAssets
-          }
-          if (sharesToRedeem > walletSharesRaw) sharesToRedeem = walletSharesRaw
-        }
-
-        const applyYieldVaultOptimisticWithdraw = () => {
-          if (withdrawAmountUsd <= 0) return
-          queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
-            if (!old) return old
-            const oldUsdc = parseFloat(old.usdc || '0')
-            return { ...old, usdc: (oldUsdc + withdrawAmountUsd).toFixed(2) }
-          })
-          queryClient.setQueryData<Record<string, UserPoolPosition>>(
-            ['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice],
-            (old) => {
-              if (!old) return old
-              const curr = old['usdc-yield-vault']
-              if (!curr) return old
-              const oldStaked = curr.stakedUsd || 0
-              const newStaked = Math.max(0, oldStaked - withdrawAmountUsd)
-              return {
-                ...old,
-                ['usdc-yield-vault']: {
-                  ...curr,
-                  stakedAmount: newStaked.toFixed(2),
-                  stakedUsd: newStaked,
-                  lpTokenBalance: newStaked.toFixed(2),
-                },
-              }
-            }
-          )
-        }
-
-        // Modular Smart Account (Passkey)
-        const smartAccount = getActiveSmartAccount()
-        if (smartAccount) {
-          const redeemCall = {
-            to: POOL_CONTRACTS.YIELD_VAULT as Hex,
-            data: encodeFunctionData({
-              abi: YIELD_VAULT_ABI,
-              functionName: 'redeem',
-              args: [sharesToRedeem, targetAccount, targetAccount],
-            }),
-          }
-          const opRes = await sendModularUserOperation({
-            calls: [redeemCall],
-            paymaster: true,
-          })
-          if (!opRes.success || !opRes.txHash) {
-            throw new Error(opRes.error || 'Modular UserOperation redeem failed.')
-          }
-          applyYieldVaultOptimisticWithdraw()
-          await invalidatePoolCaches()
-          return { txHash: opRes.txHash }
-        }
-
-        // EOA Provider
-        const walletClient = await getWalletClient()
-        if (!walletClient) throw new Error('Wallet not connected')
-
-        const txHash = await resilientWriteContract(walletClient, {
-          address: POOL_CONTRACTS.YIELD_VAULT,
-          abi: YIELD_VAULT_ABI,
-          functionName: 'redeem',
-          args: [sharesToRedeem, targetAccount, targetAccount],
-          account: targetAccount,
-          chain: arcTestnet,
-          gas: 350_000n,
-        })
-        await waitForReceiptSafe(txHash, 'Yield vault redeem')
-        applyYieldVaultOptimisticWithdraw()
-        await invalidatePoolCaches()
-        return { txHash }
-      }
-
-      // 2. LP Pool Removal
-      const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
-        ? POOL_CONTRACTS.STABLE_SWAP_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
-      requireDeployed(poolAddress, pool.name)
-
-      const userLpRaw = (await resilientReadContract(publicClient, {
-        address: poolAddress,
-        abi: STABLE_SWAP_ABI,
-        functionName: 'balanceOf',
-        args: [targetAccount],
-      })) as bigint
-
-      if (userLpRaw === 0n) {
-        throw new Error('No LP liquidity deposited in this pool')
-      }
-
-      const userPos = userPoolPositions?.[poolId]
-      const userStakedUsd = userPos?.stakedUsd || 0
-      const withdrawAmountUsd = parseFloat(amountStr) || 0
-
-      let lpToWithdraw: bigint
-      if (withdrawAmountUsd >= userStakedUsd * 0.999 || userStakedUsd <= 0) {
-        lpToWithdraw = userLpRaw
-      } else {
-        const ratio = withdrawAmountUsd / userStakedUsd
-        lpToWithdraw = (userLpRaw * BigInt(Math.round(ratio * 10000))) / 10000n
-        if (lpToWithdraw > userLpRaw) lpToWithdraw = userLpRaw
-      }
-
-      if (lpToWithdraw === 0n) {
-        throw new Error('Withdrawal amount too small')
-      }
-
-      const counterToken = pool.tokens[1]
-      const counterTokenAddress = (counterToken?.address || POOL_CONTRACTS.cirBTC) as `0x${string}`
-
-      // V2: derive exact minOutA/minOutB from reserves for removeLiquidity slippage.
-      const removeLiquidityArgs = (() => {
-        if (!POOL_VERSION_V2 && !POOL_VERSION_V3) return [lpToWithdraw, 0n, 0n] as const
-        const st = (onchainPoolState || {})[poolAddress] as any
-        const total = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
-        if (total <= 0n) return [lpToWithdraw, 0n, 0n] as const
-        const counterDecimals = counterToken?.decimals === 8 ? 8 : 6
-        const reserveA = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
-        const reserveB = st?.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
-        const slipBps = poolSlippageBps(_slippage)
-        const minOutA = reserveA > 0n ? poolMinOut((reserveA * lpToWithdraw) / total, slipBps) : 0n
-        const minOutB = reserveB > 0n ? poolMinOut((reserveB * lpToWithdraw) / total, slipBps) : 0n
-        return [lpToWithdraw, minOutA, minOutB] as const
-      })() as readonly [lpAmount: bigint, minOutA: bigint, minOutB: bigint]
-
-      const counterBalBefore = payoutMode === 'usdc' && counterTokenAddress
-        ? ((await resilientReadContract(publicClient, {
-            address: counterTokenAddress,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [targetAccount],
-          })) as bigint)
-        : 0n
-
-      const applyLpOptimisticWithdraw = () => {
-        if (withdrawAmountUsd <= 0) return
-        queryClient.setQueryData<Record<string, UserPoolPosition>>(
-          ['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice],
-          (old) => {
-            if (!old) return old
-            const curr = old[poolId]
-            if (!curr) return old
-            const oldStaked = curr.stakedUsd || 0
-            const newStaked = Math.max(0, oldStaked - withdrawAmountUsd)
-            return {
-              ...old,
-              [poolId]: {
-                ...curr,
-                stakedAmount: newStaked.toFixed(2),
-                stakedUsd: newStaked,
-                lpTokenBalance: newStaked.toFixed(2),
-              },
-            }
-          }
-        )
-      }
-
-      let txHash = ''
-      const smartAccount = getActiveSmartAccount()
-
-      if (smartAccount) {
-        const removeCall = {
-          to: poolAddress as Hex,
-          data: encodeFunctionData({
-            abi: STABLE_SWAP_ABI,
-            functionName: 'removeLiquidity',
-            args: removeLiquidityArgs,
-          }),
-        }
-        const opRes = await sendModularUserOperation({
-          calls: [removeCall],
-          paymaster: true,
-        })
-        if (!opRes.success || !opRes.txHash) {
-          throw new Error(opRes.error || 'Modular UserOperation removeLiquidity failed.')
-        }
-        txHash = opRes.txHash
-        applyLpOptimisticWithdraw()
-      } else {
-        const walletClient = await getWalletClient()
-        if (!walletClient) throw new Error('Wallet not connected')
-
-        txHash = await resilientWriteContract(walletClient, {
-          address: poolAddress,
-          abi: STABLE_SWAP_ABI,
-          functionName: 'removeLiquidity',
-          args: removeLiquidityArgs,
-          account: targetAccount,
-          chain: arcTestnet,
-          gas: 400_000n,
-        })
-        await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')
-        applyLpOptimisticWithdraw()
-      }
-
-      // Single-sided 100% USDC Payout: automatically swap the received counter token to USDC
-      if (payoutMode === 'usdc' && counterToken?.address) {
-        try {
-          await new Promise((r) => setTimeout(r, 2000))
-          const counterBalAfter = (await resilientReadContract(publicClient, {
-            address: counterTokenAddress,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [targetAccount],
-          })) as bigint
-
-          const receivedCounter = counterBalAfter > counterBalBefore ? counterBalAfter - counterBalBefore : 0n
-          if (receivedCounter > 0n) {
-            const counterDecimals = counterToken.decimals === 8 ? 8 : 6
-            const counterBalStr = formatUnits(receivedCounter, counterDecimals)
-            // Execute swap back to USDC
-            await swapInPool(poolId, counterToken.symbol, 'USDC', counterBalStr, '0')
-          }
-        } catch (swapErr) {
-          console.warn('[usePoolsData] Auto-swap to USDC after LP removal note:', swapErr)
-        }
-      }
-
-      await invalidatePoolCaches()
-      return { txHash }
-    },
-    [getWalletClient, publicClient, requireDeployed, invalidatePoolCaches, userPoolPositions, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, waitForReceiptSafe]
   )
 
   // ── Pool Swap (USDC ↔ EURC via StableSwapPool or USDC ↔ cirBTC via ConstantProductPool) ──
@@ -2007,6 +1844,347 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, walletAddress, liveBtcPrice, liveEurcPrice]
   )
 
+  // ── Withdraw (vault redeem OR LP removeLiquidity) ─────────────────────────
+  const withdrawFromPool = useCallback(
+    async (
+      poolId: string,
+      amountStr: string,
+      payoutMode: 'standard' | 'dual' | 'usdc' = 'standard',
+      _provider?: any,
+      _slippage: number = 0.5
+    ): Promise<PoolWithdrawResult> => {
+      const pool = ARCIS_POOLS.find((p) => p.id === poolId)
+      if (!pool) throw new Error('Pool not found')
+
+      const targetAccount = (walletAddress || (await (await getWalletClient())?.getAddresses())?.[0]) as Address
+      if (!targetAccount) throw new Error('Wallet not connected')
+
+
+
+      // 1. YieldVault Withdrawal (ERC-4626)
+      if (pool.id === 'usdc-yield-vault') {
+        requireDeployed(POOL_CONTRACTS.YIELD_VAULT, pool.name)
+
+        const walletSharesRaw = (await resilientReadContract(publicClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'balanceOf',
+          args: [targetAccount],
+        })) as bigint
+
+        if (walletSharesRaw === 0n) {
+          throw new Error('No vault shares deposited')
+        }
+
+        const totalAssets = (await resilientReadContract(publicClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'totalAssets',
+        })) as bigint
+
+        const totalSupply = (await resilientReadContract(publicClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'totalSupply',
+        })) as bigint
+
+        const userPos = userPoolPositions?.['usdc-yield-vault']
+        const userStakedUsd = userPos?.stakedUsd || 0
+        const withdrawAmountUsd = parseFloat(amountStr) || 0
+
+        let sharesToRedeem: bigint
+        if (withdrawAmountUsd >= userStakedUsd * 0.999 || userStakedUsd <= 0) {
+          sharesToRedeem = walletSharesRaw
+        } else {
+          // YieldVault has 6 decimals, matching underlying USDC
+          const amountAssets = parseUnits(amountStr, 6)
+          if (totalAssets > 0n && totalSupply > 0n) {
+            sharesToRedeem = (amountAssets * totalSupply) / totalAssets
+          } else {
+            sharesToRedeem = amountAssets
+          }
+          if (sharesToRedeem > walletSharesRaw) sharesToRedeem = walletSharesRaw
+        }
+
+        const applyYieldVaultOptimisticWithdraw = () => {
+          if (withdrawAmountUsd <= 0) return
+          queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
+            if (!old) return old
+            const oldUsdc = parseFloat(old.usdc || '0')
+            return { ...old, usdc: (oldUsdc + withdrawAmountUsd).toFixed(2) }
+          })
+          queryClient.setQueryData<Record<string, UserPoolPosition>>(
+            ['userPoolPositions', targetAccount],
+            (old) => {
+              if (!old) return old
+              const curr = old['usdc-yield-vault']
+              if (!curr) return old
+              const oldStaked = curr.stakedUsd || 0
+              const newStaked = Math.max(0, oldStaked - withdrawAmountUsd)
+              return {
+                ...old,
+                ['usdc-yield-vault']: {
+                  ...curr,
+                  stakedAmount: newStaked.toFixed(2),
+                  stakedUsd: newStaked,
+                  lpTokenBalance: newStaked.toFixed(2),
+                },
+              }
+            }
+          )
+        }
+
+        // Modular Smart Account (Passkey)
+        const smartAccount = getActiveSmartAccount()
+        if (smartAccount) {
+          const redeemCall = {
+            to: POOL_CONTRACTS.YIELD_VAULT as Hex,
+            data: encodeFunctionData({
+              abi: YIELD_VAULT_ABI,
+              functionName: 'redeem',
+              args: [sharesToRedeem, targetAccount, targetAccount],
+            }),
+          }
+          const opRes = await sendModularUserOperation({
+            calls: [redeemCall],
+            paymaster: true,
+          })
+          if (!opRes.success || !opRes.txHash) {
+            throw new Error(opRes.error || 'Modular UserOperation redeem failed.')
+          }
+          applyYieldVaultOptimisticWithdraw()
+          await invalidatePoolCaches()
+          return { txHash: opRes.txHash }
+        }
+
+        // EOA Provider
+        const walletClient = await getWalletClient()
+        if (!walletClient) throw new Error('Wallet not connected')
+
+        const txHash = await resilientWriteContract(walletClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'redeem',
+          args: [sharesToRedeem, targetAccount, targetAccount],
+          account: targetAccount,
+          chain: arcTestnet,
+          gas: 350_000n,
+        })
+        await waitForReceiptSafe(txHash, 'Yield vault redeem')
+        applyYieldVaultOptimisticWithdraw()
+        await invalidatePoolCaches()
+        return { txHash }
+      }
+
+      // 2. LP Pool Removal
+      const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
+        ? POOL_CONTRACTS.STABLE_SWAP_POOL
+        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+      requireDeployed(poolAddress, pool.name)
+
+      const userLpRaw = (await resilientReadContract(publicClient, {
+        address: poolAddress,
+        abi: STABLE_SWAP_ABI,
+        functionName: 'balanceOf',
+        args: [targetAccount],
+      })) as bigint
+
+      if (userLpRaw === 0n) {
+        throw new Error('No LP liquidity deposited in this pool')
+      }
+
+      const userPos = userPoolPositions?.[poolId]
+      const userStakedUsd = userPos?.stakedUsd || 0
+      const withdrawAmountUsd = parseFloat(amountStr) || 0
+
+      let lpToWithdraw: bigint
+      if (withdrawAmountUsd >= userStakedUsd * 0.999 || userStakedUsd <= 0) {
+        lpToWithdraw = userLpRaw
+      } else {
+        const ratio = withdrawAmountUsd / userStakedUsd
+        lpToWithdraw = (userLpRaw * BigInt(Math.round(ratio * 10000))) / 10000n
+        if (lpToWithdraw > userLpRaw) lpToWithdraw = userLpRaw
+      }
+
+      if (lpToWithdraw === 0n) {
+        throw new Error('Withdrawal amount too small')
+      }
+
+      const counterToken = pool.tokens[1]
+      const counterTokenAddress = (counterToken?.address || POOL_CONTRACTS.cirBTC) as `0x${string}`
+
+      // V2: derive exact minOutA/minOutB from reserves for removeLiquidity slippage.
+      const removeLiquidityArgs = (() => {
+        if (!POOL_VERSION_V2 && !POOL_VERSION_V3) return [lpToWithdraw, 0n, 0n] as const
+        const st = (onchainPoolState || {})[poolAddress] as any
+        const total = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
+        if (total <= 0n) return [lpToWithdraw, 0n, 0n] as const
+        const counterDecimals = counterToken?.decimals === 8 ? 8 : 6
+        const reserveA = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
+        const reserveB = st?.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
+        const slipBps = poolSlippageBps(_slippage)
+        const minOutA = reserveA > 0n ? poolMinOut((reserveA * lpToWithdraw) / total, slipBps) : 0n
+        const minOutB = reserveB > 0n ? poolMinOut((reserveB * lpToWithdraw) / total, slipBps) : 0n
+        return [lpToWithdraw, minOutA, minOutB] as const
+      })() as readonly [lpAmount: bigint, minOutA: bigint, minOutB: bigint]
+
+      const counterBalBefore = payoutMode === 'usdc' && counterTokenAddress
+        ? ((await resilientReadContract(publicClient, {
+            address: counterTokenAddress,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [targetAccount],
+          })) as bigint)
+        : 0n
+
+      const applyLpOptimisticWithdraw = () => {
+        if (withdrawAmountUsd <= 0) return
+        queryClient.setQueryData<Record<string, UserPoolPosition>>(
+          ['userPoolPositions', targetAccount],
+          (old) => {
+            if (!old) return old
+            const curr = old[poolId]
+            if (!curr) return old
+            const oldStaked = curr.stakedUsd || 0
+            const newStaked = Math.max(0, oldStaked - withdrawAmountUsd)
+            return {
+              ...old,
+              [poolId]: {
+                ...curr,
+                stakedAmount: newStaked.toFixed(2),
+                stakedUsd: newStaked,
+                lpTokenBalance: newStaked.toFixed(2),
+              },
+            }
+          }
+        )
+      }
+
+      let txHash = ''
+      const smartAccount = getActiveSmartAccount()
+
+      if (smartAccount) {
+        const removeCall = {
+          to: poolAddress as Hex,
+          data: encodeFunctionData({
+            abi: STABLE_SWAP_ABI,
+            functionName: 'removeLiquidity',
+            args: removeLiquidityArgs,
+          }),
+        }
+        const opRes = await sendModularUserOperation({
+          calls: [removeCall],
+          paymaster: true,
+        })
+        if (!opRes.success || !opRes.txHash) {
+          throw new Error(opRes.error || 'Modular UserOperation removeLiquidity failed.')
+        }
+        txHash = opRes.txHash
+        applyLpOptimisticWithdraw()
+      } else {
+        const walletClient = await getWalletClient()
+        if (!walletClient) throw new Error('Wallet not connected')
+
+        txHash = await resilientWriteContract(walletClient, {
+          address: poolAddress,
+          abi: STABLE_SWAP_ABI,
+          functionName: 'removeLiquidity',
+          args: removeLiquidityArgs,
+          account: targetAccount,
+          chain: arcTestnet,
+          gas: 400_000n,
+        })
+        await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')
+        applyLpOptimisticWithdraw()
+      }
+
+      // Single-sided 100% USDC Payout: automatically swap the received counter token to USDC
+      let autoSwapFailed = false
+      let autoSwapCounterSymbol = ''
+      let autoSwapCounterAmount = ''
+
+      if (payoutMode === 'usdc' && counterToken?.address) {
+        try {
+          await new Promise((r) => setTimeout(r, 2000))
+          const counterBalAfter = (await resilientReadContract(publicClient, {
+            address: counterTokenAddress,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [targetAccount],
+          })) as bigint
+
+          const receivedCounter = counterBalAfter > counterBalBefore ? counterBalAfter - counterBalBefore : 0n
+          if (receivedCounter > 0n) {
+            const counterDecimals = counterToken.decimals === 8 ? 8 : 6
+            const counterBalStr = formatUnits(receivedCounter, counterDecimals)
+            autoSwapCounterSymbol = counterToken.symbol
+            autoSwapCounterAmount = counterBalStr
+
+            // Derive safe minOut from fresh live on-chain pool reserves with slippage protection (prevent MEV / sandwich)
+            let minOutUsdcStr = '0'
+            try {
+              const [freshReserveA, freshReserveB] = await Promise.all([
+                resilientReadContract(publicClient, {
+                  address: poolAddress,
+                  abi: STABLE_SWAP_ABI,
+                  functionName: 'reserveA',
+                }).catch(() => 0n),
+                resilientReadContract(publicClient, {
+                  address: poolAddress,
+                  abi: STABLE_SWAP_ABI,
+                  functionName: 'reserveB',
+                }).catch(() => 0n),
+              ])
+
+              let resA = (freshReserveA as bigint) || 0n
+              let resB = (freshReserveB as bigint) || 0n
+
+              // Fallback to cached onchainPoolState if fresh read returned 0
+              if (resA === 0n || resB === 0n) {
+                const st = (onchainPoolState || {})[poolAddress] as any
+                if (st) {
+                  resA = parseUnits(st.reserveA || '0', 6)
+                  resB = parseUnits(st.reserveB || '0', counterDecimals)
+                }
+              }
+
+              if (resA > 0n && resB > 0n) {
+                let expectedOut = 0n
+                if (poolId === 'usdc-eurc-stable-pool') {
+                  expectedOut = calculateStableSwapExpectedOut(receivedCounter, resB, resA, 12n, 100n)
+                } else {
+                  expectedOut = calculateConstantProductExpectedOut(receivedCounter, resB, resA, 25n)
+                }
+                const slipBps = poolSlippageBps(_slippage)
+                const minOut = poolMinOut(expectedOut, slipBps)
+                if (minOut > 0n) {
+                  minOutUsdcStr = formatUnits(minOut, 6)
+                }
+              }
+            } catch (mathErr) {
+              console.warn('[usePoolsData] Auto-swap fresh minOut calculation fallback:', mathErr)
+            }
+
+            // Execute swap back to USDC with slippage protection
+            await swapInPool(poolId, counterToken.symbol, 'USDC', counterBalStr, minOutUsdcStr)
+          }
+        } catch (swapErr) {
+          autoSwapFailed = true
+          console.warn('[usePoolsData] Auto-swap to USDC after LP removal failed:', swapErr)
+        }
+      }
+
+      await invalidatePoolCaches()
+      return { 
+        txHash, 
+        autoSwapFailed, 
+        counterTokenSymbol: autoSwapCounterSymbol, 
+        counterAmount: autoSwapCounterAmount 
+      }
+    },
+    [getWalletClient, publicClient, requireDeployed, invalidatePoolCaches, userPoolPositions, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, waitForReceiptSafe, swapInPool]
+  )
+
   // ── Auto-Accrued Yield Claim Management ───────────────────────────────────
   // In Arcis ERC-4626 Vaults and AMM LP pools, yield accrues by appreciating
   // the value of user shares. "Claiming" redeems precisely the earned profit
@@ -2034,7 +2212,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
       // Optimistically reset earned yield for this pool to 0
       queryClient.setQueryData<Record<string, UserPoolPosition>>(
-        ['userPoolPositions', targetAccount, onchainPoolState, liveBtcPrice, liveEurcPrice],
+        ['userPoolPositions', targetAccount],
         (old) => {
           if (!old) return old
           const curr = old[poolId]
@@ -2059,7 +2237,13 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     [userPoolPositions, walletAddress, getWalletClient, withdrawFromPool, provider, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, invalidatePoolCaches]
   )
 
-  const claimAllRewards = useCallback(async (): Promise<{ totalClaimed: string; txHash: string }> => {
+  const claimAllRewards = useCallback(async (): Promise<{ 
+    totalClaimed: string; 
+    txHash: string;
+    txHashes: string[];
+    successfulPools: string[];
+    failedPools: string[];
+  }> => {
     if (!userPoolPositions) {
       throw new Error('No active pool positions found.')
     }
@@ -2075,14 +2259,23 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
     let totalClaimed = 0
     let lastTxHash = ''
+    const txHashes: string[] = []
+    const successfulPools: string[] = []
+    const failedPools: string[] = []
 
     for (const pool of claimablePools) {
       try {
         const res = await claimPoolRewards(pool.id)
-        totalClaimed += parseFloat(res.amountClaimed) || 0
-        lastTxHash = res.txHash || lastTxHash
+        const amt = parseFloat(res.amountClaimed) || 0
+        totalClaimed += amt
+        if (res.txHash) {
+          lastTxHash = res.txHash
+          txHashes.push(res.txHash)
+        }
+        successfulPools.push(pool.name)
       } catch (err) {
         console.warn(`[usePoolsData] Claim failed for ${pool.name}:`, err)
+        failedPools.push(pool.name)
       }
     }
 
@@ -2090,6 +2283,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     return {
       totalClaimed: totalClaimed.toFixed(2),
       txHash: lastTxHash,
+      txHashes,
+      successfulPools,
+      failedPools,
     }
   }, [userPoolPositions, claimPoolRewards, invalidatePoolCaches])
 
@@ -2097,7 +2293,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     await invalidatePoolCaches()
   }, [invalidatePoolCaches])
 
-  // ── Live Arc Testnet event listeners & high-frequency polling (Zero LocalStorage) ──
+  // ── Live Arc Testnet event listeners (debounced to eliminate RPC throttling) ──
   useEffect(() => {
     let unwatchStable: (() => void) | undefined
     let unwatchCP: (() => void) | undefined
@@ -2108,7 +2304,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         unwatchStable = publicClient.watchContractEvent({
           address: POOL_CONTRACTS.STABLE_SWAP_POOL,
           abi: STABLE_SWAP_ABI,
-          onLogs: () => invalidatePoolCaches(),
+          onLogs: () => debouncedInvalidatePoolCaches(),
         })
       }
 
@@ -2116,7 +2312,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         unwatchCP = publicClient.watchContractEvent({
           address: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
           abi: CONSTANT_PRODUCT_ABI,
-          onLogs: () => invalidatePoolCaches(),
+          onLogs: () => debouncedInvalidatePoolCaches(),
         })
       }
 
@@ -2124,28 +2320,22 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         unwatchVault = publicClient.watchContractEvent({
           address: POOL_CONTRACTS.YIELD_VAULT,
           abi: YIELD_VAULT_ABI,
-          onLogs: () => invalidatePoolCaches(),
+          onLogs: () => debouncedInvalidatePoolCaches(),
         })
       }
     } catch (err) {
       console.warn('[usePoolsData] Contract event watcher initialization note:', err)
     }
 
-    // High-frequency 8s polling for live TVL, prices & positions
-    const interval = setInterval(() => {
-      refetchPoolState()
-      if (isAddressValid) {
-        refetchUserPositions()
-      }
-    }, 8000)
-
     return () => {
-      clearInterval(interval)
+      if (debounceInvalidateTimerRef.current) {
+        clearTimeout(debounceInvalidateTimerRef.current)
+      }
       unwatchStable?.()
       unwatchCP?.()
       unwatchVault?.()
     }
-  }, [publicClient, invalidatePoolCaches, refetchPoolState, refetchUserPositions, isAddressValid])
+  }, [publicClient, debouncedInvalidatePoolCaches])
 
   return {
     pools: poolsWithUserStats as (PoolConfig & { userPosition?: UserPoolPosition })[],
