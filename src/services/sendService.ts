@@ -4,6 +4,7 @@ import { createPublicClient, createWalletClient, defineChain, http } from 'viem'
 import type { SendParams } from '@circle-fin/app-kit'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { CHAIN_DEFS } from '../config/chainMeta'
+import { getResilientPublicClient } from './rpc'
 
 // Single instance of AppKit to be used for Send operations
 const kit = new AppKit()
@@ -165,11 +166,8 @@ export function createHeadlessSessionAdapter(privateKey: string): any {
   const adapter = createViemAdapterFromPrivateKey({
     privateKey: privateKey as `0x${string}`,
     getPublicClient: ({ chain }) => {
-      const { viemChain, rpcUrl } = resolveViemChainAndRpc(chain)
-      return createPublicClient({
-        chain: viemChain,
-        transport: http(rpcUrl, { retryCount: 3, timeout: 15000 }),
-      }) as any
+      const { viemChain } = resolveViemChainAndRpc(chain)
+      return getResilientPublicClient(viemChain) as any
     },
     getWalletClient: ({ chain, account }) => {
       const { viemChain, rpcUrl } = resolveViemChainAndRpc(chain)
@@ -197,14 +195,8 @@ export async function createViemAdapter(provider: any): Promise<any> {
   const adapter = await createViemAdapterFromProvider({
     provider,
     getPublicClient: ({ chain }) => {
-      const { viemChain, rpcUrl } = resolveViemChainAndRpc(chain)
-      return createPublicClient({
-        chain: viemChain,
-        transport: http(rpcUrl, {
-          retryCount: 3,
-          timeout: 15000,
-        }),
-      }) as any
+      const { viemChain } = resolveViemChainAndRpc(chain)
+      return getResilientPublicClient(viemChain) as any
     },
   })
 

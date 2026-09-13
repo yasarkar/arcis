@@ -69,11 +69,17 @@ function getPasskeyTransport(): Transport {
   return _cachedPasskeyTransport
 }
 
+let _cachedModularPublicClient: any = null
+let _cachedModularBundlerClient: any = null
+
 export function getModularPublicClient() {
-  return createPublicClient({
-    chain: arcTestnetChain,
-    transport: getModularTransport(),
-  })
+  if (!_cachedModularPublicClient) {
+    _cachedModularPublicClient = createPublicClient({
+      chain: arcTestnetChain,
+      transport: getModularTransport(),
+    })
+  }
+  return _cachedModularPublicClient
 }
 
 /**
@@ -81,10 +87,13 @@ export function getModularPublicClient() {
  * Pass account per-call in sendUserOperation, NOT here.
  */
 export function getModularBundlerClient() {
-  return createBundlerClient({
-    chain: arcTestnetChain,
-    transport: getModularTransport(),
-  })
+  if (!_cachedModularBundlerClient) {
+    _cachedModularBundlerClient = createBundlerClient({
+      chain: arcTestnetChain,
+      transport: getModularTransport(),
+    })
+  }
+  return _cachedModularBundlerClient
 }
 
 // Cached active smart account instance

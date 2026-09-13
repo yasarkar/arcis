@@ -406,10 +406,13 @@ export async function transferFromGateway(
   // Dynamic maxFee calculation (Circle Gateway requirement: user balance must cover amount + maxFee):
   // For same-chain withdrawal: 0 transfer fee + 0.05 USDC gas buffer (50_000 units)
   // For cross-chain: 0.005% transfer fee + 0.05 USDC gas buffer
+  // Note: Circle Gateway API enforces a minimum maxFee threshold of 1.0 USDC (1_000_000 subunits)
   const isSameChain = sourceDomain === destinationDomain
   const transferFee = isSameChain ? 0n : (parseUnits(amount, 6) * 5n) / 100_000n
   const gasBuffer = 50_000n // 0.05 USDC buffer for burn execution
-  const maxFee = transferFee + gasBuffer
+  const calculatedFee = transferFee + gasBuffer
+  const minGatewayMaxFee = parseUnits('1.0', 6) // Minimum 1.0 USDC enforced by Circle Gateway
+  const maxFee = calculatedFee < minGatewayMaxFee ? minGatewayMaxFee : calculatedFee
 
   let burnValue = parseUnits(amount, 6)
 

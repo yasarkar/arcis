@@ -1,4 +1,3 @@
-// src/services/chainSwitchService.ts
 /**
  * Centralized Chain Switching Service for Arcis Protocol.
  * 
@@ -9,12 +8,9 @@
  * - Resolves chain parameters dynamically from the Master Network Registry
  * - Supports both active environment Arc L1 (testnet/mainnet) and multi-chain ecosystem
  */
-
 import type { Chain } from 'viem'
 import {
   arcActiveChain,
-  arcTestnet,
-  arcMainnet,
   getNetwork,
   getNetworkByChainId,
   resolveChain,
@@ -253,7 +249,14 @@ export async function assertNetwork(
   const chain = resolveChain(target)
   const res = await ensureNetwork(target, customProvider)
   if (!res.success) {
-    throw new Error(res.error || `Wallet is not connected to target network.`)
+    const err: any = new Error(res.error || `Wallet is not connected to target network.`)
+    if (res.isCanceled) {
+      err.isCanceled = true
+      err.code = 4001
+      err.name = 'UserRejectedRequestError'
+      err.isNetworkSwitchCanceled = true
+    }
+    throw err
   }
 
   // Double check active chain
