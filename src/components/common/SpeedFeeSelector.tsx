@@ -1,18 +1,12 @@
-// src/components/common/SpeedFeeSelector.tsx
-//
 // Traditional Wallet Speed & Fee Tier Selector (Standard / Fast / Turbo)
 // Reusable UI component designed for BridgeModal, SwapModal, and SendModal.
-
 import React from 'react'
-import { Zap, Rocket, Gauge, Clock, Coins } from 'lucide-react'
+import { Zap, Rocket, Gauge } from 'lucide-react'
 import { SPEED_TIERS, type SpeedTier } from '../../config/feeTiers'
 import {
   PROTOCOL_FEE_RATES,
-  getSendProtocolFee,
   getSwapProtocolFeePercent,
   getBridgeProtocolFee,
-  REVENUE_SHARE_LABEL,
-  REVENUE_SHARE_TOOLTIP,
 } from '../../config/treasuryConfig'
 
 interface SpeedFeeSelectorProps {
@@ -65,48 +59,60 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
     // For send:
     const gasCost = SPEED_TIERS[tier].arcGas.estimatedCostUsdc
     return {
-      amount: `~${gasCost} USDC Gas`,
-      desc: PROTOCOL_FEE_RATES.send[tier]?.description || 'Arc L1 native gas (0% platform fee)',
+      amount: `~${gasCost} USDC`,
+      desc: PROTOCOL_FEE_RATES.send[tier]?.description || 'Arc L1 native gas (%0 platform fee)',
     }
   }
 
+  const TIER_COLORS = {
+    standard: {
+      text: 'text-cyan-400',
+      border: 'border-cyan-500/40',
+      shadow: 'shadow-[0_0_16px_rgba(6,182,212,0.18)]',
+      badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-[0_0_8px_rgba(6,182,212,0.3)]',
+      feeBorder: 'border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.08)]',
+    },
+    fast: {
+      text: 'text-indigo-400',
+      border: 'border-indigo-500/40',
+      shadow: 'shadow-[0_0_16px_rgba(99,102,241,0.18)]',
+      badge: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-[0_0_8px_rgba(99,102,241,0.3)]',
+      feeBorder: 'border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.08)]',
+    },
+    turbo: {
+      text: 'text-amber-400',
+      border: 'border-amber-500/40',
+      shadow: 'shadow-[0_0_16px_rgba(245,158,11,0.18)]',
+      badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.3)]',
+      feeBorder: 'border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.08)]',
+    },
+  } as const
+
   const getIcon = (tier: SpeedTier, isSelected: boolean) => {
+    const colorClass = isSelected ? TIER_COLORS[tier].text : 'text-slate-400'
     switch (tier) {
       case 'standard':
-        return <Gauge className={`w-4 h-4 ${isSelected ? 'text-blue-400' : 'text-slate-400'}`} />
+        return <Gauge className={`w-4 h-4 ${colorClass}`} />
       case 'fast':
-        return <Zap className={`w-4 h-4 ${isSelected ? 'text-[var(--purple-1,#9896ff)]' : 'text-slate-400'}`} />
+        return <Zap className={`w-4 h-4 ${colorClass}`} />
       case 'turbo':
-        return <Rocket className={`w-4 h-4 ${isSelected ? 'text-amber-400' : 'text-slate-400'}`} />
+        return <Rocket className={`w-4 h-4 ${colorClass}`} />
     }
   }
 
   return (
     <div className={`space-y-3 ${className}`}>
       {/* Top Header */}
-      <div className="flex items-center justify-between mt-5">
-        <div className="flex items-center gap-1.5 text-[14px] font-semibold tracking-wide text-slate-300">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-slate-300 ml-3">
           <span style={{ fontFamily: 'var(--font-app)' }}>SPEED & NETWORK PRIORITY</span>
         </div>
-        <span
-          className={`text-[14px] font-semibold font-mono flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border transition-all ${
-            selectedTier === 'turbo'
-              ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
-              : selectedTier === 'fast'
-                ? 'bg-[rgba(152,150,255,0.15)] text-[var(--purple-1,#9896ff)] border-[rgba(152,150,255,0.35)] shadow-[0_0_12px_rgba(152,150,255,0.18)]'
-                : 'bg-blue-500/10 text-blue-300 border-blue-500/25'
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5 shrink-0" />
-          <span>{getContextTime(selectedTier)}</span>
-        </span>
       </div>
 
       {/* 3-Tier Buttons Grid */}
       <div
-        className="grid grid-cols-3 gap-3 p-2 rounded-2xl border border-white/[0.08] mt-3.5"
+        className="grid grid-cols-3 gap-3 p-2 rounded-2xl"
         style={{
-          background: 'rgba(11, 13, 24, 0.75)',
           backdropFilter: 'blur(16px)',
         }}
       >
@@ -122,7 +128,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
               onClick={() => onSelectTier(tier)}
               className={`relative flex flex-col items-center justify-center py-3.5 px-3 rounded-xl transition-all duration-200 cursor-pointer text-center group ${
                 isSelected
-                  ? 'bg-white/[0.09] border border-[rgba(152,150,255,0.4)] shadow-[0_0_16px_rgba(152,150,255,0.18)] scale-[1.02]'
+                  ? `bg-white/[0.09] border ${TIER_COLORS[tier].border} ${TIER_COLORS[tier].shadow} scale-[1.02]`
                   : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] text-slate-400 hover:text-white'
               }`}
             >
@@ -131,9 +137,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
                 <span
                   className={`absolute -top-2.5 px-2 py-0.5 rounded-full font-bold tracking-wider uppercase border ${
                     isSelected
-                      ? tier === 'turbo'
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
-                        : 'bg-[rgba(152,150,255,0.25)] text-[var(--purple-1,#9896ff)] border-[rgba(152,150,255,0.5)]'
+                      ? TIER_COLORS[tier].badge
                       : 'bg-white/[0.06] text-slate-400 border-white/10'
                   }`}
                   style={{ fontSize: '10px', lineHeight: '12px' }}
@@ -158,7 +162,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
               {/* Execution Time */}
               <span
                 className={`text-[11px] font-mono flex items-center gap-1 ${
-                  isSelected ? 'text-[var(--purple-1,#9896ff)] font-medium' : 'text-slate-400'
+                  isSelected ? `${TIER_COLORS[tier].text} font-medium` : 'text-slate-400'
                 }`}
               >
                 {getContextTime(tier)}
@@ -170,21 +174,22 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
 
       {/* Arcis Platform Fees Breakdown Section */}
       {showFeeBreakdown && (
-        <div
-          className="p-3.5 rounded-2xl border border-white/[0.08] space-y-2.5 mt-2"
-          style={{
-            background: 'rgba(11, 13, 24, 0.65)',
-            backdropFilter: 'blur(12px)',
-          }}
-        >
-          <div className="flex items-center justify-between pb-1.5 border-b border-white/[0.06]">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 tracking-wide">
-              <Coins className="w-3.5 h-3.5 text-[var(--purple-1,#9896ff)]" />
-              <span style={{ fontFamily: 'var(--font-app)' }}>Arcis Platform Fees</span>
+        <div className="space-y-2 mb-5">
+          {/* Top Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-slate-300 ml-3 mt-5">
+              <span style={{ fontFamily: 'var(--font-app)' }}>ARCIS PLATFORM FEES</span>
             </div>
           </div>
 
-          <div className="space-y-2 text-[11px]">
+          <div
+            className="p-3.5 rounded-2xl border border-white/[0.08] space-y-2"
+            style={{
+              background: 'rgba(11, 13, 24, 0.65)',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <div className="space-y-2 text-[11px]">
             {tiers.map((tier) => {
               const feeInfo = getFeeInfo(tier)
               const isSelected = selectedTier === tier
@@ -193,7 +198,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
                   key={tier}
                   className={`flex items-start justify-between gap-2 p-2 rounded-xl border transition-all ${
                     isSelected
-                      ? 'bg-white/[0.05] border-[rgba(152,150,255,0.3)] shadow-[0_0_10px_rgba(152,150,255,0.08)]'
+                      ? `bg-white/[0.05] border ${TIER_COLORS[tier].feeBorder}`
                       : 'bg-transparent border-transparent text-slate-400'
                   }`}
                 >
@@ -202,18 +207,13 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
                       <span className={`font-semibold capitalize ${isSelected ? 'text-white' : 'text-slate-300'}`}>
                         {tier}
                       </span>
-                      {isSelected && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-[rgba(152,150,255,0.2)] text-[var(--purple-1,#9896ff)] border border-[rgba(152,150,255,0.35)]">
-                          Selected
-                        </span>
-                      )}
                     </div>
                     <p className={`text-[10.5px] leading-relaxed ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
                       {feeInfo.desc}
                     </p>
                   </div>
-                  <span className={`font-mono font-semibold whitespace-nowrap text-right shrink-0 ${
-                    isSelected ? 'text-[var(--purple-1,#9896ff)]' : 'text-slate-400'
+                  <span className={`font-mono font-semibold text-[12px] whitespace-nowrap text-right shrink-0 ${
+                    isSelected ? TIER_COLORS[tier].text : 'text-slate-400'
                   }`}>
                     {feeInfo.amount}
                   </span>
@@ -221,23 +221,10 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
               )
             })}
           </div>
-
-          {/* Revenue share footnote */}
-          <div
-            className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px] text-slate-400"
-            title={REVENUE_SHARE_TOOLTIP}
-          >
-            <span className="flex items-center gap-1">
-              <Coins className="w-3 h-3 text-[var(--purple-1,#9896ff)]" />
-              Arcis Platform Revenue Sharing
-            </span>
-            <span className="font-mono text-slate-300 font-medium">
-              {REVENUE_SHARE_LABEL}
-            </span>
-          </div>
         </div>
-      )}
-    </div>
+      </div>
+    )}
+  </div>
   )
 }
 export default SpeedFeeSelector

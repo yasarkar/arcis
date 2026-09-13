@@ -122,7 +122,7 @@ export default function HomePage({
             </g>
             {/* Speed pulse Arc Arch & Lightning */}
             <g className="animate-speed-pulse" style={{ transformOrigin: '70px 70px' }}>
-              {/* Arc L1 Arch Icon silhouette */}
+              {/* Arc L1 Icon silhouette */}
               <path
                 d="M70 32 C75.5 32 80.5 36.8 84 45.5 C85.8 50 87.1 55.5 87.9 61.5 C88 62 88.5 65 88.6 70 H88.5 C87.8 69.4 79.8 63 66.5 65 C66.7 62.7 67 60.5 67.4 58.4 C72.6 58.2 77.2 58.8 80.7 59.6 C80 55.1 78.9 51 77.5 47.5 C75.3 41.8 72.4 38.3 70 38.3 C67.5 38.3 64.6 41.8 62.4 47.5 C61.8 48.9 61.3 50.4 60.9 52 C60.3 54.2 59.8 56.5 59.4 59 C58.8 62.6 58.4 66.5 58.3 70.5 H51.4 C51.7 61 53.3 52 56 45.5 C59.5 36.8 64.5 32 70 32 Z"
                 fill="url(#speedGrad)"

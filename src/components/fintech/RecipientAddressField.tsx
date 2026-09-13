@@ -8,7 +8,6 @@ interface RecipientAddressFieldProps {
   placeholder?: string
   error?: string | null
   isValid?: boolean
-  validText?: string
   disabled?: boolean
   onPaste?: () => void
   onClear?: () => void
@@ -23,7 +22,6 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
   placeholder = '0x... or ENS name',
   error,
   isValid = false,
-  validText = 'Valid Address',
   disabled = false,
   onPaste,
   onClear,
@@ -76,7 +74,6 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
           {isValid && !error && (
             <span className="text-[11px] text-indigo-300/90 font-medium flex items-center gap-1">
               <Check className="w-3.5 h-3.5 text-indigo-400" />
-              <span>{validText || 'Verified'}</span>
             </span>
           )}
           {rightBadge}
@@ -85,7 +82,8 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
               type="button"
               onClick={handleClear}
               disabled={disabled}
-              className="text-xs text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+              title="Clear address"
+              className="text-xs text-slate-400 hover:text-red-400 transition-colors flex items-center gap-1 cursor-pointer active:scale-95"
             >
               <X className="w-3.5 h-3.5" />
               <span>Clear</span>
