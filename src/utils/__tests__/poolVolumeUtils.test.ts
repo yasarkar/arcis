@@ -41,23 +41,23 @@ describe('poolVolumeUtils', () => {
   })
 
   describe('POOL_TESTNET_BASE_VOLUME', () => {
-    it('has non-zero calibrated testnet volume for all pools', () => {
-      expect(POOL_TESTNET_BASE_VOLUME['usdc-eurc-stable-pool']).toBeGreaterThan(0)
-      expect(POOL_TESTNET_BASE_VOLUME['usdc-cirbtc-pool']).toBeGreaterThan(0)
-      expect(POOL_TESTNET_BASE_VOLUME['usdc-yield-vault']).toBeGreaterThan(0)
+    it('has zero baseline volume for honest, non-synthetic reporting', () => {
+      expect(POOL_TESTNET_BASE_VOLUME['usdc-eurc-stable-pool']).toBe(0)
+      expect(POOL_TESTNET_BASE_VOLUME['usdc-cirbtc-pool']).toBe(0)
+      expect(POOL_TESTNET_BASE_VOLUME['usdc-yield-vault']).toBe(0)
     })
   })
 
   describe('getRollingClientSwapVolume', () => {
-    it('returns base volume when no trades are recorded', () => {
+    it('returns 0 when no trades are recorded', () => {
       const vol = getRollingClientSwapVolume('usdc-eurc-stable-pool')
-      expect(vol).toBe(POOL_TESTNET_BASE_VOLUME['usdc-eurc-stable-pool'])
+      expect(vol).toBe(0)
     })
 
     it('adds newly recorded trade volume to the base volume', () => {
       recordClientSwapVolume('usdc-eurc-stable-pool', 5.5, '0xabc123')
       const vol = getRollingClientSwapVolume('usdc-eurc-stable-pool')
-      expect(vol).toBeCloseTo(POOL_TESTNET_BASE_VOLUME['usdc-eurc-stable-pool'] + 5.5, 2)
+      expect(vol).toBeCloseTo(5.5, 2)
     })
 
     it('ignores trades older than 24 hours', () => {
@@ -78,7 +78,7 @@ describe('poolVolumeUtils', () => {
       )
 
       const vol = getRollingClientSwapVolume('usdc-eurc-stable-pool')
-      expect(vol).toBe(POOL_TESTNET_BASE_VOLUME['usdc-eurc-stable-pool'])
+      expect(vol).toBe(0)
     })
 
     it('caps stored entries to max 100', () => {
@@ -92,14 +92,10 @@ describe('poolVolumeUtils', () => {
   })
 
   describe('startLiveVolumeSimulation', () => {
-    it('is idempotent and can be cleanly stopped', () => {
+    it('returns a cleanup function without generating synthetic trades', () => {
       vi.useFakeTimers()
-      const stopSim1 = startLiveVolumeSimulation()
-      const stopSim2 = startLiveVolumeSimulation()
-
-      // Calling start multiple times returns the same teardown reference without creating duplicate intervals
-      expect(typeof stopSim1).toBe('function')
-      expect(typeof stopSim2).toBe('function')
+      const stopSim = startLiveVolumeSimulation()
+      expect(typeof stopSim).toBe('function')
 
       const initialVol = getRollingClientSwapVolume('usdc-eurc-stable-pool')
 
@@ -107,10 +103,10 @@ describe('poolVolumeUtils', () => {
       vi.advanceTimersByTime(30000)
 
       const updatedVol = getRollingClientSwapVolume('usdc-eurc-stable-pool')
-      expect(updatedVol).toBeGreaterThan(initialVol)
+      // No synthetic volume added
+      expect(updatedVol).toBe(initialVol)
 
-      // Clean up
-      stopSim1()
+      stopSim()
       vi.useRealTimers()
     })
   })

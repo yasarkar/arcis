@@ -32,5 +32,28 @@ describe('errorNormalizer', () => {
 
     const normalized = normalizeAppError(userRejectErr)
     expect(normalized.isCanceled).toBe(true)
+    expect(normalized.code).toBe('USER_CANCELED')
+  })
+
+  it('correctly identifies network switch cancellations instead of misclassifying as NETWORK_TIMEOUT', () => {
+    const networkSwitchErr = new Error('The network switch request was canceled in the wallet.')
+
+    const normalized = normalizeAppError(networkSwitchErr)
+    expect(normalized.isCanceled).toBe(true)
+    expect(normalized.code).toBe('NETWORK_SWITCH_CANCELED')
+    expect(normalized.title).toBe('Network Switch Canceled')
+    expect(normalized.message).toContain('The network switch request was canceled in your wallet')
+    expect(normalized.message).not.toContain('The Arc L1 RPC node did not respond')
+  })
+
+  it('correctly identifies network switch cancellation with explicit isNetworkSwitchCanceled flag', () => {
+    const customErr: any = new Error('Wallet is not connected to target network.')
+    customErr.isCanceled = true
+    customErr.isNetworkSwitchCanceled = true
+
+    const normalized = normalizeAppError(customErr)
+    expect(normalized.isCanceled).toBe(true)
+    expect(normalized.code).toBe('NETWORK_SWITCH_CANCELED')
+    expect(normalized.title).toBe('Network Switch Canceled')
   })
 })
