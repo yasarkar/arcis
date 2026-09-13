@@ -2,11 +2,11 @@
 //
 // Server-side transaction history API for Arcis Protocol.
 // Stores and queries transaction records by connected wallet address.
-// Uses Redis when available with a persistent in-memory fallback on the server.
+// Leverages Vercel KV / Upstash Redis with a resilient in-memory fallback.
 
 export interface ServerHistoryItem {
   id: string
-  type: 'send' | 'swap' | 'bridge'
+  type: 'send' | 'swap' | 'bridge' | 'deposit'
   txHash: string
   amount: string
   tokenSymbol: string
@@ -33,55 +33,48 @@ export interface ServerHistoryItem {
 }
 
 import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
+import {
+  kvGet,
+  kvSet,
+  kvDel,
+  isStorageAvailable,
+  getStorageDriver,
+} from './utils/redisStorage'
 
-let redisClient: any = null
-let redisAvailable = false
-let connectionAttempted = false
-
-// In-memory fallback array on server
+// In-memory fallback array on server for offline or cold-start fallback
 const memoryHistory: ServerHistoryItem[] = []
-
-async function getRedisClient() {
-  if (connectionAttempted) {
-    return redisAvailable ? redisClient : null
-  }
-  connectionAttempted = true
-
-  try {
-    const { default: Redis } = await import('ioredis')
-    const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
-
-    redisClient = new Redis(redisUrl, {
-      maxRetriesPerRequest: 1,
-      connectTimeout: 2000,
-      lazyConnect: true,
-      retryStrategy: () => null,
-    })
-
-    redisClient.on('error', () => {
-      redisAvailable = false
-    })
-
-    await redisClient.connect().catch(() => {
-      redisAvailable = false
-    })
-
-    redisAvailable = redisClient.status === 'ready' || redisClient.status === 'connect'
-    if (redisAvailable) {
-      console.log('[History API] Connected to Redis for history persistence')
-    } else {
-      console.log('[History API] Redis not reachable, using in-memory server history store')
-    }
-  } catch {
-    redisAvailable = false
-    console.log('[History API] ioredis load/connect failed, using in-memory server history store')
-  }
-
-  return redisAvailable ? redisClient : null
-}
 
 const REDIS_KEY_ALL = 'arcis:history:all'
 const REDIS_KEY_USER_PREFIX = 'arcis:history:user:'
+
+function parseItems(raw: string | null): ServerHistoryItem[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function mergeItemIntoList(
+  list: ServerHistoryItem[],
+  newItem: ServerHistoryItem,
+  maxLimit: number
+): ServerHistoryItem[] {
+  const nextList = [...list]
+  const existingIdx = newItem.txHash
+    ? nextList.findIndex((m) => m.txHash && m.txHash.toLowerCase() === newItem.txHash.toLowerCase())
+    : nextList.findIndex((m) => m.id === newItem.id)
+
+  if (existingIdx >= 0) {
+    nextList[existingIdx] = { ...nextList[existingIdx], ...newItem }
+  } else {
+    nextList.unshift(newItem)
+  }
+
+  return nextList.slice(0, maxLimit)
+}
 
 /**
  * GET /api/history
@@ -95,23 +88,45 @@ export async function GET(req: Request) {
     const address = url.searchParams.get('address')?.toLowerCase()
     const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10)), 500)
 
-    const client = await getRedisClient()
     let items: ServerHistoryItem[] = []
-    let source = 'memory'
+    let source: string = 'memory'
 
-    if (client && redisAvailable) {
-      try {
-        const redisKey = address ? `${REDIS_KEY_USER_PREFIX}${address}` : REDIS_KEY_ALL
-        const raw = await client.get(redisKey)
-        if (raw) {
-          items = JSON.parse(raw)
-          source = 'redis'
+    const storageOnline = await isStorageAvailable()
+
+    if (storageOnline) {
+      if (address) {
+        // 1. Try fetching user-specific key
+        const userKey = `${REDIS_KEY_USER_PREFIX}${address}`
+        const rawUser = await kvGet(userKey)
+        const userList = parseItems(rawUser)
+
+        if (userList.length > 0) {
+          items = userList
+          source = getStorageDriver()
+        } else {
+          // 2. Fallback: filter global list
+          const rawAll = await kvGet(REDIS_KEY_ALL)
+          const allList = parseItems(rawAll)
+          items = allList.filter((item) => {
+            const userMatch = item.userAddress && item.userAddress.toLowerCase() === address
+            const recipientMatch = item.recipient && item.recipient.toLowerCase() === address
+            return Boolean(userMatch || recipientMatch)
+          })
+          if (items.length > 0) {
+            source = getStorageDriver()
+          }
         }
-      } catch (err) {
-        console.warn('[History API] Redis fetch failed, falling back to memory store:', err)
+      } else {
+        // Fetch global list
+        const rawAll = await kvGet(REDIS_KEY_ALL)
+        items = parseItems(rawAll)
+        if (items.length > 0) {
+          source = getStorageDriver()
+        }
       }
     }
 
+    // Fallback to in-memory if storage returned nothing
     if (items.length === 0) {
       if (address) {
         items = memoryHistory.filter((item) => {
@@ -143,7 +158,7 @@ export async function GET(req: Request) {
 /**
  * POST /api/history
  * Body: Partial<ServerHistoryItem>
- * Adds or updates a transaction in server storage.
+ * Adds or updates a transaction in server storage (Vercel KV / Redis + memory fallback).
  */
 export async function POST(req: Request) {
   try {
@@ -203,11 +218,10 @@ export async function POST(req: Request) {
       memoIndex,
     }
 
-    // 1. Update in-memory server list
-    // Deduplicate by txHash if present
+    // 1. Update in-memory server cache
     const existingIndex = newItem.txHash
       ? memoryHistory.findIndex((m) => m.txHash && m.txHash.toLowerCase() === newItem.txHash.toLowerCase())
-      : -1
+      : memoryHistory.findIndex((m) => m.id === newItem.id)
 
     if (existingIndex >= 0) {
       memoryHistory[existingIndex] = { ...memoryHistory[existingIndex], ...newItem }
@@ -218,31 +232,46 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Persist to Redis if available
-    const client = await getRedisClient()
-    if (client && redisAvailable) {
-      try {
-        // Save to global list
-        await client.set(REDIS_KEY_ALL, JSON.stringify(memoryHistory.slice(0, 500)))
-
-        // If userAddress is present, update user-specific key
-        if (newItem.userAddress) {
-          const userKey = `${REDIS_KEY_USER_PREFIX}${newItem.userAddress.toLowerCase()}`
-          const userTransactions = memoryHistory.filter(
-            (m) => m.userAddress?.toLowerCase() === newItem.userAddress?.toLowerCase() ||
-                   m.recipient?.toLowerCase() === newItem.userAddress?.toLowerCase()
-          )
-          await client.set(userKey, JSON.stringify(userTransactions.slice(0, 300)))
-        }
-      } catch (err) {
-        console.warn('[History API] Failed to save to Redis:', err)
+    // 2. Persist to Vercel KV / Upstash Redis
+    let savedDriver: string = 'memory'
+    try {
+      // 2a. Update Global List in KV
+      const rawAll = await kvGet(REDIS_KEY_ALL)
+      const currentAll = parseItems(rawAll)
+      const updatedAll = mergeItemIntoList(currentAll, newItem, 500)
+      const successAll = await kvSet(REDIS_KEY_ALL, JSON.stringify(updatedAll))
+      if (successAll) {
+        savedDriver = getStorageDriver()
       }
+
+      // 2b. Update User-Specific List in KV
+      if (newItem.userAddress) {
+        const userKey = `${REDIS_KEY_USER_PREFIX}${newItem.userAddress.toLowerCase()}`
+        const rawUser = await kvGet(userKey)
+        const currentUser = parseItems(rawUser)
+        const updatedUser = mergeItemIntoList(currentUser, newItem, 300)
+        await kvSet(userKey, JSON.stringify(updatedUser))
+      }
+
+      // 2c. Update Recipient-Specific List in KV if distinct
+      if (
+        newItem.recipient &&
+        newItem.recipient.toLowerCase() !== newItem.userAddress?.toLowerCase()
+      ) {
+        const recipKey = `${REDIS_KEY_USER_PREFIX}${newItem.recipient.toLowerCase()}`
+        const rawRecip = await kvGet(recipKey)
+        const currentRecip = parseItems(rawRecip)
+        const updatedRecip = mergeItemIntoList(currentRecip, newItem, 300)
+        await kvSet(recipKey, JSON.stringify(updatedRecip))
+      }
+    } catch (storageErr) {
+      console.warn('[History API] Failed to persist to remote KV storage, in-memory updated:', storageErr)
     }
 
     return apiSuccess({
       transaction: newItem,
+      storage: savedDriver,
     })
-    
   } catch (error: any) {
     console.error('[History API] POST Error:', error)
     return apiError(error.message || 'Internal server error in History save', 'HISTORY_POST_ERROR', 500)
@@ -265,27 +294,54 @@ export async function DELETE(req: Request) {
       return apiError('Query parameter "address" or "txHash" is required.', 'MISSING_QUERY_PARAM', 400)
     }
 
-    // Remove from in-memory
+    // 1. Remove from in-memory
     if (txHash) {
       const idx = memoryHistory.findIndex((m) => m.txHash?.toLowerCase() === txHash)
       if (idx >= 0) memoryHistory.splice(idx, 1)
     } else if (address) {
       for (let i = memoryHistory.length - 1; i >= 0; i--) {
-        if (memoryHistory[i].userAddress?.toLowerCase() === address) {
+        if (
+          memoryHistory[i].userAddress?.toLowerCase() === address ||
+          memoryHistory[i].recipient?.toLowerCase() === address
+        ) {
           memoryHistory.splice(i, 1)
         }
       }
     }
 
-    // Update Redis
-    const client = await getRedisClient()
-    if (client && redisAvailable) {
-      try {
+    // 2. Remove from KV Storage
+    try {
+      if (txHash) {
+        // Remove from global list
+        const rawAll = await kvGet(REDIS_KEY_ALL)
+        const allList = parseItems(rawAll)
+        const filteredAll = allList.filter((m) => m.txHash?.toLowerCase() !== txHash)
+        await kvSet(REDIS_KEY_ALL, JSON.stringify(filteredAll))
+
+        // If address also provided, clean user list
         if (address) {
-          await client.del(`${REDIS_KEY_USER_PREFIX}${address}`)
+          const userKey = `${REDIS_KEY_USER_PREFIX}${address}`
+          const rawUser = await kvGet(userKey)
+          const userList = parseItems(rawUser)
+          const filteredUser = userList.filter((m) => m.txHash?.toLowerCase() !== txHash)
+          await kvSet(userKey, JSON.stringify(filteredUser))
         }
-        await client.set(REDIS_KEY_ALL, JSON.stringify(memoryHistory.slice(0, 500)))
-      } catch {}
+      } else if (address) {
+        // Delete user key
+        await kvDel(`${REDIS_KEY_USER_PREFIX}${address}`)
+
+        // Filter out this user's records from global list
+        const rawAll = await kvGet(REDIS_KEY_ALL)
+        const allList = parseItems(rawAll)
+        const filteredAll = allList.filter(
+          (m) =>
+            m.userAddress?.toLowerCase() !== address &&
+            m.recipient?.toLowerCase() !== address
+        )
+        await kvSet(REDIS_KEY_ALL, JSON.stringify(filteredAll))
+      }
+    } catch (storageErr) {
+      console.warn('[History API] Failed to update remote KV storage on DELETE:', storageErr)
     }
 
     return apiSuccess({ message: 'History record(s) removed' })

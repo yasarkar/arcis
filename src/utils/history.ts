@@ -1,8 +1,8 @@
 // src/utils/history.ts
 //
 // Client-side Transaction History Utility for Arcis Protocol.
-// All persistence is handled on the server via /api/history.
-// LocalStorage dependencies have been completely removed.
+// All persistent records are synchronized with Vercel KV / Redis via /api/history.
+// A client-side cache (arcis_history_cache) provides 0ms initial render on page reload.
 
 export interface HistoryItem {
   id: string
@@ -32,12 +32,33 @@ export interface HistoryItem {
   memoIndex?: number
 }
 
-// In-memory cache for ultra-fast local state rendering
-let inMemoryHistory: HistoryItem[] = []
+const LOCAL_CACHE_KEY = 'arcis_history_cache'
+
+// Load initial state from local cache for instant 0ms rendering
+function loadInitialCache(): HistoryItem[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(LOCAL_CACHE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    }
+  } catch {}
+  return []
+}
+
+function saveLocalCache(items: HistoryItem[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(items.slice(0, 150)))
+  } catch {}
+}
+
+let inMemoryHistory: HistoryItem[] = loadInitialCache()
 let hasCleanedLegacyStorage = false
 
 /**
- * One-time clean up of legacy localStorage keys if they exist in the browser
+ * One-time clean up of deprecated legacy localStorage keys if they exist
  */
 function cleanLegacyLocalStorage() {
   if (hasCleanedLegacyStorage || typeof window === 'undefined') return
@@ -72,7 +93,7 @@ export const getHistory = (filterAddress?: string): HistoryItem[] => {
 }
 
 /**
- * Asynchronously fetches transactions from the server environment.
+ * Asynchronously fetches transactions from the server environment (Vercel KV).
  * Optionally filtered by user connected wallet address.
  */
 export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[]> => {
@@ -82,7 +103,7 @@ export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[
     const query = filterAddress ? `?address=${encodeURIComponent(filterAddress)}` : ''
     const res = await fetch(`/api/history${query}`, {
       headers: {
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
     })
 
@@ -94,11 +115,21 @@ export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[
     if (data.success && Array.isArray(data.transactions)) {
       const serverItems: HistoryItem[] = data.transactions
 
-      // Merge server items into in-memory store without losing unsaved pending items
+      // Merge server items with local cache without losing pending/unsaved local records
       const seen = new Set<string>()
       const merged: HistoryItem[] = []
 
-      for (const item of [...serverItems, ...inMemoryHistory]) {
+      // Server items take precedence for up-to-date status (success/failed)
+      for (const item of serverItems) {
+        const key = item.txHash ? item.txHash.toLowerCase() : item.id
+        if (key && !seen.has(key)) {
+          seen.add(key)
+          merged.push(item)
+        }
+      }
+
+      // Add any local items that haven't synced yet
+      for (const item of inMemoryHistory) {
         const key = item.txHash ? item.txHash.toLowerCase() : item.id
         if (key && !seen.has(key)) {
           seen.add(key)
@@ -107,17 +138,18 @@ export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[
       }
 
       inMemoryHistory = merged.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 300)
+      saveLocalCache(inMemoryHistory)
       return getHistory(filterAddress)
     }
   } catch (err) {
-    console.warn('[history.ts] Server fetch failed, serving in-memory history:', err)
+    console.warn('[history.ts] Server fetch failed, serving local cache:', err)
   }
 
   return getHistory(filterAddress)
 }
 
 /**
- * Adds a new transaction record to server storage and updates local in-memory state.
+ * Adds a new transaction record to Vercel KV server storage and updates local cache.
  */
 export const addTransaction = (item: Omit<HistoryItem, 'id' | 'timestamp'>) => {
   cleanLegacyLocalStorage()
@@ -142,12 +174,15 @@ export const addTransaction = (item: Omit<HistoryItem, 'id' | 'timestamp'>) => {
     }
   }
 
+  // Persist to local cache immediately
+  saveLocalCache(inMemoryHistory)
+
   // 2. Notify active components
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('arc_history_updated'))
   }
 
-  // 3. Asynchronously persist transaction to server
+  // 3. Asynchronously persist transaction to Vercel KV via API
   fetch('/api/history', {
     method: 'POST',
     headers: {

@@ -1,57 +1,16 @@
 // api/cache.ts
 //
-// Redis cache layer with 30s TTL support for Arcis Pool & Position states.
-// Connects to Redis (via REDIS_URL or local redis://127.0.0.1:6379)
-// with a graceful in-memory TTL fallback if Redis server is not currently running.
+// Redis cache layer with TTL support for Arcis Pool & Position states.
+// Connects to Vercel KV / Upstash Redis with a graceful in-memory TTL fallback.
 
 import { apiSuccess, apiError, safeJsonParse } from './utils/apiResponse'
-
-let redisClient: any = null
-let redisAvailable = false
-let connectionAttempted = false
-
-// In-memory fallback map: key -> { value: any, expiresAt: number }
-const memoryCache = new Map<string, { value: any; expiresAt: number }>()
-
-async function getRedisClient() {
-  if (connectionAttempted) {
-    return redisAvailable ? redisClient : null
-  }
-  connectionAttempted = true
-
-  try {
-    const { default: Redis } = await import('ioredis')
-    const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
-    
-    redisClient = new Redis(redisUrl, {
-      maxRetriesPerRequest: 1,
-      connectTimeout: 2000,
-      lazyConnect: true,
-      retryStrategy: () => null, // Don't hang indefinitely if Redis is down
-    })
-
-    redisClient.on('error', (err: any) => {
-      // Gracefully handle connection error without crashing the server
-      redisAvailable = false
-    })
-
-    await redisClient.connect().catch(() => {
-      redisAvailable = false
-    })
-
-    redisAvailable = redisClient.status === 'ready' || redisClient.status === 'connect'
-    if (redisAvailable) {
-      console.log('[Redis API] Connected to Redis at', redisUrl)
-    } else {
-      console.log('[Redis API] Redis not reachable, using in-memory TTL fallback')
-    }
-  } catch (e) {
-    redisAvailable = false
-    console.log('[Redis API] ioredis load or connect error, using in-memory TTL fallback')
-  }
-
-  return redisAvailable ? redisClient : null
-}
+import {
+  kvGet,
+  kvSet,
+  kvDel,
+  kvTtl,
+  getStorageDriver,
+} from './utils/redisStorage'
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -62,41 +21,29 @@ export async function GET(req: Request) {
   }
 
   try {
-    const client = await getRedisClient()
-
-    if (client && redisAvailable) {
+    const raw = await kvGet(key)
+    if (raw !== null) {
       try {
-        const raw = await client.get(key)
-        const ttl = await client.ttl(key)
-        if (raw !== null) {
-          const parsed = JSON.parse(raw)
-          return apiSuccess({
-            hit: true,
-            source: 'redis',
-            key,
-            data: parsed,
-            ttlRemainingSeconds: ttl > 0 ? ttl : 0,
-          })
-        }
-      } catch (err) {
-        console.warn('[Redis API] Redis GET failed, checking in-memory cache:', err)
+        const parsed = JSON.parse(raw)
+        const ttlRemainingSeconds = await kvTtl(key)
+        return apiSuccess({
+          hit: true,
+          source: getStorageDriver(),
+          key,
+          data: parsed,
+          ttlRemainingSeconds: ttlRemainingSeconds > 0 ? ttlRemainingSeconds : 0,
+        })
+      } catch {
+        // Plain string value
+        const ttlRemainingSeconds = await kvTtl(key)
+        return apiSuccess({
+          hit: true,
+          source: getStorageDriver(),
+          key,
+          data: raw,
+          ttlRemainingSeconds: ttlRemainingSeconds > 0 ? ttlRemainingSeconds : 0,
+        })
       }
-    }
-
-    // In-memory fallback check
-    const memItem = memoryCache.get(key)
-    const now = Date.now()
-    if (memItem && memItem.expiresAt > now) {
-      const ttlRemainingSeconds = Math.max(0, Math.round((memItem.expiresAt - now) / 1000))
-      return apiSuccess({
-        hit: true,
-        source: 'memory-fallback',
-        key,
-        data: memItem.value,
-        ttlRemainingSeconds,
-      })
-    } else if (memItem) {
-      memoryCache.delete(key)
     }
 
     return apiSuccess({
@@ -129,27 +76,13 @@ export async function POST(req: Request) {
 
   try {
     const ttl = Number(ttlSeconds) || 30
-    const client = await getRedisClient()
-
-    // 1. Store in Redis if available
-    let savedToRedis = false
-    if (client && redisAvailable) {
-      try {
-        await client.setex(key, ttl, JSON.stringify(value))
-        savedToRedis = true
-      } catch (err) {
-        console.warn('[Redis API] Redis SETEX failed, saving to in-memory fallback:', err)
-      }
-    }
-
-    // 2. Always store in in-memory fallback for resilience
-    const expiresAt = Date.now() + ttl * 1000
-    memoryCache.set(key, { value, expiresAt })
+    const strVal = typeof value === 'string' ? value : JSON.stringify(value)
+    await kvSet(key, strVal, ttl)
 
     return apiSuccess({
       key,
       ttlSeconds: ttl,
-      source: savedToRedis ? 'redis' : 'memory-fallback',
+      source: getStorageDriver(),
     })
   } catch (error: any) {
     return apiError(error.message || 'Internal server error in Cache save', 'CACHE_POST_ERROR', 500)
@@ -165,13 +98,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    const client = await getRedisClient()
-    if (client && redisAvailable) {
-      try {
-        await client.del(key)
-      } catch {}
-    }
-    memoryCache.delete(key)
+    await kvDel(key)
     return apiSuccess({ key, message: 'Deleted' })
   } catch (error: any) {
     return apiError(error.message || 'Internal server error in Cache delete', 'CACHE_DELETE_ERROR', 500)

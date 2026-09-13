@@ -27,13 +27,14 @@ export async function getRedisInstance() {
 
   try {
     const { default: Redis } = await import('ioredis')
-    const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
+    const redisUrl = (process.env.REDIS_URL || process.env.KV_URL || 'redis://127.0.0.1:6379').replace(/^["']|["']$/g, '').trim()
 
     redisClient = new Redis(redisUrl, {
       maxRetriesPerRequest: 1,
-      connectTimeout: 2000,
+      connectTimeout: 4000,
       lazyConnect: true,
       retryStrategy: () => null, // Don't hang if Redis is offline
+      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     })
 
     redisClient.on('error', () => {
