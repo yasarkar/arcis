@@ -146,8 +146,13 @@ export function calculateLpClaimAmount(
 ): bigint {
   if (profitUsd <= 0 || userStakedUsd <= 0 || userLpRaw <= 0n) return 0n
   if (profitUsd >= userStakedUsd) return userLpRaw
-  const ratioScaled = BigInt(Math.round((profitUsd / userStakedUsd) * 1_000_000))
-  const lpToRedeem = (userLpRaw * ratioScaled) / 1_000_000n
+
+  // Convert USD amounts to micro-units (6 decimals) for exact BigInt arithmetic
+  const profitMicros = BigInt(Math.round(profitUsd * 1_000_000))
+  const stakedMicros = BigInt(Math.round(userStakedUsd * 1_000_000))
+  if (stakedMicros === 0n) return 0n
+
+  const lpToRedeem = (userLpRaw * profitMicros) / stakedMicros
   return lpToRedeem > userLpRaw ? userLpRaw : lpToRedeem
 }
 

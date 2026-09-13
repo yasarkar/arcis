@@ -11,6 +11,7 @@ import { ERROR_DEFINITIONS, type ErrorDefinition } from '../config/errorMessages
 export function isUserCanceledError(err: any): boolean {
   if (!err) return false
   if (err?.isCanceled === true) return true
+  if (err?.isNetworkSwitchCanceled === true) return true
 
   // Direct code and error name checks
   if (
@@ -71,6 +72,14 @@ export function isUserCanceledError(err: any): boolean {
     lowMsg.includes('transaction canceled') ||
     lowMsg.includes('transaction was canceled') ||
     lowMsg.includes('transaction was cancelled') ||
+    lowMsg.includes('network switch request was canceled') ||
+    lowMsg.includes('network addition was canceled') ||
+    lowMsg.includes('network switch canceled') ||
+    lowMsg.includes('network switch was canceled') ||
+    lowMsg.includes('network switch rejected') ||
+    lowMsg.includes('network change canceled') ||
+    lowMsg.includes('switch network canceled') ||
+    (lowMsg.includes('network') && (lowMsg.includes('canceled') || lowMsg.includes('cancelled') || lowMsg.includes('rejected') || lowMsg.includes('denied'))) ||
     lowMsg.includes('declined') ||
     lowMsg.includes('disapproved') ||
     lowMsg.includes('cancelled by user') ||
@@ -427,6 +436,30 @@ export function normalizeAppError(err: unknown): ArcisAppError {
 
   // 2. User Canceled in Wallet
   if (isUserCanceledError(err)) {
+    const isNetworkSwitch =
+      (err as any)?.isNetworkSwitchCanceled === true ||
+      lowMsg.includes('network switch') ||
+      lowMsg.includes('network addition') ||
+      lowMsg.includes('switch the network') ||
+      lowMsg.includes('switch ethereum chain') ||
+      lowMsg.includes('switch to the network') ||
+      lowMsg.includes('etkin ağ') ||
+      lowMsg.includes('ağ değişikliği')
+
+    if (isNetworkSwitch) {
+      const def = ERROR_DEFINITIONS.NETWORK_SWITCH_CANCELED
+      return {
+        category: def.category,
+        code: 'NETWORK_SWITCH_CANCELED',
+        title: def.title,
+        message: def.message,
+        actionHint: def.actionHint,
+        isCanceled: true,
+        isRetryable: true,
+        rawMessage,
+      }
+    }
+
     const def = ERROR_DEFINITIONS.USER_CANCELED
     return {
       category: def.category,
@@ -663,7 +696,11 @@ export function normalizeAppError(err: unknown): ArcisAppError {
   if (
     lowMsg.includes('timeout') ||
     lowMsg.includes('timed out') ||
-    lowMsg.includes('network') ||
+    lowMsg.includes('network timeout') ||
+    lowMsg.includes('network connection') ||
+    lowMsg.includes('network request failed') ||
+    lowMsg.includes('rpc node did not respond') ||
+    lowMsg.includes('connection dropped') ||
     lowMsg.includes('fetch failed') ||
     lowMsg.includes('failed to fetch')
   ) {

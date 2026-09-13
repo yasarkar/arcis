@@ -1,7 +1,31 @@
 // src/utils/logger.ts
 // Arcis Protocol Centralized Structured Logger
 // Provides scoped logging, timestamps, and environment-aware output formatting.
+//
+// ALSO installs safe global console.warn / console.info polyfills when missing.
+// The polyfill guarantees that the existing 89+ `console.warn(...)` call sites
+// across the app never throw 'not a function' in Node, browsers, sandboxes, or
+// test runners. Load this module as a side-effect early (see src/main.tsx).
 
+// ── Safe console polyfill (runs on import, wrapped to never throw) ──────────
+try {
+  if (typeof console !== 'undefined') {
+    if (typeof console.warn !== 'function') {
+      const fallback = typeof console.error === 'function'
+        ? console.error.bind(console)
+        : (typeof console.log === 'function' ? console.log.bind(console) : () => {})
+      Object.defineProperty(console, 'warn', { value: fallback, writable: true })
+    }
+    if (typeof console.info !== 'function') {
+      const infoFallback = typeof console.log === 'function' ? console.log.bind(console) : () => {}
+      Object.defineProperty(console, 'info', { value: infoFallback, writable: true })
+    }
+  }
+} catch {
+  // Silent fallback if console object is non-configurable / frozen in strict sandboxes
+}
+
+// ── Structured logger ────────────────────────────────────────────────────────
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 interface LogEntry {
@@ -43,16 +67,23 @@ class ArcisLogger {
         warn: 'color: #f59e0b; font-weight: bold;',
         error: 'color: #ef4444; font-weight: bold;',
       }
-
+      const method = typeof console[level] === 'function' ? console[level] : console.log
       if (details !== undefined) {
-        console[level](`%c${prefix} ${message}`, styles[level], details)
+        method(`%c${prefix} ${message}`, styles[level], details)
       } else {
-        console[level](`%c${prefix} ${message}`, styles[level])
+        method(`%c${prefix} ${message}`, styles[level])
       }
     } else {
       // Production structured JSON or concise format
       if (level === 'error' || level === 'warn') {
-        console[level](JSON.stringify(entry))
+        const json = JSON.stringify(entry)
+        if (typeof console[level] === 'function') {
+          console[level](json)
+        } else if (typeof console.warn === 'function') {
+          console.warn(json)
+        } else {
+          console.log(json)
+        }
       }
     }
   }
@@ -83,4 +114,6 @@ class ArcisLogger {
   }
 }
 
+// Named export for explicit method usage + default singleton.
 export const logger = new ArcisLogger()
+export default logger

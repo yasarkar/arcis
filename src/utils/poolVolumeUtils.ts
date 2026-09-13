@@ -16,11 +16,11 @@ export interface StoredSwapVolumeEntry {
 // In-memory cache fallback for SSR and non-storage environments
 const memorySwapVolume: Record<string, StoredSwapVolumeEntry[]> = {}
 
-// Calibrated baseline 24H volume for testnet pools to prevent inactive 0.00 displays
+// Honest baseline volume for pools — live volume reflects genuine swaps only (zero synthetic additions)
 export const POOL_TESTNET_BASE_VOLUME: Record<string, number> = {
-  'usdc-eurc-stable-pool': 14.80,
-  'usdc-cirbtc-pool': 5.00,
-  'usdc-yield-vault': 19.80,
+  'usdc-eurc-stable-pool': 0.00,
+  'usdc-cirbtc-pool': 0.00,
+  'usdc-yield-vault': 0.00,
 }
 
 export function clearSwapVolumeCache(): void {
@@ -165,30 +165,12 @@ export const getRollingClientSwapVolume = (poolId: string): number => {
   return parseFloat(effectiveTotal.toFixed(2))
 }
 
-let liveSimTimer: ReturnType<typeof setInterval> | null = null
-
 /**
- * Initializes a lightweight, idempotent client-side heartbeat simulating periodic
- * micro FX arbitrage trades ($0.45 to $2.10 every 25s) on Arc Testnet.
- * Keeps the 24h volume alive and actively reacting in the UI.
+ * Live volume simulation is disabled to ensure 100% data integrity and eliminate synthetic volume.
+ * Pure on-chain rolling volume counters and verified client swap executions are used exclusively.
+ * Returns a no-op cleanup function.
  */
 export function startLiveVolumeSimulation(): () => void {
-  if (typeof window === 'undefined') return () => {}
-  if (liveSimTimer) return () => {}
-
-  liveSimTimer = setInterval(() => {
-    try {
-      const delta = parseFloat((0.45 + Math.random() * 1.65).toFixed(2))
-      recordClientSwapVolume('usdc-eurc-stable-pool', delta)
-    } catch (simErr) {
-      console.warn('[poolVolumeUtils] Live volume heartbeat note:', simErr)
-    }
-  }, 25_000)
-
-  return () => {
-    if (liveSimTimer) {
-      clearInterval(liveSimTimer)
-      liveSimTimer = null
-    }
-  }
+  // Deliberately disabled: Only genuine on-chain & user swaps are recorded
+  return () => {}
 }
