@@ -152,7 +152,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
       setDepositError(normalized.message)
 
       const status = isCanceled ? 'canceled' : 'failed'
-      const title = isCanceled ? 'Deposit Canceled' : (normalized.title || 'Deposit Failed')
+      const title = isCanceled ? (normalized.title || 'Deposit Canceled') : (normalized.title || 'Deposit Failed')
       const badgeText = isCanceled ? 'Canceled' : 'Failed'
 
       // Update broadcast notification to canceled or failed
@@ -290,7 +290,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
                 <ArrowDownRight size={18} />
               </div>
               <span className="arc-eyebrow" style={{ fontSize: 13, color: 'var(--base-colors--white)', fontWeight: 600 }}>
-                DEPOSIT TO GATEWAY
+                DEPOSIT
               </span>
             </div>
 
@@ -560,7 +560,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
                 <ShieldCheck size={13} style={{ color: '#10b981' }} />
                 <span>Zero Deposit Fee</span>
               </div>
-              <span style={{ color: '#10b981', fontWeight: 600 }}>0.00 USDC (Free)</span>
+              <span style={{ color: '#10b981', fontWeight: 600 }}>0.00 USDC</span>
             </div>
 
             <button
@@ -583,7 +583,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
                 transition: 'all 0.2s var(--ease-out-smooth)',
               }}
             >
-              {depositing ? 'DEPOSITING...' : 'DEPOSIT TO GATEWAY'}
+              {depositing ? 'DEPOSITING...' : 'DEPOSIT'}
             </button>
           </form>
         </div>
@@ -598,7 +598,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
           </div>
           <div className="ub-stat-item">
             <div className="ub-stat-label">Active Deposits</div>
-            <div className="ub-stat-value" style={{ color: activeChains > 0 ? 'var(--earned-green)' : 'inherit' }}>
+            <div className="ub-stat-value" >
               {activeChains}
             </div>
           </div>

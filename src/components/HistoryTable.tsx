@@ -1452,7 +1452,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                 }}
               >
                 <div className="text-slate-400 font-medium">
-                  Showing <span className="text-white font-bold">{filteredHistory.length > 0 ? startIndex + 1 : 0}</span> - <span className="text-white font-bold">{endIndex}</span> of <span className="text-white font-bold">{filteredHistory.length}</span> transactions
+                  Showing <span className="text-white font-bold"> {filteredHistory.length > 0 ? startIndex + 1 : 0}</span> - <span className="text-white font-bold">{endIndex}</span> of <span className="text-white font-bold">{filteredHistory.length}</span> transactions
                 </div>
 
                 {totalPages > 1 && (

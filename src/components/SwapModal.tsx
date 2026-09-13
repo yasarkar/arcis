@@ -445,7 +445,7 @@ export default function SwapModal({
           destTxHash: finalStatus.destinationTxHash,
           recipient: effectiveRecipient,
           rate: rate || (amountIn && estimatedOutput ? `1 ${tokenIn} ≈ ${(parseFloat(estimatedOutput) / parseFloat(amountIn)).toFixed(4)} ${tokenOut}` : undefined),
-          slippage: (slippageTolerance * 100).toFixed(1) + '%',
+          slippage: `% ${(slippageTolerance * 100).toFixed(1)}`,
           speedTier: speedTier.charAt(0).toUpperCase() + speedTier.slice(1),
           fee: platformFeeAmount ? `${platformFeeAmount} ${tokenIn}` : undefined,
         })
@@ -481,6 +481,7 @@ export default function SwapModal({
           amount: amountIn,
           tokenSymbol: tokenIn,
           sourceChain: fromChain,
+          destChain: isCrossChain ? toChain : undefined,
           recipient: effectiveRecipient,
           userAddress: connectedAddress,
           status: 'success',
@@ -550,9 +551,9 @@ export default function SwapModal({
     const isArcNative = fromChain === 'Arc_Testnet' && (!toChain || toChain === 'Arc_Testnet')
     const lpFeePercent = isArcNative
       ? tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
-        ? '0.25% (AMM LP Pool)'
-        : '0.12% (StableSwap LP)'
-      : '0.02% (AppKit Route)'
+        ? '%0.25 (AMM LP Pool)'
+        : '%0.12 (StableSwap LP)'
+      : '%0.02 (AppKit Route)'
 
     const routeName = isCrossChain
       ? 'Circle AppKit Route'
@@ -576,7 +577,7 @@ export default function SwapModal({
       {
         label: 'Slippage Tolerance',
         tooltip: 'The maximum price difference tolerated before the transaction automatically reverts.',
-        value: `${(slippageTolerance * 100).toFixed(1)}%`,
+        value: `%${(slippageTolerance * 100).toFixed(1)}`,
       },
       {
         label: 'Network Fee',
@@ -1039,77 +1040,81 @@ export default function SwapModal({
               </div>
 
               {/* Slippage Tolerance */}
-              <div className="space-y-2.5">
+              <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300 tracking-wide">
-                    SLIPPAGE TOLERANCE
-                  </label>
-                  <span className="text-xs text-indigo-400 font-semibold font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
-                    {(slippageTolerance * 100).toFixed(1)}%
+                  <div className="flex items-center gap-1 text-[12px] font-semibold tracking-wide text-slate-300 ml-3">
+                    <span style={{ fontFamily: 'var(--font-app)' }}>SLIPPAGE TOLERANCE</span>
+                  </div>
+                  <span className="text-xs text-indigo-400 font-semibold font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 mr-3">
+                    %{(slippageTolerance * 100).toFixed(1)}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2">
-                  {(['0.1', '0.5', '1.0'] as const).map((type) => (
+                <div
+                  className="p-2 rounded-2xl mt-2 space-y-2"
+                >
+                  <div className="grid grid-cols-4 gap-2">
+                    {(['0.1', '0.5', '1.0'] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          setSelectedSlippageType(type)
+                          setCustomSlippage('')
+                        }}
+                        className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
+                          selectedSlippageType === type
+                            ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm'
+                            : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
+                        }`}
+                      >
+                        %{type}
+                      </button>
+                    ))}
                     <button
-                      key={type}
                       type="button"
-                      onClick={() => {
-                        setSelectedSlippageType(type)
-                        setCustomSlippage('')
-                      }}
+                      onClick={() => setSelectedSlippageType('custom')}
                       className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
-                        selectedSlippageType === type
+                        selectedSlippageType === 'custom'
                           ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm'
                           : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
                       }`}
                     >
-                      {type}%
+                      Custom
                     </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSlippageType('custom')}
-                    className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
-                      selectedSlippageType === 'custom'
-                        ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm'
-                        : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
-                    }`}
-                  >
-                    Custom
-                  </button>
-                </div>
-
-                {selectedSlippageType === 'custom' && (
-                  <div className="space-y-1.5 pt-1 animate-fade-in">
-                    <div className="relative">
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.01"
-                        max="50"
-                        placeholder="e.g. 2.5"
-                        value={customSlippage}
-                        onChange={(e) => setCustomSlippage(e.target.value)}
-                        autoFocus
-                        className="w-full rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none transition-all pr-8 bg-white/[0.04] border border-indigo-500/40 focus:border-indigo-500"
-                      />
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
-                        %
-                      </span>
-                    </div>
-                    {isHighSlippageWarning && (
-                      <div className="flex gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2 rounded-xl">
-                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>High slippage may result in frontrunning or poor execution.</span>
-                      </div>
-                    )}
                   </div>
-                )}
+
+                  {selectedSlippageType === 'custom' && (
+                    <div className="space-y-1.5 pt-1 animate-fade-in">
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.01"
+                          max="50"
+                          placeholder="e.g. 2.5"
+                          value={customSlippage}
+                          onChange={(e) => setCustomSlippage(e.target.value)}
+                          autoFocus
+                          className="w-full rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none transition-all pr-8 bg-white/[0.04] border border-indigo-500/40 focus:border-indigo-500"
+                        />
+                        <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                          %
+                        </span>
+                      </div>
+                      {isHighSlippageWarning && (
+                        <div className="flex gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2 rounded-xl">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>High slippage may result in frontrunning or poor execution.</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Speed Priority Section */}
-              <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+              <div className="space-y-2 pt-1">
                 <SpeedFeeSelector
                   selectedTier={speedTier}
                   onSelectTier={(tier) => setSpeedTier(tier)}

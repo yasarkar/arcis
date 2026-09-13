@@ -533,7 +533,7 @@ function BroadcastCard({
       {/* BOTTOM ROW: Explorer Link */}
       {(details?.explorerUrl || details?.txHash) && (
         <div className="mt-2.5 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] px-2">
-          <span className="text-slate-400 font-medium">Transaction:</span>
+          <span className={`text-slate-400 font-medium ${opType === 'swap' ? 'ml-0.5' : 'ml-1'}`}>Transaction:</span>
           <a
             href={details?.explorerUrl || (details?.txHash ? getExplorerLink(details.txHash, explorerChain) : '#')}
             target="_blank"
@@ -664,6 +664,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
 
   const isCanceled = status === 'canceled'
   const isFailed = status === 'failed'
+  const isSuccess = status === 'success'
 
   const amount = details.amount || details.fromAmount
   const tokenSym = details.tokenSymbol || details.fromSymbol
@@ -710,8 +711,15 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
         {/* Route Arrow */}
         <div className="flex items-center gap-1 text-slate-500 shrink-0 px-1">
           <ArrowRight
-            className={`w-4 h-4 shrink-0 ${isCanceled ? 'text-amber-400' : isFailed ? 'text-rose-400' : 'text-cyan-400'
-              }`}
+            className={`w-4 h-4 shrink-0 ${
+              isCanceled
+                ? 'text-amber-400'
+                : isFailed
+                  ? 'text-rose-400'
+                  : isSuccess
+                    ? 'text-emerald-400'
+                    : 'text-cyan-400'
+            }`}
           />
         </div>
 
@@ -879,7 +887,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
   )
   const resolvedApy = details.poolApy ?? matchedPool?.apy
   const displayApy = resolvedApy
-    ? `${String(resolvedApy).replace(/%+$/, '')}% APY`
+    ? `%${String(resolvedApy).replace(/%+$/, '')} APY`
     : null
 
   // Match the broadcast card's border colors according to transaction outcome
@@ -1109,6 +1117,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
 
   const isFailed = status === 'failed'
   const isCanceled = status === 'canceled'
+  const isSuccess = status === 'success'
 
   const depositAmount = details.amount || details.fromAmount || ''
   const tokenSym = details.tokenSymbol || details.fromSymbol || 'USDC'
@@ -1150,7 +1159,13 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
         <div className="shrink-0 flex items-center justify-center px-1">
           <ArrowRight
             className={`w-3.5 h-3.5 ${
-              isCanceled ? 'text-amber-400' : isFailed ? 'text-rose-400' : 'text-cyan-400'
+              isCanceled
+                ? 'text-amber-400'
+                : isFailed
+                  ? 'text-rose-400'
+                  : isSuccess
+                    ? 'text-emerald-400'
+                    : 'text-cyan-400'
             }`}
           />
         </div>
@@ -1158,7 +1173,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
         {/* Circle Gateway */}
         <div className="flex items-center gap-1.5 min-w-0 justify-end">
           <img src={CircleIcon} alt="Circle Gateway" className="w-4 h-4 object-contain shrink-0" />
-          <span className="font-semibold text-indigo-300 truncate max-w-[120px]">
+          <span className="font-semibold text-slate-200 truncate max-w-[120px]" title="Circle Gateway">
             Circle Gateway
           </span>
         </div>

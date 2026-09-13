@@ -331,7 +331,7 @@ export default function BridgeModal({
       type: 'bridge',
       title: bridgeMode === 'direct' ? `Bridging ${tokenSymbol}...` : `Bridging ${tokenSymbol} via Gateway...`,
       status: 'pending',
-      badgeText: bridgeMode === 'direct' ? 'Pending' : '<500ms Instant',
+      badgeText: 'Pending',
       details: {
         amount,
         tokenSymbol,
@@ -461,7 +461,7 @@ export default function BridgeModal({
 
       updateBroadcast(broadcastId, {
         type: 'bridge',
-        title: bridgeMode === 'direct' ? 'Bridge Completed Successfully' : 'Gateway Bridge Completed Successfully',
+        title: bridgeMode === 'direct' ? 'Bridge Completed Successfully' : 'Gateway Transfer Completed Successfully',
         status: 'success',
         badgeText: 'Confirmed',
         details: {
@@ -916,7 +916,6 @@ export default function BridgeModal({
               <DirectionSwitchButton
                 onClick={handleSwapChains}
                 disabled={isTransferring}
-                title="Swap source and destination networks"
                 orientation="horizontal"
               />
             </div>
@@ -1004,7 +1003,6 @@ export default function BridgeModal({
                 : '0x....'
             }
             isValid={recipientIsValid}
-            validText="Verified Address"
             error={recipientError}
             disabled={isTransferring}
             rightBadge={recipientBadge}

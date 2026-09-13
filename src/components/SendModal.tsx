@@ -31,7 +31,6 @@ import {
   getChainIconId,
   getExplorerTxUrl,
 } from '../config/sendConfig'
-import { ARC_METADATA } from '../config/arcChain'
 import { addTransaction } from '../utils/history'
 import { normalizeAppError } from '../utils/errorNormalizer'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
@@ -1093,7 +1092,6 @@ export default function SendModal({
                 : '0x....'
             }
             isValid={recipientIsValid}
-            validText="Verified"
             error={recipientError}
             disabled={isSending}
           />

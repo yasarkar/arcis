@@ -44,10 +44,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
     setTimeout(() => setCopiedField(null), 2000)
   }
 
-  const targetChain = item.type === 'bridge' && item.destChain ? item.destChain : (item.sourceChain || 'Arc_Testnet')
+  const sourceChain = item.sourceChain || 'Arc_Testnet'
+  const destChain = item.destChain || (item.type === 'bridge' ? (sourceChain === 'Arc_Testnet' ? 'Base_Sepolia' : 'Arc_Testnet') : undefined)
+  const targetChain = item.type === 'bridge' && destChain ? destChain : sourceChain
   const explorerUrl = getExplorerTxUrl(targetChain, item.txHash)
-  const recipientChain = item.destChain || item.sourceChain || 'Arc_Testnet'
+  const recipientChain = destChain || sourceChain
   const recipientExplorerUrl = item.recipient ? getExplorerAddressUrl(recipientChain, item.recipient) : '#'
+
+  const sourceIconId = getChainIconId(sourceChain)
+  const destIconId = destChain ? getChainIconId(destChain) : null
 
   const qrMatrix = generateQrMatrix(explorerUrl)
 
@@ -235,15 +240,28 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
             {/* Network */}
             <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
               <span className="text-slate-400">Chain</span>
-              <div className="flex items-center gap-1.5">
-                <div style={{ width: 16, height: 16, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <NetworkIcon name={getChainIconId(item.sourceChain)} size={16} variant="background" />
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                  <NetworkIcon
+                    name={sourceIconId}
+                    size={16}
+                    variant={sourceIconId === 'solana' ? 'branded' : 'background'}
+                    className="rounded-full"
+                  />
                 </div>
-                <span className="text-white font-medium">{getChainDisplayName(item.sourceChain)}</span>
-                {item.destChain && (
+                <span className="text-white font-medium">{getChainDisplayName(sourceChain)}</span>
+                {destChain && destChain !== sourceChain && destIconId && (
                   <>
-                    <span className="text-slate-500">→</span>
-                    <span className="text-white font-medium">{getChainDisplayName(item.destChain)}</span>
+                    <span className="text-indigo-400 font-bold text-xs">→</span>
+                    <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                      <NetworkIcon
+                        name={destIconId}
+                        size={16}
+                        variant={destIconId === 'solana' ? 'branded' : 'background'}
+                        className="rounded-full"
+                      />
+                    </div>
+                    <span className="text-white font-medium">{getChainDisplayName(destChain)}</span>
                   </>
                 )}
               </div>
@@ -390,7 +408,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
             {/* Information & Explorer details */}
             <div className="space-y-1">
               <p className="text-xs font-semibold text-white">
-                Scan to verify on {getChainDisplayName(item.sourceChain) || 'Arc Explorer'}
+                Scan to verify on {getChainDisplayName(targetChain) || 'Arc Explorer'}
               </p>
               <p className="text-[11px] font-mono text-slate-400 truncate max-w-[280px]">
                 {formatAddress(item.txHash)}

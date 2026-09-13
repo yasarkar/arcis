@@ -93,7 +93,6 @@ export default function Header({
             type="button"
             onClick={() => setActiveTab('home')}
             className="flex items-center gap-3 cursor-pointer group focus:outline-none transition-transform active:scale-95"
-            title="Arcis Protocol Overview"
           >
             <img
               src={customLogo}
