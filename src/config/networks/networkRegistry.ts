@@ -74,6 +74,12 @@ export const arcTestnet = defineChain({
       url: 'https://testnet.arcscan.app',
     },
   },
+  contracts: {
+    multicall3: {
+      address: '0xca11bde05977b3631167028862be2a173976ca11',
+      blockCreated: 0,
+    },
+  },
   testnet: true,
 })
 
@@ -103,6 +109,12 @@ export const arcMainnet = defineChain({
     default: {
       name: 'ArcScan',
       url: 'https://arcscan.app',
+    },
+  },
+  contracts: {
+    multicall3: {
+      address: '0xca11bde05977b3631167028862be2a173976ca11',
+      blockCreated: 0,
     },
   },
   testnet: false,

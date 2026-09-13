@@ -24,6 +24,16 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     isRetryable: true,
   },
 
+  // 1b. Network Switch Cancellation
+  NETWORK_SWITCH_CANCELED: {
+    category: 'WALLET_REJECTION',
+    title: 'Network Switch Canceled',
+    message: 'The network switch request was canceled in your wallet. Switching to the source network is required to complete this deposit.',
+    actionHint: 'Please approve the network switch request in your wallet to proceed with the deposit.',
+    isCanceled: true,
+    isRetryable: true,
+  },
+
   // 2. Arc L1 USDC Gas Floor Violation
   GAS_PRICE_UNDERPRICED: {
     category: 'INSUFFICIENT_GAS',

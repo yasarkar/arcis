@@ -357,53 +357,53 @@ export const PROTOCOL_FEE_RATES: ModuleProtocolFeeConfig = {
     standard: {
       valueUsdc: 0.0,
       label: 'Free Platform Fee',
-      description: 'Standard 20 Gwei Base Fee (~$0.00042 USDC Gas)',
+      description: 'Standard 20 Gwei Base Fee',
     },
     fast: {
       valueUsdc: 0.0,
       label: 'Free Platform Fee',
-      description: 'Recommended 25 Gwei Priority (~$0.00053 USDC Gas)',
+      description: 'Recommended 25 Gwei Priority',
     },
     turbo: {
       valueUsdc: 0.0,
       label: 'Free Platform Fee',
-      description: 'Turbo 50 Gwei Priority (~$0.00105 USDC Gas)',
+      description: 'Turbo 50 Gwei Priority',
     },
   },
   swap: {
     standard: {
-      bps: 5, // 0.05%
-      label: '0.05% Protocol Fee',
-      description: 'Standard liquidity routing (5 BPS)',
+      bps: 5, // %0.05
+      label: '%0.05 Protocol Fee',
+      description: 'Standard liquidity routing',
     },
     fast: {
-      bps: 10, // 0.10%
-      label: '0.10% Protocol Fee',
-      description: 'Fast execution & slippage-optimized routing (10 BPS)',
+      bps: 10, // %0.10
+      label: '%0.10 Protocol Fee',
+      description: 'Fast execution & slippage-optimized routing',
     },
     turbo: {
-      bps: 20, // 0.20%
-      label: '0.20% Protocol Fee',
-      description: 'MEV-protected ultra-fast execution (20 BPS)',
+      bps: 20, // %0.20
+      label: '%0.20 Protocol Fee',
+      description: 'MEV-protected ultra-fast execution',
     },
   },
   bridge: {
     standard: {
-      bps: 5, // 0.05%
+      bps: 5, // %0.05
       valueUsdc: 0.05,
-      label: '0.05% Platform Fee',
+      label: '%0.05 Platform Fee',
       description: 'Eco CCTP bridge (Standard block confirmations)',
     },
     fast: {
-      bps: 10, // 0.10%
+      bps: 10, // %0.10
       valueUsdc: 0.1,
-      label: '0.10% Platform Fee',
+      label: '%0.10 Platform Fee',
       description: 'CCTP Fast Forwarding service acceleration',
     },
     turbo: {
-      bps: 25, // 0.25%
+      bps: 25, // %0.25
       valueUsdc: 0.25,
-      label: '0.25% Platform Fee',
+      label: '%0.25 Platform Fee',
       description: 'Gateway instant pool (<500ms transfer)',
     },
   },
@@ -421,7 +421,7 @@ export function getSwapProtocolFeeBps(tier: SpeedTier): number {
 
 export function getSwapProtocolFeePercent(tier: SpeedTier): string {
   const bps = getSwapProtocolFeeBps(tier)
-  return `${(bps / 100).toFixed(2)}%`
+  return `%${(bps / 100).toFixed(2)}`
 }
 
 export function calculateSwapProtocolFeeAmount(tier: SpeedTier, amountIn: string): string | null {
