@@ -21,13 +21,13 @@ import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
 import {
-  CHAIN_META,
   getChainIconId,
   getChainDisplayName,
   isSolanaChain,
   isKnownChain,
 } from '../config/chainMeta'
 import { ARCIS_POOLS } from '../config/poolsConfig'
+import { TOKEN_ICON_MAP } from '../config/tokenIcons'
 
 export type BroadcastStatus = 'pending' | 'success' | 'failed' | 'canceled' | 'info'
 export type BroadcastType = 'send' | 'bridge' | 'swap' | 'deposit' | 'pool' | 'faucet' | 'system'
@@ -115,20 +115,7 @@ export const useBroadcast = () => {
   }
   return context
 }
-
-export const TOKEN_ICON_MAP: Record<string, string> = {
-  USDC: UsdcIcon,
-  EURC: EurcIcon,
-  cirBTC: CirBtcIcon,
-  BTC: CirBtcIcon,
-  'af-USDC': UsdcIcon,
-  'af-USDC-EURC': EurcIcon,
-  'af-USDC-cirBTC': CirBtcIcon,
-}
-
-export { CHAIN_META, getChainDisplayName }
-
-export function getChainIconMeta(chain?: string): { iconId: string; name: string; isSolana?: boolean } | null {
+function getChainIconMeta(chain?: string): { iconId: string; name: string; isSolana?: boolean } | null {
   if (!chain || !isKnownChain(chain)) return null
   const iconId = getChainIconId(chain)
   const name = getChainDisplayName(chain)

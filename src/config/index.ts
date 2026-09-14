@@ -11,6 +11,9 @@ export * from './constants'
 // 3. Chain Metadata & UI Resolvers
 export * from './chainMeta'
 
+// 4. Token Icons & Map
+export * from './tokenIcons'
+
 // 3. Network Registry & Runtime Helpers
 export {
   APP_ENV,
