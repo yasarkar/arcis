@@ -25,6 +25,7 @@ import { addTransaction } from '../utils/history'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
+import { SpendingCeilingBadge, SpendingCeilingSettingsCard } from './common/SpendingCeilingBadge'
 import { type SpeedTier } from '../config/feeTiers'
 import {
   getSwapProtocolFeeBps,
@@ -940,6 +941,18 @@ export default function SwapModal({
             />
           )}
 
+          {/* Smart Spending Ceiling Status */}
+          {connectedAddress && tokenIn === 'USDC' && (
+            <div className="pt-1">
+              <SpendingCeilingBadge
+                walletAddress={connectedAddress}
+                tokenSymbol="USDC"
+                amount={amountIn}
+                onOpenSettings={() => setShowSettings(true)}
+              />
+            </div>
+          )}
+
           {/* Primary Action Button */}
           <div className="pt-2">
             <FintechActionButton
@@ -1122,6 +1135,16 @@ export default function SwapModal({
                   disabled={isSwapping}
                 />
               </div>
+
+              {/* Spending Limit / Ceiling Guardian */}
+              {connectedAddress && (
+                <div className="pt-1">
+                  <SpendingCeilingSettingsCard
+                    walletAddress={connectedAddress}
+                    tokenSymbol="USDC"
+                  />
+                </div>
+              )}
 
               {/* Save button */}
               <button
