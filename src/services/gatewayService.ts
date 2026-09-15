@@ -265,7 +265,7 @@ export async function depositToGateway(
         address: tokenAddress,
         abi: erc20Abi,
         functionName: 'approve',
-        args: [gatewayWallet, maxUint256],
+        args: [gatewayWallet, amountUnits],
         account: address,
       })
       gasLimit = (estimatedGas * 130n) / 100n // +30% buffer
@@ -279,7 +279,7 @@ export async function depositToGateway(
         address: tokenAddress,
         abi: erc20Abi,
         functionName: 'approve',
-        args: [gatewayWallet, maxUint256],
+        args: [gatewayWallet, amountUnits],
         chain: chainDef,
         account: address,
         gas: gasLimit,

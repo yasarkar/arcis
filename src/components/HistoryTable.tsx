@@ -778,15 +778,6 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
             </span>
           </div>
         </div>
-
-        {/* Active Connected Wallet Badge */}
-        {activeWalletAddress && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[rgba(152,150,255,0.08)] border border-[rgba(152,150,255,0.2)] text-xs font-mono text-[var(--secondary-colors--sky-sync)] self-start sm:self-auto shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
-            <span className="text-slate-400 text-[11px] font-sans">Active Wallet:</span>
-            <span className="font-bold text-white tracking-wider">{activeWalletAddress.slice(0, 6)}...{activeWalletAddress.slice(-4)}</span>
-          </div>
-        )}
       </div>
 
       {/* Search Bar */}

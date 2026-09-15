@@ -447,9 +447,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           console.warn('[swapService] MSCA allowance read error:', e)
         }
 
-        // Check on-chain allowance and progressive spending ceiling
+        // Check on-chain allowance against user input amount
         const mscaCeiling = checkCeilingStatus(smartAccount.address, params.tokenIn, parseFloat(params.amountIn))
-        const requiresMscaApprove = mscaAllowance < swapAmountInUnits
+        const requiresMscaApprove = mscaAllowance < amountInUnits
 
         // Only include approve call if on-chain allowance is insufficient
         if (requiresMscaApprove) {
@@ -458,7 +458,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             data: encodeFunctionData({
               abi: ERC20_ABI,
               functionName: 'approve',
-              args: [arcRoute.poolAddress, maxUint256],
+              args: [arcRoute.poolAddress, amountInUnits],
             }),
           })
         }
@@ -565,9 +565,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           ARC_GAS_LIMITS.contractInteraction
         )
 
-        // Check on-chain allowance and progressive spending ceiling
+        // Check on-chain allowance against user input amount
         const ceilingStatus = checkCeilingStatus(account, params.tokenIn, parseFloat(params.amountIn))
-        const requiresApprove = currentAllowance < swapAmountInUnits
+        const requiresApprove = currentAllowance < amountInUnits
 
         // Only prompt for approve if current on-chain allowance is insufficient
         if (requiresApprove) {
@@ -575,7 +575,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [arcRoute.poolAddress, maxUint256],
+            args: [arcRoute.poolAddress, amountInUnits],
             chain: arcTestnet,
             account,
             maxFeePerGas: gasOptions.maxFeePerGas,

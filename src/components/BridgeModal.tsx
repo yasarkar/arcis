@@ -23,7 +23,6 @@ import { getExplorerTxUrl } from '../config/sendConfig'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
-import { SpendingCeilingBadge, SpendingCeilingSettingsCard } from './common/SpendingCeilingBadge'
 import { type SpeedTier } from '../config/feeTiers'
 import { useMultiChainWallet } from '../hooks/useMultiChainWallet'
 import {
@@ -1021,18 +1020,6 @@ export default function BridgeModal({
             />
           )}
 
-          {/* Smart Spending Ceiling Status */}
-          {connectedAddress && (
-            <div className="pt-1">
-              <SpendingCeilingBadge
-                walletAddress={connectedAddress}
-                tokenSymbol="USDC"
-                amount={amount}
-                onOpenSettings={() => setShowSettings(true)}
-              />
-            </div>
-          )}
-
           {/* Smart CTA Button */}
           <div className="pt-2">
             <FintechActionButton
@@ -1138,16 +1125,6 @@ export default function BridgeModal({
                   disabled={isTransferring}
                 />
               </div>
-
-              {/* Spending Limit / Ceiling Guardian */}
-              {connectedAddress && (
-                <div className="pt-1">
-                  <SpendingCeilingSettingsCard
-                    walletAddress={connectedAddress}
-                    tokenSymbol="USDC"
-                  />
-                </div>
-              )}
 
               {/* Save button */}
               <button
