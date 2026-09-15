@@ -298,7 +298,7 @@ interface HistoryTableProps {
 
 export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) {
   const { address: wagmiAddress } = useAccount()
-  const activeWalletAddress = (walletAddress || wagmiAddress || '').toLowerCase()
+  const activeWalletAddress = (walletAddress !== undefined ? walletAddress : (wagmiAddress || '')).toLowerCase().trim()
 
   const { isPrivate: globalPrivate, settings } = usePrivacy()
   const [history, setHistory] = useState<HistoryItem[]>([])
@@ -356,15 +356,22 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
     return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
-  // Load transactions from server environment filtered by active wallet
+  // Load transactions strictly filtered by active wallet
   useEffect(() => {
     let isMounted = true
+
+    if (!activeWalletAddress) {
+      setHistory([])
+      setIsLoading(false)
+      return
+    }
+
     setIsLoading(true)
 
-    // Immediate in-memory render
+    // Immediate in-memory render strictly for active wallet
     setHistory(getHistory(activeWalletAddress))
 
-    // Asynchronous server-side fetch
+    // Asynchronous server-side fetch for active wallet
     fetchHistory(activeWalletAddress)
       .then((items) => {
         if (isMounted) {
@@ -378,10 +385,13 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
       })
 
     // Listen for custom events to automatically reload from server
-    const handleUpdate = () => {
-      fetchHistory(activeWalletAddress).then((items) => {
-        if (isMounted) setHistory(items)
-      })
+    const handleUpdate = (e: any) => {
+      const updatedUser = e?.detail?.userAddress
+      if (!updatedUser || updatedUser.toLowerCase() === activeWalletAddress) {
+        fetchHistory(activeWalletAddress).then((items) => {
+          if (isMounted) setHistory(items)
+        })
+      }
     }
     window.addEventListener('arc_history_updated', handleUpdate)
 
@@ -693,6 +703,13 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
   }
 
   const filteredHistory = history.filter(item => {
+    // Strict isolation guard: only show records belonging to the currently active wallet
+    if (!activeWalletAddress) return false
+    const normActive = activeWalletAddress.toLowerCase().trim()
+    const isSender = item.userAddress && item.userAddress.toLowerCase().trim() === normActive
+    const isRecipient = item.recipient && item.recipient.toLowerCase().trim() === normActive
+    if (!isSender && !isRecipient) return false
+
     if (filter === 'memo') {
       if (!item.memo) return false
     } else if (filter !== 'all' && item.type !== filter) {
@@ -761,6 +778,15 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
             </span>
           </div>
         </div>
+
+        {/* Active Connected Wallet Badge */}
+        {activeWalletAddress && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[rgba(152,150,255,0.08)] border border-[rgba(152,150,255,0.2)] text-xs font-mono text-[var(--secondary-colors--sky-sync)] self-start sm:self-auto shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+            <span className="text-slate-400 text-[11px] font-sans">Active Wallet:</span>
+            <span className="font-bold text-white tracking-wider">{activeWalletAddress.slice(0, 6)}...{activeWalletAddress.slice(-4)}</span>
+          </div>
+        )}
       </div>
 
       {/* Search Bar */}
@@ -789,13 +815,33 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
           border: '1px solid rgba(255, 255, 255, 0.08)',
         }}
       >
-        {filteredHistory.length === 0 ? (
+        {!activeWalletAddress ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center p-6 min-h-[280px]">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+              style={{
+                background: 'rgba(152, 150, 255, 0.1)',
+                border: '1px solid rgba(152, 150, 255, 0.25)',
+                boxShadow: '0 0 24px rgba(152, 150, 255, 0.15)',
+                color: 'var(--purple-1)',
+              }}
+            >
+              <Clock className="w-7 h-7 text-indigo-400" />
+            </div>
+            <h4 className="text-sm font-bold text-white tracking-wider" style={{ fontFamily: 'var(--font-app)' }}>
+              NO WALLET CONNECTED
+            </h4>
+            <p className="text-xs text-slate-400 max-w-sm mt-2 font-sans leading-relaxed">
+              Please connect your wallet to view your transaction history. All transaction records are private and isolated strictly to each connected wallet.
+            </p>
+          </div>
+        ) : filteredHistory.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center p-6 min-h-[280px]">
             <Clock className="w-10 h-10 text-slate-600 mb-3" />
             <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>NO TRANSACTIONS</h4>
-            <p className="text-xs text-slate-500 max-w-xs mt-1" style={{ fontFamily: 'var(--font-app)' }}>
+            <p className="text-xs text-slate-500 max-w-sm mt-1" style={{ fontFamily: 'var(--font-app)' }}>
               {history.length === 0
-                ? 'Transactions initiated on this client (Send, Swap, or Cross-chain Bridge) will show up here.'
+                ? `No transactions recorded yet for ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)}. Transactions initiated with this wallet will appear here.`
                 : 'No transactions match the selected filters.'}
             </p>
           </div>

@@ -85,6 +85,25 @@ export default function App() {
   // Dynamic Active Wallet Resolution (Passkey vs UCW vs EVM)
   const [preferredAuthSource, setPreferredAuthSource] = useState<'passkey' | 'ucw' | 'evm' | null>(null)
 
+  // Auto-sync preferred auth source when connection state changes
+  useEffect(() => {
+    if (isConnected && address) {
+      setPreferredAuthSource('evm')
+    }
+  }, [isConnected, address])
+
+  useEffect(() => {
+    if (isPasskeyConnected && mscaAddress) {
+      setPreferredAuthSource('passkey')
+    }
+  }, [isPasskeyConnected, mscaAddress])
+
+  useEffect(() => {
+    if (isUcwConnected && ucwAddress) {
+      setPreferredAuthSource('ucw')
+    }
+  }, [isUcwConnected, ucwAddress])
+
   // Compute effective active auth source based on active connection states
   const activeAuthSource = (() => {
     if (preferredAuthSource === 'passkey' && isPasskeyConnected && mscaAddress) return 'passkey'

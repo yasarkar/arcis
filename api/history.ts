@@ -100,8 +100,14 @@ export async function GET(req: Request) {
         const rawUser = await kvGet(userKey)
         const userList = parseItems(rawUser)
 
-        if (userList.length > 0) {
-          items = userList
+        const filteredUserList = userList.filter((item) => {
+          const userMatch = item.userAddress && item.userAddress.toLowerCase() === address
+          const recipientMatch = item.recipient && item.recipient.toLowerCase() === address
+          return Boolean(userMatch || recipientMatch)
+        })
+
+        if (filteredUserList.length > 0) {
+          items = filteredUserList
           source = getStorageDriver()
         } else {
           // 2. Fallback: filter global list
@@ -117,26 +123,19 @@ export async function GET(req: Request) {
           }
         }
       } else {
-        // Fetch global list
-        const rawAll = await kvGet(REDIS_KEY_ALL)
-        items = parseItems(rawAll)
-        if (items.length > 0) {
-          source = getStorageDriver()
-        }
+        // No address provided: do not expose any user transactions
+        items = []
+        source = getStorageDriver()
       }
     }
 
     // Fallback to in-memory if storage returned nothing
-    if (items.length === 0) {
-      if (address) {
-        items = memoryHistory.filter((item) => {
-          const userMatch = item.userAddress && item.userAddress.toLowerCase() === address
-          const recipientMatch = item.recipient && item.recipient.toLowerCase() === address
-          return Boolean(userMatch || recipientMatch)
-        })
-      } else {
-        items = [...memoryHistory]
-      }
+    if (items.length === 0 && address) {
+      items = memoryHistory.filter((item) => {
+        const userMatch = item.userAddress && item.userAddress.toLowerCase() === address
+        const recipientMatch = item.recipient && item.recipient.toLowerCase() === address
+        return Boolean(userMatch || recipientMatch)
+      })
       source = 'memory'
     }
 
@@ -204,8 +203,8 @@ export async function POST(req: Request) {
       tokenSymbol,
       sourceChain,
       destChain,
-      recipient,
-      userAddress: userAddress ? String(userAddress).toLowerCase() : undefined,
+      recipient: recipient ? String(recipient).toLowerCase().trim() : undefined,
+      userAddress: userAddress ? String(userAddress).toLowerCase().trim() : undefined,
       timestamp: body.timestamp || Date.now(),
       status,
       amountIn: amountIn ? String(amountIn) : undefined,
