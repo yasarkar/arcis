@@ -157,7 +157,7 @@ export async function executeDirectCopilotAction(
             functionName: 'approve',
             args: [arcRoute.poolAddress, amountInUnits],
           })
-          const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err) => {
+          const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err: unknown) => {
             console.warn('[copilotExecutionService] Swap approve receipt timeout/error:', err)
             return null
           })
@@ -173,7 +173,7 @@ export async function executeDirectCopilotAction(
           })
 
           // Wait for on-chain inclusion
-          const swapRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err) => {
+          const swapRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err: unknown) => {
             console.warn('[copilotExecutionService] Swap tx receipt timeout/error:', err)
             return null
           })
@@ -524,7 +524,7 @@ export async function executeDirectCopilotAction(
           functionName: 'approve',
           args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
         })
-        const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err) => {
+        const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err: unknown) => {
           console.warn('[copilotExecutionService] Yield vault approve receipt warning:', err)
           return null
         })
@@ -538,7 +538,7 @@ export async function executeDirectCopilotAction(
           functionName: 'deposit',
           args: [amountUnits, activeWallet as Hex],
         })
-        const depRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err) => {
+        const depRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err: unknown) => {
           console.warn('[copilotExecutionService] Yield vault deposit receipt warning:', err)
           return null
         })
@@ -597,7 +597,7 @@ export async function executeDirectCopilotAction(
           functionName: 'approve',
           args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
         })
-        const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err) => {
+        const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err: unknown) => {
           console.warn('[copilotExecutionService] EOA vault approve receipt warning:', err)
           return null
         })
@@ -611,7 +611,7 @@ export async function executeDirectCopilotAction(
           functionName: 'deposit',
           args: [amountUnits, activeWallet as Hex],
         })
-        const depRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err) => {
+        const depRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err: unknown) => {
           console.warn('[copilotExecutionService] EOA vault deposit receipt warning:', err)
           return null
         })

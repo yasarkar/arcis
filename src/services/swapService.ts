@@ -5,6 +5,7 @@ import {
   parseUnits,
   formatUnits,
   encodeFunctionData,
+  maxUint256,
   type Hex,
   type Address,
 } from 'viem'
@@ -18,6 +19,7 @@ import { SWAP_SUPPORTED_TOKENS } from '../types/swap'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
 import { DEFAULT_SLIPPAGE_BPS } from '../config/constants'
 import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
+import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
 
 const kit = new AppKit()
 
@@ -432,14 +434,35 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       // A. Modular Smart Account (Passkey / MSCA) Execution
       const smartAccount = getActiveSmartAccount()
       if (smartAccount) {
-        const approveCall = {
-          to: arcRoute.tokenInAddr as Hex,
-          data: encodeFunctionData({
+        const calls: Array<{ to: Hex; data: Hex }> = []
+        let mscaAllowance = 0n
+        try {
+          mscaAllowance = await resilientReadContract(arcPublicClient, {
+            address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
-            functionName: 'approve',
-            args: [arcRoute.poolAddress, swapAmountInUnits],
-          }),
+            functionName: 'allowance',
+            args: [smartAccount.address as Address, arcRoute.poolAddress],
+          })
+        } catch (e) {
+          console.warn('[swapService] MSCA allowance read error:', e)
         }
+
+        // Check on-chain allowance and progressive spending ceiling
+        const mscaCeiling = checkCeilingStatus(smartAccount.address, params.tokenIn, parseFloat(params.amountIn))
+        const requiresMscaApprove = mscaAllowance < swapAmountInUnits
+
+        // Only include approve call if on-chain allowance is insufficient
+        if (requiresMscaApprove) {
+          calls.push({
+            to: arcRoute.tokenInAddr as Hex,
+            data: encodeFunctionData({
+              abi: ERC20_ABI,
+              functionName: 'approve',
+              args: [arcRoute.poolAddress, maxUint256],
+            }),
+          })
+        }
+
         const swapCall = {
           to: arcRoute.poolAddress as Hex,
           data: encodeFunctionData({
@@ -448,8 +471,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, swapAmountInUnits, minOutUnits],
           }),
         }
-
-        const calls: Array<{ to: Hex; data: Hex }> = [approveCall, swapCall]
+        calls.push(swapCall)
 
         // Atomically transfer protocol fee to Treasury in the same UserOp
         if (customFeeUnits > 0n && params.customFee?.recipientAddress) {
@@ -470,6 +492,11 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
 
         if (!userOpRes.success || !userOpRes.txHash) {
           throw new Error(userOpRes.error || 'Arc Testnet üzerinde Modular UserOp takas işlemi onaylanamadı.')
+        }
+
+        // Elevate ceiling upon successful UserOperation
+        if (requiresMscaApprove) {
+          setSpendingCeiling(smartAccount.address, params.tokenIn, mscaCeiling.suggestedCeiling, userOpRes.txHash)
         }
 
         // Track 24h pool volume and dispatch reactive event
@@ -523,7 +550,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           transport: custom(provider),
         })
 
-        // Check allowance with deduplication
+        // Check on-chain allowance
         const currentAllowance = await resilientReadContract(arcPublicClient, {
           address: arcRoute.tokenInAddr,
           abi: ERC20_ABI,
@@ -538,12 +565,17 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           ARC_GAS_LIMITS.contractInteraction
         )
 
-        if (currentAllowance < swapAmountInUnits) {
+        // Check on-chain allowance and progressive spending ceiling
+        const ceilingStatus = checkCeilingStatus(account, params.tokenIn, parseFloat(params.amountIn))
+        const requiresApprove = currentAllowance < swapAmountInUnits
+
+        // Only prompt for approve if current on-chain allowance is insufficient
+        if (requiresApprove) {
           const approveTx = await walletClient.writeContract({
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [arcRoute.poolAddress, swapAmountInUnits],
+            args: [arcRoute.poolAddress, maxUint256],
             chain: arcTestnet,
             account,
             maxFeePerGas: gasOptions.maxFeePerGas,
@@ -553,6 +585,11 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           if (approveRes.status === 'reverted') {
             throw new Error('Token approval reverted on Arc Testnet.')
           }
+          // Elevate approved ceiling so subsequent transactions <= suggestedCeiling skip approval
+          setSpendingCeiling(account, params.tokenIn, ceilingStatus.suggestedCeiling, approveTx)
+        } else if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
+          // On-chain allowance is already sufficient, elevate local ceiling seamlessly
+          setSpendingCeiling(account, params.tokenIn, ceilingStatus.suggestedCeiling)
         }
 
         // Execute pool swap with net input

@@ -148,9 +148,10 @@ export async function executeBridge(
         const explorerUrl = payload?.values?.explorerUrl || payload?.explorerUrl
         const errorMessage = payload?.values?.error || payload?.values?.errorMessage || payload?.error || payload?.errorMessage
 
+        const normalizedState = stepState === 'noop' ? 'success' : stepState
         onStepUpdate?.({
           name: stepName,
-          state: stepState as 'pending' | 'success' | 'error',
+          state: normalizedState as 'pending' | 'success' | 'error',
           txHash,
           explorerUrl,
           errorMessage

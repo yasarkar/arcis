@@ -252,6 +252,22 @@ export function deductSessionSpend(amountUsdc: number): void {
 }
 
 /**
+ * Elevates the single-transaction cap (high-water mark) when a higher transaction is approved
+ */
+export function elevateSessionPerTxCap(newCap: number): SessionKeyConfig {
+  const config = getSessionKeyConfig()
+  const safeCap = Math.max(0, Number(newCap) || 0)
+  if (safeCap > config.maxPerTxUsdc) {
+    config.maxPerTxUsdc = safeCap
+    if (config.maxSpendUsdc < safeCap) {
+      config.maxSpendUsdc = safeCap * 2
+    }
+    saveSessionKeyConfig(config, true)
+  }
+  return config
+}
+
+/**
  * Instantly revokes the active session key and purges it from memory/storage
  */
 export function revokeSessionKey(): SessionKeyConfig {

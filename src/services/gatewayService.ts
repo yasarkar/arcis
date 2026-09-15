@@ -6,11 +6,13 @@ import {
   custom,
   erc20Abi,
   getContract,
+  maxUint256,
   parseUnits,
   zeroAddress,
   type Chain,
 } from 'viem'
 import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
+import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
 import {
   ACTIVE_GATEWAY_API,
   ACTIVE_GATEWAY_CONTRACTS,
@@ -248,8 +250,13 @@ export async function depositToGateway(
     console.warn(`[Gateway Deposit] Could not read allowance, will attempt approve:`, allowanceErr)
   }
 
-  if (currentAllowance < amountBaseUnits) {
-    console.log(`[Gateway Deposit] Step 1/2: Approving ${amount} ${tokenSymbol} on ${chainKey}...`)
+  const ceilingStatus = checkCeilingStatus(address, tokenSymbol, amount)
+  const requiresApprove = currentAllowance < amountBaseUnits
+
+  if (requiresApprove) {
+    console.log(
+      `[Gateway Deposit] Step 1/2: Approving ceiling ${ceilingStatus.suggestedCeiling} ${tokenSymbol} on ${chainKey} (Current Ceiling: ${ceilingStatus.currentCeiling})...`
+    )
 
     // Calculate safe gas limit for approve
     let gasLimit: bigint = GATEWAY_GAS_LIMITS.approve
@@ -258,7 +265,7 @@ export async function depositToGateway(
         address: tokenAddress,
         abi: erc20Abi,
         functionName: 'approve',
-        args: [gatewayWallet, amountBaseUnits],
+        args: [gatewayWallet, maxUint256],
         account: address,
       })
       gasLimit = (estimatedGas * 130n) / 100n // +30% buffer
@@ -272,7 +279,7 @@ export async function depositToGateway(
         address: tokenAddress,
         abi: erc20Abi,
         functionName: 'approve',
-        args: [gatewayWallet, amountBaseUnits],
+        args: [gatewayWallet, maxUint256],
         chain: chainDef,
         account: address,
         gas: gasLimit,
@@ -287,13 +294,19 @@ export async function depositToGateway(
       if (approveRes.status === 'reverted') {
         throw new Error('Token approval reverted on-chain.')
       }
-      console.log(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}`)
+      setSpendingCeiling(address, tokenSymbol, ceilingStatus.suggestedCeiling, approveTxHash)
+      console.log(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}, ceiling recorded: ${ceilingStatus.suggestedCeiling} ${tokenSymbol}`)
     } catch (err: any) {
       console.error(`[Gateway Deposit] Approve failed:`, err)
       throw err
     }
   } else {
-    console.log(`[Gateway Deposit] Step 1/2 skipped: Allowance already sufficient (${(Number(currentAllowance) / 1e6).toFixed(6)} >= ${amount})`)
+    if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
+      setSpendingCeiling(address, tokenSymbol, ceilingStatus.suggestedCeiling)
+    }
+    console.log(
+      `[Gateway Deposit] Step 1/2 skipped: Allowance already sufficient on-chain (${(Number(currentAllowance) / 1e6).toFixed(2)} >= ${amount} ${tokenSymbol})`
+    )
   }
 
   // Step 2 (Circle Official Spec): Call deposit on the Gateway Wallet contract
