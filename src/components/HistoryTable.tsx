@@ -817,31 +817,23 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
       >
         {!activeWalletAddress ? (
           <div className="flex flex-col items-center justify-center py-20 text-center p-6 min-h-[280px]">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-              style={{
-                background: 'rgba(152, 150, 255, 0.1)',
-                border: '1px solid rgba(152, 150, 255, 0.25)',
-                boxShadow: '0 0 24px rgba(152, 150, 255, 0.15)',
-                color: 'var(--purple-1)',
-              }}
-            >
-              <Clock className="w-7 h-7 text-indigo-400" />
-            </div>
-            <h4 className="text-sm font-bold text-white tracking-wider" style={{ fontFamily: 'var(--font-app)' }}>
-              NO WALLET CONNECTED
+            <Clock className="w-10 h-10 text-slate-600 mb-3" />
+            <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
+              NO TRANSACTIONS
             </h4>
-            <p className="text-xs text-slate-400 max-w-sm mt-2 font-sans leading-relaxed">
-              Please connect your wallet to view your transaction history. All transaction records are private and isolated strictly to each connected wallet.
+            <p className="text-xs text-slate-500 max-w-xs mt-1" style={{ fontFamily: 'var(--font-app)' }}>
+              Transactions initiated on this client (Send, Swap, or Cross-chain Bridge) will show up here. Connect your wallet to view your history.
             </p>
           </div>
         ) : filteredHistory.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center p-6 min-h-[280px]">
             <Clock className="w-10 h-10 text-slate-600 mb-3" />
-            <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>NO TRANSACTIONS</h4>
+            <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
+              NO TRANSACTIONS
+            </h4>
             <p className="text-xs text-slate-500 max-w-sm mt-1" style={{ fontFamily: 'var(--font-app)' }}>
               {history.length === 0
-                ? `No transactions recorded yet for ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)}. Transactions initiated with this wallet will appear here.`
+                ? `No transactions recorded in database for ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)}. Transactions initiated with this wallet will appear here.`
                 : 'No transactions match the selected filters.'}
             </p>
           </div>
