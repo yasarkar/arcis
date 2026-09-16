@@ -458,7 +458,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             data: encodeFunctionData({
               abi: ERC20_ABI,
               functionName: 'approve',
-              args: [arcRoute.poolAddress, amountInUnits],
+              args: [arcRoute.poolAddress, maxUint256],
             }),
           })
         }
@@ -575,7 +575,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [arcRoute.poolAddress, amountInUnits],
+            args: [arcRoute.poolAddress, maxUint256],
             chain: arcTestnet,
             account,
             maxFeePerGas: gasOptions.maxFeePerGas,
