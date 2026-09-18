@@ -60,7 +60,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
     const gasCost = SPEED_TIERS[tier].arcGas.estimatedCostUsdc
     return {
       amount: `~${gasCost} USDC`,
-      desc: PROTOCOL_FEE_RATES.send[tier]?.description || 'Arc L1 native gas (%0 platform fee)',
+      desc: PROTOCOL_FEE_RATES.send[tier]?.description || 'Arc L1 native gas (0% platform fee)',
     }
   }
 

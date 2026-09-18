@@ -903,9 +903,9 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
         }
         const cleanNum = str.replace(/[%a-zA-Z\s]/g, '')
         if (isMultiplePools) {
-          return `Avg %${cleanNum} APY`
+          return `Avg ${cleanNum}% APY`
         }
-        return `%${cleanNum} APY`
+        return `${cleanNum}% APY`
       })()
     : null
 

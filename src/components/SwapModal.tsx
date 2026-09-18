@@ -184,7 +184,7 @@ export default function SwapModal({
   const platformFeeBps = SWAP_CUSTOM_FEE_CONFIG.enabled
     ? SWAP_CUSTOM_FEE_CONFIG.percentageBps
     : getSwapProtocolFeeBps(speedTier)
-  const platformFeePercent = `%${(platformFeeBps / 100).toFixed(2)}`
+  const platformFeePercent = `${(platformFeeBps / 100).toFixed(2)}%`
 
   const rawPlatformFeeNum = useMemo(() => {
     const amt = parseFloat(amountIn)
@@ -500,7 +500,7 @@ export default function SwapModal({
           destTxHash: finalStatus.destinationTxHash,
           recipient: effectiveRecipient,
           rate: rate || (amountIn && estimatedOutput ? `1 ${tokenIn} ≈ ${(parseFloat(estimatedOutput) / parseFloat(amountIn)).toFixed(4)} ${tokenOut}` : undefined),
-          slippage: `% ${(slippageTolerance * 100).toFixed(1)}`,
+          slippage: `${(slippageTolerance * 100).toFixed(1)}%`,
           speedTier: speedTier.charAt(0).toUpperCase() + speedTier.slice(1),
           fee: platformFeeAmount ? `${platformFeeAmount} ${tokenIn}` : undefined,
         })
@@ -671,7 +671,7 @@ export default function SwapModal({
       {
         label: 'Slippage Tolerance',
         tooltip: 'The maximum price difference tolerated before the transaction automatically reverts.',
-        value: `%${(slippageTolerance * 100).toFixed(1)}`,
+        value: `${(slippageTolerance * 100).toFixed(1)}%`,
       },
       {
         label: 'Network Fee',
@@ -1149,7 +1149,7 @@ export default function SwapModal({
                     <span style={{ fontFamily: 'var(--font-app)' }}>SLIPPAGE TOLERANCE</span>
                   </div>
                   <span className="text-xs text-indigo-400 font-semibold font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 mr-3">
-                    %{(slippageTolerance * 100).toFixed(1)}
+                    {(slippageTolerance * 100).toFixed(1)}%
                   </span>
                 </div>
 
@@ -1171,7 +1171,7 @@ export default function SwapModal({
                             : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
                         }`}
                       >
-                        %{type}
+                        {type}%
                       </button>
                     ))}
                     <button

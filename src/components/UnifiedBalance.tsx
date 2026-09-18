@@ -640,7 +640,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
       {/* ── ASSET DISTRIBUTION (AAVE SQUIRCLE CARD) ── */}
       <div className="ub-asset-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 12 }}>
             <Layers size={16} style={{ color: 'var(--purple-1)' }} />
             <span className="arc-eyebrow" style={{ fontSize: 13, color: 'var(--base-colors--white)', fontWeight: 600 }}>
               ASSET DISTRIBUTION

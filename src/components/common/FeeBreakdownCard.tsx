@@ -72,7 +72,7 @@ export const FeeBreakdownCard: React.FC<FeeBreakdownCardProps> = ({
         <div className="flex items-center gap-2 shrink-0 text-slate-400">
           {isGaslessSponsored && (
             <span className="text-[10px] font-semibold text-indigo-400 border border-indigo-500/25 px-2 py-0.5 rounded-full">
-              %100 Sponsored
+              100% Sponsored
             </span>
           )}
           <ChevronDown
