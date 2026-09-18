@@ -25,7 +25,7 @@ import { addTransaction } from '../utils/history'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
-import { type SpeedTier } from '../config/feeTiers'
+import { SPEED_TIERS, type SpeedTier } from '../config/feeTiers'
 import {
   getSwapProtocolFeeBps,
   getSwapFeeRecipient,
@@ -33,6 +33,8 @@ import {
 } from '../config/treasuryConfig'
 import { getChainIconId } from '../config/swapConfig'
 import { getExplorerTxUrl } from '../config/sendConfig'
+import { formatFeeDecimals } from '../utils/tokenUtils'
+import type { SwapQuoteResult } from '../types/swap'
 import {
   FintechCard,
   AssetInputPanel,
@@ -45,6 +47,7 @@ import {
   type TokenItem,
   type BreakdownItem,
 } from './fintech'
+import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
@@ -84,6 +87,9 @@ export default function SwapModal({
   const [showTokenInModal, setShowTokenInModal] = useState(false)
   const [showTokenOutModal, setShowTokenOutModal] = useState(false)
 
+  // Live Token Prices
+  const { data: tokenPrices } = useLiveTokenPrices()
+
   // Routing State
   const fromChain = selectedChain
   const toChain = selectedChain
@@ -91,7 +97,7 @@ export default function SwapModal({
   const [tokenIn, setTokenIn] = useState('USDC')
   const [tokenOut, setTokenOut] = useState('EURC')
   const [amountIn, setAmountIn] = useState('')
-  const [allowanceStrategy] = useState<'permit' | 'approve'>('approve')
+  const [allowanceStrategy] = useState<'permit' | 'approve'>('permit')
 
   // Settings & Slippage
   const [showSettings, setShowSettings] = useState(false)
@@ -126,6 +132,7 @@ export default function SwapModal({
   const [estimatedOutput, setEstimatedOutput] = useState<string>('')
   const [stopLimit, setStopLimit] = useState<string>('')
   const [rate, setRate] = useState<string>('')
+  const [quoteFees, setQuoteFees] = useState<SwapQuoteResult['fees']>([])
   const [isEstimating, setIsEstimating] = useState(false)
   const [estimateError, setEstimateError] = useState<string | null>(null)
 
@@ -149,10 +156,23 @@ export default function SwapModal({
     ? SWAP_CUSTOM_FEE_CONFIG.percentageBps
     : getSwapProtocolFeeBps(speedTier)
   const platformFeePercent = `%${(platformFeeBps / 100).toFixed(2)}`
-  const platformFeeAmount =
-    amountIn && platformFeeBps > 0
-      ? ((parseFloat(amountIn) * platformFeeBps) / 10000).toFixed(6)
-      : null
+
+  const rawPlatformFeeNum = useMemo(() => {
+    const amt = parseFloat(amountIn)
+    if (isNaN(amt) || amt <= 0 || !platformFeeBps || platformFeeBps <= 0) return null
+    return (amt * platformFeeBps) / 10000
+  }, [amountIn, platformFeeBps])
+
+  const platformFeeAmount = useMemo(() => {
+    if (rawPlatformFeeNum === null || rawPlatformFeeNum <= 0) return null
+    if (rawPlatformFeeNum < 0.01) {
+      if (tokenIn === 'cirBTC') {
+        return parseFloat(rawPlatformFeeNum.toFixed(6)).toString()
+      }
+      return '< 0.01'
+    }
+    return formatFeeDecimals(rawPlatformFeeNum, 2)
+  }, [rawPlatformFeeNum, tokenIn])
 
   // Validation
   const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
@@ -171,6 +191,7 @@ export default function SwapModal({
       setEstimatedOutput('')
       setStopLimit('')
       setRate('')
+      setQuoteFees([])
       setSuccessData(null)
       setError(null)
       setIsCanceledError(false)
@@ -269,6 +290,7 @@ export default function SwapModal({
       setEstimatedOutput('')
       setStopLimit('')
       setRate('')
+      setQuoteFees([])
       setEstimateError(null)
       return
     }
@@ -277,6 +299,7 @@ export default function SwapModal({
       setEstimatedOutput('')
       setStopLimit('')
       setRate('')
+      setQuoteFees([])
       setEstimateError('Source and destination tokens must be different for same-chain swaps.')
       return
     }
@@ -289,6 +312,7 @@ export default function SwapModal({
       setEstimatedOutput('')
       setStopLimit('')
       setRate('')
+      setQuoteFees([])
       setEstimateError('USDC and NATIVE are the same asset on Arc. Swapping them is a no-op.')
       return
     }
@@ -321,6 +345,7 @@ export default function SwapModal({
             setEstimatedOutput(quote.estimatedOutput)
             setStopLimit(quote.stopLimit)
             setRate(quote.rate)
+            setQuoteFees(quote.fees || [])
             setIsEstimating(false)
           }
         }
@@ -330,6 +355,7 @@ export default function SwapModal({
           setEstimatedOutput('')
           setStopLimit('')
           setRate('')
+          setQuoteFees([])
           setEstimateError(err.message || 'Swap route not supported.')
           setIsEstimating(false)
         }
@@ -549,17 +575,56 @@ export default function SwapModal({
     if (!estimatedOutput || !rate || isEstimating) return []
 
     const isArcNative = fromChain === 'Arc_Testnet' && (!toChain || toChain === 'Arc_Testnet')
-    const lpFeePercent = isArcNative
+    const lpPoolName = isArcNative
       ? tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
-        ? '%0.25 (AMM LP Pool)'
-        : '%0.12 (StableSwap LP)'
-      : '%0.02 (AppKit Route)'
+        ? '(AMM LP Pool)'
+        : '(StableSwap LP)'
+      : '(AppKit Route)'
+
+    // Liquidity Provider fee calculation: show amount instead of percentage next to pool name
+    const lpQuoteFee = quoteFees.find((f) => f.type === 'swap' || f.type === 'provider')
+    const parsedAmtIn = parseFloat(amountIn)
+    const platFeeVal = rawPlatformFeeNum || 0
+    const netSwapAmtIn = Math.max(0, (isNaN(parsedAmtIn) ? 0 : parsedAmtIn) - platFeeVal)
+    const lpBps = isArcNative
+      ? tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
+        ? 25
+        : 12
+      : 2
+    const fallbackLpFeeNum = (netSwapAmtIn * lpBps) / 10000
+    const lpFeeNum = lpQuoteFee ? parseFloat(lpQuoteFee.amount) : fallbackLpFeeNum
+
+    let lpFeeFormatted = '0.00'
+    if (lpFeeNum > 0) {
+      if (tokenIn === 'cirBTC') {
+        lpFeeFormatted = lpFeeNum < 0.000001 ? '< 0.000001' : parseFloat(lpFeeNum.toFixed(6)).toString()
+      } else if (lpFeeNum < 0.01) {
+        lpFeeFormatted = lpFeeNum < 0.0001 ? '< 0.0001' : parseFloat(lpFeeNum.toFixed(4)).toString()
+      } else {
+        lpFeeFormatted = formatFeeDecimals(lpFeeNum, 2)
+      }
+    }
+
+    const lpFeeDisplay = `${lpFeeFormatted} ${tokenIn} ${lpPoolName}`
 
     const routeName = isCrossChain
       ? 'Circle AppKit Route'
       : tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
       ? 'Arcis AMM Pool'
       : 'Arcis StableSwap'
+
+    const tierConfig = SPEED_TIERS[speedTier] || SPEED_TIERS.fast
+
+    const executionTimeValue = isCrossChain
+      ? `${tierConfig.timeEstimate.cctpBridge} (CCTP)`
+      : tierConfig.timeEstimate.swap === 'Instant'
+      ? '< 500 ms (Instant)'
+      : `${tierConfig.timeEstimate.swap} (${tierConfig.label})`
+
+    const networkFeeValue =
+      fromChain === 'Arc_Testnet'
+        ? `~${tierConfig.arcGas?.estimatedCostUsdc || '0.00053'} USDC`
+        : '< 0.001 ETH'
 
     const items: BreakdownItem[] = [
       {
@@ -582,25 +647,30 @@ export default function SwapModal({
       {
         label: 'Network Fee',
         tooltip: 'Estimated smart contract execution gas fee paid natively in USDC on Arc.',
-        value: fromChain === 'Arc_Testnet' ? '~0.000025 USDC' : '< 0.001 ETH',
+        value: networkFeeValue,
       },
       {
         label: 'Liquidity Provider Fee',
         tooltip: 'Fee rewarded directly to liquidity pool providers supporting this trade.',
-        value: lpFeePercent,
+        value: lpFeeDisplay,
       },
       {
         label: 'Platform Fee',
         tooltip: 'Arcis Treasury protocol fee for routing and multi-token liquidity indexing.',
-        value:
-          platformFeeEnabled && platformFeeAmount
-            ? `${platformFeeAmount} ${tokenIn} (${platformFeePercent})`
-            : '0.00 USDC (Free)',
+        value: (() => {
+          const devQuoteFee = quoteFees.find((f) => f.type === 'developer')
+          const displayedPlatformFeeAmount = devQuoteFee
+            ? formatFeeDecimals(parseFloat(devQuoteFee.amount), 2)
+            : platformFeeAmount
+          return platformFeeEnabled && displayedPlatformFeeAmount
+            ? `${displayedPlatformFeeAmount} ${tokenIn} (${platformFeePercent})`
+            : '0.00 USDC (Free)'
+        })(),
       },
       {
         label: 'Execution Time',
-        tooltip: 'Estimated duration to execute and finalize the swap transaction onchain.',
-        value: isCrossChain ? '~10-15 min (CCTP)' : '< 2 sec (Instant)',
+        tooltip: 'Estimated duration to execute and finalize the swap transaction onchain based on selected speed tier.',
+        value: executionTimeValue,
       },
     ]
 
@@ -616,9 +686,13 @@ export default function SwapModal({
     platformFeeEnabled,
     platformFeeAmount,
     platformFeePercent,
+    rawPlatformFeeNum,
+    amountIn,
+    quoteFees,
     fromChain,
     toChain,
     isCrossChain,
+    speedTier,
   ])
 
   // Dynamic Button State
@@ -822,7 +896,7 @@ export default function SwapModal({
               onMaxClick={() => setAmountIn(tokenInBalance)}
               quickPercentages={[25, 50, 75, 100]}
               onSelectPercentage={handleQuickPercentage}
-              fiatEstimate={amountIn ? `≈ ${amountIn} USD` : undefined}
+              fiatEstimate={formatFiatEstimate(amountIn, tokenIn, tokenPrices)}
               disabled={isSwapping}
               error={isInsufficient}
             />
@@ -844,7 +918,7 @@ export default function SwapModal({
               onSelectToken={() => setShowTokenOutModal(true)}
               balance={tokenOutBalance}
               isLoading={isEstimating}
-              fiatEstimate={estimatedOutput ? `≈ ${estimatedOutput} USD` : undefined}
+              fiatEstimate={formatFiatEstimate(estimatedOutput, tokenOut, tokenPrices)}
               disabled={isSwapping}
             />
           </div>

@@ -14,6 +14,7 @@ import { HistoryItem } from '../utils/history'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
+import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import { generateQrMatrix } from '../utils/qrGenerator'
 import { SUPPORTED_SEND_CHAINS, getExplorerTxUrl, getExplorerAddressUrl } from '../config/sendConfig'
@@ -27,7 +28,10 @@ interface ReceiptModalProps {
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
   EURC: EurcIcon,
-  cirBTC: CircleIcon,
+  cirBTC: CirBtcIcon,
+  CIRBTC: CirBtcIcon,
+  CRCL: CircleIcon,
+  CIRCLE: CircleIcon,
 }
 
 import { getChainIconId, getChainDisplayName } from '../config/chainMeta'
@@ -58,12 +62,24 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
 
   const renderTokenIcon = (symbol?: string) => {
     if (!symbol) return null
-    if (TOKEN_ICONS[symbol]) {
-      return <img src={TOKEN_ICONS[symbol]} alt={symbol} className="w-6 h-6 object-contain" />
+    const clean = symbol.replace(/\s*\(.*?\)/g, '').trim()
+    const symUpper = clean.toUpperCase()
+
+    if (TOKEN_ICONS[clean] || TOKEN_ICONS[symUpper]) {
+      return <img src={TOKEN_ICONS[clean] || TOKEN_ICONS[symUpper]} alt={clean} className="w-6 h-6 object-contain shrink-0" />
+    }
+    if (symUpper.includes('USDC')) {
+      return <img src={UsdcIcon} alt="USDC" className="w-6 h-6 object-contain shrink-0" />
+    }
+    if (symUpper.includes('EURC')) {
+      return <img src={EurcIcon} alt="EURC" className="w-6 h-6 object-contain shrink-0" />
+    }
+    if (symUpper === 'BTC' || symUpper === 'WBTC') {
+      return <img src={CirBtcIcon} alt="cirBTC" className="w-6 h-6 object-contain shrink-0" />
     }
     return (
       <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white shadow-sm border border-indigo-400/40 shrink-0">
-        {symbol.slice(0, 3)}
+        {clean.slice(0, 3).toUpperCase()}
       </div>
     )
   }
@@ -153,7 +169,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
                     {renderTokenIcon(item.tokenIn)}
                   </div>
                   <span className="text-slate-400 text-sm">→</span>
-                  <div className="flex items-center gap-1.5 text-emerald-400">
+                  <div className="flex items-center gap-1.5 text-white">
                     <span>{item.amountOut}</span>
                     {renderTokenIcon(item.tokenOut)}
                   </div>

@@ -23,7 +23,7 @@ import { getExplorerTxUrl } from '../config/sendConfig'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
-import { type SpeedTier } from '../config/feeTiers'
+import { SPEED_TIERS, type SpeedTier } from '../config/feeTiers'
 import { useMultiChainWallet } from '../hooks/useMultiChainWallet'
 import {
   CHAIN_META,
@@ -454,7 +454,7 @@ export default function BridgeModal({
         amount,
         sourceChain,
         destChain,
-        fee: computedFee,
+        fee: `${computedFee} USDC`,
         netReceived: netAmount,
         mode: bridgeMode,
       })
@@ -629,29 +629,35 @@ export default function BridgeModal({
         label: 'Transfer Route',
         tooltip: 'The path connecting your origin blockchain to the destination network.',
         value: (
-          <div className="flex items-center gap-2 font-medium">
-            <div
-              className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0 border border-white/10 shadow-sm"
-              title={sourceName}
-            >
-              <NetworkIcon
-                name={sourceIconId}
-                variant={sourceIconId === 'solana' ? 'branded' : 'background'}
-                size={18}
-                className="rounded-full"
-              />
+          <div className="flex items-center gap-1.5 font-sans font-medium text-xs text-slate-200">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div
+                className="w-4.5 h-4.5 rounded-full overflow-hidden flex items-center justify-center shrink-0 border border-white/10 shadow-sm"
+                title={sourceName}
+              >
+                <NetworkIcon
+                  name={sourceIconId}
+                  variant={sourceIconId === 'solana' ? 'branded' : 'background'}
+                  size={16}
+                  className="rounded-full"
+                />
+              </div>
+              <span className="text-slate-200 font-medium whitespace-nowrap">{sourceName}</span>
             </div>
-            <span className="text-slate-400 text-xs font-semibold">➔</span>
-            <div
-              className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0 border border-white/10 shadow-sm"
-              title={destName}
-            >
-              <NetworkIcon
-                name={destIconId}
-                variant={destIconId === 'solana' ? 'branded' : 'background'}
-                size={18}
-                className="rounded-full"
-              />
+            <span className="text-indigo-400 font-bold px-0.5 shrink-0">→</span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div
+                className="w-4.5 h-4.5 rounded-full overflow-hidden flex items-center justify-center shrink-0 border border-white/10 shadow-sm"
+                title={destName}
+              >
+                <NetworkIcon
+                  name={destIconId}
+                  variant={destIconId === 'solana' ? 'branded' : 'background'}
+                  size={16}
+                  className="rounded-full"
+                />
+              </div>
+              <span className="text-slate-200 font-medium whitespace-nowrap">{destName}</span>
             </div>
           </div>
         ),
@@ -686,10 +692,8 @@ export default function BridgeModal({
         tooltip: 'Expected time until the bridged funds are unlocked and available on the target network.',
         value:
           bridgeMode === 'gateway'
-            ? '< 500 ms (Instant)'
-            : speedTier === 'fast'
-            ? '15-30 sec'
-            : '~10-15 min',
+            ? `${SPEED_TIERS.turbo.timeEstimate.gateway} (${SPEED_TIERS.turbo.shortLabel})`
+            : (SPEED_TIERS[speedTier] || SPEED_TIERS.fast).timeEstimate.cctpBridge,
       },
     ]
 

@@ -21,6 +21,7 @@ import { getHistory, fetchHistory, HistoryItem } from '../utils/history'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
+import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
 import { TokenIcon } from '@web3icons/react/dynamic'
 import { usePrivacy } from '../hooks/usePrivacy'
 import { ReceiptModal } from './ReceiptModal'
@@ -262,18 +263,52 @@ function CustomCalendarPicker({ initialDateStr, onApply, onClear, onClose }: Cal
   )
 }
 
+function cleanTokenSymbol(raw?: string): string {
+  if (!raw) return 'USDC'
+  return raw.replace(/\s*\(.*?\)/g, '').trim() || 'USDC'
+}
+
 function RenderTokenIcon({ symbol }: { symbol?: string }) {
-  const symUpper = symbol?.toUpperCase() || 'USDC'
-  if (symUpper === 'USDC') {
-    return <img src={UsdcIcon} alt="USDC" className="w-4 h-4 rounded-full inline-block shrink-0" />
+  const clean = cleanTokenSymbol(symbol)
+  const symUpper = clean.toUpperCase()
+
+  if (symUpper === 'USDC' || symUpper.includes('USDC')) {
+    return <img src={UsdcIcon} alt="USDC" className="w-4 h-4 rounded-full inline-block shrink-0 object-contain" />
   }
-  if (symUpper === 'EURC') {
-    return <img src={EurcIcon} alt="EURC" className="w-4 h-4 rounded-full inline-block shrink-0" />
+  if (symUpper === 'EURC' || symUpper.includes('EURC')) {
+    return <img src={EurcIcon} alt="EURC" className="w-4 h-4 rounded-full inline-block shrink-0 object-contain" />
+  }
+  if (symUpper === 'CIRBTC' || symUpper === 'BTC' || symUpper === 'WBTC') {
+    return <img src={CirBtcIcon} alt="cirBTC" className="w-4 h-4 rounded-full inline-block shrink-0 object-contain" />
   }
   if (symUpper === 'CIRCLE' || symUpper === 'CRCL') {
-    return <img src={CircleIcon} alt="CIRCLE" className="w-4 h-4 rounded-full inline-block shrink-0" />
+    return <img src={CircleIcon} alt="CIRCLE" className="w-4 h-4 rounded-full inline-block shrink-0 object-contain" />
   }
-  return <TokenIcon symbol={symbol?.toLowerCase() || 'usdc'} className="w-4 h-4 rounded-full inline-block shrink-0" size={16} />
+  if (symUpper === 'ETH' || symUpper === 'WETH' || symUpper.includes('ETH')) {
+    return <TokenIcon symbol="eth" className="w-4 h-4 rounded-full inline-block shrink-0" size={16} />
+  }
+  if (symUpper === 'POL' || symUpper === 'MATIC') {
+    return <TokenIcon symbol="matic" className="w-4 h-4 rounded-full inline-block shrink-0" size={16} />
+  }
+  if (symUpper === 'AVAX') {
+    return <TokenIcon symbol="avax" className="w-4 h-4 rounded-full inline-block shrink-0" size={16} />
+  }
+  if (symUpper === 'SOL') {
+    return <TokenIcon symbol="sol" className="w-4 h-4 rounded-full inline-block shrink-0" size={16} />
+  }
+
+  return (
+    <TokenIcon
+      symbol={clean.toLowerCase()}
+      className="w-4 h-4 rounded-full inline-block shrink-0"
+      size={16}
+      fallback={
+        <span className="w-4 h-4 rounded-full bg-indigo-500/20 border border-indigo-400/30 inline-flex items-center justify-center text-[8px] font-bold text-indigo-300 select-none">
+          {clean.slice(0, 2).toUpperCase()}
+        </span>
+      }
+    />
+  )
 }
 
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
@@ -501,8 +536,12 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
 
   const formatAmountDisplay = (val?: string) => {
     if (!val) return '0'
-    const num = parseFloat(val)
-    if (isNaN(num)) return val
+    const cleanStr = val.toString().replace(/^-/, '').trim()
+    const num = parseFloat(cleanStr)
+    if (isNaN(num)) return cleanStr
+    if (num === 0) return '0'
+    if (num < 0.0001) return num.toFixed(6)
+    if (num < 1) return parseFloat(num.toFixed(4)).toString()
     return parseFloat(num.toFixed(2)).toString()
   }
 
@@ -518,8 +557,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
     switch (item.type) {
       case 'send':
         return (
-          <span className="font-bold text-rose-400 font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
-            <span>-{formatAmountDisplay(item.amount)}</span>
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+            <span>{formatAmountDisplay(item.amount)}</span>
             <RenderTokenIcon symbol={item.tokenSymbol} />
           </span>
         )
@@ -806,32 +845,9 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
           border: '1px solid rgba(255, 255, 255, 0.08)',
         }}
       >
-        {!activeWalletAddress ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center p-6 min-h-[280px]">
-            <Clock className="w-10 h-10 text-slate-600 mb-3" />
-            <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
-              NO TRANSACTIONS
-            </h4>
-            <p className="text-xs text-slate-500 max-w-xs mt-1" style={{ fontFamily: 'var(--font-app)' }}>
-              Transactions initiated on this client (Send, Swap, or Cross-chain Bridge) will show up here. Connect your wallet to view your history.
-            </p>
-          </div>
-        ) : filteredHistory.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center p-6 min-h-[280px]">
-            <Clock className="w-10 h-10 text-slate-600 mb-3" />
-            <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
-              NO TRANSACTIONS
-            </h4>
-            <p className="text-xs text-slate-500 max-w-sm mt-1" style={{ fontFamily: 'var(--font-app)' }}>
-              {history.length === 0
-                ? `No transactions recorded in database for ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)}. Transactions initiated with this wallet will appear here.`
-                : 'No transactions match the selected filters.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto flex flex-col justify-between min-h-[300px]">
-            <table className="w-full table-fixed text-left border-collapse">
-              <thead>
+        <div className="overflow-x-auto flex flex-col justify-between min-h-[300px]">
+          <table className="w-full table-fixed text-left border-collapse">
+            <thead>
                 <tr
                   className="border-b border-white/[0.08] text-xs font-semibold text-slate-400"
                   style={{
@@ -1446,16 +1462,18 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                 {/* Empty State when no transactions exist */}
                 {filteredHistory.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-12 text-center">
-                      <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
-                        <Clock className="w-8 h-8 text-slate-600 mb-1" />
-                        <p className="text-sm font-semibold text-slate-300">
-                          {activeWalletAddress ? 'No transactions found for this wallet' : 'No transactions recorded on server'}
-                        </p>
-                        <p className="text-xs text-slate-500 max-w-sm">
-                          {activeWalletAddress
-                            ? `Transactions performed by or received by ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)} will appear here once executed.`
-                            : 'Perform a send, swap, or bridge transaction to view your server-persisted transaction history.'}
+                    <td colSpan={5} className="px-5 py-20 text-center">
+                      <div className="flex flex-col items-center justify-center text-center p-6 min-h-[220px]">
+                        <Clock className="w-10 h-10 text-slate-600 mb-3" />
+                        <h4 className="text-sm font-semibold text-slate-300" style={{ fontFamily: 'var(--font-app)' }}>
+                          NO TRANSACTIONS
+                        </h4>
+                        <p className="text-xs text-slate-500 max-w-sm mt-1" style={{ fontFamily: 'var(--font-app)' }}>
+                          {!activeWalletAddress
+                            ? 'Transactions initiated on this client (Send, Swap, or Cross-chain Bridge) will show up here. Connect your wallet to view your history.'
+                            : history.length === 0
+                              ? `No transactions recorded in database for ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)}. Transactions initiated with this wallet will appear here.`
+                              : 'No transactions match the selected filters.'}
                         </p>
                       </div>
                     </td>
@@ -1526,7 +1544,6 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
               </div>
             )}
           </div>
-        )}
       </div>
 
       {/* Interactive Digital Receipt & Invoice Modal */}

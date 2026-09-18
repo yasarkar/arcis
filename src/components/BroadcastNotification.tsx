@@ -662,7 +662,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
       {/* Amount Header */}
       {amount && (
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[11px] font-medium text-slate-400 ml-3">Bridge Amount</span>
+          <span className="text-[11px] font-medium text-slate-400 ml-1.5">Bridge Amount</span>
           <div
             className={`flex items-center gap-1.5 font-bold px-2 py-0.5 rounded-lg border ${isFailed
                 ? 'border-rose-500/25 bg-rose-500/10 text-rose-300/90'
@@ -1114,7 +1114,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
       {/* Amount Header */}
       {depositAmount && (
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[11px] font-medium text-slate-400 ml-3">Deposit Amount</span>
+          <span className="text-[11px] font-medium text-slate-400 ml-1.5">Deposit Amount</span>
           <div className="flex items-center gap-1.5 font-bold text-white bg-slate-900/80 px-2 py-0.5 rounded-lg border border-slate-800">
             <img src={UsdcIcon} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
             <div className="flex items-center gap-1.5">
@@ -1136,7 +1136,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
         {/* Source Wallet Chain */}
         <div className="flex items-center gap-1.5 min-w-0">
           <ChainIconBadge chain={sourceChain} size={16} />
-          <span className="font-semibold text-slate-200 truncate max-w-[100px]">
+          <span className="font-semibold text-slate-200 truncate max-w-[120px]">
             {getChainDisplayName(sourceChain)}
           </span>
         </div>

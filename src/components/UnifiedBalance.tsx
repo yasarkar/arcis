@@ -267,7 +267,7 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
             </div>
           </div>
           <p style={{ margin: 0, fontSize: 14, color: 'var(--fp-3)', fontFamily: 'var(--font-app)', fontWeight: 400 }}>
-            Unified cross-chain USDC balance instantly spendable across 13+ networks via Circle Gateway.
+            Unified cross-chain USDC balance instantly spendable across +12 networks via Circle Gateway.
           </p>
         </div>
       </div>

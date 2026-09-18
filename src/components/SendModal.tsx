@@ -62,6 +62,7 @@ import {
   type BreakdownItem,
   type ModeOption,
 } from './fintech'
+import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
@@ -90,6 +91,9 @@ export default function SendModal({
   onSuccess,
 }: SendModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
+
+  // Live Token Prices
+  const { data: tokenPrices } = useLiveTokenPrices()
 
   // Mode Selection: 'direct' (Wallet Balance) or 'gateway' (Unified USDC Balance)
   const [sendMode, setSendMode] = useState<'direct' | 'gateway'>('direct')
@@ -546,7 +550,7 @@ export default function SendModal({
             type: 'send',
             txHash,
             amount,
-            tokenSymbol: 'USDC (Gateway)',
+            tokenSymbol: 'USDC',
             sourceChain: selectedChain,
             recipient,
             userAddress: connectedAddress,
@@ -643,7 +647,7 @@ export default function SendModal({
             setSuccessReceipt({
               txHash,
               explorerUrl,
-              gasFee: '0.00 USDC (100% Sponsored by Arc)',
+              gasFee: '0.00 USDC (Sponsored by Arc)',
               blockNumber: 'Gasless BFT Finalized',
             })
 
@@ -669,7 +673,7 @@ export default function SendModal({
               type: 'send',
               txHash,
               amount,
-              tokenSymbol: 'USDC (Gasless)',
+              tokenSymbol: 'USDC',
               sourceChain: selectedChain,
               recipient,
               userAddress: connectedAddress,
@@ -1072,7 +1076,7 @@ export default function SendModal({
             onMaxClick={() => setAmount(activeBalance)}
             quickPercentages={[25, 50, 75, 100]}
             onSelectPercentage={handleQuickPercentage}
-            fiatEstimate={amount ? `≈ ${amount} USD` : undefined}
+            fiatEstimate={formatFiatEstimate(amount, tokenSymbol, tokenPrices)}
             disabled={isSending}
             error={isInsufficient}
           />
@@ -1155,26 +1159,31 @@ export default function SendModal({
               {showMemoPanel && (
                 <div className="mt-3 pt-2.5 border-t border-white/[0.06] space-y-2.5 animate-fade-in">
                   {/* Preset Chips */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {MEMO_PRESETS.slice(0, 5).map((preset) => (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => handleSelectMemoPreset(preset)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                          selectedPresetId === preset.id
-                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
-                            : 'bg-white/[0.04] text-slate-400 hover:text-white border border-white/[0.06]'
-                        }`}
-                      >
-                        {preset.text}
-                      </button>
-                    ))}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {MEMO_PRESETS.map((preset) => {
+                      const isSelected = selectedPresetId === preset.id
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => handleSelectMemoPreset(preset)}
+                          title={preset.text}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/10'
+                              : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/[0.06]'
+                          }`}
+                        >
+                          <span className="text-[12px]">{preset.icon}</span>
+                          <span>{preset.label}</span>
+                        </button>
+                      )
+                    })}
                     {memoText && (
                       <button
                         type="button"
                         onClick={handleClearMemo}
-                        className="px-2 py-1 rounded-lg text-[11px] text-slate-500 hover:text-slate-300"
+                        className="px-2 py-1 rounded-lg text-[11px] text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 transition-colors ml-auto cursor-pointer"
                       >
                         Clear
                       </button>
@@ -1188,9 +1197,18 @@ export default function SendModal({
                       placeholder="Invoice ID, Payroll note, payment ref..."
                       value={memoText}
                       maxLength={120}
-                      onChange={(e) => setMemoText(e.target.value)}
-                      className="w-full rounded-xl px-3 py-2 text-xs text-white bg-white/[0.04] border border-white/[0.08] focus:border-indigo-500/50 focus:outline-none"
+                      onChange={(e) => {
+                        setMemoText(e.target.value)
+                        if (!e.target.value) {
+                          setSelectedPresetId(null)
+                        }
+                      }}
+                      className="w-full rounded-xl px-3 py-2 text-xs text-white bg-white/[0.04] border border-white/[0.08] focus:border-indigo-500/50 focus:outline-none placeholder:text-slate-500"
                     />
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 px-1">
+                      <span>On-chain immutable transfer memo</span>
+                      <span>{memoText.length}/120</span>
+                    </div>
                   </div>
                 </div>
               )}
