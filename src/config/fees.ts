@@ -190,7 +190,7 @@ export function getAllTreasuryDetails(): ChainTreasuryInfo[] {
 }
 
 // Revenue sharing model according to Circle AppKit & Arc documentation
-export const REVENUE_SHARE_LABEL = '%90 Dev / %10 Arc'
+export const REVENUE_SHARE_LABEL = '90% Dev / 10% Arc'
 export const REVENUE_SHARE_TOOLTIP =
   'Circle AppKit Revenue Sharing: 90% of the protocol fee goes to the Arcis Treasury and 10% supports the Arc Network ecosystem.'
 
@@ -371,38 +371,38 @@ export const PROTOCOL_FEE_RATES: ModuleProtocolFeeConfig = {
   },
   swap: {
     standard: {
-      bps: 5, // %0.05
-      label: '%0.05 Protocol Fee',
+      bps: 5, // 0.05%
+      label: '0.05% Protocol Fee',
       description: 'Standard liquidity routing',
     },
     fast: {
-      bps: 10, // %0.10
-      label: '%0.10 Protocol Fee',
+      bps: 10, // 0.10%
+      label: '0.10% Protocol Fee',
       description: 'Fast execution & slippage-optimized routing',
     },
     turbo: {
-      bps: 20, // %0.20
-      label: '%0.20 Protocol Fee',
+      bps: 20, // 0.20%
+      label: '0.20% Protocol Fee',
       description: 'MEV-protected ultra-fast execution',
     },
   },
   bridge: {
     standard: {
-      bps: 5, // %0.05
+      bps: 5, // 0.05%
       valueUsdc: 0.05,
-      label: '%0.05 Platform Fee',
+      label: '0.05% Platform Fee',
       description: 'Eco CCTP bridge (Standard block confirmations)',
     },
     fast: {
-      bps: 10, // %0.10
+      bps: 10, // 0.10%
       valueUsdc: 0.1,
-      label: '%0.10 Platform Fee',
+      label: '0.10% Platform Fee',
       description: 'CCTP Fast Forwarding service acceleration',
     },
     turbo: {
-      bps: 25, // %0.25
+      bps: 25, // 0.25%
       valueUsdc: 0.25,
-      label: '%0.25 Platform Fee',
+      label: '0.25% Platform Fee',
       description: 'Gateway instant pool (<500ms transfer)',
     },
   },
@@ -420,7 +420,7 @@ export function getSwapProtocolFeeBps(tier: SpeedTier): number {
 
 export function getSwapProtocolFeePercent(tier: SpeedTier): string {
   const bps = getSwapProtocolFeeBps(tier)
-  return `%${(bps / 100).toFixed(2)}`
+  return `${(bps / 100).toFixed(2)}%`
 }
 
 export function calculateSwapProtocolFeeAmount(tier: SpeedTier, amountIn: string): string | null {
