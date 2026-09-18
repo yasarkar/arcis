@@ -107,9 +107,9 @@ export async function getDynamicArcGasOptions(
     }
 
     // 3. Multiplier & priority tip per tier:
-    // - standard: %110 base fee, 0 Gwei tip (Arc validators require no tip under normal load)
-    // - fast: %130 base fee, 2 Gwei tip (Recommended for instant inclusion)
-    // - turbo: %175 base fee, 5 Gwei tip (Priority sequencer queue)
+    // - standard: 110% base fee, 0 Gwei tip (Arc validators require no tip under normal load)
+    // - fast: 130% base fee, 2 Gwei tip (Recommended for instant inclusion)
+    // - turbo: 175% base fee, 5 Gwei tip (Priority sequencer queue)
     let multiplier = 130n
     let priorityTip = parseGwei('2')
 
