@@ -3,6 +3,7 @@ import { Zap, ShieldCheck, Sparkles, CheckCircle2, ChevronDown, ExternalLink} fr
 import { TREASURY_ADDRESS } from '../../config/treasuryConfig'
 import { arcTestnet } from '../../config/arcChain'
 import { getExplorerAddressUrl } from '../../config/sendConfig'
+import { Tooltip } from './Tooltip'
 
 interface GaslessBadgeProps {
   isActive: boolean
@@ -39,25 +40,25 @@ export const GaslessBadge: React.FC<GaslessBadgeProps> = ({
   const usedQuota = Math.max(0, dailyLimit - remainingQuota)
 
   return (
-    <div className="relative inline-flex items-center" ref={containerRef}>
+    <div className="relative inline-flex items-center hover:z-[9999999]" ref={containerRef}>
       {/* Interactive Trigger Capsule */}
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setIsOpen(prev => !prev)}
-        className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-300 cursor-pointer ${
-          isActive
-            ? 'text-white border border-emerald-400/40 shadow-[0_0_18px_rgba(16,185,129,0.22)]'
-            : 'text-slate-400 bg-white/[0.03] border border-white/[0.07] hover:text-slate-200 hover:bg-white/[0.06]'
-        }`}
-        style={{
-          fontFamily: 'var(--font-app)',
-          background: isActive
-            ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(99, 102, 241, 0.15) 100%)'
-            : undefined,
-        }}
-        title="Arcis Gasless Quick-Start Details"
-      >
+      <Tooltip content="Arcis Gasless Quick-Start Details" position="top" disabled={isOpen}>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setIsOpen(prev => !prev)}
+          className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-300 cursor-pointer ${
+            isActive
+              ? 'text-white border border-emerald-400/40 shadow-[0_0_18px_rgba(16,185,129,0.22)]'
+              : 'text-slate-400 bg-white/[0.03] border border-white/[0.07] hover:text-slate-200 hover:bg-white/[0.06]'
+          }`}
+          style={{
+            fontFamily: 'var(--font-app)',
+            background: isActive
+              ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(99, 102, 241, 0.15) 100%)'
+              : undefined,
+          }}
+        >
         {/* Animated Glow Pill */}
         <div className="relative flex items-center justify-center">
           {isActive ? (
@@ -115,9 +116,9 @@ export const GaslessBadge: React.FC<GaslessBadgeProps> = ({
           size={12}
           className={`transition-transform duration-200 opacity-60 group-hover:opacity-100 ${
             isOpen ? 'rotate-180 text-emerald-400' : 'text-slate-400'
-          }`}
-        />
-      </button>
+          }`}/>
+        </button>
+      </Tooltip>
 
       {/* Luxury Dropdown Popover */}
       {isOpen && (

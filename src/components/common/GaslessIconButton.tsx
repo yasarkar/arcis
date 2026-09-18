@@ -43,9 +43,16 @@ export const GaslessIconButton: React.FC<GaslessIconButtonProps> = ({
     right: 'left-full ml-2 top-1/2 -translate-y-1/2',
   }
 
+  const tooltipArrowClasses = {
+    top: 'top-full left-1/2 -translate-x-1/2 border-t-[#0c0f1e]',
+    bottom: 'bottom-full right-3 border-b-[#0c0f1e]',
+    left: 'left-full top-1/2 -translate-y-1/2 border-l-[#0c0f1e]',
+    right: 'right-full top-1/2 -translate-y-1/2 border-r-[#0c0f1e]',
+  }
+
   return (
     <div
-      className={`relative inline-flex items-center select-none ${showTooltip ? 'z-50' : 'z-20'} ${className}`}
+      className={`relative inline-flex items-center select-none ${showTooltip ? 'z-[9999999]' : 'z-20'} ${className}`}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
@@ -85,31 +92,33 @@ export const GaslessIconButton: React.FC<GaslessIconButtonProps> = ({
         </div>
       </button>
 
-      {/* Floating Micro Tooltip */}
+      {/* Floating Micro Tooltip matching Swap/Bridge Breakdown */}
       {showTooltip && (
         <div
-          className={`absolute z-[999] pointer-events-none px-3.5 py-2.5 rounded-xl text-[11px] font-sans font-medium whitespace-nowrap shadow-2xl backdrop-blur-2xl border transition-all duration-150 animate-fade-in ${
+          role="tooltip"
+          style={{ zIndex: 9999999 }}
+          className={`absolute z-[9999999] pointer-events-none px-3 py-2 rounded-xl text-[12px] font-normal text-slate-100 bg-[#0c0f1e]/95 backdrop-blur-md border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.6)] leading-snug whitespace-nowrap select-none animate-fade-in ${
             tooltipPosClasses[tooltipPosition]
-          } ${
-            isActive
-              ? 'bg-[#0f1224]/95 text-white border-indigo-500/40 shadow-[0_8px_32px_rgba(0,0,0,0.6)]'
-              : 'bg-[#0f131f]/95 text-slate-300 border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.6)]'
           }`}
         >
-          <div className="flex items-center gap-1.5 font-bold">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-100">
             <Zap className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-400 fill-indigo-400' : 'text-slate-400'}`} />
             <span>{isActive ? '0-Gas Quick-Start' : 'Standard Gas Mode'}</span>
           </div>
-          <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+          <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
             {isActive ? (
               <>
                 <span className="text-indigo-300 font-semibold">{remainingQuota}/{dailyLimit} Free sends left</span>
-                <span>• Sponsored Network Gas</span>
+                <span>• Sponsored Gas</span>
               </>
             ) : (
               <span>Click to activate free sponsored sends</span>
             )}
           </div>
+          <span
+            style={{ zIndex: 10000000 }}
+            className={`absolute border-4 border-transparent pointer-events-none ${tooltipArrowClasses[tooltipPosition]}`}
+          />
         </div>
       )}
     </div>

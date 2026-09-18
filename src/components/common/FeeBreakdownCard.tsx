@@ -2,7 +2,8 @@
 // Compliant with Arc L1 native USDC gas (18-decimal) and Circle AppKit (90/10 revenue share).
 // Reusable across BridgeModal, SwapModal, and SendModal.
 import React, { useState } from 'react'
-import { ChevronDown, Info } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
+import { InfoTooltip } from './Tooltip'
 
 export interface FeeBreakdownItem {
   label: string
@@ -90,7 +91,7 @@ export const FeeBreakdownCard: React.FC<FeeBreakdownCardProps> = ({
             return (
               <div
                 key={idx}
-                className={`flex items-center justify-between py-1 text-slate-300 transition-colors ${
+                className={`flex items-center justify-between py-1 text-slate-300 transition-colors relative hover:z-50 ${
                   item.highlight ? 'text-slate-100 font-medium' : ''
                 }`}
               >
@@ -105,25 +106,11 @@ export const FeeBreakdownCard: React.FC<FeeBreakdownCardProps> = ({
                   )}
 
                   {item.tooltip && (
-                    <div className="relative group/tip flex items-center inline-flex shrink-0">
-                      <Info className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-300 cursor-help transition-colors" />
-                      {/* Floating Micro Tooltip Popover */}
-                      <div
-                        className={`absolute left-0 ${
-                          idx === 0 ? 'top-full mt-2' : 'bottom-full mb-2'
-                        } hidden group-hover/tip:flex flex-col z-50 pointer-events-none px-3 py-2 rounded-xl text-[12px] font-normal text-slate-100 bg-[#0c0f1e]/95 backdrop-blur-md border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.6)] w-max max-w-[250px] leading-snug`}
-                        role="tooltip"
-                      >
-                        {item.tooltip}
-                        <span
-                          className={`absolute left-3 border-4 border-transparent ${
-                            idx === 0
-                              ? 'bottom-full border-b-[#0c0f1e]'
-                              : 'top-full border-t-[#0c0f1e]'
-                          }`}
-                        />
-                      </div>
-                    </div>
+                    <InfoTooltip
+                      content={item.tooltip}
+                      position={idx === 0 ? 'bottom' : 'top'}
+                      align="start"
+                    />
                   )}
                 </div>
 
