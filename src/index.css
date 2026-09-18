@@ -553,7 +553,7 @@
     0 2px 8px rgba(0, 0, 0, 0.2);
   border-radius: 28px;
   padding: 36px 40px 32px;
-  overflow: hidden;
+  overflow: visible;
   transition: transform 0.3s var(--ease-out-smooth), border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
@@ -567,6 +567,7 @@
   content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background: radial-gradient(
     ellipse 70% 50% at 20% 0%,
     rgba(152, 150, 255, 0.12) 0%,
@@ -891,7 +892,7 @@
   100% { background-position: -200% 0; }
 }
 
-/* ── Error Tooltip ── */
+/* ── Error Tooltip (Breakdown Design Standard) ── */
 .ub-error-tooltip {
   position: relative;
   display: inline-flex;
@@ -907,21 +908,51 @@
   content: attr(data-tip);
   position: absolute;
   right: 0;
-  top: calc(100% + 6px);
-  background: rgba(30, 10, 10, 0.95);
-  color: #fca5a5;
-  border: 1px solid rgba(248, 113, 113, 0.3);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 10px;
+  top: calc(100% + 7px);
+  background: rgba(12, 15, 30, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-family: var(--font-app, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translateY(2px);
+  z-index: 9999999;
+}
+
+.ub-error-tooltip::before {
+  content: '';
+  position: absolute;
+  right: 12px;
+  top: calc(100% + 1px);
+  border-width: 4px;
+  border-style: solid;
+  border-color: transparent transparent #0c0f1e transparent;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 0.15s ease;
-  z-index: 10;
+  z-index: 10000000;
+}
+
+.ub-error-tooltip:hover {
+  z-index: 9999999;
 }
 
 .ub-error-tooltip:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.ub-error-tooltip:hover::before {
   opacity: 1;
 }
 
