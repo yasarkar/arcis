@@ -43,6 +43,7 @@ import { getLiveTokenPrices, getCachedTokenPrice, isLivePriceAvailable } from '.
 import { useLiveTokenPrices } from './useLiveTokenPrices'
 import { recordClientSwapVolume, getRollingClientSwapVolume, startLiveVolumeSimulation } from '../utils/poolVolumeUtils'
 import { isUserCanceled } from '../utils/errorUtils'
+import { getActiveSmartAccount, sendModularUserOperation } from '../services/modularWalletService'
 
 export { recordClientSwapVolume, getRollingClientSwapVolume, startLiveVolumeSimulation }
 
