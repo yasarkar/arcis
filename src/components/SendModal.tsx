@@ -37,6 +37,7 @@ import { normalizeAppError } from '../utils/errorNormalizer'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
+import { Tooltip } from './common/Tooltip'
 import {
   SPEED_TIERS,
   getDynamicArcGasOptions,
@@ -996,18 +997,19 @@ export default function SendModal({
       />
 
       {/* Settings Toggle */}
-      <button
-        type="button"
-        onClick={() => setShowSettings(!showSettings)}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-          showSettings
-            ? 'text-white bg-indigo-500/25 border border-indigo-500/40 shadow-sm'
-            : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]'
-        }`}
-        title="Speed & fee preferences"
-      >
-        <Settings className="w-4 h-4" />
-      </button>
+      <Tooltip content="Speed & fee preferences" position="bottom" align="end">
+        <button
+          type="button"
+          onClick={() => setShowSettings(!showSettings)}
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+            showSettings
+              ? 'text-white bg-indigo-500/25 border border-indigo-500/40 shadow-sm'
+              : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+      </Tooltip>
 
       {/* Close button if modal */}
       {!isInline && (

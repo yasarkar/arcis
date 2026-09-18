@@ -27,6 +27,7 @@ import { TokenIcon } from '@web3icons/react/dynamic'
 import { usePrivacy } from '../hooks/usePrivacy'
 import { ReceiptModal } from './ReceiptModal'
 import { SUPPORTED_SEND_CHAINS, getExplorerTxUrl, getExplorerAddressUrl } from '../config/sendConfig'
+import { Tooltip } from './common/Tooltip'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -576,9 +577,11 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
   const getAmountDetail = (item: HistoryItem) => {
     if (globalPrivate || item.isPrivate) {
       return (
-        <span className="font-mono text-white tracking-wider font-semibold" title="APS Encrypted Transaction">
-          <span>{settings.maskSymbol}</span>
-        </span>
+        <Tooltip content="APS Encrypted Transaction" position="top">
+          <span className="font-mono text-white tracking-wider font-semibold cursor-help">
+            <span>{settings.maskSymbol}</span>
+          </span>
+        </Tooltip>
       )
     }
 
@@ -1201,14 +1204,15 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                   {/* TIME / UTC TIME Column Header with Filter Icon & Popover Modal */}
                   <th className="w-1/5 px-5 py-3.5 relative filter-popover-container">
                     <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setTimeFormat(prev => prev === 'relative' ? 'utc' : 'relative')}
-                        className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors cursor-pointer select-none"
-                        title="Click to toggle between Relative Time and UTC Time"
-                      >
-                        <span className="font-bold">{timeFormat === 'utc' ? 'UTC TIME' : 'TIME'}</span>
-                      </button>
+                      <Tooltip content="Click to toggle between Relative Time and UTC Time" position="top">
+                        <button
+                          type="button"
+                          onClick={() => setTimeFormat(prev => prev === 'relative' ? 'utc' : 'relative')}
+                          className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors cursor-pointer select-none"
+                        >
+                          <span className="font-bold">{timeFormat === 'utc' ? 'UTC TIME' : 'TIME'}</span>
+                        </button>
+                      </Tooltip>
                       <button
                         type="button"
                         onClick={(e) => {

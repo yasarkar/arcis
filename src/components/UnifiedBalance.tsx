@@ -13,6 +13,7 @@ import { useBroadcast } from './BroadcastNotification'
 import { normalizeAppError } from '../utils/errorNormalizer'
 import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
 import { CHAIN_META, CHAIN_DEFS, getChainDisplayName } from '../config/chainMeta'
+import { Tooltip } from './common/Tooltip'
 
 const DEPOSIT_TOKEN = 'USDC' as const
 
@@ -202,19 +203,21 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
             <span className="arc-eyebrow" style={{ fontSize: 15, color: 'var(--base-colors--white)', fontWeight: 600, letterSpacing: '2px' }}>
               UNIFIED BALANCE
             </span>
-            <span className="ub-live-badge" title="Circle Gateway Realtime Sub-Second Finality">
-              <span>LIVE GATEWAY</span>
-              <svg className="ub-ecg-svg" viewBox="0 0 48 16" fill="none" aria-hidden="true">
-                <path
-                  d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
-                  className="ub-ecg-path-bg"
-                />
-                <path
-                  d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
-                  className="ub-ecg-path-pulse"
-                />
-              </svg>
-            </span>
+            <Tooltip content="Circle Gateway Realtime Sub-Second Finality" position="top">
+              <span className="ub-live-badge cursor-help">
+                <span>LIVE GATEWAY</span>
+                <svg className="ub-ecg-svg" viewBox="0 0 48 16" fill="none" aria-hidden="true">
+                  <path
+                    d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
+                    className="ub-ecg-path-bg"
+                  />
+                  <path
+                    d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
+                    className="ub-ecg-path-pulse"
+                  />
+                </svg>
+              </span>
+            </Tooltip>
           </div>
 
           <div className="ub-quick-actions">
