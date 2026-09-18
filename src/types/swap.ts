@@ -38,6 +38,7 @@ export interface SwapQuoteResult {
     token: string
     amount: string
     type: 'provider' | 'gas' | 'swap' | 'developer'
+    recipientAddress?: string
   }>
   rate: string
 }

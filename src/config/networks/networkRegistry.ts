@@ -245,6 +245,27 @@ export const worldChainSepolia = defineChain({
   testnet: true,
 })
 
+export const ethereumSepolia = defineChain({
+  ...sepolia,
+  rpcUrls: {
+    ...sepolia.rpcUrls,
+    default: {
+      http: [
+        'https://ethereum-sepolia.publicnode.com',
+        'https://1rpc.io/sepolia',
+        'https://gateway.tenderly.co/public/sepolia',
+      ],
+    },
+    public: {
+      http: [
+        'https://ethereum-sepolia.publicnode.com',
+        'https://1rpc.io/sepolia',
+        'https://gateway.tenderly.co/public/sepolia',
+      ],
+    },
+  },
+})
+
 // Simulated chain for Solana (for UI & address book purposes)
 const solanaDevnetChain = defineChain({
   id: 999001,
@@ -323,11 +344,11 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     cctpDomain: 0,
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
-      primary: 'https://rpc.sepolia.org',
+      primary: 'https://ethereum-sepolia.publicnode.com',
       fallbacks: [
-        'https://ethereum-sepolia.publicnode.com',
         'https://1rpc.io/sepolia',
         'https://gateway.tenderly.co/public/sepolia',
+        'https://rpc.sepolia.org',
       ],
     },
     blockExplorers: { name: 'Etherscan', url: 'https://sepolia.etherscan.io' },
@@ -342,7 +363,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       color: '#8b5cf6',
       gradient: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
     },
-    viemChain: sepolia,
+    viemChain: ethereumSepolia,
   },
 
   Base_Sepolia: {
@@ -441,10 +462,10 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     cctpDomain: 7,
     nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
     rpcUrls: {
-      primary: 'https://rpc-amoy.polygon.technology',
+      primary: 'https://polygon-amoy-bor-rpc.publicnode.com',
       fallbacks: [
         'https://polygon-amoy.drpc.org',
-        'https://polygon-amoy-bor-rpc.publicnode.com',
+        'https://80002.rpc.thirdweb.com',
       ],
     },
     blockExplorers: { name: 'PolygonScan', url: 'https://amoy.polygonscan.com' },
