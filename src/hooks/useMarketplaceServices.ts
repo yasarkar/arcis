@@ -2,6 +2,7 @@
 // Hook for managing x402 marketplace services, filtering, execution, and session budget
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useClearOnWalletDisconnect } from './useClearOnWalletDisconnect'
 import {
   ARC_SERVICES_REGISTRY,
   MARKETPLACE_STATS,
@@ -26,6 +27,19 @@ export function useMarketplaceServices(walletAddress?: string) {
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>('All')
   const [searchQuery, setSearchQuery] = useState<string>('')
   
+  // Systematic input clearing on wallet disconnect
+  useClearOnWalletDisconnect(() => {
+    setSearchQuery('')
+    setExecutionResult(null)
+  })
+
+  useEffect(() => {
+    if (!walletAddress) {
+      setSearchQuery('')
+      setExecutionResult(null)
+    }
+  }, [walletAddress])
+
   // Active test modal state
   const [activeService, setActiveService] = useState<x402Service | null>(null)
   const [isPlaygroundOpen, setIsPlaygroundOpen] = useState<boolean>(false)

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
   ArrowRightLeft,
@@ -135,6 +136,34 @@ export default function SwapModal({
   const [quoteFees, setQuoteFees] = useState<SwapQuoteResult['fees']>([])
   const [isEstimating, setIsEstimating] = useState(false)
   const [estimateError, setEstimateError] = useState<string | null>(null)
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setAmountIn('')
+    setCustomRecipient('')
+    setRecipientError(null)
+    setStopLimit('')
+    setCustomSlippage('')
+    setSelectedSlippageType('0.5')
+    setUseCustomRecipient(false)
+    setIsEditingRecipient(false)
+    setEstimatedOutput('')
+    setRate('')
+    setQuoteFees([])
+    setError(null)
+    setIsCanceledError(false)
+    setEstimateError(null)
+    setSuccessData(null)
+    setIsSwapping(false)
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
+  useEffect(() => {
+    if (!connectedAddress) {
+      resetFormInputs()
+    }
+  }, [connectedAddress, resetFormInputs])
 
   // Slippage tolerance calculation
   const slippageTolerance = useMemo(() => {

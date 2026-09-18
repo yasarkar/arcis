@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import { Search, X, Check } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 
@@ -30,6 +31,10 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
 }) => {
   const [search, setSearch] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useClearOnWalletDisconnect(() => {
+    setSearch('')
+  })
 
   useEffect(() => {
     if (isOpen) {

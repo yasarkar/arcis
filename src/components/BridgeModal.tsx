@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
   Globe,
@@ -154,6 +155,26 @@ export default function BridgeModal({
   // Fee estimation
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null)
   const [isEstimating, setIsEstimating] = useState(false)
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setAmount('')
+    setRecipient('')
+    setRecipientError(null)
+    setIsTransferring(false)
+    setSuccessReceipt(null)
+    setError(null)
+    setIsCanceledError(false)
+    setEstimatedFee(null)
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
+  useEffect(() => {
+    if (!connectedAddress) {
+      resetFormInputs()
+    }
+  }, [connectedAddress, resetFormInputs])
 
   // Reset states on open
   useEffect(() => {

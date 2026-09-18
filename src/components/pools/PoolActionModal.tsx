@@ -2,8 +2,9 @@
 // Supports Standard Deposit/Redeem, Cross-Chain 1-Click Gateway Zap (<500ms sub-second teleportation),
 // 1-Click Single-Token Zap to LP, Dual-Asset (50/50) Deposit, Slippage tolerance controls,
 // LP Withdraw options, and on-chain Pool AMM Swapping (USDC ↔ cirBTC / EURC).
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
   X,
   Plus,
@@ -127,6 +128,27 @@ export default function PoolActionModal({
   const [swapTokenIn, setSwapTokenIn] = useState<string>('USDC')
   const [swapTokenOut, setSwapTokenOut] = useState<string>('cirBTC')
   const [swapAmountIn, setSwapAmountIn] = useState<string>('')
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setAmount('')
+    setPercentage(0)
+    setAmountA('')
+    setAmountB('')
+    setCustomSlippage('')
+    setSelectedSlippageType('0.5')
+    setSwapAmountIn('')
+    setErrorMsg(null)
+    setIsCanceledError(false)
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
+  useEffect(() => {
+    if (!walletAddress) {
+      resetFormInputs()
+    }
+  }, [walletAddress, resetFormInputs])
 
   const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)

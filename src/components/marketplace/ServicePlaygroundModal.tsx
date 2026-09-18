@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
   X,
   Zap,
@@ -52,6 +53,11 @@ export default function ServicePlaygroundModal({
   const [activeTab, setActiveTab] = useState<'tester' | 'curl' | 'typescript' | 'python'>('tester')
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  // Systematic input clearing on wallet disconnect
+  useClearOnWalletDisconnect(() => {
+    setFormData({})
+  })
 
   // Initialize form data with default values when service changes
   useEffect(() => {

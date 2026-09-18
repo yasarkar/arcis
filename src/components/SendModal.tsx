@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo} from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
   ArrowUpRight,
@@ -155,6 +156,31 @@ export default function SendModal({
   const [memoText, setMemoText] = useState('')
   const [customMemoId, setCustomMemoId] = useState('')
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null)
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setAmount('')
+    setRecipient('')
+    setRecipientError(null)
+    setCustomTokenAddress('')
+    setCustomTokenResult(null)
+    setCustomTokenError(null)
+    setMemoText('')
+    setCustomMemoId('')
+    setSelectedPresetId(null)
+    setError(null)
+    setIsCanceledError(false)
+    setSuccessReceipt(null)
+    setIsSending(false)
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
+  useEffect(() => {
+    if (!connectedAddress) {
+      resetFormInputs()
+    }
+  }, [connectedAddress, resetFormInputs])
 
   // Load gasless quota when wallet is connected
   useEffect(() => {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import { Search, X, Check } from 'lucide-react'
 
 export interface TokenItem {
@@ -28,6 +29,10 @@ export const TokenSelectorModal: React.FC<TokenSelectorModalProps> = ({
 }) => {
   const [search, setSearch] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useClearOnWalletDisconnect(() => {
+    setSearch('')
+  })
 
   useEffect(() => {
     if (isOpen) {

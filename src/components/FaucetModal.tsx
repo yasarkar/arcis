@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
   Droplets,
@@ -187,6 +188,15 @@ export default function FaucetModal({
   // States
   const [isLoading, setIsLoading] = useState(false)
 
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setRecipientAddress('')
+    setRecipientError(null)
+    setIsLoading(false)
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
   const isArcChain =
     selectedNetwork.blockchainCode === 'ARC-TESTNET' ||
     selectedNetwork.id === 'arc-testnet'
@@ -205,8 +215,10 @@ export default function FaucetModal({
     if (isOpen && connectedAddress) {
       setRecipientAddress(connectedAddress)
       setRecipientError(null)
+    } else if (!connectedAddress) {
+      resetFormInputs()
     }
-  }, [isOpen, connectedAddress])
+  }, [isOpen, connectedAddress, resetFormInputs])
 
   if (!isOpen) return null
 

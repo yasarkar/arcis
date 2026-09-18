@@ -2,7 +2,8 @@
 // Combines USYC RWA Vault, Circle Gateway Cross-Chain Settlement Vault,
 // Arcis Real-Yield Staking, DEX Liquidity Pools,
 // 1-Click Zap, and live Arc Testnet state.
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
   Search,
   SlidersHorizontal,
@@ -78,6 +79,20 @@ export default function PoolsTab({
   // Filter & Search states
   const [activeCategory, setActiveCategory] = useState<PoolCategory | 'all'>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setSearchQuery('')
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
+  useEffect(() => {
+    if (!walletConnected) {
+      resetFormInputs()
+    }
+  }, [walletConnected, resetFormInputs])
+
   const [sortBy, setSortBy] = useState<'apy' | 'volume' | 'tvl' | 'risk' | 'positions'>('apy')
   const [showSortDropdown, setShowSortDropdown] = useState<boolean>(false)
   const sortDropdownRef = useRef<HTMLDivElement>(null)

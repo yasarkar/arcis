@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAccount, useDisconnect } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUserControlledWallet } from './hooks/useUserControlledWallet'
 import { useModularWallet } from './hooks/useModularWallet'
+import { clearAllAppInputs } from './utils/inputClearer'
 import CircleAuthModal from './components/CircleAuthModal'
 import FaucetModal from './components/FaucetModal'
 import UnifiedBalance from './components/UnifiedBalance'
@@ -134,6 +135,23 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances'] })
   }
 
+  // Track previous connection state to trigger clearing inputs on wallet disconnect
+  const prevWalletConnectedRef = useRef(walletConnected)
+  const prevAddressRef = useRef(walletAddress)
+
+  useEffect(() => {
+    const wasConnected = prevWalletConnectedRef.current
+    const hadAddress = Boolean(prevAddressRef.current)
+
+    // Trigger clear inputs if previously connected and now disconnected
+    if ((wasConnected && !walletConnected) || (hadAddress && !walletAddress)) {
+      clearAllAppInputs()
+    }
+
+    prevWalletConnectedRef.current = walletConnected
+    prevAddressRef.current = walletAddress
+  }, [walletConnected, walletAddress])
+
   // Connect / Disconnect Wallet handler
   const handleDisconnectAll = () => {
     if (isPasskeyConnected) {
@@ -146,6 +164,7 @@ export default function App() {
       disconnect()
     }
     setPreferredAuthSource(null)
+    clearAllAppInputs()
   }
 
   // Arcis AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
@@ -174,8 +193,14 @@ export default function App() {
           activeAuthSource={activeAuthSource}
           onSelectActiveAuthSource={(source) => setPreferredAuthSource(source)}
           onOpenCircleAuth={() => setIsCircleAuthOpen(true)}
-          onDisconnectUcw={disconnectUcw}
-          onDisconnectPasskey={disconnectPasskey}
+          onDisconnectUcw={() => {
+            disconnectUcw()
+            clearAllAppInputs()
+          }}
+          onDisconnectPasskey={() => {
+            disconnectPasskey()
+            clearAllAppInputs()
+          }}
           onOpenFaucet={() => setIsFaucetOpen(true)}
           isRestoring={isModularRestoring}
         />

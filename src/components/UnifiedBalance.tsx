@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import { RefreshCw, AlertTriangle, ChevronDown, Plus, X, Layers, ShieldCheck, ArrowDownRight, Ban } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -37,6 +38,22 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
   const [depositing, setDepositing] = useState(false)
   const [depositError, setDepositError] = useState<string | null>(null)
   const [isCanceledError, setIsCanceledError] = useState(false)
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setDepositAmount('')
+    setDepositError(null)
+    setIsCanceledError(false)
+    setDepositing(false)
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
+  useEffect(() => {
+    if (!walletAddress) {
+      resetFormInputs()
+    }
+  }, [walletAddress, resetFormInputs])
 
   // Custom chain dropdown state
   const [showChainDropdown, setShowChainDropdown] = useState(false)

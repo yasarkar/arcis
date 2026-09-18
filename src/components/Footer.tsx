@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   ExternalLink,
   Droplets,
@@ -19,6 +20,12 @@ interface FooterProps {
 export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
   const [email, setEmail] = useState('')
   const [isSubscribed, setIsSubscribed] = useState(false)
+
+  // Systematic input clearing on wallet disconnect
+  useClearOnWalletDisconnect(() => {
+    setEmail('')
+    setIsSubscribed(false)
+  })
 
   const handleNav = (tab: TabType) => {
     if (onNavigate) {

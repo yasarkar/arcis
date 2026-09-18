@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
   Mail,
@@ -65,6 +66,14 @@ export default function CircleAuthModal({
   const [statusMessage, setStatusMessage] = useState<{ text: string; isError?: boolean; isSuccess?: boolean } | null>(null)
   const [autoLoginPhase, setAutoLoginPhase] = useState<'idle' | 'authenticating' | 'success' | 'failed'>('idle')
   const [autoLoginAddress, setAutoLoginAddress] = useState<string>('')
+
+  // Systematic input clearing on wallet disconnect
+  useClearOnWalletDisconnect(() => {
+    setEmail('')
+    setOtpCode('')
+    setPasskeyName('')
+    setStatusMessage(null)
+  })
 
   // Reset modal state on open/reopen
   useEffect(() => {

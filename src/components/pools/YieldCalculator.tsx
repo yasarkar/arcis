@@ -1,7 +1,8 @@
 // Interactive Yield & ROI Simulator for Arcis.
 // Allows users to simulate compounding interest across USYC, Real-Yield, and LP pools.
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
   X,
   Plus,
@@ -32,6 +33,13 @@ export default function YieldCalculator({
   const defaultPoolId = activePools.length > 0 ? activePools[0].id : ''
   const [selectedPoolId, setSelectedPoolId] = useState<string>(defaultPoolId)
   const [compoundFreq] = useState<'daily' | 'monthly' | 'yearly'>('daily')
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setPrincipal('')
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
 
   const principalNum = Math.max(0, parseFloat(principal) || 0)
   const selectedPool = activePools.find((p) => p.id === selectedPoolId) || activePools[0]

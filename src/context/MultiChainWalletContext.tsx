@@ -24,6 +24,7 @@ import {
   isInjectiveWalletInstalled,
   clearStoredInjectiveWallet,
 } from '../services/injectiveWalletService'
+import { clearAllAppInputs } from '../utils/inputClearer'
 
 export const MultiChainWalletContext = createContext<MultiChainWalletContextValue | null>(null)
 
@@ -170,6 +171,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       isConnecting: false,
       error: null,
     })
+    clearAllAppInputs()
   }, [solana.providerName])
 
   const isSolanaInstalled = useCallback((provider: SolanaWalletProvider) => {
@@ -211,6 +213,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       isConnecting: false,
       error: null,
     })
+    clearAllAppInputs()
   }, [])
 
   const isInjectiveInstalled = useCallback((provider: InjectiveWalletProvider) => {
@@ -223,6 +226,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
   const disconnectAllNonEvm = useCallback(() => {
     disconnectSolana()
     disconnectInjective()
+    clearAllAppInputs()
   }, [disconnectSolana, disconnectInjective])
 
   return (

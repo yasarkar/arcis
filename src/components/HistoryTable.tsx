@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   ArrowUpRight,
   ArrowRightLeft,
@@ -377,6 +378,33 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
 
   // State to force re-render relative time tickers
   const [, setTimeTicker] = useState(0)
+
+  // Systematic input and state clearing on wallet disconnect
+  const resetFormInputs = useCallback(() => {
+    setSearchTerm('')
+    setFromDate('')
+    setToDate('')
+    setMinAmount('')
+    setMaxAmount('')
+    setRecipientSearch('')
+    setActiveTimeFilter(null)
+    setActiveAmountFilter(null)
+    setActiveRecipientFilter(null)
+    setTimePreset(null)
+    setAmountPreset(null)
+    setShowTimeFilter(false)
+    setShowAmountFilter(false)
+    setShowTypeFilter(false)
+    setShowRecipientFilter(false)
+  }, [])
+
+  useClearOnWalletDisconnect(resetFormInputs)
+
+  useEffect(() => {
+    if (!activeWalletAddress) {
+      resetFormInputs()
+    }
+  }, [activeWalletAddress, resetFormInputs])
 
   // Reset to page 1 whenever any filter or search term changes
   useEffect(() => {

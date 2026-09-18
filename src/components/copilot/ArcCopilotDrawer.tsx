@@ -2,6 +2,7 @@
 // Floating Resizable AI Copilot Mini-Window for Arcis (Anchored Above Floating Widget)
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
   X,
   Bot,
@@ -81,6 +82,13 @@ export default function ArcCopilotDrawer({
   const [isSessionKeyModalOpen, setIsSessionKeyModalOpen] = useState<boolean>(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Systematic input clearing on wallet disconnect
+  useClearOnWalletDisconnect(() => {
+    setInputText('')
+    setEditingText('')
+    setEditingMsgId(null)
+  })
 
   // Slash Commands State
   const [slashSelectedIdx, setSlashSelectedIdx] = useState<number>(0)
