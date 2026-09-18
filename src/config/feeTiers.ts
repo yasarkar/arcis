@@ -1,7 +1,5 @@
-// src/config/feeTiers.ts
 // Arcis Protocol Wallet Speed & Fee Tiers Facade (100% English)
 // Backed by centralized fees module (src/config/fees.ts) for backward compatibility.
-
 export {
   type SpeedTier,
   type SpeedTierConfig,

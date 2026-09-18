@@ -64,10 +64,17 @@ export interface MemoPreset {
 }
 
 export const MEMO_PRESETS: MemoPreset[] = [
-  { id: 'invoice', icon: '🧾', label: 'Invoice', text: 'Invoice #INV-2026-001', refIdPrefix: 'inv-2026' },
-  { id: 'freelance', icon: '💼', label: 'Freelance', text: 'Freelance Dev / Milestone 1 Deliverable', refIdPrefix: 'job-dev' },
-  { id: 'ai-agent', icon: '🤖', label: 'AI Agent', text: 'ERC-8183 AI Agent Task Settlement', refIdPrefix: 'erc8183' },
-  { id: 'rent', icon: '🏠', label: 'Rent / Sub', text: 'Monthly Office / Subscription Payment', refIdPrefix: 'sub-rent' },
-  { id: 'gift', icon: '🎁', label: 'Gift / Tip', text: 'Thank You / Community Tip 🎉', refIdPrefix: 'tip' },
-  { id: 'order', icon: '🛒', label: 'E-Commerce', text: 'Order #ORD-9842 Checkout Settlement', refIdPrefix: 'order' },
+  // B2B & Work
+  { id: 'invoice', icon: '🧾', label: 'Invoice', text: 'Invoice #INV-2026-001 settlement', refIdPrefix: 'inv-2026' },
+  { id: 'freelance', icon: '💼', label: 'Freelance', text: 'Milestone deliverable completion', refIdPrefix: 'job-dev' },
+  { id: 'payroll', icon: '🏢', label: 'Payroll', text: 'Monthly payroll compensation', refIdPrefix: 'payroll' },
+  // AI & Web3 / Arc Native
+  { id: 'ai-agent', icon: '🤖', label: 'AI Agent', text: 'ERC-8183 autonomous agent settlement', refIdPrefix: 'erc8183' },
+  { id: 'api-fee', icon: '⚡', label: 'API Fee', text: 'x402 pay-per-call API access fee', refIdPrefix: 'x402' },
+  // Commerce & Subs
+  { id: 'order', icon: '🛒', label: 'Order', text: 'Order #ORD-8492 checkout payment', refIdPrefix: 'order' },
+  { id: 'subscription', icon: '🔄', label: 'Subscription', text: 'SaaS platform monthly subscription', refIdPrefix: 'sub-saas' },
+  // P2P & Social
+  { id: 'split', icon: '🍕', label: 'Split Bill', text: 'Dinner & drinks split payment', refIdPrefix: 'split' },
+  { id: 'tip', icon: '🎁', label: 'Tip / Gift', text: 'Thank you for the support! 🎉', refIdPrefix: 'tip' },
 ]

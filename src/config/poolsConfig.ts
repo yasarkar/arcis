@@ -140,6 +140,7 @@ export const POOL_CONTRACTS = {
   STABLE_SWAP_POOL: '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22' as const, // StableSwapPoolV3
   CONSTANT_PRODUCT_POOL: '0xF3742bDF819211dd1dcBbF577F031Bb743318903' as const, // ConstantProductPoolV3
   YIELD_VAULT: '0x5e618f7f6591868827da40f73f869e3dE8F387CD' as const, // YieldVaultV3
+  ARCIS_SWAP_ROUTER: '0x22733d5C4C91C7BEF2BED43e3f3F42B2d91DfcD4' as const, // ArcisSwapRouter (Single-tx atomic swap + fee)
 }
 
 // ── V3 (verified testnet) Deploy Targets ───────────────────────────────────────
@@ -150,6 +151,7 @@ export const POOL_CONTRACTS_V3 = {
   STABLE_SWAP_POOL: POOL_CONTRACTS.STABLE_SWAP_POOL as `0x${string}`,
   CONSTANT_PRODUCT_POOL: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL as `0x${string}`,
   YIELD_VAULT: POOL_CONTRACTS.YIELD_VAULT as `0x${string}`,
+  ARCIS_SWAP_ROUTER: POOL_CONTRACTS.ARCIS_SWAP_ROUTER as `0x${string}`,
 }
 
 // ── Pool Version & Slippage Helpers ───────────────────────────────────────────
@@ -210,7 +212,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
     ],
     tags: ['StableSwap', 'FX Market', 'Zero IL', 'Single Asset'],
     isLpPool: true, lpTokenName: 'Arcis USDC-EURC LP', lpTokenSymbol: 'af-USDC-EURC',
-    supportsZap: true, exchangeRate: 1.082, feeTierPercent: 0.12,
+    supportsZap: true, feeTierPercent: 0.12,
     reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Zero (Stable)',
   },
@@ -241,7 +243,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
     ],
     tags: ['ConstantProduct', 'Bitcoin', 'Dual AMM', 'Single Asset'],
     isLpPool: true, lpTokenName: 'Arcis USDC-cirBTC LP', lpTokenSymbol: 'af-USDC-cirBTC',
-    supportsZap: true, exchangeRate: 96500, feeTierPercent: 0.25,
+    supportsZap: true, feeTierPercent: 0.25,
     reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Medium',
   },
@@ -353,3 +355,35 @@ export const YIELD_VAULT_ABI = [
   { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
 ] as const
+
+export const ARCIS_SWAP_ROUTER_ABI = [
+  {
+    type: 'function',
+    name: 'swapWithFee',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'pool', type: 'address' },
+      { name: 'tokenIn', type: 'address' },
+      { name: 'tokenOut', type: 'address' },
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'minOut', type: 'uint256' },
+      { name: 'treasury', type: 'address' },
+      { name: 'feeBps', type: 'uint256' },
+    ],
+    outputs: [{ name: 'amountOut', type: 'uint256' }],
+  },
+  {
+    type: 'event',
+    name: 'SwapWithFee',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'pool', type: 'address', indexed: true },
+      { name: 'tokenIn', type: 'address', indexed: false },
+      { name: 'tokenOut', type: 'address', indexed: false },
+      { name: 'amountIn', type: 'uint256', indexed: false },
+      { name: 'amountOut', type: 'uint256', indexed: false },
+      { name: 'feeAmount', type: 'uint256', indexed: false },
+      { name: 'treasury', type: 'address', indexed: false },
+    ],
+  },
+] as const

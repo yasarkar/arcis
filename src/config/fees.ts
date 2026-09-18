@@ -4,7 +4,6 @@
 // - Transaction Speed & Priority Tiers (Standard / Fast / Turbo)
 // - Arc L1 Native USDC Gas Calculations & Dynamic Options
 // - Module Protocol Fee Rates (Send, Swap, Bridge) & Circle AppKit Revenue Sharing
-
 import { parseGwei } from 'viem'
 // ─────────────────────────────────────────────────────────────
 // 1. MULTI-CHAIN TREASURY ADDRESSES & RESOLUTION

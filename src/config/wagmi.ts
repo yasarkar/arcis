@@ -25,6 +25,7 @@ import {
   sonicTestnet,
   unichainSepolia,
   worldChainSepolia,
+  ethereumSepolia,
 } from './networks/networkRegistry'
 
 // Re-export custom chains for backward compatibility
@@ -34,6 +35,7 @@ export {
   sonicTestnet,
   unichainSepolia,
   worldChainSepolia,
+  ethereumSepolia,
 }
 
 function resolveWalletConnectProjectId(): { projectId: string; isConfigured: boolean } {
