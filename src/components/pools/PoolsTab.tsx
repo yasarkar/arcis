@@ -58,8 +58,6 @@ export default function PoolsTab({
     onchainBalances,
     isBalancesLoading,
     totalTvlUsd,
-    localTvlUsd,
-    gatewayTvlUsd,
     userTotalDepositedUsd,
     userTotalClaimableRewardsUsd,
     dailyYieldGeneratedUsd,
@@ -272,7 +270,7 @@ export default function PoolsTab({
     const poolsForApy = claimablePools.length > 0 ? claimablePools : pools
     const simpleAvgApy = poolsForApy.reduce((sum, p) => sum + (p.apy || 0), 0) / (poolsForApy.length || 1)
     const avgApy = userPortfolioApy > 0 ? userPortfolioApy : simpleAvgApy
-    const formattedAvgApy = `Avg %${avgApy.toFixed(1)} APY`
+    const formattedAvgApy = `Avg ${avgApy.toFixed(1)}% APY`
 
     const notif = notifyPending(
       'Claiming All Yield...',
@@ -953,8 +951,6 @@ export default function PoolsTab({
         <div className="w-full lg:w-[430px] xl:w-[460px] lg:shrink-0 lg:sticky lg:top-[88px] z-20">
           <PoolsHeroStats
             totalTvlUsd={totalTvlUsd}
-            localTvlUsd={localTvlUsd}
-            gatewayTvlUsd={gatewayTvlUsd}
             pools={pools}
             userTotalDepositedUsd={userTotalDepositedUsd}
             userTotalClaimableRewardsUsd={userTotalClaimableRewardsUsd}

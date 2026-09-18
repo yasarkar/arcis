@@ -842,7 +842,7 @@ export default function PoolActionModal({
                     borderRadius: 99,
                   }}
                 >
-                  %{slippage.toFixed(1)}
+                  {slippage.toFixed(1)}%
                 </span>
               </div>
 
@@ -1536,11 +1536,11 @@ export default function PoolActionModal({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Minimum Received (%{slippage} Slippage):</span>
+                  <span>Minimum Received ({slippage}% Slippage):</span>
                   <span style={{ color: '#fff', fontWeight: 600 }}>{minSwapOutStr} {swapTokenOut}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>AMM Swap Fee (%{feePercent}):</span>
+                  <span>AMM Swap Fee ({feePercent}%):</span>
                   <span style={{ color: 'var(--fp-2)' }}>{(swapAmountInNum * (feePercent / 100)).toFixed(4)} {swapTokenIn}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>

@@ -57,9 +57,9 @@ export function formatPoolApyBadge(
   typeLabel: string
 ): string {
   if (feeApy > 0) {
-    return `%${totalApy.toFixed(2)} APY (${baseApy.toFixed(2)} Base + ${feeApy.toFixed(2)} Fees)`
+    return `${totalApy.toFixed(2)}% APY (${baseApy.toFixed(2)}% Base + ${feeApy.toFixed(2)}% Fees)`
   }
-  return `%${baseApy.toFixed(2)} ${typeLabel} APY`
+  return `${baseApy.toFixed(2)}% ${typeLabel} APY`
 }
 
 export interface UserPoolPosition {
@@ -865,9 +865,6 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     const cpVolB = parseFloat(cpState?.volume24hB || '0')
     const cpContract24h = parseFloat((cpVolA + cpVolB * liveBtcPrice).toFixed(2))
 
-    // Total platform 24h volume strictly from verified on-chain smart contract rolling counters
-    const totalPlatform24hVol = parseFloat((ssContract24h + cpContract24h).toFixed(2))
-
     return ARCIS_POOLS.map((pool) => {
       let tvlUsd = 0
       let volume24hUsd = 0
@@ -932,7 +929,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         const assetsUsd = parseFloat(s?.totalAssets || '0') || 0
         const totalYield = parseFloat(s?.totalYieldDistributed || '0') || 0
         tvlUsd = assetsUsd < 1000 ? parseFloat(assetsUsd.toFixed(2)) : Math.floor(assetsUsd)
-        volume24hUsd = parseFloat((Math.max(ssContract24h, eurcRollingVol) + Math.max(cpContract24h, cirBtcRollingVol)).toFixed(2))
+        // ERC-4626 Yield Vault does not execute swaps; 24h swap volume is 0.
+        // Vault APY is driven by protocol revenue share via totalYieldDistributed, not swap fees.
+        volume24hUsd = 0
         clientVolumeUsd = 0
 
         const baseVaultApy = 8.42
@@ -943,8 +942,8 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         const totalVaultApy = parseFloat((baseVaultApy + dynamicYieldApy).toFixed(2))
         apy = totalVaultApy
         apyBadge = dynamicYieldApy > 0
-          ? `%${totalVaultApy.toFixed(2)} APY (${baseVaultApy} USYC + ${dynamicYieldApy.toFixed(2)} Dist.)`
-          : '%8.42 APY • Treasury / USYC Strategy (Baseline Est.)'
+          ? `${totalVaultApy.toFixed(2)}% APY (${baseVaultApy}% USYC + ${dynamicYieldApy.toFixed(2)}% Dist.)`
+          : '8.42% APY • Treasury / USYC Strategy (Baseline Est.)'
 
       }
 
@@ -966,9 +965,6 @@ export function usePoolsData(walletAddress: string, provider?: any) {
   const totalTvlUsd = useMemo(() => {
     return poolsWithUserStats.reduce((acc, pool) => acc + (pool.tvlUsd || 0), 0)
   }, [poolsWithUserStats])
-
-  const localTvlUsd = totalTvlUsd
-  const gatewayTvlUsd = 0
 
   const userTotalDepositedUsd = useMemo(() => {
     if (!userPoolPositions) return 0
@@ -2270,7 +2266,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         applyLpOptimisticWithdraw()
       }
 
-      // Single-sided %100 USDC Payout: automatically swap the received counter token to USDC
+      // Single-sided 100% USDC Payout: automatically swap the received counter token to USDC
       let autoSwapFailed = false
       let autoSwapCounterSymbol = ''
       let autoSwapCounterAmount = ''
@@ -2558,8 +2554,6 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     onchainBalances: onchainBalances || { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000' },
     isBalancesLoading,
     totalTvlUsd,
-    localTvlUsd,
-    gatewayTvlUsd,
     userTotalDepositedUsd,
     userTotalClaimableRewardsUsd,
     dailyYieldGeneratedUsd,

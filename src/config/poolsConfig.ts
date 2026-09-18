@@ -1,13 +1,11 @@
 // Arcis Pools & Yield — Testnet-first configuration (Phase 5 rewrite).
-// 3 clear categories: Liquidity, Vault, Cross-Chain.
+// 2 clear categories: Liquidity, Vault.
 import { ARC_TOKENS } from './arcChain'
-import { CHAIN_META, CHAIN_DEFS, getChainIconId, getChainDisplayName } from './chainMeta'
+import { CHAIN_DEFS } from './chainMeta'
 
-export { CHAIN_META, CHAIN_DEFS, getChainIconId, getChainDisplayName }
-export const POOLS_CHAIN_META = CHAIN_META
 export const POOLS_CHAIN_DEFS = CHAIN_DEFS
 
-export type PoolCategory = 'liquidity' | 'vault' | 'crosschain'
+export type PoolCategory = 'liquidity' | 'vault'
 export type PoolRiskLevel = 'Safe' | 'Low' | 'Medium'
 
 export interface RiskLevelConfig {
@@ -97,34 +95,9 @@ export interface PoolConfig {
   feeTierPercent?: number
   reserves?: { tokenA: number; tokenB: number; ratioA: number; ratioB: number }
   impermanentLossRisk?: 'Zero (Stable)' | 'Low' | 'Medium'
-  isCrossChainPool?: boolean
-  supportedChainsCount?: number
   isFaucetToken?: boolean
   faucetTokenAddress?: `0x${string}`
 }
-
-// ── Gateway Depth & Speed Configuration ─────────────────────────────────────
-export interface GatewayChainDepth {
-  chainKey: string
-  avgSettlementMs?: number
-  availableLiquidityUsd?: number
-}
-
-export const GATEWAY_NETWORK_DEPTHS: GatewayChainDepth[] = [
-  { chainKey: 'Arc_Testnet', avgSettlementMs: 380, availableLiquidityUsd: 1250000 },
-  { chainKey: 'Ethereum_Sepolia', avgSettlementMs: 420, availableLiquidityUsd: 850000 },
-  { chainKey: 'Base_Sepolia', avgSettlementMs: 390, availableLiquidityUsd: 920000 },
-  { chainKey: 'Arbitrum_Sepolia', avgSettlementMs: 410, availableLiquidityUsd: 780000 },
-  { chainKey: 'Optimism_Sepolia', avgSettlementMs: 430, availableLiquidityUsd: 640000 },
-  { chainKey: 'Polygon_Amoy_Testnet', avgSettlementMs: 450, availableLiquidityUsd: 510000 },
-  { chainKey: 'Avalanche_Fuji', avgSettlementMs: 400, availableLiquidityUsd: 430000 },
-  { chainKey: 'HyperEVM_Testnet', avgSettlementMs: 350, availableLiquidityUsd: 320000 },
-  { chainKey: 'Sei_Testnet', avgSettlementMs: 360, availableLiquidityUsd: 290000 },
-  { chainKey: 'Solana_Devnet', avgSettlementMs: 440, availableLiquidityUsd: 670000 },
-  { chainKey: 'Sonic_Testnet', avgSettlementMs: 340, availableLiquidityUsd: 410000 },
-  { chainKey: 'Unichain_Sepolia', avgSettlementMs: 420, availableLiquidityUsd: 380000 },
-  { chainKey: 'World_Chain_Sepolia', avgSettlementMs: 460, availableLiquidityUsd: 250000 },
-]
 
 // ── Deployed Contract Addresses (Arc Testnet — V3, mainnet-bound) ─────────────
 // V3 restores the canonical Curve amplification constant Ann = A*4 (V2 silently used

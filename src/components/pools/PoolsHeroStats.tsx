@@ -1,6 +1,6 @@
 // Hero statistics banner & control sidebar for Pools & Yield Hub.
 // Displays Total Value Locked, Average APY, User Staked Assets, Claimable Rewards,
-// Capital Efficiency, and Quick Actions (Yield Calculator, Claim All).
+// and Quick Actions (Yield Calculator, Claim All).
 import { TrendingUp, Layers, Info, Coins, RefreshCw } from 'lucide-react'
 import { type PoolConfig } from '../../config/poolsConfig'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
@@ -11,14 +11,11 @@ import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 
 interface PoolsHeroStatsProps {
   totalTvlUsd: number
-  localTvlUsd?: number
-  gatewayTvlUsd?: number
   pools?: (PoolConfig & { userPosition?: UserPoolPosition })[]
   userTotalDepositedUsd: number
   userTotalClaimableRewardsUsd: number
   dailyYieldGeneratedUsd: number
   walletConnected: boolean
-  capitalEfficiencyScore?: number
   onClaimAll: () => void
   isClaiming?: boolean
   onOpenCalculator?: () => void
