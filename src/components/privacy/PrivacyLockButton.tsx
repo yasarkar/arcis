@@ -39,9 +39,16 @@ export const PrivacyLockButton: React.FC<PrivacyLockButtonProps> = ({
     right: 'left-full ml-2 top-1/2 -translate-y-1/2',
   };
 
+  const tooltipArrowClasses = {
+    top: 'top-full left-1/2 -translate-x-1/2 border-t-[#0c0f1e]',
+    bottom: 'bottom-full right-3 border-b-[#0c0f1e]',
+    left: 'left-full top-1/2 -translate-y-1/2 border-l-[#0c0f1e]',
+    right: 'right-full top-1/2 -translate-y-1/2 border-r-[#0c0f1e]',
+  };
+
   return (
     <div
-      className={`relative inline-flex items-center select-none ${showTooltip ? 'z-50' : 'z-20'} ${className}`}
+      className={`relative inline-flex items-center select-none ${showTooltip ? 'z-[9999999]' : 'z-20'} ${className}`}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
     >
@@ -83,30 +90,32 @@ export const PrivacyLockButton: React.FC<PrivacyLockButtonProps> = ({
         </div>
       </button>
 
-      {/* Floating Micro Tooltip */}
+      {/* Floating Micro Tooltip matching Swap/Bridge Breakdown */}
       {showTooltip && (
         <div
-          className={`absolute z-[999] pointer-events-none px-3 py-1.5 rounded-lg text-[11px] font-sans font-medium whitespace-nowrap shadow-2xl backdrop-blur-xl border transition-all duration-150 animate-fade-in ${
+          role="tooltip"
+          style={{ zIndex: 9999999 }}
+          className={`absolute z-[9999999] pointer-events-none px-3 py-2 rounded-xl text-[12px] font-normal text-slate-100 bg-[#0c0f1e]/95 backdrop-blur-md border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.6)] leading-snug whitespace-nowrap select-none animate-fade-in ${
             tooltipPosClasses[tooltipPosition]
-          } ${
-            isPrivate
-              ? 'bg-[#151124]/95 text-white border-[#8656ef]/40 shadow-[0_4px_20px_rgba(0,0,0,0.5)]'
-              : 'bg-[#0f131f]/95 text-slate-300 border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.5)]'
           }`}
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 font-medium">
             {isPrivate ? (
               <>
-                <ShieldCheck className="w-3.5 h-3.5 text-[#a855f7] shrink-0" />
-                <span className="text-slate-300">APS Encrypted Transfer</span>
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="text-slate-200">APS Encrypted Transfer</span>
               </>
             ) : (
               <>
                 <Unlock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span className="text-slate-400">Public Transfer</span>
+                <span className="text-slate-300">Public Transfer</span>
               </>
             )}
           </div>
+          <span
+            style={{ zIndex: 10000000 }}
+            className={`absolute border-4 border-transparent pointer-events-none ${tooltipArrowClasses[tooltipPosition]}`}
+          />
         </div>
       )}
     </div>

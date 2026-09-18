@@ -1,7 +1,8 @@
 // Hero statistics banner & control sidebar for Pools & Yield Hub.
 // Displays Total Value Locked, Average APY, User Staked Assets, Claimable Rewards,
 // and Quick Actions (Yield Calculator, Claim All).
-import { TrendingUp, Layers, Info, Coins, RefreshCw } from 'lucide-react'
+import { TrendingUp, Layers, Coins, RefreshCw } from 'lucide-react'
+import { InfoTooltip, Tooltip } from '../common/Tooltip'
 import { type PoolConfig } from '../../config/poolsConfig'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
@@ -91,40 +92,51 @@ export default function PoolsHeroStats({
       className="ub-hero-card"
       style={{
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'visible',
         padding: '30px 24px',
         display: 'flex',
         flexDirection: 'column',
         gap: 24,
       }}
     >
-      {/* Background ambient glow accents */}
+      {/* Background ambient glow accents - clipped cleanly without cutting off child tooltips */}
       <div
         style={{
           position: 'absolute',
-          top: -60,
-          right: -60,
-          width: 260,
-          height: 260,
-          borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(152, 150, 255, 0.2) 0%, transparent 70%)',
-          filter: 'blur(40px)',
+          inset: 0,
+          borderRadius: 'inherit',
+          overflow: 'hidden',
           pointerEvents: 'none',
+          zIndex: 0,
         }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: -50,
-          left: -50,
-          width: 240,
-          height: 240,
-          borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(1, 208, 98, 0.16) 0%, transparent 70%)',
-          filter: 'blur(35px)',
-          pointerEvents: 'none',
-        }}
-      />
+      >
+        <div
+          style={{
+            position: 'absolute',
+            top: -60,
+            right: -60,
+            width: 260,
+            height: 260,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(152, 150, 255, 0.2) 0%, transparent 70%)',
+            filter: 'blur(40px)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: -50,
+            left: -50,
+            width: 240,
+            height: 240,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(1, 208, 98, 0.16) 0%, transparent 70%)',
+            filter: 'blur(35px)',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
 
       {/* ── 1. Card Header & Live Badges ── */}
       <div style={{ position: 'relative', zIndex: 2 }}>
@@ -333,12 +345,13 @@ export default function PoolsHeroStats({
               )}
               EST. YIELD
             </span>
-            <span
-              title="Real-time projected yield accrual based on active deposits. ERC-4626 vault yield appreciates share value, and AMM swap fees grow pool reserves automatically."
-              style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
-            >
-              <Info size={10} />
-            </span>
+            <InfoTooltip
+              content="Real-time projected yield accrual based on active deposits. ERC-4626 vault yield appreciates share value, and AMM swap fees grow pool reserves automatically."
+              position="top"
+              align="end"
+              size={11}
+              iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+            />
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
             <span
@@ -380,17 +393,14 @@ export default function PoolsHeroStats({
             >
               EST. DAILY YIELD
             </span>
-            <span
-              title="Estimated daily earnings based on your pool shares, 24h trading volume, and protocol revenue distributions."
-              style={{
-                cursor: 'help',
-                display: 'inline-flex',
-                alignItems: 'center',
-                color: 'var(--fp-4)',
-              }}
-            >
-              <Info size={12} />
-            </span>
+            <InfoTooltip
+              content="Estimated daily earnings based on your pool shares, 24h trading volume, and protocol revenue distributions."
+              position="top"
+              align="center"
+              size={12}
+              maxWidth={240}
+              iconClassName="w-3.5 h-3.5 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+            />
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
             <span
@@ -429,12 +439,13 @@ export default function PoolsHeroStats({
             >
               PORTFOLIO APY
             </span>
-            <span
-              title="Weighted average annual percentage yield across your active deposited positions on Arc."
-              style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', color: 'var(--fp-4)' }}
-            >
-              <Info size={10} />
-            </span>
+            <InfoTooltip
+              content="Weighted average annual percentage yield across your active deposited positions on Arc."
+              position="top"
+              align="end"
+              size={11}
+              iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+            />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span
@@ -509,24 +520,25 @@ export default function PoolsHeroStats({
 
         {/* Tool Button: Yield Calculator */}
         {onOpenCalculator && (
-          <button
-            onClick={onOpenCalculator}
-            type="button"
-            className="ub-action-btn"
-            style={{
-              width: '100%',
-              justifyContent: 'center',
-              padding: '11px 14px',
-              background: 'rgba(152, 150, 255, 0.08)',
-              borderColor: 'rgba(152, 150, 255, 0.25)',
-              fontSize: 13,
-              fontWeight: 500,
-            }}
-            title="Open Interactive Yield Simulator"
-          >
-            <TrendingUp size={15} style={{ color: 'var(--purple-1)' }} />
-            <span>Yield Calculator</span>
-          </button>
+          <Tooltip content="Open Interactive Yield Simulator" position="top" className="w-full">
+            <button
+              onClick={onOpenCalculator}
+              type="button"
+              className="ub-action-btn"
+              style={{
+                width: '100%',
+                justifyContent: 'center',
+                padding: '11px 14px',
+                background: 'rgba(152, 150, 255, 0.08)',
+                borderColor: 'rgba(152, 150, 255, 0.25)',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              <TrendingUp size={15} style={{ color: 'var(--purple-1)' }} />
+              <span>Yield Calculator</span>
+            </button>
+          </Tooltip>
         )}
       </div>
     </div>

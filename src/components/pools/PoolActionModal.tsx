@@ -38,6 +38,7 @@ import { isUserCanceled, formatWalletError } from '../../utils/errorUtils'
 import { parseUnits, formatUnits } from 'viem'
 import { calculateStableSwapExpectedOut } from '../../utils/poolMath'
 import { useLiveTokenPrices, formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
+import { Tooltip, InfoTooltip } from '../common/Tooltip'
 
 interface PoolActionModalProps {
   isOpen: boolean
@@ -725,23 +726,24 @@ export default function PoolActionModal({
               zIndex: 10,
             }}
           >
-            <button
-              onClick={() => setShowSettings((prev) => !prev)}
-              disabled={isProcessing}
-              type="button"
-              className="ub-action-btn"
-              style={{
-                padding: 8,
-                borderRadius: '50%',
-                background: showSettings ? 'rgba(152, 150, 255, 0.25)' : undefined,
-                borderColor: showSettings ? 'rgba(152, 150, 255, 0.5)' : undefined,
-                color: showSettings ? '#fff' : 'var(--fp-3)',
-                transition: 'all 0.15s ease',
-              }}
-              title="Slippage & Pool Settings"
-            >
-              <SlidersHorizontal size={15} />
-            </button>
+            <Tooltip content="Slippage & Pool Settings" position="bottom" align="end">
+              <button
+                onClick={() => setShowSettings((prev) => !prev)}
+                disabled={isProcessing}
+                type="button"
+                className="ub-action-btn"
+                style={{
+                  padding: 8,
+                  borderRadius: '50%',
+                  background: showSettings ? 'rgba(152, 150, 255, 0.25)' : undefined,
+                  borderColor: showSettings ? 'rgba(152, 150, 255, 0.5)' : undefined,
+                  color: showSettings ? '#fff' : 'var(--fp-3)',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <SlidersHorizontal size={15} />
+              </button>
+            </Tooltip>
 
             <button
               onClick={onClose}
@@ -1535,16 +1537,43 @@ export default function PoolActionModal({
                   gap: 6,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Minimum Received ({slippage}% Slippage):</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Minimum Received ({slippage}% Slippage):</span>
+                    <InfoTooltip
+                      content="Guaranteed minimum amount received after maximum slippage tolerance."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
                   <span style={{ color: '#fff', fontWeight: 600 }}>{minSwapOutStr} {swapTokenOut}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>AMM Swap Fee ({feePercent}%):</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>AMM Swap Fee ({feePercent}%):</span>
+                    <InfoTooltip
+                      content="Fee rewarded directly to liquidity pool providers supporting this trade."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
                   <span style={{ color: 'var(--fp-2)' }}>{(swapAmountInNum * (feePercent / 100)).toFixed(4)} {swapTokenIn}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Estimated Price Impact:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Estimated Price Impact:</span>
+                    <InfoTooltip
+                      content="Estimated impact of your swap size on pool exchange rates."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
                   <span style={{ color: '#34d399', fontWeight: 600 }}>&lt; 0.05%</span>
                 </div>
               </div>
@@ -1565,20 +1594,56 @@ export default function PoolActionModal({
                   gap: 6,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Estimated LP Minted:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Estimated LP Minted:</span>
+                    <InfoTooltip
+                      content="Estimated liquidity provider tokens minted based on pool reserves."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
                   <span style={{ color: '#fff', fontWeight: 600 }}>~{estimatedLpMinted} {pool.lpTokenSymbol || 'LP'}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Pool Share:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Pool Share:</span>
+                    <InfoTooltip
+                      content="Your proportional ownership percentage of the total liquidity pool."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
                   <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{estimatedPoolShare}%</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
+                    <InfoTooltip
+                      content="Projected annual earnings based on current pool APY."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
                   <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+{annualYield.toFixed(2)} USD</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Slippage:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Slippage:</span>
+                    <InfoTooltip
+                      content="The maximum price difference tolerated before transaction reverts."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
                   <span style={{ color: 'var(--fp-2)' }}>{slippage}%</span>
                 </div>
               </div>
@@ -1601,7 +1666,7 @@ export default function PoolActionModal({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
                   <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
-                  <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+${annualYield.toFixed(2)} USDC</span>
+                  <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+{annualYield.toFixed(2)} USDC</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
                   <span>Estimated Daily Yield:</span>

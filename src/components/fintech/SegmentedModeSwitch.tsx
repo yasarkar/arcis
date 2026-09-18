@@ -1,4 +1,5 @@
 import React from 'react'
+import { Tooltip } from '../common/Tooltip'
 
 export interface ModeOption {
   id: string
@@ -32,14 +33,12 @@ export const SegmentedModeSwitch: React.FC<SegmentedModeSwitchProps> = ({
     >
       {options.map((opt) => {
         const isActive = activeId === opt.id
-        return (
+        const buttonElement = (
           <button
-            key={opt.id}
             type="button"
             disabled={disabled}
-            title={opt.tooltip}
             onClick={() => onChange(opt.id)}
-            className={`py-2 px-3 sm:px-4 rounded-full text-xs font-semibold tracking-wide transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer select-none ${
+            className={`w-full py-2 px-3 sm:px-4 rounded-full text-xs font-semibold tracking-wide transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer select-none ${
               isActive
                 ? 'text-white bg-indigo-500/25 border border-indigo-500/45 shadow-md shadow-indigo-500/15'
                 : 'text-slate-400 hover:text-white hover:bg-white/[0.04] border border-transparent'
@@ -57,7 +56,22 @@ export const SegmentedModeSwitch: React.FC<SegmentedModeSwitchProps> = ({
             )}
           </button>
         )
+
+        return opt.tooltip ? (
+          <Tooltip
+            key={opt.id}
+            content={opt.tooltip}
+            position="top"
+            align="center"
+            className="w-full flex justify-center"
+          >
+            {buttonElement}
+          </Tooltip>
+        ) : (
+          <React.Fragment key={opt.id}>{buttonElement}</React.Fragment>
+        )
       })}
     </div>
   )
 }
+
