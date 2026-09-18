@@ -36,6 +36,7 @@ import { AssetInputPanel, ChainSelectorModal } from '../fintech'
 import { isUserCanceled, formatWalletError } from '../../utils/errorUtils'
 import { parseUnits, formatUnits } from 'viem'
 import { calculateStableSwapExpectedOut } from '../../utils/poolMath'
+import { useLiveTokenPrices, formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
 
 interface PoolActionModalProps {
   isOpen: boolean
@@ -74,6 +75,9 @@ export default function PoolActionModal({
   onExecuteCrossChainZap,
 }: PoolActionModalProps) {
   const [activeMode, setActiveMode] = useState<'deposit' | 'withdraw' | 'swap'>(initialMode)
+
+  // Live Token Prices
+  const { data: tokenPrices } = useLiveTokenPrices()
 
   // Deposit Source: Native Arc vs Cross-Chain 1-Click Gateway Zap
   const [depositSource, setDepositSource] = useState<'native' | 'crosschain'>('native')
@@ -199,10 +203,10 @@ export default function PoolActionModal({
   const walletBalUsdc = parseFloat(availableWalletUsdc || '0')
   const walletBalEurc = parseFloat(availableWalletEurc || '0')
   const walletBalCirBtc = parseFloat(availableWalletCirBtc || '0')
-  const livePoolRate = pool.reserves && pool.reserves.tokenB > 0 && pool.reserves.tokenA > 0
+  const livePoolRate = pool?.reserves && pool.reserves.tokenB > 0 && pool.reserves.tokenA > 0
     ? pool.reserves.tokenA / pool.reserves.tokenB
     : 0
-  const exchangeRate = livePoolRate > 0 ? livePoolRate : (pool.exchangeRate || 1.0)
+  const exchangeRate = livePoolRate > 0 ? livePoolRate : (pool?.exchangeRate || 0)
   const counterToken = pool.tokens[1]
   const counterTokenSymbol = counterToken?.symbol || 'cirBTC'
   const counterTokenDecimals = counterToken?.decimals || 8
@@ -661,310 +665,273 @@ export default function PoolActionModal({
     <>
       <div
         className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-      style={{
-        background: 'rgba(5, 7, 15, 0.78)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isProcessing) onClose()
-      }}
-    >
-      <div
-        className="relative w-full max-w-[580px] my-auto rounded-3xl overflow-hidden shadow-2xl transition-all border animate-in fade-in zoom-in-95 duration-200"
         style={{
-          maxHeight: 'min(90vh, 880px)',
-          overflowY: 'auto',
-          background: 'linear-gradient(180deg, rgba(20, 24, 44, 0.96) 0%, rgba(12, 14, 26, 0.98) 100%)',
-          borderColor: 'rgba(152, 150, 255, 0.35)',
-          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(99, 102, 241, 0.15)',
-          borderRadius: 24,
-          padding: '28px',
-          position: 'relative',
+          background: 'rgba(5, 7, 15, 0.78)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          if (e.target === e.currentTarget && !isProcessing) onClose()
+        }}
       >
-        {/* Glow ambient header accent */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-gradient-to-r from-blue-500/20 via-indigo-500/30 to-purple-500/20 blur-3xl pointer-events-none" />
-
-        {/* Top-Right Controls: Slippage Settings & Close */}
         <div
+          className="relative w-full max-w-[580px] my-auto rounded-3xl overflow-hidden shadow-2xl transition-all border animate-in fade-in zoom-in-95 duration-200"
           style={{
-            position: 'absolute',
-            top: 20,
-            right: 20,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            zIndex: 10,
+            maxHeight: 'min(90vh, 880px)',
+            overflowY: 'auto',
+            background: 'linear-gradient(180deg, rgba(20, 24, 44, 0.96) 0%, rgba(12, 14, 26, 0.98) 100%)',
+            borderColor: 'rgba(152, 150, 255, 0.35)',
+            boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(99, 102, 241, 0.15)',
+            borderRadius: 24,
+            padding: '28px',
+            position: 'relative',
           }}
+          onClick={(e) => e.stopPropagation()}
         >
-          <button
-            onClick={() => setShowSettings((prev) => !prev)}
-            disabled={isProcessing}
-            type="button"
-            className="ub-action-btn"
-            style={{
-              padding: 8,
-              borderRadius: '50%',
-              background: showSettings ? 'rgba(152, 150, 255, 0.25)' : undefined,
-              borderColor: showSettings ? 'rgba(152, 150, 255, 0.5)' : undefined,
-              color: showSettings ? '#fff' : 'var(--fp-3)',
-              transition: 'all 0.15s ease',
-            }}
-            title="Slippage & Pool Settings"
-          >
-            <SlidersHorizontal size={15} />
-          </button>
+          {/* Glow ambient header accent */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-gradient-to-r from-blue-500/20 via-indigo-500/30 to-purple-500/20 blur-3xl pointer-events-none" />
 
-          <button
-            onClick={onClose}
-            disabled={isProcessing}
-            type="button"
-            className="ub-action-btn"
+          {/* Top-Right Controls: Slippage Settings & Close */}
+          <div
             style={{
-              padding: 8,
-              borderRadius: '50%',
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              zIndex: 10,
             }}
-            title="Close Modal"
           >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Modal Header */}
-        <div style={{ marginBottom: 16, paddingRight: 40 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span
-              className="arc-eyebrow"
-              style={{ fontSize: 12, color: 'var(--purple-1)', fontWeight: 600, letterSpacing: '1.5px' }}
-            >
-              {pool.name.toUpperCase()}
-            </span>
-            <span
+            <button
+              onClick={() => setShowSettings((prev) => !prev)}
+              disabled={isProcessing}
+              type="button"
+              className="ub-action-btn"
               style={{
-                fontSize: 11,
-                fontFamily: 'var(--fonts--space-grotesk)',
-                fontWeight: 700,
-                color: 'var(--earned-green)',
-                background: 'rgba(1, 208, 98, 0.15)',
-                border: '1px solid rgba(1, 208, 98, 0.3)',
-                padding: '1px 8px',
-                borderRadius: 99,
+                padding: 8,
+                borderRadius: '50%',
+                background: showSettings ? 'rgba(152, 150, 255, 0.25)' : undefined,
+                borderColor: showSettings ? 'rgba(152, 150, 255, 0.5)' : undefined,
+                color: showSettings ? '#fff' : 'var(--fp-3)',
+                transition: 'all 0.15s ease',
               }}
+              title="Slippage & Pool Settings"
             >
-              {pool.apy}% {pool.apyType}
-            </span>
+              <SlidersHorizontal size={15} />
+            </button>
+
+            <button
+              onClick={onClose}
+              disabled={isProcessing}
+              type="button"
+              className="ub-action-btn"
+              style={{
+                padding: 8,
+                borderRadius: '50%',
+              }}
+              title="Close Modal"
+            >
+              <X size={16} />
+            </button>
           </div>
 
-          <h2
-            style={{
-              margin: 0,
-              fontSize: 22,
-              fontFamily: 'var(--fonts--space-grotesk)',
-              fontWeight: 600,
-              color: '#fff',
-            }}
-          >
-            {activeMode === 'deposit'
-              ? depositSource === 'crosschain'
-                ? isPool
-                  ? 'Add Cross-Chain Liquidity'
-                  : 'Cross-Chain Deposit'
-                : isPool
-                  ? 'Add Liquidity'
-                  : 'Deposit'
-              : activeMode === 'withdraw'
-                ? isPool
-                  ? 'Remove Liquidity'
-                  : isVault
-                    ? 'Redeem'
-                    : 'Withdraw'
-                : `Swap (${pool.tokens[0]?.symbol} ↔ ${pool.tokens[1]?.symbol})`}
-          </h2>
-        </div>
-
-        {/* ── Collapsible Slippage Settings Panel ── */}
-        {showSettings && (
-          <div
-            className="animate-in fade-in slide-in-from-top-2 duration-200"
-            style={{
-              background: 'rgba(15, 18, 35, 0.95)',
-              border: '1px solid rgba(152, 150, 255, 0.3)',
-              borderRadius: 16,
-              padding: '14px 16px',
-              marginBottom: 16,
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <SlidersHorizontal className='w-4 h-4 text-indigo-400'/>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', letterSpacing: '0.5px' }}>
-                  SLIPPAGE TOLERANCE
-                </span>
-              </div>
+          {/* Modal Header */}
+          <div style={{ marginBottom: 16, paddingRight: 40 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span
+                className="arc-eyebrow"
+                style={{ fontSize: 12, color: 'var(--purple-1)', fontWeight: 600, letterSpacing: '1.5px' }}
+              >
+                {pool.name.toUpperCase()}
+              </span>
               <span
                 style={{
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  fontWeight: 600,
-                  color: 'var(--purple-1)',
-                  background: 'rgba(152, 150, 255, 0.15)',
-                  border: '1px solid rgba(152, 150, 255, 0.3)',
-                  padding: '4px 10px',
+                  fontSize: 11,
+                  fontFamily: 'var(--fonts--space-grotesk)',
+                  fontWeight: 700,
+                  color: 'var(--earned-green)',
+                  background: 'rgba(1, 208, 98, 0.15)',
+                  border: '1px solid rgba(1, 208, 98, 0.3)',
+                  padding: '1px 8px',
                   borderRadius: 99,
                 }}
               >
-                %{slippage.toFixed(1)}
+                {pool.apy}% {pool.apyType}
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-              {(['0.1', '0.5', '1.0'] as const).map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => {
-                    setSelectedSlippageType(type)
-                    setCustomSlippage('')
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 22,
+                fontFamily: 'var(--fonts--space-grotesk)',
+                fontWeight: 600,
+                color: '#fff',
+              }}
+            >
+              {activeMode === 'deposit'
+                ? depositSource === 'crosschain'
+                  ? isPool
+                    ? 'Add Cross-Chain Liquidity'
+                    : 'Cross-Chain Deposit'
+                  : isPool
+                    ? 'Add Liquidity'
+                    : 'Deposit'
+                : activeMode === 'withdraw'
+                  ? isPool
+                    ? 'Remove Liquidity'
+                    : isVault
+                      ? 'Redeem'
+                      : 'Withdraw'
+                  : `Swap (${pool.tokens[0]?.symbol} ↔ ${pool.tokens[1]?.symbol})`}
+            </h2>
+          </div>
+
+          {/* ── Collapsible Slippage Settings Panel ── */}
+          {showSettings && (
+            <div
+              className="animate-in fade-in slide-in-from-top-2 duration-200"
+              style={{
+                background: 'rgba(15, 18, 35, 0.95)',
+                border: '1px solid rgba(152, 150, 255, 0.3)',
+                borderRadius: 16,
+                padding: '14px 16px',
+                marginBottom: 16,
+                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <SlidersHorizontal className='w-4 h-4 text-indigo-400' />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', letterSpacing: '0.5px' }}>
+                    SLIPPAGE
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    color: 'var(--purple-1)',
+                    background: 'rgba(152, 150, 255, 0.15)',
+                    border: '1px solid rgba(152, 150, 255, 0.3)',
+                    padding: '4px 10px',
+                    borderRadius: 99,
                   }}
+                >
+                  %{slippage.toFixed(1)}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                {(['0.1', '0.5', '1.0'] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSlippageType(type)
+                      setCustomSlippage('')
+                    }}
+                    style={{
+                      padding: '6px 0',
+                      borderRadius: 10,
+                      border: selectedSlippageType === type ? '1px solid rgba(152, 150, 255, 0.6)' : '1px solid rgba(255, 255, 255, 0.08)',
+                      background: selectedSlippageType === type ? 'rgba(152, 150, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                      color: selectedSlippageType === type ? '#fff' : 'var(--fp-3)',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {type}%
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setSelectedSlippageType('custom')}
                   style={{
                     padding: '6px 0',
                     borderRadius: 10,
-                    border: selectedSlippageType === type ? '1px solid rgba(152, 150, 255, 0.6)' : '1px solid rgba(255, 255, 255, 0.08)',
-                    background: selectedSlippageType === type ? 'rgba(152, 150, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
-                    color: selectedSlippageType === type ? '#fff' : 'var(--fp-3)',
+                    border: selectedSlippageType === 'custom' ? '1px solid rgba(152, 150, 255, 0.6)' : '1px solid rgba(255, 255, 255, 0.08)',
+                    background: selectedSlippageType === 'custom' ? 'rgba(152, 150, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                    color: selectedSlippageType === 'custom' ? '#fff' : 'var(--fp-3)',
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
                   }}
                 >
-                  {type}%
+                  Custom
                 </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setSelectedSlippageType('custom')}
-                style={{
-                  padding: '6px 0',
-                  borderRadius: 10,
-                  border: selectedSlippageType === 'custom' ? '1px solid rgba(152, 150, 255, 0.6)' : '1px solid rgba(255, 255, 255, 0.08)',
-                  background: selectedSlippageType === 'custom' ? 'rgba(152, 150, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
-                  color: selectedSlippageType === 'custom' ? '#fff' : 'var(--fp-3)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                Custom
-              </button>
-            </div>
-
-            {selectedSlippageType === 'custom' && (
-              <div style={{ marginTop: 10 }}>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.01"
-                    max="5.0"
-                    placeholder="e.g. 1.0"
-                    value={customSlippage}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value)
-                      if (!isNaN(val) && val > 5.0) {
-                        setCustomSlippage('5.0')
-                      } else {
-                        setCustomSlippage(e.target.value)
-                      }
-                    }}
-                    autoFocus
-                    style={{
-                      width: '100%',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(152, 150, 255, 0.4)',
-                      borderRadius: 10,
-                      padding: '7px 28px 7px 12px',
-                      fontSize: 12,
-                      color: '#fff',
-                      outline: 'none',
-                    }}
-                  />
-                  <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--fp-3)', fontWeight: 600 }}>
-                    %
-                  </span>
-                </div>
-                {slippage > 3.0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#f59e0b' }}>
-                    <AlertTriangle size={12} />
-                    <span>High slippage may result in unfavorable execution (strictly capped at 5.0% max).</span>
-                  </div>
-                )}
               </div>
-            )}
-          </div>
-        )}
 
-        {/* ── Main Mode Switcher (Deposit / Swap / Withdraw) ── */}
-        <div
-          style={{
-            display: 'flex',
-            background: 'rgba(11, 13, 24, 0.8)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: 14,
-            padding: 4,
-            marginBottom: 16,
-            gap: 4,
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              setActiveMode('deposit')
-              setAmount('')
-              setAmountA('')
-              setAmountB('')
-              setPercentage(0)
-              setErrorMsg(null)
-            }}
-            disabled={isProcessing}
+              {selectedSlippageType === 'custom' && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.01"
+                      max="5.0"
+                      placeholder="e.g. 1.0"
+                      value={customSlippage}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value)
+                        if (!isNaN(val) && val > 5.0) {
+                          setCustomSlippage('5.0')
+                        } else {
+                          setCustomSlippage(e.target.value)
+                        }
+                      }}
+                      autoFocus
+                      style={{
+                        width: '100%',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(152, 150, 255, 0.4)',
+                        borderRadius: 10,
+                        padding: '7px 28px 7px 12px',
+                        fontSize: 12,
+                        color: '#fff',
+                        outline: 'none',
+                      }}
+                    />
+                    <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--fp-3)', fontWeight: 600 }}>
+                      %
+                    </span>
+                  </div>
+                  {slippage > 3.0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#f59e0b' }}>
+                      <AlertTriangle size={12} />
+                      <span>High slippage may result in unfavorable execution (strictly capped at 5.0% max).</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Main Mode Switcher (Deposit / Swap / Withdraw) ── */}
+          <div
             style={{
-              flex: 1,
-              padding: '9px 0',
-              borderRadius: 10,
-              border: 'none',
-              fontSize: 13,
-              fontFamily: 'var(--font-app)',
-              fontWeight: activeMode === 'deposit' ? 600 : 500,
-              color: activeMode === 'deposit' ? '#fff' : 'var(--fp-3)',
-              background:
-                activeMode === 'deposit'
-                  ? 'linear-gradient(135deg, rgba(152, 150, 255, 0.25) 0%, rgba(99, 102, 241, 0.3) 100%)'
-                  : 'transparent',
-              boxShadow:
-                activeMode === 'deposit'
-                  ? '0 2px 8px rgba(152, 150, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
-                  : 'none',
-              cursor: 'pointer',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              transition: 'all 0.2s ease',
+              background: 'rgba(11, 13, 24, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: 14,
+              padding: 4,
+              marginBottom: 16,
+              gap: 4,
             }}
           >
-            <Plus size={14} />
-            <span>{isPool ? 'Add Liquidity' : 'Deposit'}</span>
-          </button>
-
-          {isLp && (
             <button
               type="button"
               onClick={() => {
-                setActiveMode('swap')
+                setActiveMode('deposit')
+                setAmount('')
+                setAmountA('')
+                setAmountB('')
+                setPercentage(0)
                 setErrorMsg(null)
               }}
               disabled={isProcessing}
@@ -975,15 +942,15 @@ export default function PoolActionModal({
                 border: 'none',
                 fontSize: 13,
                 fontFamily: 'var(--font-app)',
-                fontWeight: activeMode === 'swap' ? 600 : 500,
-                color: activeMode === 'swap' ? '#fff' : 'var(--fp-3)',
+                fontWeight: activeMode === 'deposit' ? 600 : 500,
+                color: activeMode === 'deposit' ? '#fff' : 'var(--fp-3)',
                 background:
-                  activeMode === 'swap'
-                    ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(139, 92, 246, 0.35) 100%)'
+                  activeMode === 'deposit'
+                    ? 'linear-gradient(135deg, rgba(152, 150, 255, 0.25) 0%, rgba(99, 102, 241, 0.3) 100%)'
                     : 'transparent',
                 boxShadow:
-                  activeMode === 'swap'
-                    ? '0 2px 8px rgba(99, 102, 241, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
+                  activeMode === 'deposit'
+                    ? '0 2px 8px rgba(152, 150, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
                     : 'none',
                 cursor: 'pointer',
                 display: 'flex',
@@ -993,238 +960,122 @@ export default function PoolActionModal({
                 transition: 'all 0.2s ease',
               }}
             >
-              <ArrowRightLeft size={14} />
-              <span>Swap</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveMode('withdraw')
-              setAmount('')
-              setAmountA('')
-              setAmountB('')
-              setPercentage(0)
-              setErrorMsg(null)
-            }}
-            disabled={isProcessing || userStaked <= 0}
-            style={{
-              flex: 1,
-              padding: '9px 0',
-              borderRadius: 10,
-              border: 'none',
-              fontSize: 13,
-              fontFamily: 'var(--font-app)',
-              fontWeight: activeMode === 'withdraw' ? 600 : 500,
-              color: userStaked <= 0 ? 'var(--fp-4)' : activeMode === 'withdraw' ? '#fff' : 'var(--fp-3)',
-              background:
-                activeMode === 'withdraw'
-                  ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(220, 38, 38, 0.25) 100%)'
-                  : 'transparent',
-              boxShadow:
-                activeMode === 'withdraw'
-                  ? '0 2px 8px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
-                  : 'none',
-              cursor: userStaked <= 0 ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <Minus size={14} />
-            <span>{isPool ? 'Remove Liquidity' : isVault ? 'Redeem' : 'Withdraw'}</span>
-          </button>
-        </div>
-
-        {/* ── Deposit Source Switcher: Arc Native vs Cross-Chain Gateway Zap ── */}
-        {activeMode === 'deposit' && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 8,
-              background: 'rgba(11, 13, 24, 0.65)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: 12,
-              padding: 4,
-              marginBottom: 16,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setDepositSource('native')
-                setAmount('')
-                setAmountA('')
-                setAmountB('')
-                setPercentage(0)
-                setErrorMsg(null)
-              }}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 9,
-                border: 'none',
-                background: depositSource === 'native' ? 'rgba(152, 150, 255, 0.2)' : 'transparent',
-                color: depositSource === 'native' ? '#fff' : 'var(--fp-3)',
-                fontSize: 12,
-                fontFamily: 'var(--font-app)',
-                fontWeight: depositSource === 'native' ? 600 : 500,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <Wallet size={13} style={{ color: 'var(--purple-1)' }} />
-              <span>Arc Native</span>
+              <Plus size={14} />
+              <span>{isPool ? 'Add Liquidity' : 'Deposit'}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (isLp && isPoolEmpty) {
-                  setErrorMsg(`Cross-Chain liquidity requires existing pool reserves to auto-balance into ${counterTokenSymbol}. Please use Arc Native Dual-Asset Deposit.`)
-                  return
-                }
-                setDepositSource('crosschain')
-                setAmount('')
-                setAmountA('')
-                setAmountB('')
-                setPercentage(0)
-                setErrorMsg(null)
-              }}
-              disabled={isLp && isPoolEmpty}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 9,
-                border: 'none',
-                background: depositSource === 'crosschain' ? 'rgba(152, 150, 255, 0.2)' : 'transparent',
-                color: isLp && isPoolEmpty ? 'rgba(255, 255, 255, 0.35)' : (depositSource === 'crosschain' ? '#fff' : 'var(--fp-3)'),
-                fontSize: 12,
-                fontFamily: 'var(--font-app)',
-                fontWeight: depositSource === 'crosschain' ? 600 : 500,
-                cursor: isLp && isPoolEmpty ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                transition: 'all 0.15s ease',
-                opacity: isLp && isPoolEmpty ? 0.6 : 1,
-              }}
-              title={isLp && isPoolEmpty ? 'Cross-Chain liquidity requires existing pool reserves' : undefined}
-            >
-              <Globe className='w-3.5 h-3.5 text-indigo-400' />
-              <span>Cross-Chain</span>
-              {isLp && isPoolEmpty && <span className="text-[10px] text-amber-400/80 ml-1">(0 Reserves)</span>}
-            </button>
-          </div>
-        )}
-
-        {/* ── Cross-Chain Gateway Zap Configuration Area (FROM NETWORK styled like BridgeModal) ── */}
-        {activeMode === 'deposit' && depositSource === 'crosschain' && (
-          <div className="bg-[#121626]/85 border border-white/[0.06] rounded-2xl p-3.5 sm:p-4 mb-4">
-            <div className="w-full min-w-0">
-              <div className="flex items-center justify-between mb-1.5 ml-1">
-                <div
-                  className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider"
-                  style={{ fontFamily: 'var(--font-app)' }}
-                >
-                  FROM NETWORK
-                </div>
-                <span className="text-[12px] text-slate-400 font-medium">
-                  {crossChainBalStr} USDC
-                </span>
-              </div>
-
+            {isLp && (
               <button
                 type="button"
-                disabled={isProcessing}
-                onClick={() => setShowChainDropdown(true)}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-500/40 transition-all cursor-pointer select-none text-left"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                    <NetworkIcon
-                      name={CHAIN_META[selectedSourceChain]?.iconId || getChainIconId(selectedSourceChain)}
-                      variant={selectedSourceChain === 'Solana_Devnet' ? 'branded' : 'background'}
-                      size={20}
-                      className="rounded-full"
-                    />
-                  </div>
-                  <span className="text-xs font-semibold text-white truncate">
-                    {CHAIN_META[selectedSourceChain]?.name || getChainDisplayName(selectedSourceChain)}
-                  </span>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Native LP Deposit Method Switcher (When depositSource === 'native') */}
-        {isLp && activeMode === 'deposit' && depositSource === 'native' && (
-          <>
-            {isPoolEmpty && (
-              <div className="mb-3.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300/90 leading-relaxed flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <div>
-                  <strong className="text-amber-200 block mb-0.5">Initial Pool Liquidity (0 Reserves)</strong>
-                  This AMM pool currently has 0 reserves on Arc Testnet. Single-token deposit is unavailable because it requires pre-existing pool reserves to swap 50% USDC into {counterTokenSymbol}. To bootstrap this pool, please supply both assets via <strong>Dual-Asset Deposit</strong>, or deposit single-sided USDC into the <strong>USDC Yield Vault</strong>.
-                </div>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-              <button
-                type="button"
-                disabled={isPoolEmpty}
                 onClick={() => {
-                  if (isPoolEmpty) return
-                  setLpDepositMethod('zap')
+                  setActiveMode('swap')
                   setErrorMsg(null)
                 }}
+                disabled={isProcessing}
                 style={{
                   flex: 1,
-                  padding: '8px 12px',
+                  padding: '9px 0',
                   borderRadius: 10,
-                  background: lpDepositMethod === 'zap' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-                  border: lpDepositMethod === 'zap' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
-                  color: isPoolEmpty ? 'rgba(255, 255, 255, 0.4)' : (lpDepositMethod === 'zap' ? '#fff' : 'var(--fp-3)'),
-                  fontSize: 12,
+                  border: 'none',
+                  fontSize: 13,
                   fontFamily: 'var(--font-app)',
-                  fontWeight: 600,
-                  cursor: isPoolEmpty ? 'not-allowed' : 'pointer',
+                  fontWeight: activeMode === 'swap' ? 600 : 500,
+                  color: activeMode === 'swap' ? '#fff' : 'var(--fp-3)',
+                  background:
+                    activeMode === 'swap'
+                      ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(139, 92, 246, 0.35) 100%)'
+                      : 'transparent',
+                  boxShadow:
+                    activeMode === 'swap'
+                      ? '0 2px 8px rgba(99, 102, 241, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
+                      : 'none',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 6,
-                  transition: 'all 0.15s ease',
-                  opacity: isPoolEmpty ? 0.6 : 1,
+                  transition: 'all 0.2s ease',
                 }}
-                title={isPoolEmpty ? 'Single-token deposit requires existing pool reserves' : undefined}
               >
-                <Plus className='w-3.5 h-3.5 text-indigo-400' />
-                <span>Single Asset</span>
-                {isPoolEmpty && <span className="text-[10px] text-amber-400/80 ml-1">(0 Reserves)</span>}
+                <ArrowRightLeft size={14} />
+                <span>Swap</span>
               </button>
+            )}
 
+            <button
+              type="button"
+              onClick={() => {
+                setActiveMode('withdraw')
+                setAmount('')
+                setAmountA('')
+                setAmountB('')
+                setPercentage(0)
+                setErrorMsg(null)
+              }}
+              disabled={isProcessing || userStaked <= 0}
+              style={{
+                flex: 1,
+                padding: '9px 0',
+                borderRadius: 10,
+                border: 'none',
+                fontSize: 13,
+                fontFamily: 'var(--font-app)',
+                fontWeight: activeMode === 'withdraw' ? 600 : 500,
+                color: userStaked <= 0 ? 'var(--fp-4)' : activeMode === 'withdraw' ? '#fff' : 'var(--fp-3)',
+                background:
+                  activeMode === 'withdraw'
+                    ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(220, 38, 38, 0.25) 100%)'
+                    : 'transparent',
+                boxShadow:
+                  activeMode === 'withdraw'
+                    ? '0 2px 8px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
+                    : 'none',
+                cursor: userStaked <= 0 ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <Minus size={14} />
+              <span>{isPool ? 'Remove' : isVault ? 'Redeem' : 'Withdraw'}</span>
+            </button>
+          </div>
+
+          {/* ── Deposit Source Switcher: Arc Native vs Cross-Chain Gateway Zap ── */}
+          {activeMode === 'deposit' && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+                background: 'rgba(11, 13, 24, 0.65)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: 12,
+                padding: 4,
+                marginBottom: 16,
+              }}
+            >
               <button
                 type="button"
-                onClick={() => { setLpDepositMethod('dual'); setErrorMsg(null) }}
+                onClick={() => {
+                  setDepositSource('native')
+                  setAmount('')
+                  setAmountA('')
+                  setAmountB('')
+                  setPercentage(0)
+                  setErrorMsg(null)
+                }}
                 style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 10,
-                  background: lpDepositMethod === 'dual' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-                  border: lpDepositMethod === 'dual' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
-                  color: lpDepositMethod === 'dual' ? '#fff' : 'var(--fp-3)',
+                  padding: '8px 10px',
+                  borderRadius: 9,
+                  border: 'none',
+                  background: depositSource === 'native' ? 'rgba(152, 150, 255, 0.2)' : 'transparent',
+                  color: depositSource === 'native' ? '#fff' : 'var(--fp-3)',
                   fontSize: 12,
                   fontFamily: 'var(--font-app)',
-                  fontWeight: 600,
+                  fontWeight: depositSource === 'native' ? 600 : 500,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1233,50 +1084,148 @@ export default function PoolActionModal({
                   transition: 'all 0.15s ease',
                 }}
               >
-                <Layers className='w-3.5 h-3.5 text-indigo-400' />
-                <span>Dual Asset</span>
+                <Wallet size={13} style={{ color: 'var(--purple-1)' }} />
+                <span>Arc Native</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (isLp && isPoolEmpty) {
+                    setErrorMsg(`Cross-Chain liquidity requires existing pool reserves to auto-balance into ${counterTokenSymbol}. Please use Arc Native Dual-Asset Deposit.`)
+                    return
+                  }
+                  setDepositSource('crosschain')
+                  setAmount('')
+                  setAmountA('')
+                  setAmountB('')
+                  setPercentage(0)
+                  setErrorMsg(null)
+                }}
+                disabled={isLp && isPoolEmpty}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: 9,
+                  border: 'none',
+                  background: depositSource === 'crosschain' ? 'rgba(152, 150, 255, 0.2)' : 'transparent',
+                  color: isLp && isPoolEmpty ? 'rgba(255, 255, 255, 0.35)' : (depositSource === 'crosschain' ? '#fff' : 'var(--fp-3)'),
+                  fontSize: 12,
+                  fontFamily: 'var(--font-app)',
+                  fontWeight: depositSource === 'crosschain' ? 600 : 500,
+                  cursor: isLp && isPoolEmpty ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'all 0.15s ease',
+                  opacity: isLp && isPoolEmpty ? 0.6 : 1,
+                }}
+                title={isLp && isPoolEmpty ? 'Cross-Chain liquidity requires existing pool reserves' : undefined}
+              >
+                <Globe className='w-3.5 h-3.5 text-indigo-400' />
+                <span>Cross-Chain</span>
+                {isLp && isPoolEmpty && <span className="text-[10px] text-amber-400/80 ml-1">(0 Reserves)</span>}
               </button>
             </div>
-          </>
-        )}
+          )}
 
-            {/* LP Withdraw Payout Switcher */}
-            {isLp && activeMode === 'withdraw' && (
+          {/* ── Cross-Chain Gateway Zap Configuration Area (FROM NETWORK styled like BridgeModal) ── */}
+          {activeMode === 'deposit' && depositSource === 'crosschain' && (
+            <div className="bg-[#121626]/85 border border-white/[0.06] rounded-2xl p-3.5 sm:p-4 mb-4">
+              <div className="w-full min-w-0">
+                <div className="flex items-center justify-between mb-1.5 ml-1">
+                  <div
+                    className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider"
+                    style={{ fontFamily: 'var(--font-app)' }}
+                  >
+                    FROM NETWORK
+                  </div>
+                  <span className="text-[12px] text-slate-400 font-medium">
+                    {crossChainBalStr} USDC
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => setShowChainDropdown(true)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-indigo-500/40 transition-all cursor-pointer select-none text-left"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                      <NetworkIcon
+                        name={CHAIN_META[selectedSourceChain]?.iconId || getChainIconId(selectedSourceChain)}
+                        variant={selectedSourceChain === 'Solana_Devnet' ? 'branded' : 'background'}
+                        size={20}
+                        className="rounded-full"
+                      />
+                    </div>
+                    <span className="text-xs font-semibold text-white truncate">
+                      {CHAIN_META[selectedSourceChain]?.name || getChainDisplayName(selectedSourceChain)}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Native LP Deposit Method Switcher (When depositSource === 'native') */}
+          {isLp && activeMode === 'deposit' && depositSource === 'native' && (
+            <>
+              {isPoolEmpty && (
+                <div className="mb-3.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300/90 leading-relaxed flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-amber-200 block mb-0.5">Initial Pool Liquidity (0 Reserves)</strong>
+                    This AMM pool currently has 0 reserves on Arc Testnet. Single-token deposit is unavailable because it requires pre-existing pool reserves to swap 50% USDC into {counterTokenSymbol}. To bootstrap this pool, please supply both assets via <strong>Dual-Asset Deposit</strong>, or deposit single-sided USDC into the <strong>USDC Yield Vault</strong>.
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
                 <button
                   type="button"
-                  onClick={() => setLpPayoutMode('usdc')}
+                  disabled={isPoolEmpty}
+                  onClick={() => {
+                    if (isPoolEmpty) return
+                    setLpDepositMethod('zap')
+                    setErrorMsg(null)
+                  }}
                   style={{
                     flex: 1,
                     padding: '8px 12px',
                     borderRadius: 10,
-                    background: lpPayoutMode === 'usdc' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-                    border: lpPayoutMode === 'usdc' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
-                    color: lpPayoutMode === 'usdc' ? '#fff' : 'var(--fp-3)',
+                    background: lpDepositMethod === 'zap' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+                    border: lpDepositMethod === 'zap' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
+                    color: isPoolEmpty ? 'rgba(255, 255, 255, 0.4)' : (lpDepositMethod === 'zap' ? '#fff' : 'var(--fp-3)'),
                     fontSize: 12,
                     fontFamily: 'var(--font-app)',
                     fontWeight: 600,
-                    cursor: 'pointer',
+                    cursor: isPoolEmpty ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 6,
+                    transition: 'all 0.15s ease',
+                    opacity: isPoolEmpty ? 0.6 : 1,
                   }}
+                  title={isPoolEmpty ? 'Single-token deposit requires existing pool reserves' : undefined}
                 >
-                  <Plus size={13} style={{ color: 'var(--purple-1)' }} />
-                  <span>Single Token</span>
+                  <Plus className='w-3.5 h-3.5 text-indigo-400' />
+                  <span>Single Asset</span>
+                  {isPoolEmpty && <span className="text-[10px] text-amber-400/80 ml-1">(0 Reserves)</span>}
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setLpPayoutMode('dual')}
+                  onClick={() => { setLpDepositMethod('dual'); setErrorMsg(null) }}
                   style={{
                     flex: 1,
                     padding: '8px 12px',
                     borderRadius: 10,
-                    background: lpPayoutMode === 'dual' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-                    border: lpPayoutMode === 'dual' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
-                    color: lpPayoutMode === 'dual' ? '#fff' : 'var(--fp-3)',
+                    background: lpDepositMethod === 'dual' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+                    border: lpDepositMethod === 'dual' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
+                    color: lpDepositMethod === 'dual' ? '#fff' : 'var(--fp-3)',
                     fontSize: 12,
                     fontFamily: 'var(--font-app)',
                     fontWeight: 600,
@@ -1285,555 +1234,554 @@ export default function PoolActionModal({
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 6,
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  <Layers size={13} />
-                  <span>Both Tokens</span>
+                  <Layers className='w-3.5 h-3.5 text-indigo-400' />
+                  <span>Dual Asset</span>
                 </button>
+              </div>
+            </>
+          )}
+
+          {/* LP Withdraw Payout Switcher */}
+          {isLp && activeMode === 'withdraw' && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+              <button
+                type="button"
+                onClick={() => setLpPayoutMode('usdc')}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  background: lpPayoutMode === 'usdc' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+                  border: lpPayoutMode === 'usdc' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
+                  color: lpPayoutMode === 'usdc' ? '#fff' : 'var(--fp-3)',
+                  fontSize: 12,
+                  fontFamily: 'var(--font-app)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <Plus size={13} style={{ color: 'var(--purple-1)' }} />
+                <span>Single Token</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLpPayoutMode('dual')}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  background: lpPayoutMode === 'dual' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+                  border: lpPayoutMode === 'dual' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
+                  color: lpPayoutMode === 'dual' ? '#fff' : 'var(--fp-3)',
+                  fontSize: 12,
+                  fontFamily: 'var(--font-app)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <Layers size={13} />
+                <span>Both Tokens</span>
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            {activeMode === 'swap' ? (
+              /* ── AMM Swap View ── */
+              <div className="mb-4 space-y-2">
+                {isPoolEmpty && (
+                  <div className="mb-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300/90 leading-relaxed flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-amber-200 block mb-0.5">Pool Reserves Empty (0 Liquidity)</strong>
+                      This AMM pool currently has 0 reserves on Arc Testnet. Swaps cannot be executed until initial liquidity is provided via <strong>Dual-Asset Deposit</strong>.
+                    </div>
+                  </div>
+                )}
+
+                {/* Input: YOU PAY */}
+                <AssetInputPanel
+                  label="YOU PAY"
+                  amount={swapAmountIn}
+                  onAmountChange={(val) => {
+                    setSwapAmountIn(val)
+                    setErrorMsg(null)
+                  }}
+                  tokenSymbol={swapTokenIn}
+                  tokenIcon={swapTokenIn === 'EURC' ? EurcIcon : (swapTokenIn === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
+                  tokenListAvailable={false}
+                  balance={swapWalletBalTokenInStr}
+                  onMaxClick={() => {
+                    if (swapTokenIn === 'USDC') {
+                      const maxUsdcWithGas = Math.max(0, swapWalletBalTokenIn - ARC_GAS_RESERVE_USDC)
+                      setSwapAmountIn(maxUsdcWithGas.toFixed(2))
+                    } else {
+                      setSwapAmountIn(swapWalletBalTokenIn.toString())
+                    }
+                    setErrorMsg(null)
+                  }}
+                  quickPercentages={[25, 50, 75, 100]}
+                  onSelectPercentage={(pct) => {
+                    const max = swapTokenIn === 'USDC'
+                      ? Math.max(0, swapWalletBalTokenIn - ARC_GAS_RESERVE_USDC)
+                      : swapWalletBalTokenIn
+                    const decimals = swapTokenIn === 'cirBTC' ? 6 : 2
+                    setSwapAmountIn(((max * pct) / 100).toFixed(decimals))
+                    setErrorMsg(null)
+                  }}
+                  fiatEstimate={formatFiatEstimate(
+                    swapAmountIn,
+                    swapTokenIn,
+                    tokenPrices,
+                    livePoolRate > 0 ? livePoolRate : pool?.exchangeRate
+                  )}
+                  disabled={isProcessing}
+                />
+
+                {/* Flip Button */}
+                <div className="flex justify-center -my-2 z-10 relative">
+                  <button
+                    type="button"
+                    onClick={handleFlipSwapDirection}
+                    className="w-8 h-8 rounded-full bg-[#1e2238] hover:bg-[#282d4a] border border-white/10 flex items-center justify-center text-slate-300 hover:text-white transition-all shadow-md active:scale-95 cursor-pointer"
+                    title="Switch Swap Direction"
+                  >
+                    <ArrowUpDown size={14} />
+                  </button>
+                </div>
+
+                {/* Output: YOU RECEIVE */}
+                <AssetInputPanel
+                  label="YOU RECEIVE (ESTIMATED)"
+                  amount={calculatedSwapOut}
+                  readOnly={true}
+                  placeholder={swapTokenOut === 'cirBTC' ? '0.0000' : '0.00'}
+                  tokenSymbol={swapTokenOut}
+                  tokenIcon={swapTokenOut === 'EURC' ? EurcIcon : (swapTokenOut === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
+                  tokenListAvailable={false}
+                  fiatEstimate={formatFiatEstimate(
+                    calculatedSwapOut,
+                    swapTokenOut,
+                    tokenPrices,
+                    livePoolRate > 0 ? livePoolRate : pool?.exchangeRate
+                  )}
+                  disabled={isProcessing}
+                />
+              </div>
+            ) : isLp && activeMode === 'deposit' && lpDepositMethod === 'dual' && depositSource === 'native' ? (
+              /* ── Dual Token Deposit (Native Arc Only) ── */
+              <div className="space-y-3 mb-4">
+                <AssetInputPanel
+                  label="AMOUNT TO DEPOSIT"
+                  amount={amountA}
+                  onAmountChange={handleAmountAChange}
+                  tokenSymbol="USDC"
+                  tokenIcon={UsdcIcon}
+                  tokenListAvailable={false}
+                  balance={availableWalletUsdc}
+                  onMaxClick={() => {
+                    const maxUsdcWithGas = Math.max(0, walletBalUsdc - ARC_GAS_RESERVE_USDC)
+                    handleAmountAChange(maxUsdcWithGas.toFixed(2))
+                  }}
+                  quickPercentages={[25, 50, 75, 100]}
+                  onSelectPercentage={(pct) => {
+                    const maxUsdcWithGas = Math.max(0, walletBalUsdc - ARC_GAS_RESERVE_USDC)
+                    handleAmountAChange(((maxUsdcWithGas * pct) / 100).toFixed(2))
+                  }}
+                  fiatEstimate={formatFiatEstimate(amountA, 'USDC', tokenPrices)}
+                  disabled={isProcessing}
+                />
+                <AssetInputPanel
+                  label="AMOUNT TO DEPOSIT"
+                  amount={amountB}
+                  onAmountChange={handleAmountBChange}
+                  tokenSymbol={counterTokenSymbol}
+                  tokenIcon={counterTokenSymbol === 'EURC' ? EurcIcon : CirBtcIcon}
+                  tokenListAvailable={false}
+                  balance={counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc}
+                  onMaxClick={() => {
+                    const bal = counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc
+                    handleAmountBChange(bal)
+                  }}
+                  quickPercentages={[25, 50, 75, 100]}
+                  onSelectPercentage={(pct) => {
+                    const balNum = parseFloat(counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc) || 0
+                    handleAmountBChange(((balNum * pct) / 100).toFixed(counterTokenSymbol === 'EURC' ? 2 : 6))
+                  }}
+                  fiatEstimate={formatFiatEstimate(
+                    amountB,
+                    counterTokenSymbol,
+                    tokenPrices,
+                    livePoolRate > 0 ? livePoolRate : pool?.exchangeRate
+                  )}
+                  disabled={isProcessing}
+                />
+              </div>
+            ) : (
+              /* ── Single Token / Zap Deposit or Withdraw ── */
+              <div className="mb-4">
+                <AssetInputPanel
+                  label={depositLabel}
+                  amount={amount}
+                  onAmountChange={handleAmountInputChange}
+                  tokenSymbol={depositTokenSymbol}
+                  tokenIcon={depositTokenIcon}
+                  tokenListAvailable={false}
+                  balance={numericBalanceStr}
+                  onMaxClick={() => handlePercentageChange(100)}
+                  quickPercentages={[25, 50, 75, 100]}
+                  onSelectPercentage={handlePercentageChange}
+                  fiatEstimate={formatFiatEstimate(
+                    amount,
+                    depositTokenSymbol,
+                    tokenPrices,
+                    livePoolRate > 0 ? livePoolRate : pool?.exchangeRate
+                  )}
+                  disabled={isProcessing}
+                  error={Boolean(errorMsg && (errorMsg.toLowerCase().includes('exceeds') || errorMsg.toLowerCase().includes('insufficient')))}
+                />
               </div>
             )}
 
-            <form onSubmit={handleSubmit}>
-              {activeMode === 'swap' ? (
-                /* ── AMM Swap View ── */
-                <div className="mb-4 space-y-2">
-                  {isPoolEmpty && (
-                    <div className="mb-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300/90 leading-relaxed flex items-start gap-2.5">
-                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="text-amber-200 block mb-0.5">Pool Reserves Empty (0 Liquidity)</strong>
-                        This AMM pool currently has 0 reserves on Arc Testnet. Swaps cannot be executed until initial liquidity is provided via <strong>Dual-Asset Deposit</strong>.
-                      </div>
-                    </div>
-                  )}
-                  <div
-                    style={{
-                      background: 'rgba(99, 102, 241, 0.08)',
-                      border: '1px solid rgba(99, 102, 241, 0.25)',
-                      borderRadius: 14,
-                      padding: '10px 14px',
-                      marginBottom: 10,
-                      fontSize: 12,
-                      fontFamily: 'var(--font-app)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <TrendingUp size={14} style={{ color: '#818cf8' }} />
-                      <span style={{ color: '#c7d2fe' }}>
-                        <strong>AMM Engine:</strong> Constant Product ($x \cdot y = k$)
-                      </span>
-                    </div>
-                    <span style={{ color: '#a5b4fc', fontWeight: 600, fontSize: 11 }}>
-                      Fee: {feePercent}%
-                    </span>
-                  </div>
-
-                  {/* Input: YOU PAY */}
-                  <AssetInputPanel
-                    label="YOU PAY"
-                    amount={swapAmountIn}
-                    onAmountChange={(val) => {
-                      setSwapAmountIn(val)
-                      setErrorMsg(null)
-                    }}
-                    tokenSymbol={swapTokenIn}
-                    tokenIcon={swapTokenIn === 'EURC' ? EurcIcon : (swapTokenIn === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
-                    tokenListAvailable={false}
-                    balance={swapWalletBalTokenInStr}
-                    onMaxClick={() => {
-                      if (swapTokenIn === 'USDC') {
-                        const maxUsdcWithGas = Math.max(0, swapWalletBalTokenIn - ARC_GAS_RESERVE_USDC)
-                        setSwapAmountIn(maxUsdcWithGas.toFixed(2))
-                      } else {
-                        setSwapAmountIn(swapWalletBalTokenIn.toString())
-                      }
-                      setErrorMsg(null)
-                    }}
-                    quickPercentages={[25, 50, 75, 100]}
-                    onSelectPercentage={(pct) => {
-                      const max = swapTokenIn === 'USDC'
-                        ? Math.max(0, swapWalletBalTokenIn - ARC_GAS_RESERVE_USDC)
-                        : swapWalletBalTokenIn
-                      const decimals = swapTokenIn === 'cirBTC' ? 6 : 2
-                      setSwapAmountIn(((max * pct) / 100).toFixed(decimals))
-                      setErrorMsg(null)
-                    }}
-                    fiatEstimate={
-                      swapAmountIn && !isNaN(parseFloat(swapAmountIn))
-                        ? `≈ ${(parseFloat(swapAmountIn) * (swapTokenIn === 'cirBTC' ? exchangeRate : 1)).toFixed(2)} USD`
-                        : undefined
-                    }
-                    disabled={isProcessing}
-                  />
-
-                  {/* Flip Button */}
-                  <div className="flex justify-center -my-2 z-10 relative">
-                    <button
-                      type="button"
-                      onClick={handleFlipSwapDirection}
-                      className="w-8 h-8 rounded-full bg-[#1e2238] hover:bg-[#282d4a] border border-white/10 flex items-center justify-center text-slate-300 hover:text-white transition-all shadow-md active:scale-95 cursor-pointer"
-                      title="Switch Swap Direction"
-                    >
-                      <ArrowUpDown size={14} />
-                    </button>
-                  </div>
-
-                  {/* Output: YOU RECEIVE */}
-                  <AssetInputPanel
-                    label="YOU RECEIVE (ESTIMATED)"
-                    amount={calculatedSwapOut}
-                    readOnly={true}
-                    placeholder={swapTokenOut === 'cirBTC' ? '0.0000' : '0.00'}
-                    tokenSymbol={swapTokenOut}
-                    tokenIcon={swapTokenOut === 'EURC' ? EurcIcon : (swapTokenOut === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
-                    tokenListAvailable={false}
-                    fiatEstimate={calculatedSwapOut ? `1 ${counterTokenSymbol} ≈ ${exchangeRate.toLocaleString()} USDC` : undefined}
-                    disabled={isProcessing}
-                  />
-                </div>
-              ) : isLp && activeMode === 'deposit' && lpDepositMethod === 'dual' && depositSource === 'native' ? (
-                /* ── Dual Token Deposit (Native Arc Only) ── */
-                <div className="space-y-3 mb-4">
-                  <AssetInputPanel
-                    label="AMOUNT TO DEPOSIT"
-                    amount={amountA}
-                    onAmountChange={handleAmountAChange}
-                    tokenSymbol="USDC"
-                    tokenIcon={UsdcIcon}
-                    tokenListAvailable={false}
-                    balance={availableWalletUsdc}
-                    onMaxClick={() => {
-                      const maxUsdcWithGas = Math.max(0, walletBalUsdc - ARC_GAS_RESERVE_USDC)
-                      handleAmountAChange(maxUsdcWithGas.toFixed(2))
-                    }}
-                    quickPercentages={[25, 50, 75, 100]}
-                    onSelectPercentage={(pct) => {
-                      const maxUsdcWithGas = Math.max(0, walletBalUsdc - ARC_GAS_RESERVE_USDC)
-                      handleAmountAChange(((maxUsdcWithGas * pct) / 100).toFixed(2))
-                    }}
-                    fiatEstimate={amountA ? `≈ ${amountA} USD` : undefined}
-                    disabled={isProcessing}
-                  />
-                  <AssetInputPanel
-                    label="AMOUNT TO DEPOSIT"
-                    amount={amountB}
-                    onAmountChange={handleAmountBChange}
-                    tokenSymbol={counterTokenSymbol}
-                    tokenIcon={counterTokenSymbol === 'EURC' ? EurcIcon : CirBtcIcon}
-                    tokenListAvailable={false}
-                    balance={counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc}
-                    onMaxClick={() => {
-                      const bal = counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc
-                      handleAmountBChange(bal)
-                    }}
-                    quickPercentages={[25, 50, 75, 100]}
-                    onSelectPercentage={(pct) => {
-                      const balNum = parseFloat(counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc) || 0
-                      handleAmountBChange(((balNum * pct) / 100).toFixed(counterTokenSymbol === 'EURC' ? 2 : 6))
-                    }}
-                    fiatEstimate={
-                      amountB
-                        ? `≈ ${(parseFloat(amountB) * exchangeRate).toFixed(2)} USD`
-                        : undefined
-                    }
-                    disabled={isProcessing}
-                  />
-                </div>
-              ) : (
-                /* ── Single Token / Zap Deposit or Withdraw ── */
-                <div className="mb-4">
-                  <AssetInputPanel
-                    label={depositLabel}
-                    amount={amount}
-                    onAmountChange={handleAmountInputChange}
-                    tokenSymbol={depositTokenSymbol}
-                    tokenIcon={depositTokenIcon}
-                    tokenListAvailable={false}
-                    balance={numericBalanceStr}
-                    onMaxClick={() => handlePercentageChange(100)}
-                    quickPercentages={[25, 50, 75, 100]}
-                    onSelectPercentage={handlePercentageChange}
-                    fiatEstimate={
-                      amount && !isNaN(parseFloat(amount))
-                        ? `≈ ${(parseFloat(amount) * (depositTokenSymbol === 'cirBTC' ? exchangeRate : 1)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
-                        : undefined
-                    }
-                    disabled={isProcessing}
-                    error={Boolean(errorMsg && (errorMsg.toLowerCase().includes('exceeds') || errorMsg.toLowerCase().includes('insufficient')))}
-                  />
-                </div>
-              )}
 
 
-
-              {/* Arc Gas Shield Banner (Native Deposit Only) */}
-              {activeMode === 'deposit' && depositSource === 'native' && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    background: 'rgba(56, 189, 248, 0.08)',
-                    border: '1px solid rgba(56, 189, 248, 0.2)',
-                    borderRadius: 10,
-                    marginBottom: 16,
-                    fontSize: 11,
-                    fontFamily: 'var(--font-app)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12 }}>⛽</span>
-                    <span style={{ color: '#bae6fd' }}>
-                      <strong>Arcis Gas Protect:</strong> 0.50 USDC is automatically kept for transaction fees on MAX.
-                    </span>
-                  </div>
-                  {percentage === 100 && (
-                    <span
-                      style={{
-                        color: '#38bdf8',
-                        fontWeight: 700,
-                        fontSize: 10,
-                        background: 'rgba(56, 189, 248, 0.18)',
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      -0.50 USDC Gas Reserved
-                    </span>
-                  )}
-                </div>
-              )}
-              
-              {/* ── Pre-Execution Summary Breakdown Card (Swap, Zap, & LP) ── */}
-              {activeMode === 'swap' && swapAmountInNum > 0 && (
-                <div
-                  style={{
-                    background: 'rgba(15, 18, 35, 0.85)',
-                    border: '1px solid rgba(152, 150, 255, 0.2)',
-                    borderRadius: 12,
-                    padding: '10px 14px',
-                    marginBottom: 16,
-                    fontSize: 11,
-                    fontFamily: 'var(--font-app)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Minimum Received ({slippage}% Slippage):</span>
-                    <span style={{ color: '#fff', fontWeight: 600 }}>{minSwapOutStr} {swapTokenOut}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>AMM Swap Fee ({feePercent}%):</span>
-                    <span style={{ color: 'var(--fp-2)' }}>{(swapAmountInNum * (feePercent / 100)).toFixed(4)} {swapTokenIn}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Estimated Price Impact:</span>
-                    <span style={{ color: '#34d399', fontWeight: 600 }}>&lt; 0.05%</span>
-                  </div>
-                </div>
-              )}
-
-              {activeMode === 'deposit' && isLp && inputAmountNum > 0 && (
-                <div
-                  style={{
-                    background: 'rgba(15, 18, 35, 0.85)',
-                    border: '1px solid rgba(152, 150, 255, 0.2)',
-                    borderRadius: 12,
-                    padding: '10px 14px',
-                    marginBottom: 16,
-                    fontSize: 11,
-                    fontFamily: 'var(--font-app)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Estimated LP Minted:</span>
-                    <span style={{ color: '#fff', fontWeight: 600 }}>~{estimatedLpMinted} {pool.lpTokenSymbol || 'LP'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Pool Share:</span>
-                    <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{estimatedPoolShare}%</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
-                    <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+{annualYield.toFixed(2)} USD</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Slippage:</span>
-                    <span style={{ color: 'var(--fp-2)' }}>{slippage}%</span>
-                  </div>
-                </div>
-              )}
-
-              {activeMode === 'deposit' && !isLp && inputAmountNum > 0 && (
-                <div
-                  style={{
-                    background: 'rgba(15, 18, 35, 0.85)',
-                    border: '1px solid rgba(152, 150, 255, 0.2)',
-                    borderRadius: 12,
-                    padding: '10px 14px',
-                    marginBottom: 16,
-                    fontSize: 11,
-                    fontFamily: 'var(--font-app)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
-                    <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+${annualYield.toFixed(2)} USDC</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Estimated Daily Yield:</span>
-                    <span style={{ color: 'var(--fp-2)' }}>+{dailyYield.toFixed(4)} USDC/day</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Pool Share:</span>
-                    <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{estimatedPoolShare}%</span>
-                  </div>
-                </div>
-              )}
-
-              {activeMode === 'withdraw' && isVault && inputAmountNum > 0 && (
-                <div
-                  style={{
-                    background: 'rgba(15, 18, 35, 0.85)',
-                    border: '1px solid rgba(152, 150, 255, 0.2)',
-                    borderRadius: 12,
-                    padding: '10px 14px',
-                    marginBottom: 16,
-                    fontSize: 11,
-                    fontFamily: 'var(--font-app)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Redeeming Asset:</span>
-                    <span style={{ color: '#fff', fontWeight: 600 }}>Pure USDC (Direct to Wallet)</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Vault Shares Burned:</span>
-                    <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{inputAmountNum.toFixed(2)} af-USDC</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                    <span>Protocol Lockup / Penalty:</span>
-                    <span style={{ color: '#34d399', fontWeight: 600 }}>0% (Flexible / No Penalty)</span>
-                  </div>
-                </div>
-              )}
-
-              {errorMsg && (
-                <div
-                  style={{
-                    padding: '10px 14px',
-                    background: isCanceled ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.1)',
-                    border: isCanceled ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid rgba(239, 68, 68, 0.3)',
-                    borderRadius: 12,
-                    fontSize: 12,
-                    color: isCanceled ? '#fbbf24' : '#f87171',
-                    marginBottom: 16,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    lineHeight: 1.4,
-                  }}
-                >
-                  <AlertTriangle
-                    size={14}
-                    style={{
-                      color: isCanceled ? '#fbbf24' : '#f87171',
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
-
-              {/* ── Transaction Cost & Route Summary Panel ── */}
+            {/* Arc Gas Shield Banner (Native Deposit Only) */}
+            {activeMode === 'deposit' && depositSource === 'native' && (
               <div
                 style={{
-                  background: 'rgba(15, 18, 35, 0.75)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  background: 'rgba(56, 189, 248, 0.08)',
+                  border: '1px solid rgba(56, 189, 248, 0.2)',
+                  borderRadius: 10,
+                  marginBottom: 16,
+                  fontSize: 11,
+                  fontFamily: 'var(--font-app)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12 }}>⛽</span>
+                  <span style={{ color: '#bae6fd' }}>
+                    <strong>Arcis Gas Protect:</strong> 0.50 USDC is automatically kept for transaction fees on MAX.
+                  </span>
+                </div>
+                {percentage === 100 && (
+                  <span
+                    style={{
+                      color: '#38bdf8',
+                      fontWeight: 700,
+                      fontSize: 10,
+                      background: 'rgba(56, 189, 248, 0.18)',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    -0.50 USDC Gas Reserved
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* ── Pre-Execution Summary Breakdown Card (Swap, Zap, & LP) ── */}
+            {activeMode === 'swap' && swapAmountInNum > 0 && (
+              <div
+                style={{
+                  background: 'rgba(15, 18, 35, 0.85)',
+                  border: '1px solid rgba(152, 150, 255, 0.2)',
+                  borderRadius: 12,
                   padding: '10px 14px',
-                  marginBottom: 14,
-                  fontSize: 11.5,
+                  marginBottom: 16,
+                  fontSize: 11,
                   fontFamily: 'var(--font-app)',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 6,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--fp-4)' }}>Network Gas Fee</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ color: '#34d399', fontWeight: 600 }}>~0.001 USDC</span>
-                    <span style={{ fontSize: 10, color: 'var(--fp-4)' }}>(Zero ETH required)</span>
-                  </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Minimum Received (%{slippage} Slippage):</span>
+                  <span style={{ color: '#fff', fontWeight: 600 }}>{minSwapOutStr} {swapTokenOut}</span>
                 </div>
-
-                {activeMode === 'deposit' && isLp && lpDepositMethod === 'zap' && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: 'var(--fp-4)' }}>Execution Route</span>
-                    <span style={{ color: 'var(--purple-1)', fontWeight: 500 }}>
-                      ⚡ 1-Click Zap (Auto-Swap + LP Mint)
-                    </span>
-                  </div>
-                )}
-
-                {activeMode === 'withdraw' && isLp && lpPayoutMode === 'usdc' && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: 'var(--fp-4)' }}>Payout Route</span>
-                    <span style={{ color: 'var(--purple-1)', fontWeight: 500 }}>
-                      ⚡ 100% USDC (LP Redeem + Auto-Swap)
-                    </span>
-                  </div>
-                )}
-
-                {activeMode === 'deposit' && depositSource === 'native' && percentage === 100 && (
-                  <div
-                    style={{
-                      background: 'rgba(96, 165, 250, 0.1)',
-                      border: '1px solid rgba(96, 165, 250, 0.25)',
-                      borderRadius: 8,
-                      padding: '5px 8px',
-                      marginTop: 2,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      color: '#93c5fd',
-                      fontSize: 10.5,
-                    }}
-                  >
-                    <Info size={12} style={{ flexShrink: 0 }} />
-                    <span>0.50 USDC reserved for future network gas buffer</span>
-                  </div>
-                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>AMM Swap Fee (%{feePercent}):</span>
+                  <span style={{ color: 'var(--fp-2)' }}>{(swapAmountInNum * (feePercent / 100)).toFixed(4)} {swapTokenIn}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Estimated Price Impact:</span>
+                  <span style={{ color: '#34d399', fontWeight: 600 }}>&lt; 0.05%</span>
+                </div>
               </div>
+            )}
 
-              <button
-                type="submit"
-                disabled={isSubmitDisabled}
+            {activeMode === 'deposit' && isLp && inputAmountNum > 0 && (
+              <div
                 style={{
-                  width: '100%',
-                  padding: '14px 0',
-                  borderRadius: 99,
-                  border: 'none',
-                  background:
-                    isSubmitDisabled
-                      ? 'rgba(152, 150, 255, 0.25)'
-                      : activeMode === 'swap'
-                        ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
-                        : activeMode === 'deposit'
-                          ? 'linear-gradient(135deg, #9896ff 0%, #6366f1 100%)'
-                          : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                  color: '#fff',
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: isSubmitDisabled ? 'not-allowed' : 'pointer',
+                  background: 'rgba(15, 18, 35, 0.85)',
+                  border: '1px solid rgba(152, 150, 255, 0.2)',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  marginBottom: 16,
+                  fontSize: 11,
+                  fontFamily: 'var(--font-app)',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  transition: 'all 0.2s ease',
+                  flexDirection: 'column',
+                  gap: 6,
                 }}
               >
-                {isProcessing ? (
-                  <>
-                    <RefreshCw size={15} className="arcis-spin" />
-                    <span>
-                      {activeMode === 'swap'
-                        ? 'SWAPPING...'
-                        : activeMode === 'deposit'
-                          ? depositSource === 'crosschain'
-                            ? 'TELEPORTING VIA CIRCLE GATEWAY (<500MS)...'
-                            : isPool
-                              ? 'ADDING LIQUIDITY...'
-                              : 'DEPOSITING...'
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Estimated LP Minted:</span>
+                  <span style={{ color: '#fff', fontWeight: 600 }}>~{estimatedLpMinted} {pool.lpTokenSymbol || 'LP'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Pool Share:</span>
+                  <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{estimatedPoolShare}%</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
+                  <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+{annualYield.toFixed(2)} USD</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Slippage:</span>
+                  <span style={{ color: 'var(--fp-2)' }}>{slippage}%</span>
+                </div>
+              </div>
+            )}
+
+            {activeMode === 'deposit' && !isLp && inputAmountNum > 0 && (
+              <div
+                style={{
+                  background: 'rgba(15, 18, 35, 0.85)',
+                  border: '1px solid rgba(152, 150, 255, 0.2)',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  marginBottom: 16,
+                  fontSize: 11,
+                  fontFamily: 'var(--font-app)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
+                  <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+${annualYield.toFixed(2)} USDC</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Estimated Daily Yield:</span>
+                  <span style={{ color: 'var(--fp-2)' }}>+{dailyYield.toFixed(4)} USDC/day</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Pool Share:</span>
+                  <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{estimatedPoolShare}%</span>
+                </div>
+              </div>
+            )}
+
+            {activeMode === 'withdraw' && isVault && inputAmountNum > 0 && (
+              <div
+                style={{
+                  background: 'rgba(15, 18, 35, 0.85)',
+                  border: '1px solid rgba(152, 150, 255, 0.2)',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  marginBottom: 16,
+                  fontSize: 11,
+                  fontFamily: 'var(--font-app)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Redeeming Asset:</span>
+                  <span style={{ color: '#fff', fontWeight: 600 }}>Pure USDC (Direct to Wallet)</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Vault Shares Burned:</span>
+                  <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{inputAmountNum.toFixed(2)} af-USDC</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
+                  <span>Protocol Lockup / Penalty:</span>
+                  <span style={{ color: '#34d399', fontWeight: 600 }}>0% (Flexible / No Penalty)</span>
+                </div>
+              </div>
+            )}
+
+            {errorMsg && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  background: isCanceled ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.1)',
+                  border: isCanceled ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  color: isCanceled ? '#fbbf24' : '#f87171',
+                  marginBottom: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  lineHeight: 1.4,
+                }}
+              >
+                <AlertTriangle
+                  size={14}
+                  style={{
+                    color: isCanceled ? '#fbbf24' : '#f87171',
+                    flexShrink: 0,
+                  }}
+                />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            {/* ── Transaction Cost & Route Summary Panel ── */}
+
+              {activeMode === 'deposit' && depositSource === 'native' && percentage === 100 && (
+                <div
+                  style={{
+                    background: 'rgba(96, 165, 250, 0.1)',
+                    border: '1px solid rgba(96, 165, 250, 0.25)',
+                    borderRadius: 8,
+                    padding: '5px 8px',
+                    marginTop: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    color: '#93c5fd',
+                    fontSize: 10.5,
+                  }}
+                >
+                  <Info size={12} style={{ flexShrink: 0 }} />
+                  <span>0.50 USDC reserved for future network gas buffer</span>
+                </div>
+              )}
+
+            <button
+              type="submit"
+              disabled={isSubmitDisabled}
+              style={{
+                width: '100%',
+                padding: '14px 0',
+                borderRadius: 99,
+                border: 'none',
+                background:
+                  isSubmitDisabled
+                    ? 'rgba(152, 150, 255, 0.25)'
+                    : activeMode === 'swap'
+                      ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
+                      : activeMode === 'deposit'
+                        ? 'linear-gradient(135deg, #9896ff 0%, #6366f1 100%)'
+                        : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                color: '#fff',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: isSubmitDisabled ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {isProcessing ? (
+                <>
+                  <RefreshCw size={15} className="arcis-spin" />
+                  <span>
+                    {activeMode === 'swap'
+                      ? 'SWAPPING...'
+                      : activeMode === 'deposit'
+                        ? depositSource === 'crosschain'
+                          ? 'TELEPORTING VIA CIRCLE GATEWAY (<500MS)...'
                           : isPool
-                            ? 'REMOVING LIQUIDITY...'
-                            : isVault
-                              ? 'REDEEMING...'
-                              : 'WITHDRAWING...'}
-                    </span>
+                            ? 'ADDING LIQUIDITY...'
+                            : 'DEPOSITING...'
+                        : isPool
+                          ? 'REMOVING LIQUIDITY...'
+                          : isVault
+                            ? 'REDEEMING...'
+                            : 'WITHDRAWING...'}
+                  </span>
+                </>
+              ) : activeMode === 'swap' ? (
+                isSwapUnavailable ? (
+                  <>
+                    <AlertTriangle size={16} />
+                    <span>SWAP UNAVAILABLE</span>
                   </>
-                ) : activeMode === 'swap' ? (
-                  isSwapUnavailable ? (
-                    <>
-                      <AlertTriangle size={16} />
-                      <span>SWAP UNAVAILABLE</span>
-                    </>
-                  ) : swapAmountInNum <= 0 ? (
-                    <span>ENTER SWAP AMOUNT</span>
-                  ) : swapAmountInNum > swapWalletBalTokenIn ? (
+                ) : swapAmountInNum <= 0 ? (
+                  <span>ENTER SWAP AMOUNT</span>
+                ) : swapAmountInNum > swapWalletBalTokenIn ? (
+                  <span>INSUFFICIENT BALANCE</span>
+                ) : (
+                  <>
+                    <ArrowRightLeft size={16} />
+                    <span>SWAP</span>
+                  </>
+                )
+              ) : activeMode === 'deposit' ? (
+                isZapUnavailable ? (
+                  <>
+                    <AlertTriangle size={16} />
+                    <span>LIQUIDITY UNAVAILABLE</span>
+                  </>
+                ) : isDualMode ? (
+                  isDualIncomplete ? (
+                    <span>ENTER BOTH TOKEN AMOUNTS</span>
+                  ) : isDualInsuffA ? (
+                    <span>INSUFFICIENT BALANCE</span>
+                  ) : isDualInsuffB ? (
                     <span>INSUFFICIENT BALANCE</span>
                   ) : (
-                    <>
-                      <ArrowRightLeft size={16} />
-                      <span>SWAP</span>
-                    </>
-                  )
-                ) : activeMode === 'deposit' ? (
-                  isZapUnavailable ? (
-                    <>
-                      <AlertTriangle size={16} />
-                      <span>LIQUIDITY UNAVAILABLE</span>
-                    </>
-                  ) : isDualMode ? (
-                    isDualIncomplete ? (
-                      <span>ENTER BOTH TOKEN AMOUNTS</span>
-                    ) : isDualInsuffA ? (
-                      <span>INSUFFICIENT BALANCE</span>
-                    ) : isDualInsuffB ? (
-                      <span>INSUFFICIENT BALANCE</span>
-                    ) : (
-                      <>
-                        <Plus size={16} />
-                        <span>ADD LIQUIDITY</span>
-                      </>
-                    )
-                  ) : isSingleDepositInsuff ? (
-                    <span>INSUFFICIENT BALANCE</span>
-                  ) : inputAmountNum <= 0 ? (
-                    <span>ENTER DEPOSIT AMOUNT</span>
-                  ) : isPool ? (
                     <>
                       <Plus size={16} />
                       <span>ADD LIQUIDITY</span>
                     </>
-                  ) : (
-                    <>
-                      <Plus size={16} />
-                      <span>DEPOSIT</span>
-                    </>
                   )
+                ) : isSingleDepositInsuff ? (
+                  <span>INSUFFICIENT BALANCE</span>
+                ) : inputAmountNum <= 0 ? (
+                  <span>ENTER DEPOSIT AMOUNT</span>
+                ) : isPool ? (
+                  <>
+                    <Plus size={16} />
+                    <span>ADD LIQUIDITY</span>
+                  </>
                 ) : (
-                  inputAmountNum <= 0 ? (
-                    <span>{isVault ? 'ENTER REDEEM AMOUNT' : 'ENTER WITHDRAW AMOUNT'}</span>
-                  ) : isWithdrawExceeds ? (
-                    <span>AMOUNT EXCEEDS STAKED BALANCE</span>
-                  ) : (
-                    <>
-                      <Minus size={16} />
-                      <span>{isPool ? 'REMOVE LIQUIDITY' : isVault ? 'REDEEM USDC' : 'WITHDRAW'}</span>
-                    </>
-                  )
-                )}
-              </button>
-            </form>
-          </div>
+                  <>
+                    <Plus size={16} />
+                    <span>DEPOSIT</span>
+                  </>
+                )
+              ) : (
+                inputAmountNum <= 0 ? (
+                  <span>{isVault ? 'ENTER REDEEM AMOUNT' : 'ENTER WITHDRAW AMOUNT'}</span>
+                ) : isWithdrawExceeds ? (
+                  <span>AMOUNT EXCEEDS STAKED BALANCE</span>
+                ) : (
+                  <>
+                    <Minus size={16} />
+                    <span>{isPool ? 'REMOVE LIQUIDITY' : isVault ? 'REDEEM USDC' : 'WITHDRAW'}</span>
+                  </>
+                )
+              )}
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Source Network Selector Modal (BridgeModal style) */}

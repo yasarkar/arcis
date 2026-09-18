@@ -438,7 +438,10 @@ export default function PoolCard({
             </div>
             {pool.isLpPool && pool.userPosition?.tokenAStaked && pool.userPosition?.tokenBStaked ? (() => {
               const valA = parseFloat(pool.userPosition.tokenAStaked || '0')
-              const valB = parseFloat(pool.userPosition.tokenBStaked || '0') * (pool.exchangeRate || 1)
+              const liveRateB = (pool.exchangeRate && pool.exchangeRate > 0)
+                ? pool.exchangeRate
+                : (pool.reserves && pool.reserves.tokenB > 0 ? pool.reserves.tokenA / pool.reserves.tokenB : 0)
+              const valB = parseFloat(pool.userPosition.tokenBStaked || '0') * liveRateB
               const totalVal = valA + valB
               const pctA = totalVal > 0 ? Math.round((valA / totalVal) * 100) : (pool.reserves?.ratioA || 50)
               const pctB = totalVal > 0 ? Math.max(0, 100 - pctA) : (pool.reserves?.ratioB || 50)
@@ -606,7 +609,7 @@ export default function PoolCard({
               }}
             >
               <Minus size={13} />
-              <span>{pool.isLpPool ? 'Remove Liquidity' : 'Withdraw'}</span>
+              <span>{pool.isLpPool ? 'Remove' : 'Withdraw'}</span>
             </button>
           )
         )}
