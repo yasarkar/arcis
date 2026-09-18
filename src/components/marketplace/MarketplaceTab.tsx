@@ -182,7 +182,7 @@ export default function MarketplaceTab({
           <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800/80">
             <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>YieldVault Payı (%1)</span>
+              <span>YieldVault Payı (1%)</span>
             </span>
             <div className="text-base font-bold text-purple-300 font-mono mt-1">
               +${stats.totalYieldGeneratedUsdc.toFixed(2)} USDC
@@ -278,7 +278,7 @@ export default function MarketplaceTab({
                 </div>
                 <div className="flex items-center gap-1.5 text-slate-400">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Başarı: <strong className="text-slate-200 font-mono">%{service.successRate}</strong></span>
+                  <span>Başarı: <strong className="text-slate-200 font-mono">{service.successRate}%</strong></span>
                 </div>
               </div>
             </div>
