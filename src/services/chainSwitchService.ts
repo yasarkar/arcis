@@ -17,6 +17,7 @@ import {
   type NetworkConfig,
 } from '../config/networks/networkRegistry'
 import { normalizeAppError } from '../utils/errorNormalizer'
+import { watchArcToken } from './tokenAssetService'
 
 export { resolveChain }
 
@@ -171,6 +172,11 @@ export async function ensureNetwork(
       method: 'wallet_switchEthereumChain',
       params: [{ chainId: targetHex }],
     })
+    if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
+      setTimeout(() => {
+        watchArcToken('USDC', provider).catch(() => {})
+      }, 700)
+    }
     return { success: true, chainId: chain.id }
   } catch (switchErr: any) {
     const code = switchErr?.code ?? switchErr?.cause?.code
@@ -206,6 +212,11 @@ export async function ensureNetwork(
           method: 'wallet_addEthereumChain',
           params: [addParams],
         })
+        if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
+          setTimeout(() => {
+            watchArcToken('USDC', provider).catch(() => {})
+          }, 700)
+        }
         return { success: true, chainId: chain.id }
       } catch (addErr: any) {
         const addCode = addErr?.code ?? addErr?.cause?.code

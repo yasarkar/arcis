@@ -1,5 +1,6 @@
 import { AppKit, type ChainDefinition } from '@circle-fin/app-kit'
 import type { BridgeExecuteParams, BridgeStepProgress, BridgeStepName } from '../types/bridge'
+import { watchArcToken } from './tokenAssetService'
 
 // Create a single instance of AppKit to manage CCTP transfers
 const kit = new AppKit()
@@ -135,6 +136,11 @@ export async function executeBridge(
   params: BridgeExecuteParams,
   onStepUpdate?: (step: BridgeStepProgress) => void
 ) {
+  if (params.fromChain === 'Arc_Testnet' || params.toChain === 'Arc_Testnet') {
+    const provider = params.sourceAdapter?.provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
+    watchArcToken('USDC', provider).catch(() => {})
+  }
+
   // Event listener to capture CCTP lifecycle events
   const handler = (payload: any) => {
     try {

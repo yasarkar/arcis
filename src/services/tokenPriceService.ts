@@ -27,6 +27,15 @@ let memoryCache: { prices: TokenPriceMap; timestamp: number } = {
   timestamp: 0,
 }
 
+let hasVerifiedLivePrices = false
+
+/**
+ * Returns true if prices were successfully verified from live oracles (CoinGecko/Binance/Redis)
+ */
+export function isLivePriceAvailable(): boolean {
+  return hasVerifiedLivePrices
+}
+
 /**
  * Normalizes token symbol strings for consistent lookup (e.g. "ETH" -> "WETH", "BTC" -> "WBTC")
  */
@@ -57,6 +66,7 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
   try {
     const cached = await redisCache.get<TokenPriceMap>(CACHE_KEY)
     if (cached && typeof cached === 'object') {
+      hasVerifiedLivePrices = true
       memoryCache = {
         prices: { ...DEFAULT_TOKEN_PRICES, ...cached },
         timestamp: now,
@@ -78,34 +88,54 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
     let usdcPrice = 1.0
     let fetchSuccess = false
 
+    const coingeckoUrl =
+      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,euro-coin,usd-coin&vs_currencies=usd'
+
     try {
-      const res = await fetch(
-        'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,euro-coin,usd-coin&vs_currencies=usd',
-        {
-          signal: controller.signal,
-          headers: { Accept: 'application/json' },
-        }
-      )
+      console.log('[LivePriceOracle] 🌐 Outgoing Live Price Request (CoinGecko):', {
+        url: coingeckoUrl,
+        method: 'GET',
+        timestamp: new Date().toISOString(),
+      })
+
+      const res = await fetch(coingeckoUrl, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      })
 
       if (res.ok) {
         const data = await res.json()
+        console.log('[LivePriceOracle] 📥 Incoming Live Price Response (CoinGecko):', {
+          status: res.status,
+          data,
+        })
         ethPrice = Number(data?.ethereum?.usd) || ethPrice
         btcPrice = Number(data?.bitcoin?.usd) || btcPrice
         eurcPrice = Number(data?.['euro-coin']?.usd) || eurcPrice
         usdcPrice = Number(data?.['usd-coin']?.usd) || 1.0
         fetchSuccess = true
+      } else {
+        console.warn('[LivePriceOracle] ⚠️ CoinGecko returned non-OK status:', res.status)
       }
-    } catch {
-      // CoinGecko failed or timed out, will try Binance fallback
+    } catch (cgErr) {
+      console.warn('[LivePriceOracle] ⚠️ CoinGecko request failed or timed out:', cgErr)
     }
 
     // Secondary fallback: Binance Public Ticker if CoinGecko was throttled or unreachable
     if (!fetchSuccess) {
       try {
+        console.log('[LivePriceOracle] 🌐 Outgoing Fallback Request (Binance Ticker):', {
+          symbols: ['BTCUSDT', 'ETHUSDT'],
+          timestamp: new Date().toISOString(),
+        })
         const [binanceBtc, binanceEth] = await Promise.all([
           fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { signal: controller.signal }).then((r) => r.json()).catch(() => null),
           fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', { signal: controller.signal }).then((r) => r.json()).catch(() => null),
         ])
+        console.log('[LivePriceOracle] 📥 Incoming Fallback Response (Binance):', {
+          BTCUSDT: binanceBtc,
+          ETHUSDT: binanceEth,
+        })
         if (binanceBtc?.price) {
           btcPrice = Number(binanceBtc.price) || btcPrice
           fetchSuccess = true
@@ -114,12 +144,15 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
           ethPrice = Number(binanceEth.price) || ethPrice
           fetchSuccess = true
         }
-      } catch {}
+      } catch (binanceErr) {
+        console.warn('[LivePriceOracle] ⚠️ Binance fallback request failed:', binanceErr)
+      }
     }
 
     clearTimeout(timeoutId)
 
     if (fetchSuccess) {
+      hasVerifiedLivePrices = true
       const livePrices: TokenPriceMap = {
         USDC: usdcPrice,
         EURC: eurcPrice,
@@ -131,6 +164,8 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
         'af-USDC': 1.0842,
         AFUSDC: 1.0842,
       }
+
+      console.log('[LivePriceOracle] ✅ Successfully resolved live token prices:', livePrices)
 
       memoryCache = {
         prices: livePrices,

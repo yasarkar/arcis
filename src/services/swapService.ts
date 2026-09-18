@@ -6,11 +6,12 @@ import {
   formatUnits,
   encodeFunctionData,
   maxUint256,
+  zeroAddress,
   type Hex,
   type Address,
 } from 'viem'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
-import { POOL_CONTRACTS, STABLE_SWAP_ABI, ERC20_ABI } from '../config/poolsConfig'
+import { arcTestnet } from '../config/arcChain'
+import { POOL_CONTRACTS, STABLE_SWAP_ABI, ERC20_ABI, ARCIS_SWAP_ROUTER_ABI } from '../config/poolsConfig'
 import { sendModularUserOperation, getActiveSmartAccount } from './modularWalletService'
 import { getDynamicArcGasOptions, ARC_GAS_LIMITS } from '../config/feeTiers'
 import { getArcPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
@@ -148,19 +149,12 @@ async function buildSwapTo(
 /**
  * Dynamic Chain Loading
  */
-export function getSupportedSwapChains(_isTestnet?: boolean): ChainDefinition[] {
+export function getSupportedSwapChains(isTestnet?: boolean): ChainDefinition[] {
   const chains = kit.getSupportedChains('swap')
-  const arcOnly = chains.filter((c) => c.chain === 'Arc_Testnet' || c.chain.toLowerCase().includes('arc'))
-  if (arcOnly.length > 0) {
-    return arcOnly
+  if (isTestnet !== undefined) {
+    return chains.filter((c) => c.isTestnet === isTestnet)
   }
-  return [
-    {
-      chain: 'Arc_Testnet',
-      name: 'Arc Testnet',
-      isTestnet: true,
-    } as unknown as ChainDefinition
-  ]
+  return chains
 }
 
 /**
@@ -275,16 +269,16 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
   const to = await buildSwapTo(params, from)
 
   const config: any = {
-    allowanceStrategy: params.allowanceStrategy || 'approve'
+    allowanceStrategy: params.allowanceStrategy || 'permit'
   }
 
   if (params.slippageTolerance !== undefined) {
     config.slippageBps = Math.round(params.slippageTolerance * 10000)
   }
 
-  if (params.customFee) {
+  if (params.customFee && params.customFee.percentageBps > 0 && params.customFee.recipientAddress) {
     config.customFee = {
-      percentageBps: params.customFee.percentageBps,
+      percentageBps: Number(params.customFee.percentageBps),
       recipientAddress: params.customFee.recipientAddress
     }
   }
@@ -343,7 +337,8 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
   const fees = (estimate.fees || []).map((f: any) => ({
     token: f.token,
     amount: f.amount || '0',
-    type: f.type as 'provider' | 'gas' | 'swap' | 'developer'
+    type: f.type as 'provider' | 'gas' | 'swap' | 'developer',
+    ...(f.recipientAddress && { recipientAddress: f.recipientAddress })
   }))
 
   return {
@@ -550,12 +545,13 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           transport: custom(provider),
         })
 
-        // Check on-chain allowance
+        // Check on-chain allowance against ArcisSwapRouter
+        const routerAddress = POOL_CONTRACTS.ARCIS_SWAP_ROUTER
         const currentAllowance = await resilientReadContract(arcPublicClient, {
           address: arcRoute.tokenInAddr,
           abi: ERC20_ABI,
           functionName: 'allowance',
-          args: [account, arcRoute.poolAddress],
+          args: [account, routerAddress],
         })
 
         // Dynamically resolve Arc L1 gas parameters enforcing 20 Gwei floor & EWMA base fee
@@ -569,13 +565,13 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         const ceilingStatus = checkCeilingStatus(account, params.tokenIn, parseFloat(params.amountIn))
         const requiresApprove = currentAllowance < amountInUnits
 
-        // Only prompt for approve if current on-chain allowance is insufficient
+        // 1. Only prompt for approve if current on-chain allowance is insufficient
         if (requiresApprove) {
           const approveTx = await walletClient.writeContract({
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [arcRoute.poolAddress, maxUint256],
+            args: [routerAddress, maxUint256],
             chain: arcTestnet,
             account,
             maxFeePerGas: gasOptions.maxFeePerGas,
@@ -592,12 +588,23 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           setSpendingCeiling(account, params.tokenIn, ceilingStatus.suggestedCeiling)
         }
 
-        // Execute pool swap with net input
+        // 2. Execute atomic swapWithFee on ArcisSwapRouter in a single transaction
+        const treasuryRecipient = (params.customFee?.recipientAddress || zeroAddress) as Address
+        const feeBps = BigInt(params.customFee?.percentageBps || 0)
+
         const swapTx = await walletClient.writeContract({
-          address: arcRoute.poolAddress,
-          abi: STABLE_SWAP_ABI,
-          functionName: 'swap',
-          args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, swapAmountInUnits, minOutUnits],
+          address: routerAddress,
+          abi: ARCIS_SWAP_ROUTER_ABI,
+          functionName: 'swapWithFee',
+          args: [
+            arcRoute.poolAddress,
+            arcRoute.tokenInAddr,
+            arcRoute.tokenOutAddr,
+            amountInUnits,
+            minOutUnits,
+            treasuryRecipient,
+            feeBps,
+          ],
           chain: arcTestnet,
           account,
           maxFeePerGas: gasOptions.maxFeePerGas,
@@ -606,34 +613,6 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         const swapRes = await resilientWaitForReceipt(arcPublicClient, swapTx, 'Swap')
         if (swapRes.status === 'reverted') {
           throw new Error('Swap transaction reverted on Arc Testnet. Liquidity may be insufficient or slippage tolerance was exceeded.')
-        }
-
-        // Collect custom platform protocol fee to Treasury if enabled
-        if (customFeeUnits > 0n && params.customFee?.recipientAddress) {
-          try {
-            const feeTx = await walletClient.writeContract({
-              address: arcRoute.tokenInAddr,
-              abi: ERC20_ABI,
-              functionName: 'transfer',
-              args: [params.customFee.recipientAddress as Address, customFeeUnits],
-              chain: arcTestnet,
-              account,
-              maxFeePerGas: gasOptions.maxFeePerGas,
-              maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
-            })
-            const feeReceipt = await arcPublicClient.waitForTransactionReceipt({ hash: feeTx }).catch((err) => {
-              console.warn('[swapService] Platform fee receipt error on EOA:', err)
-              return null
-            })
-            if (feeReceipt && feeReceipt.status === 'reverted') {
-              console.warn('[swapService] Platform fee transfer reverted on-chain.')
-            }
-          } catch (feeErr: any) {
-            console.warn('[swapService] Platform fee transfer error on EOA:', feeErr)
-            if (isUserCanceled(feeErr) || feeErr?.isCanceled === true) {
-              throw feeErr
-            }
-          }
         }
 
         // Track 24h pool volume and dispatch reactive event
@@ -677,16 +656,16 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     const to = await buildSwapTo(params, from)
 
     const config: any = {
-      allowanceStrategy: params.allowanceStrategy || 'approve'
+      allowanceStrategy: params.allowanceStrategy || 'permit'
     }
 
     if (params.slippageTolerance !== undefined) {
       config.slippageBps = Math.round(params.slippageTolerance * 10000)
     }
 
-    if (params.customFee) {
+    if (params.customFee && params.customFee.percentageBps > 0 && params.customFee.recipientAddress) {
       config.customFee = {
-        percentageBps: params.customFee.percentageBps,
+        percentageBps: Number(params.customFee.percentageBps),
         recipientAddress: params.customFee.recipientAddress
       }
     }
