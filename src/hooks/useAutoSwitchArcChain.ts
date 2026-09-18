@@ -13,6 +13,7 @@ import {
   ensureArcNetwork,
   buildAddEthereumChainParameter,
 } from '../services/chainSwitchService'
+import { watchArcToken } from '../services/tokenAssetService'
 import { useChainSwitch } from './useChainSwitch'
 
 export const ARC_ACTIVE_CHAIN_ID = arcActiveChain.id
@@ -28,6 +29,7 @@ export function useAutoSwitchArcChain() {
   const { isConnected, chainId, connector } = useAccount()
   const { switchToArc } = useChainSwitch()
   const hasAttemptedThisSession = useRef<boolean>(false)
+  const hasAttemptedTokenWatch = useRef<boolean>(false)
 
   // Trigger function to switch or add Arc network
   const handleSwitchToArc = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
@@ -45,7 +47,7 @@ export function useAutoSwitchArcChain() {
     }
   }, [isConnected, connector])
 
-  // Automatic one-shot trigger on initial wallet connection
+  // 1. Automatic one-shot trigger to switch network on initial wallet connection
   useEffect(() => {
     // Only trigger if wallet is connected and on a different EVM network
     if (!isConnected || chainId === arcActiveChain.id) return
@@ -73,6 +75,25 @@ export function useAutoSwitchArcChain() {
 
     return () => clearTimeout(timer)
   }, [isConnected, chainId, switchToArc])
+
+  // 2. Automatic zero-UI token registration when connected on Arc Network
+  useEffect(() => {
+    if (!isConnected || chainId !== arcActiveChain.id) return
+    if (hasAttemptedTokenWatch.current) return
+
+    // 1000ms delay to let wallet connection settle before prompting token registration
+    const tokenTimer = setTimeout(async () => {
+      try {
+        const provider = (await connector?.getProvider()) as any
+        await watchArcToken('USDC', provider)
+        hasAttemptedTokenWatch.current = true
+      } catch (err) {
+        console.debug('[useAutoSwitchArcChain] Auto-watch USDC skipped:', err)
+      }
+    }, 1000)
+
+    return () => clearTimeout(tokenTimer)
+  }, [isConnected, chainId, connector])
 
   return {
     isWrongNetwork: Boolean(isConnected && chainId && chainId !== arcActiveChain.id),

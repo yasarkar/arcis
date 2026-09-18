@@ -39,8 +39,8 @@ import {
   getStableSwapD,
 } from '../utils/poolMath'
 import { redisCache } from '../services/redisCacheService'
-import { sendModularUserOperation, getActiveSmartAccount } from '../services/modularWalletService'
-import { getLiveTokenPrices, getCachedTokenPrice } from '../services/tokenPriceService'
+import { getLiveTokenPrices, getCachedTokenPrice, isLivePriceAvailable } from '../services/tokenPriceService'
+import { useLiveTokenPrices } from './useLiveTokenPrices'
 import { recordClientSwapVolume, getRollingClientSwapVolume, startLiveVolumeSimulation } from '../utils/poolVolumeUtils'
 import { isUserCanceled } from '../utils/errorUtils'
 
@@ -56,9 +56,9 @@ export function formatPoolApyBadge(
   typeLabel: string
 ): string {
   if (feeApy > 0) {
-    return `${totalApy.toFixed(2)}% APY (${baseApy.toFixed(2)}% Base + ${feeApy.toFixed(2)}% Fees)`
+    return `%${totalApy.toFixed(2)} APY (${baseApy.toFixed(2)} Base + ${feeApy.toFixed(2)} Fees)`
   }
-  return `${baseApy.toFixed(2)}% ${typeLabel} APY`
+  return `%${baseApy.toFixed(2)} ${typeLabel} APY`
 }
 
 export interface UserPoolPosition {
@@ -246,18 +246,10 @@ export function usePoolsData(walletAddress: string, provider?: any) {
   const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
 
   // ── Live Market Prices (CoinGecko Simple Price API with Redis cache) ──────
-  const { data: tokenPrices } = useQuery({
-    queryKey: ['liveTokenPrices'],
-    queryFn: async () => {
-      return await getLiveTokenPrices()
-    },
-    staleTime: 30_000,
-    gcTime: 1000 * 60 * 5,
-    refetchInterval: 30_000,
-  })
+  const { data: tokenPrices } = useLiveTokenPrices()
 
-  const liveBtcPrice = tokenPrices?.CIRBTC || tokenPrices?.BTC || getCachedTokenPrice('BTC') || 78500
-  const liveEurcPrice = tokenPrices?.EURC || getCachedTokenPrice('EURC') || 1.082
+  const liveBtcPrice = tokenPrices?.CIRBTC || tokenPrices?.BTC || (isLivePriceAvailable() ? getCachedTokenPrice('BTC') : 0)
+  const liveEurcPrice = tokenPrices?.EURC || (isLivePriceAvailable() ? getCachedTokenPrice('EURC') : 0)
 
   // Reactive trigger for 24h rolling swap volume updates across tabs and components
   const [volumeRevision, setVolumeRevision] = useState(0)
@@ -950,8 +942,8 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         const totalVaultApy = parseFloat((baseVaultApy + dynamicYieldApy).toFixed(2))
         apy = totalVaultApy
         apyBadge = dynamicYieldApy > 0
-          ? `${totalVaultApy.toFixed(2)}% APY (${baseVaultApy}% USYC + ${dynamicYieldApy.toFixed(2)}% Dist.)`
-          : '8.42% APY • Treasury / USYC Strategy (Baseline Est.)'
+          ? `%${totalVaultApy.toFixed(2)} APY (${baseVaultApy} USYC + ${dynamicYieldApy.toFixed(2)} Dist.)`
+          : '%8.42 APY • Treasury / USYC Strategy (Baseline Est.)'
 
       }
 
@@ -2277,7 +2269,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         applyLpOptimisticWithdraw()
       }
 
-      // Single-sided 100% USDC Payout: automatically swap the received counter token to USDC
+      // Single-sided %100 USDC Payout: automatically swap the received counter token to USDC
       let autoSwapFailed = false
       let autoSwapCounterSymbol = ''
       let autoSwapCounterAmount = ''

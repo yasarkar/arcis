@@ -1490,7 +1490,7 @@ It turns a plain transfer into an auditable, categorized record — ideal for fr
 • <strong>Preserved Sender Identity:</strong>
 The memo wraps your transfer using CallFrom so the recipient sees your real wallet address (msg.sender) together with the metadata.
 
-Use the Send tab and pick a preset (Invoice, Freelance, AI Agent, Rent, Gift, E-Commerce) to attach a memo.`,
+Use the Send tab and pick a preset (Invoice, Freelance, Payroll, AI Agent, API Fee, Order, Subscription, Split Bill, Tip) to attach a memo.`,
           timestamp: Date.now(),
           actionPayload: {
             type: 'send',
