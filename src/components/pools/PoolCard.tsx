@@ -120,10 +120,6 @@ export default function PoolCard({
       )
     }
 
-    if (pool.category === 'crosschain') {
-      return <Globe size={24} style={{ color: '#60a5fa', flexShrink: 0 }} />
-    }
-
     return (
       <img
         src={UsdcIcon}

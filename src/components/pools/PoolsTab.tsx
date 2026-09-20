@@ -22,7 +22,7 @@ import PoolActionModal from './PoolActionModal'
 import YieldCalculator from './YieldCalculator'
 import { usePoolsData } from '../../hooks/usePoolsData'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
-import { type PoolCategory, type PoolConfig, POOLS_CHAIN_DEFS } from '../../config/poolsConfig'
+import { type PoolCategory, type PoolConfig, type PoolRiskLevel, POOLS_CHAIN_DEFS } from '../../config/poolsConfig'
 import { arcTestnet } from '../../config/arcChain'
 import { transferFromGateway } from '../../services/gatewayService'
 import { useBroadcast, type BroadcastType } from '../BroadcastNotification'
@@ -35,7 +35,7 @@ import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 interface PoolsTabProps {
   walletAddress: string
   walletConnected: boolean
-  provider?: any
+  provider?: unknown
   addToast?: (
     title: string,
     description: string,
@@ -72,7 +72,7 @@ export default function PoolsTab({
   } = usePoolsData(walletAddress, provider)
 
   // Gateway unified balance (for cross-chain zap)
-  const { totalBalance: gatewayTotalBalance, refresh: refreshGatewayBalance } = useGatewayBalance(walletAddress)
+  const { totalBalance: gatewayTotalBalance, balances: gatewayBalances, refresh: refreshGatewayBalance } = useGatewayBalance(walletAddress)
 
   // Filter & Search states
   const [activeCategory, setActiveCategory] = useState<PoolCategory | 'all'>('all')
@@ -152,7 +152,7 @@ export default function PoolsTab({
         if (sortBy === 'volume') return (b.volume24hUsd || 0) - (a.volume24hUsd || 0)
         if (sortBy === 'tvl') return b.tvlUsd - a.tvlUsd
         if (sortBy === 'risk') {
-          const riskWeight: Record<string, number> = { Safe: 1, Low: 2, Medium: 3 }
+          const riskWeight: Record<PoolRiskLevel, number> = { Safe: 1, Low: 2, Medium: 3 }
           const weightA = riskWeight[a.riskLevel] || 2
           const weightB = riskWeight[b.riskLevel] || 2
           if (weightA !== weightB) return weightA - weightB
@@ -377,6 +377,7 @@ export default function PoolsTab({
     const targetPool = pools.find((p) => p.id === poolId)
     const poolName = targetPool?.name || 'Pool'
     const earnedUsd = targetPool?.userPosition?.earnedUsd || 0
+    const poolApy = targetPool?.apy
 
     if (earnedUsd < 0.005) {
       if (addToast) {
@@ -403,6 +404,7 @@ export default function PoolsTab({
         amount: earnedUsd.toFixed(2),
         tokenSymbol: 'USDC',
         tokenIcon: UsdcIcon,
+        poolApy,
         network: 'Arc_Testnet',
       },
       'pool'
@@ -421,6 +423,7 @@ export default function PoolsTab({
           amount: res.amountClaimed,
           tokenSymbol: 'USDC',
           tokenIcon: UsdcIcon,
+          poolApy,
           network: 'Arc_Testnet',
         }
       )
@@ -433,6 +436,7 @@ export default function PoolsTab({
         amount: earnedUsd.toFixed(2),
         tokenSymbol: 'USDC',
         tokenIcon: UsdcIcon,
+        poolApy,
         network: 'Arc_Testnet',
       })
     } finally {
@@ -680,6 +684,7 @@ export default function PoolsTab({
         amountB,
         symbolB,
         iconB,
+        poolApy,
         network: 'Arc_Testnet',
       })
       throw err
@@ -853,8 +858,19 @@ export default function PoolsTab({
     const targetPool = pools.find((p) => p.id === poolId)
     const poolName = targetPool?.name || 'Vault'
     const isPool = Boolean(targetPool?.isLpPool)
+
+    // Dynamically resolve source chain if Unified_Gateway
+    let effectiveSourceChain = sourceChainKey
+    if (sourceChainKey === 'Unified_Gateway') {
+      const reqAmt = parseFloat(amountUsdc) || 0
+      const validChains = (gatewayBalances || []).filter((b) => b.chainKey !== 'Arc_Testnet')
+      const candidate = validChains.find((b) => parseFloat(b.balance) >= reqAmt && parseFloat(b.balance) > 0)
+        || validChains.reduce((prev, curr) => (parseFloat(curr.balance) > parseFloat(prev.balance) ? curr : prev), validChains[0])
+      effectiveSourceChain = candidate?.chainKey || 'Base_Sepolia'
+    }
+
     const sourceChainDisplayName = sourceChainKey === 'Unified_Gateway'
-      ? 'Gateway Unified Balance'
+      ? `Gateway (${effectiveSourceChain.replace('_', ' ')})`
       : sourceChainKey.replace('_', ' ')
 
     const pendingTitle = isPool ? 'Adding Liquidity...' : 'Depositing to Cross-Chain Vault...'
@@ -868,7 +884,7 @@ export default function PoolsTab({
         amount: amountUsdc,
         tokenSymbol: 'USDC',
         tokenIcon: TOKEN_ICON_MAP['USDC'],
-        sourceChain: sourceChainKey,
+        sourceChain: effectiveSourceChain,
         destChain: 'Arc_Testnet',
         network: 'Arc_Testnet',
         poolApy: targetPool?.apy,
@@ -877,12 +893,14 @@ export default function PoolsTab({
     )
 
     try {
+      let effectiveDepositAmount = amountUsdc
+      let gatewayMintTxHash: string | undefined
+
       // Step 1: Real Circle Gateway cross-chain teleportation if source is not Arc
-      if (sourceChainKey !== 'Arc_Testnet' && sourceChainKey !== 'native' && provider) {
-        const effectiveSourceChain = sourceChainKey === 'Unified_Gateway' ? 'Base_Sepolia' : sourceChainKey
+      if (effectiveSourceChain !== 'Arc_Testnet' && effectiveSourceChain !== 'native' && provider) {
         const sourceDef = POOLS_CHAIN_DEFS[effectiveSourceChain]
         if (sourceDef) {
-          await transferFromGateway({
+          const gatewayRes = await transferFromGateway({
             provider,
             sourceChain: effectiveSourceChain,
             destinationChain: 'Arc_Testnet',
@@ -891,34 +909,39 @@ export default function PoolsTab({
             sourceChainDef: sourceDef,
             destinationChainDef: arcTestnet,
           })
+          gatewayMintTxHash = gatewayRes?.mintTxHash
+          if (gatewayRes?.effectiveAmount && parseFloat(gatewayRes.effectiveAmount) > 0) {
+            effectiveDepositAmount = gatewayRes.effectiveAmount
+          }
         }
       }
 
-      // Step 2: Auto-deposit or Zap into the target pool/vault on Arc
+      // Step 2: Auto-deposit or Zap into the target pool/vault on Arc with effective minted amount
       let txResult: { txHash: string }
       if (targetPool?.isLpPool) {
-        txResult = await zapIn(poolId, 'USDC', amountUsdc, slippage)
+        txResult = await zapIn(poolId, 'USDC', effectiveDepositAmount, slippage)
       } else {
-        txResult = await depositToPool(poolId, amountUsdc, provider)
+        txResult = await depositToPool(poolId, effectiveDepositAmount, provider)
       }
 
       const successTitle = isPool ? 'Liquidity Added Successfully!' : 'Cross-Chain Deposit Complete!'
       notifySuccess(
         notif,
         successTitle,
-        `Transferred ${amountUsdc} USDC from ${sourceChainDisplayName} and ${isPool ? 'added liquidity to' : 'deposited to'} ${poolName}!`,
+        `Transferred ${effectiveDepositAmount} USDC from ${sourceChainDisplayName} and ${isPool ? 'added liquidity to' : 'deposited to'} ${poolName}!`,
         txResult.txHash,
         {
           poolId,
           poolName,
           poolAction: 'zap',
-          amount: amountUsdc,
+          amount: effectiveDepositAmount,
           tokenSymbol: 'USDC',
           tokenIcon: TOKEN_ICON_MAP['USDC'],
-          sourceChain: sourceChainKey,
+          sourceChain: effectiveSourceChain,
           destChain: 'Arc_Testnet',
           network: 'Arc_Testnet',
           poolApy: targetPool?.apy,
+          mintTxHash: gatewayMintTxHash,
         }
       )
 
@@ -933,9 +956,10 @@ export default function PoolsTab({
         amount: amountUsdc,
         tokenSymbol: 'USDC',
         tokenIcon: TOKEN_ICON_MAP['USDC'],
-        sourceChain: sourceChainKey,
+        sourceChain: effectiveSourceChain,
         destChain: 'Arc_Testnet',
         network: 'Arc_Testnet',
+        poolApy: targetPool?.apy,
       })
       throw err
     }

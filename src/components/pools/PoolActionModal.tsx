@@ -39,6 +39,10 @@ import { parseUnits, formatUnits } from 'viem'
 import { calculateStableSwapExpectedOut } from '../../utils/poolMath'
 import { useLiveTokenPrices, formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
 import { Tooltip, InfoTooltip } from '../common/Tooltip'
+import { useAccount } from 'wagmi'
+import { POOLS_CHAIN_DEFS } from '../../config/poolsConfig'
+import { ensureNetwork } from '../../services/chainSwitchService'
+import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
 
 interface PoolActionModalProps {
   isOpen: boolean
@@ -77,14 +81,87 @@ export default function PoolActionModal({
   onExecuteCrossChainZap,
 }: PoolActionModalProps) {
   const [activeMode, setActiveMode] = useState<'deposit' | 'withdraw' | 'swap'>(initialMode)
+  const { chainId: walletChainId, connector } = useAccount()
+  const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
+
+  // Pause background auto-switch while this modal is open
+  useEffect(() => {
+    if (isOpen) {
+      setAutoSwitchPaused(true)
+      sessionStorage.setItem('arcis_cross_chain_active', 'true')
+    }
+    return () => {
+      setAutoSwitchPaused(false)
+      sessionStorage.removeItem('arcis_cross_chain_active')
+    }
+  }, [isOpen])
 
   // Live Token Prices
   const { data: tokenPrices } = useLiveTokenPrices()
 
+  // Circle Gateway balances & Wallet multi-chain balances for Cross-Chain Gateway Zap
+  const { totalBalance: gatewayTotalBalance, balances: gatewayBalances } = useGatewayBalance(walletAddress)
+  const { walletBalances } = useWalletTestnetBalances(walletAddress)
+
   // Deposit Source: Native Arc vs Cross-Chain 1-Click Gateway Zap
   const [depositSource, setDepositSource] = useState<'native' | 'crosschain'>('native')
-  const [selectedSourceChain, setSelectedSourceChain] = useState<string>('Base_Sepolia')
+  const [selectedSourceChain, setSelectedSourceChain] = useState<string>('Unified_Gateway')
   const [showChainDropdown, setShowChainDropdown] = useState<boolean>(false)
+
+  // Standard & Zap inputs
+  const [amount, setAmount] = useState<string>('')
+  const [percentage, setPercentage] = useState<number>(0)
+
+  // Helper to get Gateway balance for a given chainKey
+  const getGatewayChainBalance = useCallback(
+    (chainKey: string) => {
+      if (chainKey === 'Unified_Gateway') return gatewayTotalBalance || '0.00'
+      const found = gatewayBalances?.find((b) => b.chainKey === chainKey)
+      return found?.balance || '0.00'
+    },
+    [gatewayBalances, gatewayTotalBalance]
+  )
+
+  // Dynamic source chain resolution: if Unified_Gateway is selected, pick the non-Arc chain with the highest balance (or balance >= amount)
+  const resolvedSourceChainKey = useMemo(() => {
+    if (selectedSourceChain !== 'Unified_Gateway') return selectedSourceChain
+    const validChains = (gatewayBalances || []).filter((b) => b.chainKey !== 'Arc_Testnet')
+    if (validChains.length === 0) return 'Base_Sepolia'
+    const inputNum = parseFloat(amount) || 0
+    const sufficient = validChains.find((b) => parseFloat(b.balance) >= inputNum && parseFloat(b.balance) > 0)
+    if (sufficient) return sufficient.chainKey
+    const maxItem = validChains.reduce((prev, curr) =>
+      parseFloat(curr.balance) > parseFloat(prev.balance) ? curr : prev
+    , validChains[0])
+    return maxItem?.chainKey || 'Base_Sepolia'
+  }, [selectedSourceChain, gatewayBalances, amount])
+
+  const effectiveSourceDef = (POOLS_CHAIN_DEFS as Record<string, any>)[resolvedSourceChainKey]
+
+  const isCrossChainMode = activeMode === 'deposit' && depositSource === 'crosschain'
+  const isWrongChainForCrossChain = Boolean(
+    isCrossChainMode &&
+    effectiveSourceDef &&
+    walletChainId &&
+    walletChainId !== effectiveSourceDef.id
+  )
+
+  const handleSwitchToSourceChain = useCallback(async () => {
+    if (!effectiveSourceDef) return
+    setIsSwitchingNetwork(true)
+    setErrorMsg(null)
+    try {
+      const provider = (await connector?.getProvider()) as any
+      const res = await ensureNetwork(effectiveSourceDef, provider)
+      if (!res.success && !res.isCanceled) {
+        setErrorMsg(res.error || `Failed to switch to ${effectiveSourceDef.name}`)
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || `Failed to switch to ${effectiveSourceDef.name}`)
+    } finally {
+      setIsSwitchingNetwork(false)
+    }
+  }, [effectiveSourceDef, connector])
 
   const isInitialPoolEmpty = Boolean(
     pool?.isLpPool && (
@@ -95,10 +172,6 @@ export default function PoolActionModal({
   const [lpDepositMethod, setLpDepositMethod] = useState<'zap' | 'dual'>(
     isInitialPoolEmpty ? 'dual' : 'zap'
   )
-
-  // Standard & Zap inputs
-  const [amount, setAmount] = useState<string>('')
-  const [percentage, setPercentage] = useState<number>(0)
 
   // Dual LP inputs
   const [amountA, setAmountA] = useState<string>('') // USDC
@@ -171,13 +244,10 @@ export default function PoolActionModal({
     }
   }
 
-  // Multi-chain balances for Cross-Chain Gateway Zap
-  const { walletBalances } = useWalletTestnetBalances(walletAddress)
-  const { totalBalance: gatewayTotalBalance } = useGatewayBalance(walletAddress)
-
   useEffect(() => {
     setActiveMode(initialMode)
     setDepositSource('native')
+    setSelectedSourceChain('Unified_Gateway')
     setAmount('')
     setAmountA('')
     setAmountB('')
@@ -202,14 +272,13 @@ export default function PoolActionModal({
     }
   }, [initialMode, pool, isOpen])
 
-  // Cross-Chain balance on selected source chain (Hook called unconditionally at top level)
+  // Cross-Chain balance on selected source chain (shows Circle Gateway balance)
   const crossChainBalNum = useMemo(() => {
     if (selectedSourceChain === 'Unified_Gateway') {
       return parseFloat(gatewayTotalBalance || '0')
     }
-    const item = walletBalances[selectedSourceChain]
-    return parseFloat(item?.usdc || '0')
-  }, [selectedSourceChain, walletBalances, gatewayTotalBalance])
+    return parseFloat(getGatewayChainBalance(selectedSourceChain) || '0')
+  }, [selectedSourceChain, gatewayTotalBalance, getGatewayChainBalance])
 
   if (!isOpen || !pool) return null
 
@@ -497,18 +566,27 @@ export default function PoolActionModal({
 
   const isSubmitDisabled = Boolean(
     isProcessing ||
+    isSwitchingNetwork ||
     (activeMode === 'swap'
       ? isSwapUnavailable || swapAmountInNum <= 0 || swapAmountInNum > swapWalletBalTokenIn
       : activeMode === 'withdraw'
         ? inputAmountNum <= 0 || isWithdrawExceeds
         : isDualMode
           ? isDualIncomplete || isDualInsuffA || isDualInsuffB
-          : isZapUnavailable || inputAmountNum <= 0 || isSingleDepositInsuff)
+          : isWrongChainForCrossChain
+            ? false
+            : isZapUnavailable || inputAmountNum <= 0 || isSingleDepositInsuff)
   )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     clearError()
+
+    // If attempting cross-chain deposit and wallet is not yet on that chain, switch network first!
+    if (isWrongChainForCrossChain) {
+      await handleSwitchToSourceChain()
+      return
+    }
 
     // ── AMM Swap Mode ──
     if (activeMode === 'swap') {
@@ -562,7 +640,7 @@ export default function PoolActionModal({
         setIsProcessing(true)
         try {
           if (onExecuteCrossChainZap) {
-            await onExecuteCrossChainZap(pool.id, selectedSourceChain, amount, slippage)
+            await onExecuteCrossChainZap(pool.id, resolvedSourceChainKey, amount, slippage)
           } else if (isLp && onExecuteZap) {
             await onExecuteZap(pool.id, 'USDC', amount, slippage)
           } else {
@@ -671,16 +749,16 @@ export default function PoolActionModal({
     }
   }
 
-  // Eligible source chains for Cross-Chain Zap (matches ChainItem interface)
-  const sourceChainsList = [
-    { chain: 'Base_Sepolia', name: 'Base Sepolia', balance: walletBalances['Base_Sepolia']?.usdc || '0.00' },
-    { chain: 'Ethereum_Sepolia', name: 'Ethereum Sepolia', balance: walletBalances['Ethereum_Sepolia']?.usdc || '0.00' },
-    { chain: 'Arbitrum_Sepolia', name: 'Arbitrum Sepolia', balance: walletBalances['Arbitrum_Sepolia']?.usdc || '0.00' },
-    { chain: 'Optimism_Sepolia', name: 'Optimism Sepolia', balance: walletBalances['Optimism_Sepolia']?.usdc || '0.00' },
-    { chain: 'Polygon_Amoy_Testnet', name: 'Polygon PoS Amoy', balance: walletBalances['Polygon_Amoy_Testnet']?.usdc || '0.00' },
-    { chain: 'Avalanche_Fuji', name: 'Avalanche Fuji', balance: walletBalances['Avalanche_Fuji']?.usdc || '0.00' },
+  // Eligible source chains for Cross-Chain Zap (Circle Gateway balances across chains)
+  const sourceChainsList = useMemo(() => [
     { chain: 'Unified_Gateway', name: 'Unified Gateway (Multi-Chain)', balance: gatewayTotalBalance || '0.00' },
-  ]
+    { chain: 'Base_Sepolia', name: 'Base Sepolia', balance: getGatewayChainBalance('Base_Sepolia') },
+    { chain: 'Ethereum_Sepolia', name: 'Ethereum Sepolia', balance: getGatewayChainBalance('Ethereum_Sepolia') },
+    { chain: 'Arbitrum_Sepolia', name: 'Arbitrum Sepolia', balance: getGatewayChainBalance('Arbitrum_Sepolia') },
+    { chain: 'Optimism_Sepolia', name: 'Optimism Sepolia', balance: getGatewayChainBalance('Optimism_Sepolia') },
+    { chain: 'Polygon_Amoy_Testnet', name: 'Polygon PoS Amoy', balance: getGatewayChainBalance('Polygon_Amoy_Testnet') },
+    { chain: 'Avalanche_Fuji', name: 'Avalanche Fuji', balance: getGatewayChainBalance('Avalanche_Fuji') },
+  ], [gatewayTotalBalance, getGatewayChainBalance])
 
   if (typeof document === 'undefined') return null
 
@@ -1162,7 +1240,7 @@ export default function PoolActionModal({
                     className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider"
                     style={{ fontFamily: 'var(--font-app)' }}
                   >
-                    FROM NETWORK
+                    SOURCE NETWORK (CIRCLE GATEWAY)
                   </div>
                   <span className="text-[12px] text-slate-400 font-medium">
                     {crossChainBalStr} USDC
@@ -1184,12 +1262,29 @@ export default function PoolActionModal({
                         className="rounded-full"
                       />
                     </div>
-                    <span className="text-xs font-semibold text-white truncate">
-                      {CHAIN_META[selectedSourceChain]?.name || getChainDisplayName(selectedSourceChain)}
-                    </span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-semibold text-white truncate">
+                        {CHAIN_META[selectedSourceChain]?.name || getChainDisplayName(selectedSourceChain)}
+                      </span>
+                      {selectedSourceChain === 'Unified_Gateway' && (
+                        <span className="text-[10px] text-indigo-400/90 font-medium">
+                          Routes via {CHAIN_META[resolvedSourceChainKey]?.name || resolvedSourceChainKey}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                 </button>
+
+                {parseFloat(gatewayTotalBalance || '0') <= 0 && (
+                  <div className="mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300/90 leading-relaxed flex items-start gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-amber-200 block mb-0.5">No Circle Gateway Balance</strong>
+                      Cross-Chain Zap burns deposited USDC from Circle Gateway. Please deposit testnet USDC into Circle Gateway via the <strong>Unified Balance</strong> tab before zapping.
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1769,11 +1864,13 @@ export default function PoolActionModal({
                 background:
                   isSubmitDisabled
                     ? 'rgba(152, 150, 255, 0.25)'
-                    : activeMode === 'swap'
-                      ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
-                      : activeMode === 'deposit'
-                        ? 'linear-gradient(135deg, #9896ff 0%, #6366f1 100%)'
-                        : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    : isWrongChainForCrossChain
+                      ? 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)'
+                      : activeMode === 'swap'
+                        ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
+                        : activeMode === 'deposit'
+                          ? 'linear-gradient(135deg, #9896ff 0%, #6366f1 100%)'
+                          : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
                 color: '#fff',
                 fontSize: 14,
                 fontWeight: 600,
@@ -1785,7 +1882,21 @@ export default function PoolActionModal({
                 transition: 'all 0.2s ease',
               }}
             >
-              {isProcessing ? (
+              {isSwitchingNetwork ? (
+                <>
+                  <RefreshCw size={15} className="arcis-spin" />
+                  <span>
+                    SWITCHING TO {(CHAIN_META[resolvedSourceChainKey]?.name || resolvedSourceChainKey).toUpperCase()} IN WALLET...
+                  </span>
+                </>
+              ) : isWrongChainForCrossChain ? (
+                <>
+                  <Globe size={16} />
+                  <span>
+                    SWITCH NETWORK TO {(CHAIN_META[resolvedSourceChainKey]?.name || resolvedSourceChainKey).toUpperCase()}
+                  </span>
+                </>
+              ) : isProcessing ? (
                 <>
                   <RefreshCw size={15} className="arcis-spin" />
                   <span>
@@ -1793,7 +1904,7 @@ export default function PoolActionModal({
                       ? 'SWAPPING...'
                       : activeMode === 'deposit'
                         ? depositSource === 'crosschain'
-                          ? 'TELEPORTING VIA CIRCLE GATEWAY (<500MS)...'
+                          ? 'ADDING LIQUIDITY VIA CIRCLE GATEWAY...'
                           : isPool
                             ? 'ADDING LIQUIDITY...'
                             : 'DEPOSITING...'
@@ -1840,7 +1951,7 @@ export default function PoolActionModal({
                     </>
                   )
                 ) : isSingleDepositInsuff ? (
-                  <span>INSUFFICIENT BALANCE</span>
+                  <span>{depositSource === 'crosschain' ? 'INSUFFICIENT GATEWAY BALANCE' : 'INSUFFICIENT BALANCE'}</span>
                 ) : inputAmountNum <= 0 ? (
                   <span>ENTER DEPOSIT AMOUNT</span>
                 ) : isPool ? (
@@ -1891,3 +2002,4 @@ export default function PoolActionModal({
     document.body
   )
 }
+
