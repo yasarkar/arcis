@@ -130,9 +130,14 @@ export async function isCurrentNetwork(
   }
 }
 
+// Global Mutex to prevent multiple concurrent wallet_switchEthereumChain requests
+let activeSwitchPromise: Promise<ChainSwitchResult> | null = null
+let activeSwitchTargetChainId: number | null = null
+
 /**
  * Ensures the wallet is switched to the target network.
  * Automatically attempts wallet_addEthereumChain if the network has not yet been registered in the wallet.
+ * Uses an in-flight mutex to prevent duplicate concurrent switch requests.
  */
 export async function ensureNetwork(
   target: string | number | Chain,
@@ -154,8 +159,6 @@ export async function ensureNetwork(
     }
   }
 
-  const targetHex = `0x${chain.id.toString(16)}`
-
   // 1. Quick check if already active on the target chain
   try {
     const currentHex = await provider.request({ method: 'eth_chainId' })
@@ -166,87 +169,154 @@ export async function ensureNetwork(
     // Ignore verification failure and proceed to switch request
   }
 
-  // 2. Request switch
-  try {
-    await provider.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{ chainId: targetHex }],
-    })
-    if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
-      setTimeout(() => {
-        watchArcToken('USDC', provider).catch(() => {})
-      }, 700)
-    }
-    return { success: true, chainId: chain.id }
-  } catch (switchErr: any) {
-    const code = switchErr?.code ?? switchErr?.cause?.code
-    const msg = String(switchErr?.message || '')
+  // 2. Concurrency Guard: If a switch to the EXACT SAME chain is already in flight, reuse that promise
+  if (activeSwitchPromise && activeSwitchTargetChainId === chain.id) {
+    return activeSwitchPromise
+  }
 
-    // 4001: User rejected the request
-    if (
-      code === 4001 ||
-      msg.includes('rejected') ||
-      msg.includes('canceled') ||
-      msg.includes('User rejected') ||
-      msg.includes('User canceled')
-    ) {
-      return {
-        success: false,
-        isCanceled: true,
-        error: 'The network switch request was canceled in the wallet.',
-      }
-    }
-
-    // 4902 or unrecognized chain: Attempt to add chain to wallet
-    if (
-      code === 4902 ||
-      code === -32603 ||
-      msg.includes('Unrecognized chain') ||
-      msg.includes('wallet_addEthereumChain') ||
-      msg.includes('not added') ||
-      msg.includes('unknown chain')
-    ) {
-      try {
-        const addParams = buildAddEthereumChainParameter(chain)
-        await provider.request({
-          method: 'wallet_addEthereumChain',
-          params: [addParams],
-        })
-        if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
-          setTimeout(() => {
-            watchArcToken('USDC', provider).catch(() => {})
-          }, 700)
-        }
-        return { success: true, chainId: chain.id }
-      } catch (addErr: any) {
-        const addCode = addErr?.code ?? addErr?.cause?.code
-        const addMsg = String(addErr?.message || '')
-        if (
-          addCode === 4001 ||
-          addMsg.includes('rejected') ||
-          addMsg.includes('canceled') ||
-          addMsg.includes('User rejected')
-        ) {
-          return {
-            success: false,
-            isCanceled: true,
-            error: 'The network addition was canceled in the wallet.',
-          }
-        }
-        const normalized = normalizeAppError(addErr)
-        return {
-          success: false,
-          error: normalized.message || `Failed to add ${chain.name} to wallet.`,
-        }
-      }
-    }
-
-    const normalized = normalizeAppError(switchErr)
-    return {
-      success: false,
-      error: normalized.message || `Failed to switch to ${chain.name}.`,
+  // If a switch to a different chain is currently in flight, await it first
+  if (activeSwitchPromise) {
+    try {
+      await activeSwitchPromise
+    } catch {
+      // ignore
     }
   }
+
+  const executeSwitch = async (): Promise<ChainSwitchResult> => {
+    const targetHex = `0x${chain.id.toString(16)}`
+
+    // Re-check chainId right before requesting
+    try {
+      const currentHex = await provider.request({ method: 'eth_chainId' })
+      if (currentHex && parseInt(String(currentHex), 16) === chain.id) {
+        return { success: true, chainId: chain.id }
+      }
+    } catch {}
+
+    // Request switch
+    try {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: targetHex }],
+      })
+
+      // Brief settling pause to ensure wallet provider state updates
+      await new Promise((r) => setTimeout(r, 200))
+
+      if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
+        setTimeout(() => {
+          watchArcToken('USDC', provider).catch(() => {})
+        }, 700)
+      }
+      return { success: true, chainId: chain.id }
+    } catch (switchErr: any) {
+      const code = switchErr?.code ?? switchErr?.cause?.code
+      const msg = String(switchErr?.message || '')
+
+      // -32002: Request already pending in wallet
+      if (code === -32002 || msg.includes('already pending')) {
+        // Poll for up to 10 seconds to see if the user approves the pending prompt
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 1000))
+          try {
+            const activeHex = await provider.request({ method: 'eth_chainId' })
+            if (activeHex && parseInt(String(activeHex), 16) === chain.id) {
+              return { success: true, chainId: chain.id }
+            }
+          } catch {}
+        }
+        return {
+          success: false,
+          error: 'A network switch request is already open in your wallet. Please check your MetaMask extension to approve or cancel it.',
+        }
+      }
+
+      // 4001: User rejected the request
+      if (
+        code === 4001 ||
+        msg.includes('rejected') ||
+        msg.includes('canceled') ||
+        msg.includes('User rejected') ||
+        msg.includes('User canceled')
+      ) {
+        return {
+          success: false,
+          isCanceled: true,
+          error: 'The network switch request was canceled in the wallet.',
+        }
+      }
+
+      // 4902 or unrecognized chain: Attempt to add chain to wallet
+      if (
+        code === 4902 ||
+        code === -32603 ||
+        msg.includes('Unrecognized chain') ||
+        msg.includes('wallet_addEthereumChain') ||
+        msg.includes('not added') ||
+        msg.includes('unknown chain')
+      ) {
+        try {
+          const addParams = buildAddEthereumChainParameter(chain)
+          await provider.request({
+            method: 'wallet_addEthereumChain',
+            params: [addParams],
+          })
+
+          await new Promise((r) => setTimeout(r, 200))
+
+          if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
+            setTimeout(() => {
+              watchArcToken('USDC', provider).catch(() => {})
+            }, 700)
+          }
+          return { success: true, chainId: chain.id }
+        } catch (addErr: any) {
+          const addCode = addErr?.code ?? addErr?.cause?.code
+          const addMsg = String(addErr?.message || '')
+
+          if (addCode === -32002 || addMsg.includes('already pending')) {
+            return {
+              success: false,
+              error: 'A network request is already open in your wallet. Please check MetaMask.',
+            }
+          }
+
+          if (
+            addCode === 4001 ||
+            addMsg.includes('rejected') ||
+            addMsg.includes('canceled') ||
+            addMsg.includes('User rejected')
+          ) {
+            return {
+              success: false,
+              isCanceled: true,
+              error: 'The network addition was canceled in the wallet.',
+            }
+          }
+          const normalized = normalizeAppError(addErr)
+          return {
+            success: false,
+            error: normalized.message || `Failed to add ${chain.name} to wallet.`,
+          }
+        }
+      }
+
+      const normalized = normalizeAppError(switchErr)
+      return {
+        success: false,
+        error: normalized.message || `Failed to switch to ${chain.name}.`,
+      }
+    }
+  }
+
+  activeSwitchTargetChainId = chain.id
+  activeSwitchPromise = executeSwitch().finally(() => {
+    activeSwitchPromise = null
+    activeSwitchTargetChainId = null
+  })
+
+  return activeSwitchPromise
 }
 
 /**

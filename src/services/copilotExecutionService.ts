@@ -26,6 +26,7 @@ import { resolveCanonicalChainKey, getChainDisplayName } from '../config/chainMe
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { addTransaction } from '../utils/history'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
+import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
 
 // Approximate gas cost for Arc L1 operations (paid in USDC or sponsored by Paymaster)
 const ARC_GAS_COST_USDC = parseFloat(SPEED_TIERS.fast.arcGas.estimatedCostUsdc)
@@ -651,6 +652,8 @@ export async function executeDirectCopilotAction(
       userAddress: activeWallet,
       status: 'success',
     })
+
+    recordClientSwapVolume('usdc-yield-vault', amount, realTxHash)
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))

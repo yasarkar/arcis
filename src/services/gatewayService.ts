@@ -8,6 +8,7 @@ import {
   getContract,
   maxUint256,
   parseUnits,
+  formatUnits,
   zeroAddress,
   type Chain,
 } from 'viem'
@@ -56,6 +57,7 @@ export interface GatewayTransferResult {
   mintSignature: string
   mintTxHash: string
   amount: string
+  effectiveAmount?: string
   sourceChain: string
   destinationChain: string
   recipient: string
@@ -568,6 +570,7 @@ export async function transferFromGateway(
     mintSignature,
     mintTxHash,
     amount,
+    effectiveAmount: formatUnits(burnValue, 6),
     sourceChain,
     destinationChain,
     recipient: destRecipient,
