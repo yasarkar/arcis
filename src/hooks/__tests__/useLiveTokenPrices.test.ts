@@ -62,4 +62,12 @@ describe('formatFiatEstimate', () => {
     // 0.00000005 * 80000 = 0.004 (< 0.01)
     expect(formatFiatEstimate('0.00000005', 'cirBTC', mockPrices)).toBe('< $0.01 USD')
   })
+
+  it('never applies counter-token poolExchangeRate to LP tokens and prices them accurately', () => {
+    // 46.36 af-USDC-cirBTC in a pool with BTC rate 467562.71 must NOT become $21M!
+    const btcPoolRate = 467562.71
+    expect(formatFiatEstimate('46.36', 'af-USDC-cirBTC', null, btcPoolRate)).toBe('≈ $46.36 USD')
+    expect(formatFiatEstimate('100', 'af-USDC-EURC', null, 1.082)).toBe('≈ $100.00 USD')
+    expect(formatFiatEstimate('50', 'LP', null, btcPoolRate)).toBe('≈ $50.00 USD')
+  })
 })

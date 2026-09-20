@@ -56,4 +56,17 @@ describe('errorNormalizer', () => {
     expect(normalized.code).toBe('NETWORK_SWITCH_CANCELED')
     expect(normalized.title).toBe('Network Switch Canceled')
   })
+
+  it('correctly normalizes wallet request already pending (-32002) with WALLET_DESYNC category', () => {
+    const pendingErr = {
+      code: -32002,
+      message: 'Resource unavailable - request already pending for origin',
+    }
+
+    const normalized = normalizeAppError(pendingErr)
+    expect(normalized.category).toBe('WALLET_DESYNC')
+    expect(normalized.code).toBe('REQUEST_ALREADY_PENDING')
+    expect(normalized.title).toBe('Wallet Request Pending')
+    expect(normalized.isRetryable).toBe(true)
+  })
 })

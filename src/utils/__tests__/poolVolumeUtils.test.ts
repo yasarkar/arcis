@@ -89,6 +89,23 @@ describe('poolVolumeUtils', () => {
       const parsed = JSON.parse(raw || '[]')
       expect(parsed.length).toBeLessThanOrEqual(100)
     })
+
+    it('tracks 24h volume correctly for usdc-yield-vault', () => {
+      expect(getRollingClientSwapVolume('usdc-yield-vault')).toBe(0)
+      // Deposit 100 USDC into Yield Vault
+      recordClientSwapVolume('usdc-yield-vault', 100, '0xvault_dep_1')
+      expect(getRollingClientSwapVolume('usdc-yield-vault')).toBe(100)
+
+      // Redeem 40 USDC from Yield Vault
+      recordClientSwapVolume('usdc-yield-vault', 40, '0xvault_with_1')
+      expect(getRollingClientSwapVolume('usdc-yield-vault')).toBe(140)
+    })
+
+    it('deduplicates entries with the same txHash to prevent double counting', () => {
+      recordClientSwapVolume('usdc-yield-vault', 50, '0xvault_same_tx')
+      recordClientSwapVolume('usdc-yield-vault', 50, '0xvault_same_tx')
+      expect(getRollingClientSwapVolume('usdc-yield-vault')).toBe(50)
+    })
   })
 
   describe('startLiveVolumeSimulation', () => {

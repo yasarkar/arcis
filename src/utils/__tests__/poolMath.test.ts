@@ -96,10 +96,14 @@ describe('poolMath', () => {
     })
   })
 
-  describe('usePoolsV2MinLpShares (Curve Invariant Slippage Guard)', () => {
-    // Import helper from usePoolsData
+  describe('computeMinLpShares (Curve Invariant Slippage Guard)', () => {
+    it('provides backwards-compatible alias usePoolsV2MinLpShares', async () => {
+      const { computeMinLpShares, usePoolsV2MinLpShares } = await import('../../hooks/usePoolsData')
+      expect(usePoolsV2MinLpShares).toBe(computeMinLpShares)
+    })
+
     it('calculates exact Curve LP shares with 0.5% slippage on balanced reserves', async () => {
-      const { usePoolsV2MinLpShares } = await import('../../hooks/usePoolsData')
+      const { computeMinLpShares } = await import('../../hooks/usePoolsData')
       const pool = { id: 'usdc-eurc-stable-pool' }
       const poolAddress = '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22'
       const poolState = {
@@ -112,7 +116,7 @@ describe('poolMath', () => {
       // Add 10 USDC and 10 EURC
       const amountA = 10_000_000n // 10 USDC
       const amountB = 10_000_000n // 10 EURC
-      const minLp = usePoolsV2MinLpShares(pool, poolAddress, poolState, amountA, amountB, 6, 0.5)
+      const minLp = computeMinLpShares(pool, poolAddress, poolState, amountA, amountB, 6, 0.5)
 
       // In a 50+50 pool adding 10+10, expected LP is exactly 20. With 0.5% slippage, minLp is 19.9
       const minLpUnits = Number(minLp) / 1e18
@@ -120,7 +124,7 @@ describe('poolMath', () => {
     })
 
     it('calculates accurate Curve LP shares without inflating on imbalanced reserves', async () => {
-      const { usePoolsV2MinLpShares } = await import('../../hooks/usePoolsData')
+      const { computeMinLpShares } = await import('../../hooks/usePoolsData')
       const pool = { id: 'usdc-eurc-stable-pool' }
       const poolAddress = '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22'
       const poolState = {
@@ -133,7 +137,7 @@ describe('poolMath', () => {
       // Adding 15 USDC and 34.93 EURC (real testnet user deposit scenario)
       const amountA = 15_000_000n
       const amountB = 34_930_293n
-      const minLp = usePoolsV2MinLpShares(pool, poolAddress, poolState, amountA, amountB, 6, 0.5)
+      const minLp = computeMinLpShares(pool, poolAddress, poolState, amountA, amountB, 6, 0.5)
 
       const minLpUnits = Number(minLp) / 1e18
       // Real Curve invariant gives ~49.85 LP tokens -> with 0.5% slippage guard: ~49.60 LP tokens
@@ -144,10 +148,10 @@ describe('poolMath', () => {
     })
 
     it('returns 0n when pool is unseeded or reserves are missing', async () => {
-      const { usePoolsV2MinLpShares } = await import('../../hooks/usePoolsData')
+      const { computeMinLpShares } = await import('../../hooks/usePoolsData')
       const pool = { id: 'usdc-eurc-stable-pool' }
       const poolAddress = '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22'
-      const minLp = usePoolsV2MinLpShares(pool, poolAddress, {}, 10_000_000n, 10_000_000n, 6, 0.5)
+      const minLp = computeMinLpShares(pool, poolAddress, {}, 10_000_000n, 10_000_000n, 6, 0.5)
       expect(minLp).toBe(0n)
     })
   })
