@@ -2,7 +2,7 @@
 // Reads real reserves / vault state from Arc Testnet contracts and submits
 // real transactions via the connected wallet provider.
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import {
   erc20Abi,
   formatUnits,
@@ -88,22 +88,58 @@ function isDeployed(address: string): boolean {
   return Boolean(address && address !== zeroAddress && address.startsWith('0x'))
 }
 
-// Safe storage helper with SSR & sandbox protection
-const safeStorage = {
+// Safe storage helper with SSR, sandbox, sessionStorage, and memory fallback
+const memoryStorageFallback = new Map<string, string>()
+
+export const safeStorage = {
   get: (key: string): string | null => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key)
+        const val = window.localStorage.getItem(key)
+        if (val !== null) return val
       }
     } catch {}
-    return null
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const val = window.sessionStorage.getItem(key)
+        if (val !== null) return val
+      }
+    } catch {}
+    return memoryStorageFallback.get(key) ?? null
   },
   set: (key: string, val: string): void => {
+    let persisted = false
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(key, val)
+        persisted = true
       }
     } catch {}
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem(key, val)
+        persisted = true
+      }
+    } catch {}
+    if (!persisted) {
+      memoryStorageFallback.set(key, val)
+    }
+  },
+  remove: (key: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key)
+      }
+    } catch {}
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem(key)
+      }
+    } catch {}
+    memoryStorageFallback.delete(key)
+  },
+  clearMemory: (): void => {
+    memoryStorageFallback.clear()
   },
 }
 
@@ -188,6 +224,13 @@ export function setPoolYieldClaimCheckpoint(userAddr: string, poolId: string, ch
   safeStorage.set(`arcis:pool:vault_claimed:${key}`, String(checkpointUsd))
 }
 
+export function resetPoolCheckpointsForTesting(): void {
+  memoryStakingTimestamps.clear()
+  memoryClaimFeeCheckpoints.clear()
+  memoryYieldClaimCheckpoints.clear()
+  safeStorage.clearMemory()
+}
+
 // Memory-only Gateway deposit tracking (Zero LocalStorage)
 export const recordGatewayDeposit = (_userAddr: string, _amount: number) => {}
 export const recordGatewayWithdrawal = (_userAddr: string, _amount: number) => {}
@@ -196,7 +239,7 @@ export const getLocalGatewayDeposits = (_userAddr: string): number => 0
 // V2/V3 helper: estimate expected LP shares from on-chain reserves and derive a
 // conservative minLpShares slippage guard. For Curve StableSwap pools, uses the exact
 // invariant _getD matching StableSwapPoolV3.sol to prevent false SlippageExceeded reverts.
-export function usePoolsV2MinLpShares(
+export function computeMinLpShares(
   pool: { id: string; tokens?: readonly { decimals?: number }[] },
   poolAddress: string,
   poolState: Record<string, any> | undefined,
@@ -241,8 +284,665 @@ export function usePoolsV2MinLpShares(
   return poolMinLpShares(expectedLp, slipBps)
 }
 
+/** @deprecated Use computeMinLpShares instead */
+export const usePoolsV2MinLpShares = computeMinLpShares
 
-export function usePoolsData(walletAddress: string, provider?: any) {
+export const ONCHAIN_POOL_STATE_QUERY_KEY = ['onchainPoolState'] as const
+
+/**
+ * Retrieves last persisted on-chain pool state from localStorage for instantaneous 0ms first-paint.
+ */
+export function getLastKnownPoolState(): Record<string, any> | undefined {
+  try {
+    const raw = safeStorage.get('arcis:pools:state:last')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        return parsed
+      }
+    }
+  } catch {}
+  return undefined
+}
+
+/**
+ * Public, wallet-independent on-chain pool state reader (StableSwap, ConstantProduct, YieldVault).
+ * Queries reserves, total LP shares, and 24h volume metrics via multicall.
+ */
+export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
+  const cacheKey = 'arcis:pools:state'
+  const cached = await redisCache.get<Record<string, any>>(cacheKey)
+  if (cached && Object.keys(cached).length > 0) {
+    return cached
+  }
+
+  const publicClient = getArcPublicClient()
+  const state: Record<string, any> = {}
+
+  // StableSwapPool (USDC/EURC) via Multicall3
+  if (isDeployed(POOL_CONTRACTS.STABLE_SWAP_POOL)) {
+    try {
+      const fnNames = [
+        'reserveA',
+        'reserveB',
+        'totalLp',
+        'unclaimedFeeA',
+        'unclaimedFeeB',
+        'accumulatedFeeA',
+        'accumulatedFeeB',
+        'swapFeeBps',
+        'volume24hA',
+        'volume24hB',
+      ] as const
+
+      const calls = fnNames.map((fn) => ({
+        address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
+        abi: STABLE_SWAP_ABI,
+        functionName: fn,
+      }))
+
+      const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+      const val = (idx: number, fallback: bigint = 0n) =>
+        results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
+      state[POOL_CONTRACTS.STABLE_SWAP_POOL] = {
+        reserveA: formatUnits(val(0), 6),
+        reserveB: formatUnits(val(1), 6),
+        totalLp: formatUnits(val(2), 18),
+        unclaimedFeeA: formatUnits(val(3), 6),
+        unclaimedFeeB: formatUnits(val(4), 6),
+        accumulatedFeeA: formatUnits(val(5), 6),
+        accumulatedFeeB: formatUnits(val(6), 6),
+        swapFeeBps: Number(val(7, 12n)),
+        volume24hA: formatUnits(val(8), 6),
+        volume24hB: formatUnits(val(9), 6),
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] StableSwap multicall state read failed:', err)
+    }
+  }
+
+  // ConstantProductPool (USDC/cirBTC) via Multicall3
+  const cpAddresses = [
+    POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
+  ].filter((addr, idx, arr) => isDeployed(addr) && arr.indexOf(addr) === idx)
+
+  for (const cpAddr of cpAddresses) {
+    try {
+      const fnNames = [
+        'reserveA',
+        'reserveB',
+        'totalLp',
+        'unclaimedFeeA',
+        'unclaimedFeeB',
+        'accumulatedFeeA',
+        'accumulatedFeeB',
+        'swapFeeBps',
+        'volume24hA',
+        'volume24hB',
+      ] as const
+
+      const calls = fnNames.map((fn) => ({
+        address: cpAddr as Address,
+        abi: CONSTANT_PRODUCT_ABI,
+        functionName: fn,
+      }))
+
+      const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+      const val = (idx: number, fallback: bigint = 0n) =>
+        results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
+      state[cpAddr] = {
+        reserveA: formatUnits(val(0), 6),
+        reserveB: formatUnits(val(1), 8),
+        totalLp: formatUnits(val(2), 18),
+        unclaimedFeeA: formatUnits(val(3), 6),
+        unclaimedFeeB: formatUnits(val(4), 8),
+        accumulatedFeeA: formatUnits(val(5), 6),
+        accumulatedFeeB: formatUnits(val(6), 8),
+        swapFeeBps: Number(val(7, 25n)),
+        volume24hA: formatUnits(val(8), 6),
+        volume24hB: formatUnits(val(9), 8),
+      }
+    } catch (err) {
+      console.warn(`[usePoolsData] ConstantProduct multicall state read failed for ${cpAddr}:`, err)
+    }
+  }
+
+  // YieldVault (ERC-4626) via Multicall3
+  if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
+    try {
+      const totalYieldAbi = [
+        {
+          type: 'function',
+          name: 'totalYieldDistributed',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [{ type: 'uint256' }],
+        },
+      ] as const
+
+      const calls = [
+        { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalAssets' },
+        { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalSupply' },
+        { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: totalYieldAbi, functionName: 'totalYieldDistributed' },
+      ]
+
+      const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+      const val = (idx: number) =>
+        results[idx]?.status === 'success' ? (results[idx].result as bigint) : 0n
+
+      let onchainVaultVol = 0
+      try {
+        const currentBlock = await publicClient.getBlockNumber().catch(() => 0n)
+        if (currentBlock > 0n) {
+          const fromBlock = currentBlock > 2000n ? currentBlock - 2000n : 0n
+          const [depEvents, withEvents] = await Promise.all([
+            publicClient.getContractEvents({
+              address: POOL_CONTRACTS.YIELD_VAULT as Address,
+              abi: YIELD_VAULT_ABI,
+              eventName: 'Deposit',
+              fromBlock,
+              toBlock: 'latest',
+            }).catch(() => []),
+            publicClient.getContractEvents({
+              address: POOL_CONTRACTS.YIELD_VAULT as Address,
+              abi: YIELD_VAULT_ABI,
+              eventName: 'Withdraw',
+              fromBlock,
+              toBlock: 'latest',
+            }).catch(() => []),
+          ])
+          for (const ev of depEvents) {
+            if (ev.args && (ev.args as any).assets) {
+              const amt = parseFloat(formatUnits((ev.args as any).assets, 6))
+              onchainVaultVol += amt
+              if (amt > 0 && ev.transactionHash) {
+                recordClientSwapVolume('usdc-yield-vault', amt, ev.transactionHash)
+              }
+            }
+          }
+          for (const ev of withEvents) {
+            if (ev.args && (ev.args as any).assets) {
+              const amt = parseFloat(formatUnits((ev.args as any).assets, 6))
+              onchainVaultVol += amt
+              if (amt > 0 && ev.transactionHash) {
+                recordClientSwapVolume('usdc-yield-vault', amt, ev.transactionHash)
+              }
+            }
+          }
+        }
+      } catch (logErr) {
+        console.warn('[usePoolsData] YieldVault on-chain events read warning:', logErr)
+      }
+
+      state[POOL_CONTRACTS.YIELD_VAULT] = {
+        totalAssets: formatUnits(val(0), 6),
+        totalSupply: formatUnits(val(1), 6),
+        totalYieldDistributed: formatUnits(val(2), 6),
+        volume24h: onchainVaultVol.toFixed(2),
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] YieldVault multicall state read failed:', err)
+    }
+  }
+
+  if (Object.keys(state).length > 0) {
+    await redisCache.set(cacheKey, state, 20)
+    try {
+      safeStorage.set('arcis:pools:state:last', JSON.stringify(state))
+    } catch {}
+  }
+
+  return state
+}
+
+/**
+ * Eagerly prefetches global pool states and live token prices into TanStack Query in the background.
+ * Call this at app mount so the Pools & Yield view renders with 0ms delay.
+ */
+export async function prefetchPoolsData(queryClient: QueryClient): Promise<void> {
+  if (!queryClient) return
+  await Promise.allSettled([
+    queryClient.prefetchQuery({
+      queryKey: ONCHAIN_POOL_STATE_QUERY_KEY,
+      queryFn: fetchOnchainPoolState,
+      staleTime: 30_000,
+    }),
+    queryClient.prefetchQuery({
+      queryKey: ['liveTokenPrices'],
+      queryFn: getLiveTokenPrices,
+      staleTime: 30_000,
+    }),
+  ])
+}
+
+/**
+ * Reads real wallet token balances (USDC, EURC, cirBTC) on Arc Testnet.
+ */
+export async function fetchOnchainPoolBalances(
+  walletAddress: string
+): Promise<{ usdc: string; usyc: string; eurc: string; cirbtc: string }> {
+  const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
+  if (!isAddressValid) {
+    return { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000' }
+  }
+
+  const cacheKey = `arcis:pools:balances:${walletAddress}`
+  const cached = await redisCache.get<any>(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  const publicClient = getArcPublicClient()
+  const targetAddr = walletAddress as `0x${string}`
+  let usdcFormatted = '0.00'
+  let eurcFormatted = '0.00'
+  let cirbtcFormatted = '0.0000'
+
+  try {
+    const usdcRaw = (await resilientReadContract(publicClient, {
+      address: POOL_CONTRACTS.USDC,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [targetAddr],
+    })) as bigint
+    usdcFormatted = parseFloat(formatUnits(usdcRaw, 6)).toFixed(2)
+  } catch (err) {
+    console.warn('[usePoolsData] USDC read failed:', err)
+  }
+
+  try {
+    const eurcRaw = (await resilientReadContract(publicClient, {
+      address: POOL_CONTRACTS.EURC,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [targetAddr],
+    })) as bigint
+    eurcFormatted = parseFloat(formatUnits(eurcRaw, 6)).toFixed(2)
+  } catch {
+    eurcFormatted = '0.00'
+  }
+
+  try {
+    const cirbtcRaw = (await resilientReadContract(publicClient, {
+      address: POOL_CONTRACTS.cirBTC,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [targetAddr],
+    })) as bigint
+    const btcVal = parseFloat(formatUnits(cirbtcRaw, 8))
+    cirbtcFormatted = btcVal > 0 ? (btcVal < 0.0001 ? btcVal.toFixed(8) : btcVal.toFixed(6)) : '0.000000'
+  } catch {
+    cirbtcFormatted = '0.000000'
+  }
+
+  const result = {
+    usdc: usdcFormatted,
+    usyc: '0.00',
+    eurc: eurcFormatted,
+    cirbtc: cirbtcFormatted,
+  }
+  await redisCache.set(cacheKey, result, 20)
+  return result
+}
+
+/**
+ * Reads real user pool positions (ERC-4626 YieldVault, StableSwap LP, ConstantProduct LP) on Arc Testnet.
+ */
+export async function fetchUserPoolPositions(
+  walletAddress: string,
+  passedPoolState?: Record<string, any>,
+  passedPrices?: { btc?: number; eurc?: number }
+): Promise<Record<string, UserPoolPosition>> {
+  const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
+  if (!isAddressValid) return {}
+  const targetAddr = walletAddress as `0x${string}`
+  const cacheKey = `arcis:pools:positions:${walletAddress.toLowerCase()}`
+
+  // Short memory cache debounce (20s)
+  const cached = await redisCache.get<Record<string, UserPoolPosition>>(cacheKey)
+  if (cached && Object.keys(cached).length > 0) {
+    return cached
+  }
+
+  const publicClient = getArcPublicClient()
+  const onchainPoolState = passedPoolState || (await fetchOnchainPoolState())
+  const liveEurcPrice = passedPrices?.eurc ?? (isLivePriceAvailable() ? getCachedTokenPrice('EURC') : 1.08)
+  const liveBtcPrice = passedPrices?.btc ?? (isLivePriceAvailable() ? getCachedTokenPrice('BTC') : 78500)
+
+  const positions: Record<string, UserPoolPosition> = {}
+
+  // 1. YieldVault (ERC-4626)
+  if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
+    try {
+      const sharesRaw = (await resilientReadContract(publicClient, {
+        address: POOL_CONTRACTS.YIELD_VAULT,
+        abi: YIELD_VAULT_ABI,
+        functionName: 'balanceOf',
+        args: [targetAddr],
+      })) as bigint
+
+      if (sharesRaw > 0n) {
+        let assetsUsdc = 0
+        let userEarnedUsd = 0
+        const principalUsdc = parseFloat(formatUnits(sharesRaw, 6))
+
+        let rawVaultProfit = 0
+        try {
+          const previewAssets = (await resilientReadContract(publicClient, {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: 'previewRedeem',
+            args: [sharesRaw],
+          })) as bigint
+          assetsUsdc = parseFloat(formatUnits(previewAssets, 6))
+          if (assetsUsdc > principalUsdc) {
+            rawVaultProfit = assetsUsdc - principalUsdc
+          }
+        } catch {
+          let totalAssets = 0n
+          let totalSupply = 0n
+          try {
+            const [ta, ts] = await Promise.all([
+              resilientReadContract(publicClient, { address: POOL_CONTRACTS.YIELD_VAULT, abi: YIELD_VAULT_ABI, functionName: 'totalAssets' }),
+              resilientReadContract(publicClient, { address: POOL_CONTRACTS.YIELD_VAULT, abi: YIELD_VAULT_ABI, functionName: 'totalSupply' }),
+            ])
+            totalAssets = ta as bigint
+            totalSupply = ts as bigint
+          } catch (e) {
+            console.warn('[usePoolsData] YieldVault direct stats fetch warning:', e)
+            const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
+            totalAssets = vaultState?.totalAssets ? parseUnits(vaultState.totalAssets, 6) : 0n
+            totalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, 6) : 0n
+          }
+
+          if (totalSupply > 0n && totalAssets > 0n) {
+            const userAssetsRaw = (sharesRaw * totalAssets) / totalSupply
+            assetsUsdc = parseFloat(formatUnits(userAssetsRaw, 6))
+            if (assetsUsdc > principalUsdc) {
+              rawVaultProfit = assetsUsdc - principalUsdc
+            }
+          } else {
+            assetsUsdc = principalUsdc
+          }
+        }
+
+        let liveTotalSupply = 0n
+        try {
+          liveTotalSupply = (await resilientReadContract(publicClient, {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: 'totalSupply',
+          })) as bigint
+        } catch {
+          const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
+          liveTotalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, 6) : 0n
+        }
+
+        const poolSharePct = liveTotalSupply > 0n
+          ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(2))))
+          : 0
+
+        const vaultClaimCheckpoint = getPoolYieldClaimCheckpoint(targetAddr, 'usdc-yield-vault')
+        const netVaultAppreciation = Math.max(0, rawVaultProfit - vaultClaimCheckpoint)
+
+        const vaultApy = ARCIS_POOLS.find((p) => p.id === 'usdc-yield-vault')?.apy ?? 8.42
+        let depTimestamp = getPoolStakingTimestamp(targetAddr, 'usdc-yield-vault')
+        if (!depTimestamp && sharesRaw > 0n) {
+          depTimestamp = Date.now() - 48 * 3600 * 1000
+          setPoolStakingTimestamp(targetAddr, 'usdc-yield-vault', depTimestamp)
+        }
+        const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
+        const apyAccruedUsd = (assetsUsdc * (vaultApy / 100) * elapsedSec) / (365 * 86400)
+
+        if (netVaultAppreciation > 0) {
+          userEarnedUsd = netVaultAppreciation
+        } else if (apyAccruedUsd > 0) {
+          userEarnedUsd = apyAccruedUsd
+        }
+
+        positions['usdc-yield-vault'] = {
+          poolId: 'usdc-yield-vault',
+          stakedAmount: assetsUsdc.toFixed(2),
+          stakedUsd: assetsUsdc,
+          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedUsd: userEarnedUsd,
+          lastUpdatedTimestamp: Date.now(),
+          lpTokenBalance: formatUnits(sharesRaw, 6),
+          poolSharePct,
+          earnedFeesUsd: rawVaultProfit,
+        }
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] YieldVault user balance read failed:', err)
+    }
+  }
+
+  // 2. StableSwapPool (USDC / EURC LP)
+  if (isDeployed(POOL_CONTRACTS.STABLE_SWAP_POOL)) {
+    try {
+      const lpRaw = (await resilientReadContract(publicClient, {
+        address: POOL_CONTRACTS.STABLE_SWAP_POOL,
+        abi: STABLE_SWAP_ABI,
+        functionName: 'balanceOf',
+        args: [targetAddr],
+      })) as bigint
+
+      if (lpRaw > 0n) {
+        let reserveA = 0n
+        let reserveB = 0n
+        let totalLp = 0n
+        let unclaimedA = 0n
+        let unclaimedB = 0n
+
+        try {
+          const [rA, rB, tLp, uA, uB] = await Promise.all([
+            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }),
+            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }),
+            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }),
+            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeA' }),
+            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeB' }),
+          ])
+          reserveA = rA as bigint
+          reserveB = rB as bigint
+          totalLp = tLp as bigint
+          unclaimedA = (uA as bigint) || 0n
+          unclaimedB = (uB as bigint) || 0n
+        } catch (e) {
+          console.warn('[usePoolsData] StableSwap direct reserves fetch warning:', e)
+          const poolState = onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]
+          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
+          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
+          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 6) : 0n
+          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
+          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 6) : 0n
+        }
+
+        let stakedUsd = 0
+        let userA = 0
+        let userB = 0
+        let poolSharePct = 0
+        let userEarnedUsd = 0
+        let rawFeeShareUsd = 0
+
+        if (totalLp > 0n) {
+          const userARaw = (reserveA * lpRaw) / totalLp
+          const userBRaw = (reserveB * lpRaw) / totalLp
+          userA = parseFloat(formatUnits(userARaw, 6))
+          userB = parseFloat(formatUnits(userBRaw, 6))
+          const exchangeRate = liveEurcPrice
+          stakedUsd = userA + userB * exchangeRate
+          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+
+          const ufA = parseFloat(formatUnits(unclaimedA, 6))
+          const ufB = parseFloat(formatUnits(unclaimedB, 6))
+          const totalPoolUnclaimedUsd = ufA + ufB * liveEurcPrice
+          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+          const feeCheckpoint = getPoolClaimFeeCheckpoint(targetAddr, 'usdc-eurc-stable-pool')
+          const feeEarnedUsd = Math.max(0, rawFeeShareUsd - feeCheckpoint)
+
+          const poolApy = ARCIS_POOLS.find((p) => p.id === 'usdc-eurc-stable-pool')?.apy ?? 6.15
+          let depTimestamp = getPoolStakingTimestamp(targetAddr, 'usdc-eurc-stable-pool')
+          if (!depTimestamp && lpRaw > 0n) {
+            depTimestamp = Date.now() - 48 * 3600 * 1000
+            setPoolStakingTimestamp(targetAddr, 'usdc-eurc-stable-pool', depTimestamp)
+          }
+          const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
+          const apyAccruedUsd = (stakedUsd * (poolApy / 100) * elapsedSec) / (365 * 86400)
+          userEarnedUsd = feeEarnedUsd + apyAccruedUsd
+        } else {
+          stakedUsd = parseFloat(formatUnits(lpRaw, 18))
+        }
+
+        positions['usdc-eurc-stable-pool'] = {
+          poolId: 'usdc-eurc-stable-pool',
+          stakedAmount: stakedUsd.toFixed(2),
+          stakedUsd,
+          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedUsd: userEarnedUsd,
+          lastUpdatedTimestamp: Date.now(),
+          isLpPosition: true,
+          lpTokenBalance: formatUnits(lpRaw, 18),
+          poolSharePct,
+          tokenAStaked: userA.toFixed(2),
+          tokenBStaked: userB.toFixed(2),
+          earnedFeesUsd: rawFeeShareUsd,
+        }
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] StableSwap user balance read failed:', err)
+    }
+  }
+
+  // 3. ConstantProductPool (USDC / cirBTC LP)
+  const cirBtcPool = ARCIS_POOLS.find((p) => p.id === 'usdc-cirbtc-pool')
+  const cpAddress = cirBtcPool?.contractAddress || POOL_CONTRACTS.CONSTANT_PRODUCT_POOL
+  if (isDeployed(cpAddress)) {
+    try {
+      const lpRaw = (await resilientReadContract(publicClient, {
+        address: cpAddress,
+        abi: CONSTANT_PRODUCT_ABI,
+        functionName: 'balanceOf',
+        args: [targetAddr],
+      })) as bigint
+      if (lpRaw > 0n) {
+        let reserveA = 0n
+        let reserveB = 0n
+        let totalLp = 0n
+        let unclaimedA = 0n
+        let unclaimedB = 0n
+
+        try {
+          const [rA, rB, tLp, uA, uB] = await Promise.all([
+            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
+            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
+            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
+            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
+            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
+          ])
+          reserveA = rA as bigint
+          reserveB = rB as bigint
+          totalLp = tLp as bigint
+          unclaimedA = (uA as bigint) || 0n
+          unclaimedB = (uB as bigint) || 0n
+        } catch (e) {
+          console.warn('[usePoolsData] ConstantProduct direct reserves fetch warning:', e)
+          const poolState = onchainPoolState?.[cpAddress]
+          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
+          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
+          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 8) : 0n
+          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
+          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 8) : 0n
+        }
+
+        let stakedUsd = 0
+        let userA = 0
+        let userB = 0
+        let poolSharePct = 0
+        let userEarnedUsd = 0
+        let rawFeeShareUsd = 0
+
+        if (totalLp > 0n) {
+          const userARaw = (reserveA * lpRaw) / totalLp
+          const userBRaw = (reserveB * lpRaw) / totalLp
+          userA = parseFloat(formatUnits(userARaw, 6))
+          userB = parseFloat(formatUnits(userBRaw, 8))
+          const btcPrice = liveBtcPrice
+          stakedUsd = userA + userB * btcPrice
+          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+
+          const ufA = parseFloat(formatUnits(unclaimedA, 6))
+          const ufB = parseFloat(formatUnits(unclaimedB, 8))
+          const totalPoolUnclaimedUsd = ufA + ufB * liveBtcPrice
+          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+          const poolIdKey = cirBtcPool?.id || 'usdc-cirbtc-pool'
+          const feeCheckpoint = getPoolClaimFeeCheckpoint(targetAddr, poolIdKey)
+          const feeEarnedUsd = Math.max(0, rawFeeShareUsd - feeCheckpoint)
+
+          const poolApy = ARCIS_POOLS.find((p) => p.id === poolIdKey)?.apy ?? 12.80
+          let depTimestamp = getPoolStakingTimestamp(targetAddr, poolIdKey)
+          if (!depTimestamp && lpRaw > 0n) {
+            depTimestamp = Date.now() - 48 * 3600 * 1000
+            setPoolStakingTimestamp(targetAddr, poolIdKey, depTimestamp)
+          }
+          const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
+          const apyAccruedUsd = (stakedUsd * (poolApy / 100) * elapsedSec) / (365 * 86400)
+          userEarnedUsd = feeEarnedUsd + apyAccruedUsd
+        } else {
+          stakedUsd = parseFloat(formatUnits(lpRaw, 18))
+        }
+
+        const poolIdKey = cirBtcPool?.id || 'usdc-cirbtc-pool'
+        positions[poolIdKey] = {
+          poolId: poolIdKey,
+          stakedAmount: stakedUsd.toFixed(2),
+          stakedUsd,
+          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedUsd: userEarnedUsd,
+          lastUpdatedTimestamp: Date.now(),
+          isLpPosition: true,
+          lpTokenBalance: formatUnits(lpRaw, 18),
+          poolSharePct,
+          tokenAStaked: userA.toFixed(2),
+          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
+          earnedFeesUsd: rawFeeShareUsd,
+        }
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] ConstantProduct user balance read failed:', err)
+    }
+  }
+
+  if (Object.keys(positions).length > 0) {
+    await redisCache.set(cacheKey, positions, 20)
+  }
+  return positions
+}
+
+/**
+ * Eagerly prefetches user wallet token balances and staking positions into TanStack Query cache.
+ */
+export async function prefetchUserWalletPoolsData(
+  queryClient: QueryClient,
+  walletAddress: string
+): Promise<void> {
+  if (!queryClient || !walletAddress || !walletAddress.startsWith('0x')) return
+  await Promise.allSettled([
+    queryClient.prefetchQuery({
+      queryKey: ['onchainPoolBalances', walletAddress],
+      queryFn: () => fetchOnchainPoolBalances(walletAddress),
+      staleTime: 30_000,
+    }),
+    queryClient.prefetchQuery({
+      queryKey: ['userPoolPositions', walletAddress],
+      queryFn: () => fetchUserPoolPositions(walletAddress),
+      staleTime: 20_000,
+    }),
+  ])
+}
+
+export function usePoolsData(walletAddress: string, provider?: unknown) {
   const queryClient = useQueryClient()
   const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
 
@@ -293,68 +993,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     refetch: refetchOnchainBalances,
   } = useQuery({
     queryKey: ['onchainPoolBalances', walletAddress],
-    queryFn: async () => {
-      if (!isAddressValid) {
-        return { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000' }
-      }
-
-      const cacheKey = `arcis:pools:balances:${walletAddress}`
-      const cached = await redisCache.get<any>(cacheKey)
-      if (cached) {
-        return cached
-      }
-
-      const targetAddr = walletAddress as `0x${string}`
-      let usdcFormatted = '0.00'
-      let eurcFormatted = '0.00'
-      let cirbtcFormatted = '0.0000'
-
-      try {
-        const usdcRaw = (await resilientReadContract(publicClient, {
-          address: POOL_CONTRACTS.USDC,
-          abi: erc20Abi,
-          functionName: 'balanceOf',
-          args: [targetAddr],
-        })) as bigint
-        usdcFormatted = parseFloat(formatUnits(usdcRaw, 6)).toFixed(2)
-      } catch (err) {
-        console.warn('[usePoolsData] USDC read failed:', err)
-      }
-
-      try {
-        const eurcRaw = (await resilientReadContract(publicClient, {
-          address: POOL_CONTRACTS.EURC,
-          abi: erc20Abi,
-          functionName: 'balanceOf',
-          args: [targetAddr],
-        })) as bigint
-        eurcFormatted = parseFloat(formatUnits(eurcRaw, 6)).toFixed(2)
-      } catch {
-        eurcFormatted = '0.00'
-      }
-
-      try {
-        const cirbtcRaw = (await resilientReadContract(publicClient, {
-          address: POOL_CONTRACTS.cirBTC,
-          abi: erc20Abi,
-          functionName: 'balanceOf',
-          args: [targetAddr],
-        })) as bigint
-        const btcVal = parseFloat(formatUnits(cirbtcRaw, 8))
-        cirbtcFormatted = btcVal > 0 ? (btcVal < 0.0001 ? btcVal.toFixed(8) : btcVal.toFixed(6)) : '0.000000'
-      } catch {
-        cirbtcFormatted = '0.000000'
-      }
-
-      const result = {
-        usdc: usdcFormatted,
-        usyc: '0.00',
-        eurc: eurcFormatted,
-        cirbtc: cirbtcFormatted,
-      }
-      await redisCache.set(cacheKey, result, 20)
-      return result
-    },
+    queryFn: () => fetchOnchainPoolBalances(walletAddress),
     enabled: isAddressValid,
     staleTime: 30_000,
     refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 60_000),
@@ -366,143 +1005,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     data: onchainPoolState,
     refetch: refetchPoolState,
   } = useQuery({
-    queryKey: ['onchainPoolState', walletAddress],
-    queryFn: async () => {
-      const cacheKey = 'arcis:pools:state'
-      const cached = await redisCache.get<Record<string, any>>(cacheKey)
-      if (cached) {
-        return cached
-      }
-
-      const state: Record<string, any> = {}
-
-      // StableSwapPool (USDC/EURC) via Multicall3
-      if (isDeployed(POOL_CONTRACTS.STABLE_SWAP_POOL)) {
-        try {
-          const fnNames = [
-            'reserveA',
-            'reserveB',
-            'totalLp',
-            'unclaimedFeeA',
-            'unclaimedFeeB',
-            'accumulatedFeeA',
-            'accumulatedFeeB',
-            'swapFeeBps',
-            'volume24hA',
-            'volume24hB',
-          ] as const
-
-          const calls = fnNames.map((fn) => ({
-            address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
-            abi: STABLE_SWAP_ABI,
-            functionName: fn,
-          }))
-
-          const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
-          const val = (idx: number, fallback: bigint = 0n) =>
-            results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
-
-          state[POOL_CONTRACTS.STABLE_SWAP_POOL] = {
-            reserveA: formatUnits(val(0), 6),
-            reserveB: formatUnits(val(1), 6),
-            totalLp: formatUnits(val(2), 18),
-            unclaimedFeeA: formatUnits(val(3), 6),
-            unclaimedFeeB: formatUnits(val(4), 6),
-            accumulatedFeeA: formatUnits(val(5), 6),
-            accumulatedFeeB: formatUnits(val(6), 6),
-            swapFeeBps: Number(val(7, 12n)),
-            volume24hA: formatUnits(val(8), 6),
-            volume24hB: formatUnits(val(9), 6),
-          }
-        } catch (err) {
-          console.warn('[usePoolsData] StableSwap multicall state read failed:', err)
-        }
-      }
-
-      // ConstantProductPool (USDC/cirBTC) via Multicall3
-      const cpAddresses = [
-        POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
-      ].filter((addr, idx, arr) => isDeployed(addr) && arr.indexOf(addr) === idx)
-
-      for (const cpAddr of cpAddresses) {
-        try {
-          const fnNames = [
-            'reserveA',
-            'reserveB',
-            'totalLp',
-            'unclaimedFeeA',
-            'unclaimedFeeB',
-            'accumulatedFeeA',
-            'accumulatedFeeB',
-            'swapFeeBps',
-            'volume24hA',
-            'volume24hB',
-          ] as const
-
-          const calls = fnNames.map((fn) => ({
-            address: cpAddr as Address,
-            abi: CONSTANT_PRODUCT_ABI,
-            functionName: fn,
-          }))
-
-          const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
-          const val = (idx: number, fallback: bigint = 0n) =>
-            results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
-
-          state[cpAddr] = {
-            reserveA: formatUnits(val(0), 6),
-            reserveB: formatUnits(val(1), 8),
-            totalLp: formatUnits(val(2), 18),
-            unclaimedFeeA: formatUnits(val(3), 6),
-            unclaimedFeeB: formatUnits(val(4), 8),
-            accumulatedFeeA: formatUnits(val(5), 6),
-            accumulatedFeeB: formatUnits(val(6), 8),
-            swapFeeBps: Number(val(7, 25n)),
-            volume24hA: formatUnits(val(8), 6),
-            volume24hB: formatUnits(val(9), 8),
-          }
-        } catch (err) {
-          console.warn(`[usePoolsData] ConstantProduct multicall state read failed for ${cpAddr}:`, err)
-        }
-      }
-
-      // YieldVault (ERC-4626) via Multicall3
-      if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
-        try {
-          const totalYieldAbi = [
-            {
-              type: 'function',
-              name: 'totalYieldDistributed',
-              stateMutability: 'view',
-              inputs: [],
-              outputs: [{ type: 'uint256' }],
-            },
-          ] as const
-
-          const calls = [
-            { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalAssets' },
-            { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalSupply' },
-            { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: totalYieldAbi, functionName: 'totalYieldDistributed' },
-          ]
-
-          const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
-          const val = (idx: number) =>
-            results[idx]?.status === 'success' ? (results[idx].result as bigint) : 0n
-
-          state[POOL_CONTRACTS.YIELD_VAULT] = {
-            totalAssets: formatUnits(val(0), 6),
-            totalSupply: formatUnits(val(1), 6),
-            totalYieldDistributed: formatUnits(val(2), 6),
-          }
-        } catch (err) {
-          console.warn('[usePoolsData] YieldVault multicall state read failed:', err)
-        }
-      }
-
-      await redisCache.set(cacheKey, state, 20)
-      return state
-    },
-    enabled: true,
+    queryKey: ONCHAIN_POOL_STATE_QUERY_KEY,
+    queryFn: fetchOnchainPoolState,
+    initialData: getLastKnownPoolState,
     staleTime: 30_000,
     refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 45_000),
     gcTime: 1000 * 60 * 5,
@@ -514,333 +1019,11 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     refetch: refetchUserPositions,
   } = useQuery({
     queryKey: ['userPoolPositions', walletAddress],
-    queryFn: async () => {
-      if (!isAddressValid) return {}
-      const targetAddr = walletAddress as `0x${string}`
-      const cacheKey = `arcis:pools:positions:${walletAddress.toLowerCase()}`
-
-      // Short memory cache debounce (20s)
-      const cached = await redisCache.get<Record<string, UserPoolPosition>>(cacheKey)
-      if (cached && Object.keys(cached).length > 0) {
-        return cached
-      }
-
-      const positions: Record<string, UserPoolPosition> = {}
-
-      // 1. YieldVault (ERC-4626)
-      if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
-        try {
-          const sharesRaw = (await resilientReadContract(publicClient, {
-            address: POOL_CONTRACTS.YIELD_VAULT,
-            abi: YIELD_VAULT_ABI,
-            functionName: 'balanceOf',
-            args: [targetAddr],
-          })) as bigint
-
-          if (sharesRaw > 0n) {
-            let assetsUsdc = 0
-            let userEarnedUsd = 0
-            // In ERC-4626, shares are 6 decimals matching underlying USDC
-            const principalUsdc = parseFloat(formatUnits(sharesRaw, 6))
-
-            let rawVaultProfit = 0
-            // Call previewRedeem directly on the contract to get accurate current USDC assets
-            try {
-              const previewAssets = (await resilientReadContract(publicClient, {
-                address: POOL_CONTRACTS.YIELD_VAULT,
-                abi: YIELD_VAULT_ABI,
-                functionName: 'previewRedeem',
-                args: [sharesRaw],
-              })) as bigint
-              assetsUsdc = parseFloat(formatUnits(previewAssets, 6))
-              if (assetsUsdc > principalUsdc) {
-                rawVaultProfit = assetsUsdc - principalUsdc
-              }
-            } catch {
-              let totalAssets = 0n
-              let totalSupply = 0n
-              try {
-                const [ta, ts] = await Promise.all([
-                  resilientReadContract(publicClient, { address: POOL_CONTRACTS.YIELD_VAULT, abi: YIELD_VAULT_ABI, functionName: 'totalAssets' }),
-                  resilientReadContract(publicClient, { address: POOL_CONTRACTS.YIELD_VAULT, abi: YIELD_VAULT_ABI, functionName: 'totalSupply' }),
-                ])
-                totalAssets = ta as bigint
-                totalSupply = ts as bigint
-              } catch (e) {
-                console.warn('[usePoolsData] YieldVault direct stats fetch warning:', e)
-                let vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
-                totalAssets = vaultState?.totalAssets ? parseUnits(vaultState.totalAssets, 6) : 0n
-                totalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, 6) : 0n
-              }
-
-              if (totalSupply > 0n && totalAssets > 0n) {
-                const userAssetsRaw = (sharesRaw * totalAssets) / totalSupply
-                assetsUsdc = parseFloat(formatUnits(userAssetsRaw, 6))
-                if (assetsUsdc > principalUsdc) {
-                  rawVaultProfit = assetsUsdc - principalUsdc
-                }
-              } else {
-                assetsUsdc = principalUsdc
-              }
-            }
-
-            let liveTotalSupply = 0n
-            try {
-              liveTotalSupply = (await resilientReadContract(publicClient, {
-                address: POOL_CONTRACTS.YIELD_VAULT,
-                abi: YIELD_VAULT_ABI,
-                functionName: 'totalSupply',
-              })) as bigint
-            } catch {
-              let vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
-              liveTotalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, 6) : 0n
-            }
-
-            const poolSharePct = liveTotalSupply > 0n
-              ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(2))))
-              : 0
-
-            // Apply yield vault claim checkpoint to prevent claimed profit from persistently reappearing
-            const vaultClaimCheckpoint = getPoolYieldClaimCheckpoint(targetAddr, 'usdc-yield-vault')
-            const netVaultAppreciation = Math.max(0, rawVaultProfit - vaultClaimCheckpoint)
-
-            // Calculate time-based continuous yield based on vault APY
-            const vaultApy = 8.42
-            let depTimestamp = getPoolStakingTimestamp(targetAddr, 'usdc-yield-vault')
-            if (!depTimestamp && sharesRaw > 0n) {
-              depTimestamp = Date.now() - 48 * 3600 * 1000
-              setPoolStakingTimestamp(targetAddr, 'usdc-yield-vault', depTimestamp)
-            }
-            const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
-            const apyAccruedUsd = (assetsUsdc * (vaultApy / 100) * elapsedSec) / (365 * 86400)
-
-            if (netVaultAppreciation > 0) {
-              userEarnedUsd = netVaultAppreciation
-            } else if (apyAccruedUsd > 0) {
-              userEarnedUsd = apyAccruedUsd
-            }
-
-            positions['usdc-yield-vault'] = {
-              poolId: 'usdc-yield-vault',
-              stakedAmount: assetsUsdc.toFixed(2),
-              stakedUsd: assetsUsdc,
-              earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-              earnedUsd: userEarnedUsd,
-              lastUpdatedTimestamp: Date.now(),
-              lpTokenBalance: formatUnits(sharesRaw, 6),
-              poolSharePct,
-              earnedFeesUsd: rawVaultProfit,
-            }
-          }
-        } catch (err) {
-          console.warn('[usePoolsData] YieldVault user balance read failed:', err)
-        }
-      }
-
-      // 2. StableSwapPool (USDC / EURC LP)
-      if (isDeployed(POOL_CONTRACTS.STABLE_SWAP_POOL)) {
-        try {
-          const lpRaw = (await resilientReadContract(publicClient, {
-            address: POOL_CONTRACTS.STABLE_SWAP_POOL,
-            abi: STABLE_SWAP_ABI,
-            functionName: 'balanceOf',
-            args: [targetAddr],
-          })) as bigint
-
-          if (lpRaw > 0n) {
-            let reserveA = 0n
-            let reserveB = 0n
-            let totalLp = 0n
-            let unclaimedA = 0n
-            let unclaimedB = 0n
-
-            try {
-              const [rA, rB, tLp, uA, uB] = await Promise.all([
-                resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }),
-                resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }),
-                resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }),
-                resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeA' }),
-                resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeB' }),
-              ])
-              reserveA = rA as bigint
-              reserveB = rB as bigint
-              totalLp = tLp as bigint
-              unclaimedA = (uA as bigint) || 0n
-              unclaimedB = (uB as bigint) || 0n
-            } catch (e) {
-              console.warn('[usePoolsData] StableSwap direct reserves fetch warning:', e)
-              let poolState = onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]
-              totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-              reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
-              reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 6) : 0n
-              unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
-              unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 6) : 0n
-            }
-
-            let stakedUsd = 0
-            let userA = 0
-            let userB = 0
-            let poolSharePct = 0
-            let userEarnedUsd = 0
-            let rawFeeShareUsd = 0
-
-            if (totalLp > 0n) {
-              const userARaw = (reserveA * lpRaw) / totalLp
-              const userBRaw = (reserveB * lpRaw) / totalLp
-              userA = parseFloat(formatUnits(userARaw, 6))
-              userB = parseFloat(formatUnits(userBRaw, 6))
-              const exchangeRate = liveEurcPrice
-              stakedUsd = userA + userB * exchangeRate
-              poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
-
-              const ufA = parseFloat(formatUnits(unclaimedA, 6))
-              const ufB = parseFloat(formatUnits(unclaimedB, 6))
-              const totalPoolUnclaimedUsd = ufA + ufB * liveEurcPrice
-              rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-              const feeCheckpoint = getPoolClaimFeeCheckpoint(targetAddr, 'usdc-eurc-stable-pool')
-              const feeEarnedUsd = Math.max(0, rawFeeShareUsd - feeCheckpoint)
-
-              // Calculate time-based continuous yield based on staking duration and pool APY
-              const poolApy = 6.15
-              let depTimestamp = getPoolStakingTimestamp(targetAddr, 'usdc-eurc-stable-pool')
-              if (!depTimestamp && lpRaw > 0n) {
-                depTimestamp = Date.now() - 48 * 3600 * 1000
-                setPoolStakingTimestamp(targetAddr, 'usdc-eurc-stable-pool', depTimestamp)
-              }
-              const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
-              const apyAccruedUsd = (stakedUsd * (poolApy / 100) * elapsedSec) / (365 * 86400)
-              userEarnedUsd = feeEarnedUsd + apyAccruedUsd
-            } else {
-              stakedUsd = parseFloat(formatUnits(lpRaw, 18))
-            }
-
-            positions['usdc-eurc-stable-pool'] = {
-              poolId: 'usdc-eurc-stable-pool',
-              stakedAmount: stakedUsd.toFixed(2),
-              stakedUsd,
-              earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-              earnedUsd: userEarnedUsd,
-              lastUpdatedTimestamp: Date.now(),
-              isLpPosition: true,
-              lpTokenBalance: formatUnits(lpRaw, 18),
-              poolSharePct,
-              tokenAStaked: userA.toFixed(2),
-              tokenBStaked: userB.toFixed(2),
-              earnedFeesUsd: rawFeeShareUsd,
-            }
-          }
-        } catch (err) {
-          console.warn('[usePoolsData] StableSwap user balance read failed:', err)
-        }
-      }
-
-      // 3. ConstantProductPool (USDC / cirBTC LP)
-      const cirBtcPool = ARCIS_POOLS.find((p) => p.id === 'usdc-cirbtc-pool')
-      const cpAddress = cirBtcPool?.contractAddress || POOL_CONTRACTS.CONSTANT_PRODUCT_POOL
-      if (isDeployed(cpAddress)) {
-        try {
-          const lpRaw = (await resilientReadContract(publicClient, {
-            address: cpAddress,
-            abi: CONSTANT_PRODUCT_ABI,
-            functionName: 'balanceOf',
-            args: [targetAddr],
-          })) as bigint
-          if (lpRaw > 0n) {
-            let reserveA = 0n
-            let reserveB = 0n
-            let totalLp = 0n
-            let unclaimedA = 0n
-            let unclaimedB = 0n
-
-            try {
-              const [rA, rB, tLp, uA, uB] = await Promise.all([
-                resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
-                resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
-                resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
-                resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
-                resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
-              ])
-              reserveA = rA as bigint
-              reserveB = rB as bigint
-              totalLp = tLp as bigint
-              unclaimedA = (uA as bigint) || 0n
-              unclaimedB = (uB as bigint) || 0n
-            } catch (e) {
-              console.warn('[usePoolsData] ConstantProduct direct reserves fetch warning:', e)
-              let poolState = onchainPoolState?.[cpAddress]
-              totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-              reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
-              reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 8) : 0n
-              unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
-              unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 8) : 0n
-            }
-
-            let stakedUsd = 0
-            let userA = 0
-            let userB = 0
-            let poolSharePct = 0
-            let userEarnedUsd = 0
-            let rawFeeShareUsd = 0
-
-            if (totalLp > 0n) {
-              const userARaw = (reserveA * lpRaw) / totalLp
-              const userBRaw = (reserveB * lpRaw) / totalLp
-              userA = parseFloat(formatUnits(userARaw, 6))
-              userB = parseFloat(formatUnits(userBRaw, 8))
-              const btcPrice = liveBtcPrice
-              stakedUsd = userA + userB * btcPrice
-              poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
-
-              const ufA = parseFloat(formatUnits(unclaimedA, 6))
-              const ufB = parseFloat(formatUnits(unclaimedB, 8))
-              const totalPoolUnclaimedUsd = ufA + ufB * liveBtcPrice
-              rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-              const poolIdKey = cirBtcPool?.id || 'usdc-cirbtc-pool'
-              const feeCheckpoint = getPoolClaimFeeCheckpoint(targetAddr, poolIdKey)
-              const feeEarnedUsd = Math.max(0, rawFeeShareUsd - feeCheckpoint)
-
-              // Calculate time-based continuous yield based on staking duration and pool APY
-              const poolApy = 12.80
-              let depTimestamp = getPoolStakingTimestamp(targetAddr, poolIdKey)
-              if (!depTimestamp && lpRaw > 0n) {
-                depTimestamp = Date.now() - 48 * 3600 * 1000
-                setPoolStakingTimestamp(targetAddr, poolIdKey, depTimestamp)
-              }
-              const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
-              const apyAccruedUsd = (stakedUsd * (poolApy / 100) * elapsedSec) / (365 * 86400)
-              userEarnedUsd = feeEarnedUsd + apyAccruedUsd
-            } else {
-              stakedUsd = parseFloat(formatUnits(lpRaw, 18))
-            }
-
-            const poolIdKey = cirBtcPool?.id || 'usdc-cirbtc-pool'
-            positions[poolIdKey] = {
-              poolId: poolIdKey,
-              stakedAmount: stakedUsd.toFixed(2),
-              stakedUsd,
-              earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-              earnedUsd: userEarnedUsd,
-              lastUpdatedTimestamp: Date.now(),
-              isLpPosition: true,
-              lpTokenBalance: formatUnits(lpRaw, 18),
-              poolSharePct,
-              tokenAStaked: userA.toFixed(2),
-              tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
-              earnedFeesUsd: rawFeeShareUsd,
-            }
-          }
-        } catch (err) {
-          console.warn('[usePoolsData] ConstantProduct user balance read failed:', err)
-        }
-      }
-
-
-
-      if (Object.keys(positions).length > 0) {
-        await redisCache.set(cacheKey, positions, 20)
-      }
-      return positions
-    },
+    queryFn: () =>
+      fetchUserPoolPositions(walletAddress, onchainPoolState, {
+        btc: liveBtcPrice,
+        eurc: liveEurcPrice,
+      }),
     enabled: isAddressValid,
     staleTime: 20_000,
     refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 45_000),
@@ -852,6 +1035,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     // 24h rolling client volume across all pools (tracked per-device for user visibility)
     const eurcRollingVol = getRollingClientSwapVolume('usdc-eurc-stable-pool')
     const cirBtcRollingVol = getRollingClientSwapVolume('usdc-cirbtc-pool')
+    const vaultRollingVol = getRollingClientSwapVolume('usdc-yield-vault')
 
     // Live on-chain 24h rolling volume counters (strictly verified on-chain platform volume)
     const ssState = onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]
@@ -864,6 +1048,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
     const cpVolA = parseFloat(cpState?.volume24hA || '0')
     const cpVolB = parseFloat(cpState?.volume24hB || '0')
     const cpContract24h = parseFloat((cpVolA + cpVolB * liveBtcPrice).toFixed(2))
+
+    const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
+    const vaultContract24h = parseFloat(vaultState?.volume24h || '0')
 
     return ARCIS_POOLS.map((pool) => {
       let tvlUsd = 0
@@ -929,10 +1116,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         const assetsUsd = parseFloat(s?.totalAssets || '0') || 0
         const totalYield = parseFloat(s?.totalYieldDistributed || '0') || 0
         tvlUsd = assetsUsd < 1000 ? parseFloat(assetsUsd.toFixed(2)) : Math.floor(assetsUsd)
-        // ERC-4626 Yield Vault does not execute swaps; 24h swap volume is 0.
-        // Vault APY is driven by protocol revenue share via totalYieldDistributed, not swap fees.
-        volume24hUsd = 0
-        clientVolumeUsd = 0
+        // 24H Volume: verified on-chain 24h flow (deposits + withdrawals) supplemented by client actions
+        volume24hUsd = Math.max(vaultContract24h, vaultRollingVol)
+        clientVolumeUsd = vaultRollingVol
 
         const baseVaultApy = 8.42
         // Dynamic derived APY: if yield has been distributed into vault, compute annualized performance
@@ -1111,7 +1297,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
   // ── Standard deposit (Yield Vault & Gateway Settlement Pool) ────────────
   const depositToPool = useCallback(
-    async (poolId: string, amountStr: string, _provider?: any): Promise<{ txHash: string }> => {
+    async (poolId: string, amountStr: string, _provider?: unknown): Promise<{ txHash: string }> => {
       const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool) throw new Error('Pool not found')
 
@@ -1178,6 +1364,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           throw new Error(opRes.error || 'Modular UserOperation deposit failed.')
         }
         applyYieldVaultOptimisticDeposit()
+        recordClientSwapVolume('usdc-yield-vault', depositAmt, opRes.txHash)
         await invalidatePoolCaches()
         return { txHash: opRes.txHash }
       }
@@ -1198,6 +1385,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         gas: 350_000n,
       })
       applyYieldVaultOptimisticDeposit()
+      recordClientSwapVolume('usdc-yield-vault', depositAmt, txHash)
       await waitForReceiptSafe(txHash, 'Deposit')
 
       await invalidatePoolCaches()
@@ -1311,7 +1499,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           throw new Error(swapRes.error || 'Modular Zap swap failed.')
         }
 
-        await new Promise((r) => setTimeout(r, 2000))
+        await waitForReceiptSafe(swapRes.txHash as Hex, 'Zap swap')
         const counterBalAfter = (await resilientReadContract(publicClient, {
           address: counterTokenAddress,
           abi: erc20Abi,
@@ -1348,7 +1536,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         }
 
         // Step 2: Approve counter token & addLiquidity
-        const minLpShares = usePoolsV2MinLpShares(
+        const minLpShares = computeMinLpShares(
           pool,
           poolAddress,
           freshPoolState,
@@ -1510,7 +1698,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       await approveToken(POOL_CONTRACTS.USDC, poolAddress, poolRemainingUsdc)
       await approveToken(counterTokenAddress, poolAddress, actualCounterAmount)
 
-      const minLpShares = usePoolsV2MinLpShares(
+      const minLpShares = computeMinLpShares(
         pool,
         poolAddress,
         freshPoolState,
@@ -1662,7 +1850,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
         console.warn('[depositDual] Note: using cached reserves for minLpShares:', freshErr)
       }
 
-      const minLpShares = usePoolsV2MinLpShares(pool, poolAddress, freshPoolState, amountA, amountB, counterDecimals, _slippage)
+      const minLpShares = computeMinLpShares(pool, poolAddress, freshPoolState, amountA, amountB, counterDecimals, _slippage)
       const addLiquidityArgs = [amountA, amountB, minLpShares] as const
 
       const totalUsdAdded = parseFloat(amountAStr) + parseFloat(amountBStr) * (pool.exchangeRate || 1)
@@ -2014,7 +2202,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
       poolId: string,
       amountStr: string,
       payoutMode: 'standard' | 'dual' | 'usdc' = 'standard',
-      _provider?: any,
+      _provider?: unknown,
       _slippage: number = 0.5,
       skipCacheInvalidation: boolean = false
     ): Promise<PoolWithdrawResult> => {
@@ -2118,6 +2306,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
             throw new Error(opRes.error || 'Modular UserOperation redeem failed.')
           }
           applyYieldVaultOptimisticWithdraw()
+          recordClientSwapVolume('usdc-yield-vault', withdrawAmountUsd, opRes.txHash)
           if (!skipCacheInvalidation) {
             await invalidatePoolCaches()
           }
@@ -2137,8 +2326,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           chain: arcTestnet,
           gas: 350_000n,
         })
-        await waitForReceiptSafe(txHash, 'Yield vault redeem')
         applyYieldVaultOptimisticWithdraw()
+        recordClientSwapVolume('usdc-yield-vault', withdrawAmountUsd, txHash)
+        await waitForReceiptSafe(txHash, 'Yield vault redeem')
         if (!skipCacheInvalidation) {
           await invalidatePoolCaches()
         }
@@ -2248,6 +2438,7 @@ export function usePoolsData(walletAddress: string, provider?: any) {
           throw new Error(opRes.error || 'Modular UserOperation removeLiquidity failed.')
         }
         txHash = opRes.txHash
+        await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')
         applyLpOptimisticWithdraw()
       } else {
         const walletClient = await getWalletClient()
@@ -2273,7 +2464,9 @@ export function usePoolsData(walletAddress: string, provider?: any) {
 
       if (payoutMode === 'usdc' && counterToken?.address) {
         try {
-          await new Promise((r) => setTimeout(r, 2000))
+          if (txHash) {
+            await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')
+          }
           const counterBalAfter = (await resilientReadContract(publicClient, {
             address: counterTokenAddress,
             abi: erc20Abi,

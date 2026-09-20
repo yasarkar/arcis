@@ -20,6 +20,49 @@ export interface GatewayBalance {
   error?: string
 }
 
+export async function fetchGatewayBalancesData(
+  walletAddress: string
+): Promise<{ balances: GatewayBalance[]; totalBalance: string }> {
+  if (!walletAddress) {
+    return { balances: [] as GatewayBalance[], totalBalance: '0.00' }
+  }
+  console.log(`[useGatewayBalance] Live fetching balance for wallet: ${walletAddress}`)
+  const rawData: GatewayBalanceResponse = await getGatewayBalances(walletAddress)
+
+  const mapped: GatewayBalance[] = (rawData.balances || []).map((item: GatewayBalanceItem) => {
+    const chainKey = DOMAIN_TO_CHAIN[item.domain] || `domain_${item.domain}`
+    return {
+      domain: item.domain,
+      chainKey,
+      name: GATEWAY_CHAIN_NAMES[chainKey] || `Domain ${item.domain}`,
+      balance: parseFloat(item.balance || '0').toFixed(2),
+      status: 'success' as const,
+    }
+  })
+
+  const sum = (rawData.balances || []).reduce(
+    (acc, item) => acc + (parseFloat(item.balance) || 0),
+    0
+  )
+
+  const effectiveTotal = applyOptimisticDelta(walletAddress, sum, 'gateway-settlement-pool')
+  const delta = getOptimisticDelta(walletAddress, sum, 'gateway-settlement-pool')
+
+  // Distribute delta to Arc_Testnet item for UI consistency
+  if (delta !== 0 && mapped.length > 0) {
+    const arcIndex = mapped.findIndex((m) => m.chainKey === 'Arc_Testnet')
+    if (arcIndex >= 0) {
+      const oldBal = parseFloat(mapped[arcIndex].balance || '0')
+      mapped[arcIndex].balance = Math.max(0, oldBal + delta).toFixed(2)
+    }
+  }
+
+  return {
+    balances: mapped,
+    totalBalance: effectiveTotal.toFixed(2),
+  }
+}
+
 export function useGatewayBalance(walletAddress: string) {
   const queryClient = useQueryClient()
 
@@ -31,46 +74,7 @@ export function useGatewayBalance(walletAddress: string) {
     refetch,
   } = useQuery({
     queryKey: ['gatewayBalances', walletAddress],
-    queryFn: async () => {
-      if (!walletAddress) {
-        return { balances: [] as GatewayBalance[], totalBalance: '0.00' }
-      }
-      console.log(`[useGatewayBalance] Live fetching balance for wallet: ${walletAddress}`)
-      const rawData: GatewayBalanceResponse = await getGatewayBalances(walletAddress)
-
-      const mapped: GatewayBalance[] = (rawData.balances || []).map((item: GatewayBalanceItem) => {
-        const chainKey = DOMAIN_TO_CHAIN[item.domain] || `domain_${item.domain}`
-        return {
-          domain: item.domain,
-          chainKey,
-          name: GATEWAY_CHAIN_NAMES[chainKey] || `Domain ${item.domain}`,
-          balance: parseFloat(item.balance || '0').toFixed(2),
-          status: 'success' as const,
-        }
-      })
-
-      const sum = (rawData.balances || []).reduce(
-        (acc, item) => acc + (parseFloat(item.balance) || 0),
-        0
-      )
-
-      const effectiveTotal = applyOptimisticDelta(walletAddress, sum, 'gateway-settlement-pool')
-      const delta = getOptimisticDelta(walletAddress, sum, 'gateway-settlement-pool')
-
-      // Distribute delta to Arc_Testnet item for UI consistency
-      if (delta !== 0 && mapped.length > 0) {
-        const arcIndex = mapped.findIndex((m) => m.chainKey === 'Arc_Testnet')
-        if (arcIndex >= 0) {
-          const oldBal = parseFloat(mapped[arcIndex].balance || '0')
-          mapped[arcIndex].balance = Math.max(0, oldBal + delta).toFixed(2)
-        }
-      }
-
-      return {
-        balances: mapped,
-        totalBalance: effectiveTotal.toFixed(2),
-      }
-    },
+    queryFn: () => fetchGatewayBalancesData(walletAddress),
     enabled: Boolean(walletAddress),
     staleTime: 4_000, // 4 seconds fresh cache for live updates
     refetchInterval: 8_000, // Live poll every 8 seconds

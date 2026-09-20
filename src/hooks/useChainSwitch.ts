@@ -51,6 +51,7 @@ export function useChainSwitch() {
               error: 'Network switch canceled by user.',
             }
           }
+          // If already pending, delegate to ensureNetwork which polls for resolution
           // If wagmi fails (e.g. chain not added or provider specific), fall through to chainSwitchService
         }
 

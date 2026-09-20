@@ -50,23 +50,49 @@ export function formatFiatEstimate(
   const num = parseFloat(str)
   if (isNaN(num) || num <= 0) return undefined
 
+  const normUpper = (tokenSymbol || '').toUpperCase().trim()
   const norm = normalizeTokenSymbol(tokenSymbol || '')
 
-  // USDC is a 1:1 USD-pegged stablecoin
+  // 1. USDC is a 1:1 USD-pegged stablecoin
   if (norm === 'USDC') {
     return `≈ $${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
   }
 
-  // Determine rate: priority 1 = active pool reserve rate, priority 2 = live oracle price
+  // 2. LP Tokens & Vault Shares (e.g. af-USDC, af-USDC-cirBTC, af-USDC-EURC, LP)
+  // In Arcis, LP tokens represent proportional pool liquidity where 1 share is pegged ~1.00 USD.
+  const isLpToken = normUpper.startsWith('AF-') || normUpper.includes('LP') || norm === 'af-USDC'
+  if (isLpToken) {
+    const rawPrice = prices?.[norm]
+    const lpPrice = typeof rawPrice === 'number' && rawPrice > 0 ? rawPrice : 1.0
+    const totalUsd = num * lpPrice
+    if (totalUsd < 0.01) {
+      return '< $0.01 USD'
+    }
+    return `≈ $${totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+  }
+
+  // 3. Counter Tokens (cirBTC, EURC, etc.)
+  // poolExchangeRate is the active on-chain reserve ratio (tokenA / tokenB, i.e. USDC per counter-token).
+  // Only apply poolExchangeRate if the token is a counter-token traded against USDC.
   let unitPrice: number | undefined = undefined
 
-  if (poolExchangeRate && poolExchangeRate > 0) {
+  const isCounterToken =
+    norm === 'CIRBTC' ||
+    norm === 'BTC' ||
+    norm === 'WBTC' ||
+    norm === 'EURC' ||
+    norm === 'WETH' ||
+    norm === 'ETH'
+
+  if (isCounterToken && poolExchangeRate && poolExchangeRate > 0) {
     unitPrice = poolExchangeRate
   } else if (prices && typeof prices === 'object') {
     const p = prices[norm]
     if (typeof p === 'number' && p > 0) {
       unitPrice = p
     }
+  } else if (!isCounterToken && poolExchangeRate && poolExchangeRate > 0) {
+    unitPrice = poolExchangeRate
   }
 
   // If no verified live price or valid pool rate is found, DO NOT show inaccurate fallbacks (e.g. 96500)

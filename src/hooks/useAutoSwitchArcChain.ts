@@ -25,6 +25,17 @@ export const ARC_ACTIVE_HEX_ID = `0x${arcActiveChain.id.toString(16)}` as const
 export const ARC_TESTNET_ADD_ETHEREUM_CHAIN_PARAMS = buildAddEthereumChainParameter(arcTestnet)
 export const ARC_ACTIVE_ADD_ETHEREUM_CHAIN_PARAMS = buildAddEthereumChainParameter(arcActiveChain)
 
+// Module-level flag to pause auto-switching during cross-chain flows
+let isAutoSwitchPausedGlobally = false
+
+export function setAutoSwitchPaused(paused: boolean) {
+  isAutoSwitchPausedGlobally = paused
+}
+
+export function isAutoSwitchPaused(): boolean {
+  return isAutoSwitchPausedGlobally
+}
+
 export function useAutoSwitchArcChain() {
   const { isConnected, chainId, connector } = useAccount()
   const { switchToArc } = useChainSwitch()
@@ -47,13 +58,24 @@ export function useAutoSwitchArcChain() {
     }
   }, [isConnected, connector])
 
-  // 1. Automatic one-shot trigger to switch network on initial wallet connection
+  // 1. Automatic one-shot trigger to switch network on initial wallet connection ONLY
   useEffect(() => {
-    // Only trigger if wallet is connected and on a different EVM network
-    if (!isConnected || chainId === arcActiveChain.id) return
+    if (!isConnected) return
+
+    // If connected on Arc already upon initial load, mark session check as fulfilled
+    // so we don't later ambush the user when they deliberately switch to a cross-chain network
+    if (chainId === arcActiveChain.id) {
+      hasAttemptedThisSession.current = true
+      return
+    }
 
     // Prevent repeated prompts in the current session
     if (hasAttemptedThisSession.current) return
+
+    // Check if auto-switch is paused (e.g. cross-chain flow or modal active)
+    if (isAutoSwitchPausedGlobally || sessionStorage.getItem('arcis_cross_chain_active') === 'true') {
+      return
+    }
 
     // Check if user already declined in this browser session
     const alreadyDeclined = sessionStorage.getItem('arcis_auto_switch_declined')
@@ -64,6 +86,9 @@ export function useAutoSwitchArcChain() {
     // Small delay to let wallet connection UI settle
     const timer = setTimeout(async () => {
       try {
+        if (isAutoSwitchPausedGlobally || sessionStorage.getItem('arcis_cross_chain_active') === 'true') {
+          return
+        }
         const res = await switchToArc()
         if (!res.success && res.isCanceled) {
           sessionStorage.setItem('arcis_auto_switch_declined', 'true')
