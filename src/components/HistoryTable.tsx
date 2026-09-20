@@ -18,7 +18,7 @@ import {
   ChevronRight,
   FileText
 } from 'lucide-react'
-import { getHistory, fetchHistory, HistoryItem } from '../utils/history'
+import { getHistory, fetchHistory, isHistoryLoaded, HistoryItem } from '../utils/history'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
@@ -338,8 +338,12 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
   const activeWalletAddress = (walletAddress !== undefined ? walletAddress : (wagmiAddress || '')).toLowerCase().trim()
 
   const { isPrivate: globalPrivate, settings } = usePrivacy()
-  const [history, setHistory] = useState<HistoryItem[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [history, setHistory] = useState<HistoryItem[]>(() =>
+    activeWalletAddress ? getHistory(activeWalletAddress) : []
+  )
+  const [isLoading, setIsLoading] = useState<boolean>(() =>
+    Boolean(activeWalletAddress && !isHistoryLoaded(activeWalletAddress))
+  )
   const [filter, setFilter] = useState<'all' | 'send' | 'swap' | 'bridge' | 'memo'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -430,12 +434,16 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
       return
     }
 
-    setIsLoading(true)
-
     // Immediate in-memory render strictly for active wallet
-    setHistory(getHistory(activeWalletAddress))
+    const cached = getHistory(activeWalletAddress)
+    setHistory(cached)
 
-    // Asynchronous server-side fetch for active wallet
+    // Only mark loading if data has not yet been fetched from server
+    if (!isHistoryLoaded(activeWalletAddress)) {
+      setIsLoading(true)
+    }
+
+    // Asynchronous server-side fetch / revalidation for active wallet
     fetchHistory(activeWalletAddress)
       .then((items) => {
         if (isMounted) {
@@ -1401,7 +1409,47 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04] text-xs">
-                {paginatedHistory.map((item) => (
+                {/* Skeleton Loading Rows during initial fetch / prefetch resolution */}
+                {isLoading && (
+                  <>
+                    {Array.from({ length: 5 }).map((_, idx) => (
+                      <tr key={`history-skeleton-${idx}`} className="h-[52px] animate-pulse">
+                        {/* Tx Hash Skeleton */}
+                        <td className="w-1/5 px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-4 w-28 bg-white/[0.08] rounded-md" />
+                            <div className="h-4 w-4 bg-white/[0.04] rounded-md" />
+                          </div>
+                        </td>
+                        {/* Type Skeleton */}
+                        <td className="w-1/5 px-10 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-xl bg-white/[0.08]" />
+                            <div className="h-4 w-12 bg-white/[0.08] rounded-md" />
+                          </div>
+                        </td>
+                        {/* Amount Skeleton */}
+                        <td className="w-1/5 px-1 py-3.5">
+                          <div className="h-4 w-24 bg-white/[0.08] rounded-md" />
+                        </td>
+                        {/* Recipient Skeleton */}
+                        <td className="w-1/5 px-1 py-3.5">
+                          <div className="h-4 w-28 bg-white/[0.08] rounded-md" />
+                        </td>
+                        {/* Time Skeleton */}
+                        <td className="w-1/5 px-5 py-3.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3.5 h-3.5 rounded-full bg-white/[0.06]" />
+                            <div className="h-4 w-16 bg-white/[0.08] rounded-md" />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </>
+                )}
+
+                {/* Actual Transaction Rows */}
+                {!isLoading && paginatedHistory.map((item) => (
                   <tr
                     key={item.id}
                     className="hover:bg-white/[0.04] transition-colors group h-[52px]"
@@ -1491,8 +1539,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                   </tr>
                 ))}
 
-                {/* Empty State when no transactions exist */}
-                {filteredHistory.length === 0 && (
+                {/* Empty State when no transactions exist and not loading */}
+                {!isLoading && filteredHistory.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-5 py-20 text-center">
                       <div className="flex flex-col items-center justify-center text-center p-6 min-h-[220px]">
@@ -1513,7 +1561,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                 )}
 
                 {/* Fill empty placeholder rows if paginated items are less than 5 but greater than 0 */}
-                {paginatedHistory.length > 0 && paginatedHistory.length < 5 && Array.from({ length: 5 - paginatedHistory.length }).map((_, idx) => (
+                {!isLoading && paginatedHistory.length > 0 && paginatedHistory.length < 5 && Array.from({ length: 5 - paginatedHistory.length }).map((_, idx) => (
                   <tr key={`filler-${idx}`} className="h-[52px]">
                     <td colSpan={5} className="px-5 py-3.5">&nbsp;</td>
                   </tr>
@@ -1522,7 +1570,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
             </table>
 
             {/* Pagination Controls */}
-            {filteredHistory.length > 0 && (
+            {!isLoading && filteredHistory.length > 0 && (
               <div
                 className="flex flex-col sm:flex-row items-center justify-between gap-3 px-3 py-4 border-t border-white/[0.08] text-xs"
                 style={{

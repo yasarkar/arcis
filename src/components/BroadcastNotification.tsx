@@ -909,34 +909,6 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
       })()
     : null
 
-  // Match the broadcast card's border colors according to transaction outcome
-  const gatewayBadgeStyle = isSuccess
-    ? {
-        background: 'rgba(52, 211, 153, 0.4)',
-        borderColor: 'rgba(52, 211, 153, 0.6)',
-      }
-    : isCanceled
-      ? {
-          background: 'rgba(245, 158, 11, 0.45)',
-          borderColor: 'rgba(245, 158, 11, 0.65)',
-        }
-      : isFailed
-        ? {
-            background: 'rgba(248, 113, 113, 0.4)',
-            borderColor: 'rgba(248, 113, 113, 0.6)',
-          }
-        : {
-            background: 'rgba(56, 189, 248, 0.4)',
-            borderColor: 'rgba(56, 189, 248, 0.6)',
-          }
-
-  const gatewayArrowColor = isSuccess
-    ? 'text-emerald-200'
-    : isCanceled
-      ? 'text-amber-200'
-      : isFailed
-        ? 'text-rose-200'
-        : 'text-sky-200'
 
   return (
     <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-2">
@@ -1023,12 +995,19 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
               </span>
             </div>
 
-            {/* Route Arrow Badge */}
-            <div
-              className="flex items-center justify-center p-1.5 rounded-full border text-white text-[10px] font-bold shadow-sm shrink-0 transition-all duration-300"
-              style={gatewayBadgeStyle}
-            >
-              <ArrowRight className={`w-3.5 h-3.5 transition-colors duration-300 ${gatewayArrowColor}`} />
+            {/* Route Arrow */}
+            <div className="flex items-center gap-1 text-slate-500 shrink-0 px-1">
+              <ArrowRight
+                className={`w-4 h-4 shrink-0 ${
+                  isCanceled
+                    ? 'text-amber-400'
+                    : isFailed
+                      ? 'text-rose-400'
+                      : isSuccess
+                        ? 'text-emerald-400'
+                        : 'text-cyan-400'
+                }`}
+              />
             </div>
 
             {/* Destination Network Badge */}

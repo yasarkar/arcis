@@ -14,6 +14,8 @@ import { normalizeAppError } from '../utils/errorNormalizer'
 import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
 import { CHAIN_META, CHAIN_DEFS, getChainDisplayName } from '../config/chainMeta'
 import { Tooltip } from './common/Tooltip'
+import { ensureNetwork } from '../services/chainSwitchService'
+import { setAutoSwitchPaused } from '../hooks/useAutoSwitchArcChain'
 
 const DEPOSIT_TOKEN = 'USDC' as const
 
@@ -21,12 +23,13 @@ const DEPOSIT_TOKEN = 'USDC' as const
 interface UnifiedBalanceProps {
   connector?: any // wagmi connector for provider access
   onNavigate?: (tab: 'unified' | 'send' | 'swap' | 'bridge' | 'history') => void
+  connectedAddress?: string
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalanceProps) {
-  const { address } = useAccount()
-  const walletAddress = address || ''
+export default function UnifiedBalance({ connector, onNavigate, connectedAddress }: UnifiedBalanceProps) {
+  const { address, chainId } = useAccount()
+  const walletAddress = connectedAddress || address || ''
   const { balances, loading, totalBalance, refresh } = useGatewayBalance(walletAddress)
   const { walletBalances, loading: walletLoading, refetch: refetchWalletBalances } = useWalletTestnetBalances(walletAddress)
   const { addBroadcast, updateBroadcast } = useBroadcast()
@@ -37,8 +40,46 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
   const [depositChain, setDepositChain] = useState('Arc_Testnet')
   const [depositAmount, setDepositAmount] = useState('')
   const [depositing, setDepositing] = useState(false)
+  const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
   const [depositError, setDepositError] = useState<string | null>(null)
   const [isCanceledError, setIsCanceledError] = useState(false)
+
+  // Pause auto-switch while deposit panel is open
+  useEffect(() => {
+    if (showDeposit) {
+      setAutoSwitchPaused(true)
+      sessionStorage.setItem('arcis_cross_chain_active', 'true')
+    }
+    return () => {
+      setAutoSwitchPaused(false)
+      sessionStorage.removeItem('arcis_cross_chain_active')
+    }
+  }, [showDeposit])
+
+  const targetChainDef = CHAIN_DEFS[depositChain]
+  const isWrongDepositChain = Boolean(
+    targetChainDef &&
+    chainId &&
+    chainId !== targetChainDef.id
+  )
+
+  const handleSwitchDepositNetwork = async () => {
+    if (!targetChainDef) return
+    setIsSwitchingNetwork(true)
+    setDepositError(null)
+    setIsCanceledError(false)
+    try {
+      const provider = await connector?.getProvider()
+      const res = await ensureNetwork(targetChainDef, provider)
+      if (!res.success && !res.isCanceled) {
+        setDepositError(res.error || `Failed to switch to ${targetChainDef.name}`)
+      }
+    } catch (err: any) {
+      setDepositError(err?.message || `Failed to switch to ${targetChainDef.name}`)
+    } finally {
+      setIsSwitchingNetwork(false)
+    }
+  }
 
   // Systematic input and state clearing on wallet disconnect
   const resetFormInputs = useCallback(() => {
@@ -98,9 +139,16 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
     setDepositError(null)
     setIsCanceledError(false)
 
-    const amt = parseFloat(depositAmount)
-    if (isNaN(amt) || amt <= 0) {
-      setDepositError('Please enter a valid amount')
+    if (depositing || isSwitchingNetwork) return
+
+    // Step 1: If wallet is not on the chosen deposit chain, cleanly switch first!
+    if (isWrongDepositChain) {
+      await handleSwitchDepositNetwork()
+      return
+    }
+
+    if (!depositAmount || parseFloat(depositAmount) <= 0) {
+      setDepositError('Please enter a valid deposit amount')
       return
     }
 
@@ -585,25 +633,42 @@ export default function UnifiedBalance({ connector, onNavigate }: UnifiedBalance
 
             <button
               type="submit"
-              disabled={depositing || isInsufficientWalletBalance}
+              disabled={depositing || isSwitchingNetwork || (!isWrongDepositChain && isInsufficientWalletBalance)}
               style={{
                 width: '100%',
                 padding: '14px 0',
                 borderRadius: 99,
                 border: 'none',
-                background: (depositing || isInsufficientWalletBalance)
+                background: (depositing || isSwitchingNetwork || (!isWrongDepositChain && isInsufficientWalletBalance))
                   ? 'rgba(152, 150, 255, 0.3)'
-                  : 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                  : isWrongDepositChain
+                    ? 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)'
+                    : 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
                 color: '#fff',
                 fontSize: 14,
                 fontFamily: 'var(--font-app)',
                 fontWeight: 600,
-                cursor: (depositing || isInsufficientWalletBalance) ? 'not-allowed' : 'pointer',
-                boxShadow: (depositing || isInsufficientWalletBalance) ? 'none' : '0 6px 24px rgba(152, 150, 255, 0.3)',
+                cursor: (depositing || isSwitchingNetwork || (!isWrongDepositChain && isInsufficientWalletBalance)) ? 'not-allowed' : 'pointer',
+                boxShadow: (depositing || isSwitchingNetwork || (!isWrongDepositChain && isInsufficientWalletBalance)) ? 'none' : '0 6px 24px rgba(152, 150, 255, 0.3)',
                 transition: 'all 0.2s var(--ease-out-smooth)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
               }}
             >
-              {depositing ? 'DEPOSITING...' : 'DEPOSIT'}
+              {isSwitchingNetwork ? (
+                <>
+                  <RefreshCw size={15} className="arcis-spin" />
+                  <span>SWITCHING TO {getChainDisplayName(depositChain).toUpperCase()} IN WALLET...</span>
+                </>
+              ) : isWrongDepositChain ? (
+                <span>SWITCH TO {getChainDisplayName(depositChain).toUpperCase()}</span>
+              ) : depositing ? (
+                'DEPOSITING...'
+              ) : (
+                'DEPOSIT USDC TO GATEWAY'
+              )}
             </button>
           </form>
         </div>

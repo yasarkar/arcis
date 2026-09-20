@@ -21,6 +21,7 @@ import circleTokenIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import { arcTestnet } from '../config/arcChain'
 import { getExplorerAddressUrl } from '../config/sendConfig'
 import { useMultiChainWallet } from '../hooks/useMultiChainWallet'
+import { prefetchHistory } from '../utils/history'
 
 type TabType = 'home' | 'unified' | 'send' | 'swap' | 'bridge' | 'pools' | 'ai-services' | 'history'
 
@@ -47,6 +48,8 @@ interface HeaderProps {
 export default function Header({
   activeTab,
   setActiveTab,
+  walletConnected,
+  walletAddress,
   isUcwConnected,
   ucwAddress,
   isPasskeyConnected,
@@ -136,9 +139,17 @@ export default function Header({
                       : 'none',
                   }}
                   onMouseEnter={e => {
+                    if (tab.id === 'history' && walletAddress) {
+                      prefetchHistory(walletAddress)
+                    }
                     if (!isActive) {
                       e.currentTarget.style.color = '#ffffff'
                       e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'
+                    }
+                  }}
+                  onFocus={() => {
+                    if (tab.id === 'history' && walletAddress) {
+                      prefetchHistory(walletAddress)
                     }
                   }}
                   onMouseLeave={e => {
@@ -504,6 +515,16 @@ export default function Header({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
+                onTouchStart={() => {
+                  if (tab.id === 'history' && walletAddress) {
+                    prefetchHistory(walletAddress)
+                  }
+                }}
+                onMouseEnter={() => {
+                  if (tab.id === 'history' && walletAddress) {
+                    prefetchHistory(walletAddress)
+                  }
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all whitespace-nowrap"
                 style={{
                   fontFamily: 'var(--font-app)',

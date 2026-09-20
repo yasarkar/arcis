@@ -674,7 +674,7 @@ export default function SendModal({
             setSuccessReceipt({
               txHash,
               explorerUrl,
-              gasFee: '0.00 USDC (Sponsored by Arc)',
+              gasFee: '0.00 USDC (Arcis Sponsored)',
               blockNumber: 'Gasless BFT Finalized',
             })
 
@@ -866,7 +866,7 @@ export default function SendModal({
         label: 'Network Fee',
         tooltip: 'Blockchain transaction gas fee paid in USDC on Arc or native gas on destination.',
         value: isGaslessActive ? (
-          'Free (Sponsored by Arcis)'
+          '0.00 USDC (Arcis Sponsored)'
         ) : sendMode === 'gateway' ? (
           'Free (Gateway Unified)'
         ) : estimatedFee ? (

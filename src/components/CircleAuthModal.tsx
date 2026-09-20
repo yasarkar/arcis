@@ -473,10 +473,10 @@ export default function CircleAuthModal({
                         type="button"
                         onClick={handlePasskeyLogin}
                         disabled={isLoading}
-                        className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xs font-semibold transition-all cursor-pointer group shadow-sm"
+                        className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
                       >
                         <div className="w-5 h-5 flex items-center justify-center text-cyan-400 mr-3 shrink-0">
-                          <Fingerprint className="w-4 h-4" />
+                          <Fingerprint className="w-5 h-5" />
                         </div>
                         <span className="flex-1 text-center pr-5">Continue with Passkey</span>
                       </button>
@@ -507,7 +507,7 @@ export default function CircleAuthModal({
                         <button
                           type="submit"
                           disabled={isLoading}
-                          className="px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold transition-all cursor-pointer disabled:opacity-50 active:scale-[0.99]"
+                          className="px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white text-xm font-bold transition-all cursor-pointer disabled:opacity-50 active:scale-[0.99]"
                         >
                           Create
                         </button>
@@ -520,10 +520,10 @@ export default function CircleAuthModal({
                     type="button"
                     onClick={() => handleSocialClick('google')}
                     disabled={isLoading}
-                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xs font-semibold transition-all cursor-pointer group shadow-sm"
+                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
                   >
                     <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                      <img src={googleLogo} alt="Google" className="w-4 h-4 object-contain" />
+                      <img src={googleLogo} alt="Google" className="w-5 h-5 object-contain" />
                     </div>
                     <span className="flex-1 text-center pr-5">Continue with Google</span>
                   </button>
@@ -533,10 +533,10 @@ export default function CircleAuthModal({
                     type="button"
                     onClick={() => handleSocialClick('apple')}
                     disabled={isLoading}
-                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xs font-semibold transition-all cursor-pointer group shadow-sm"
+                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
                   >
                     <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                      <img src={appleLogo} alt="Apple" className="w-4 h-4 object-contain brightness-0 invert" />
+                      <img src={appleLogo} alt="Apple" className="w-5 h-5 object-contain brightness-0 invert" />
                     </div>
                     <span className="flex-1 text-center pr-5">Continue with Apple</span>
                   </button>
@@ -546,10 +546,10 @@ export default function CircleAuthModal({
                     type="button"
                     onClick={() => handleSocialClick('facebook')}
                     disabled={isLoading}
-                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xs font-semibold transition-all cursor-pointer group shadow-sm"
+                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
                   >
                     <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                      <img src={facebookLogo} alt="Facebook" className="w-4 h-4 object-contain" />
+                      <img src={facebookLogo} alt="Facebook" className="w-5 h-5 object-contain" />
                     </div>
                     <span className="flex-1 text-center pr-5">Continue with Facebook</span>
                   </button>
