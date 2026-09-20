@@ -104,15 +104,21 @@ export const recordClientSwapVolume = (poolId: string, volumeUsd: number, txHash
     txHash,
   }
 
-  // 1. Update in-memory cache
+  // 1. Check in-memory cache & deduplicate by txHash if provided
   if (!memorySwapVolume[poolId]) {
     memorySwapVolume[poolId] = []
   }
   memorySwapVolume[poolId] = memorySwapVolume[poolId].filter((e) => e && e.timestamp > cutoff)
+  if (txHash && memorySwapVolume[poolId].some((e) => e.txHash === txHash)) {
+    return
+  }
   memorySwapVolume[poolId].push(entry)
 
-  // 2. Persist to localStorage (capped at 100 most recent items)
+  // 2. Persist to localStorage (capped at 100 most recent items) & deduplicate by txHash
   const stored = loadStoredSwapVolume()
+  if (txHash && stored.some((e) => e.txHash === txHash)) {
+    return
+  }
   stored.push(entry)
   if (stored.length > 100) {
     stored.splice(0, stored.length - 100)
@@ -128,6 +134,11 @@ export const recordClientSwapVolume = (poolId: string, volumeUsd: number, txHash
     )
   }
 }
+
+/**
+ * Universal alias for pool and vault 24h volume tracking (swaps, deposits, redeems, zaps).
+ */
+export const recordClientPoolVolume = recordClientSwapVolume
 
 /**
  * Calculates the rolling 24-hour swap volume in USD for a given pool ID from genuine client swaps

@@ -34,7 +34,20 @@ export interface HistoryItem {
 
 // In-memory runtime cache partitioned by wallet address for instant UI reactivity
 const inMemoryWalletHistory = new Map<string, HistoryItem[]>()
+// Track in-flight promises to deduplicate simultaneous requests for the same address
+const inFlightHistoryFetches = new Map<string, Promise<HistoryItem[]>>()
+// Set of wallet addresses that have completed at least one successful fetch from the server
+const loadedWallets = new Set<string>()
 let hasCleanedLegacyStorage = false
+
+/**
+ * Checks if transactions for a wallet have been loaded into memory from the server.
+ */
+export const isHistoryLoaded = (filterAddress?: string): boolean => {
+  if (!filterAddress || !filterAddress.trim()) return false
+  const norm = filterAddress.toLowerCase().trim()
+  return loadedWallets.has(norm) || inMemoryWalletHistory.has(norm)
+}
 
 /**
  * One-time clean up of deprecated legacy localStorage keys so no transaction history remains in the browser
@@ -79,6 +92,7 @@ export const getHistory = (filterAddress?: string): HistoryItem[] => {
 /**
  * Asynchronously fetches transactions directly from the Vercel KV / Redis database.
  * Scoped strictly to the provided wallet address.
+ * Automatically deduplicates simultaneous in-flight requests.
  */
 export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[]> => {
   cleanLegacyLocalStorage()
@@ -89,39 +103,60 @@ export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[
 
   const norm = filterAddress.toLowerCase().trim()
 
-  try {
-    const res = await fetch(`/api/history?address=${encodeURIComponent(norm)}`, {
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    if (!res.ok) {
-      throw new Error(`Failed to fetch history from database (status ${res.status})`)
-    }
-
-    const data = await res.json()
-    if (data.success && Array.isArray(data.transactions)) {
-      const serverItems: HistoryItem[] = data.transactions
-
-      // Strict address filter: records must involve this wallet address
-      const validItems = serverItems
-        .filter((item) => {
-          const isSender = item.userAddress && item.userAddress.toLowerCase().trim() === norm
-          const isRecipient = item.recipient && item.recipient.toLowerCase().trim() === norm
-          return Boolean(isSender || isRecipient)
-        })
-        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-        .slice(0, 300)
-
-      inMemoryWalletHistory.set(norm, validItems)
-      return validItems
-    }
-  } catch (err) {
-    console.warn('[history.ts] Vercel KV database fetch failed, serving in-memory state:', err)
+  // Deduplicate: If there is already an in-flight fetch for this wallet, return the existing Promise
+  const existingFetch = inFlightHistoryFetches.get(norm)
+  if (existingFetch) {
+    return existingFetch
   }
 
-  return getHistory(norm)
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(`/api/history?address=${encodeURIComponent(norm)}`, {
+        headers: {
+          Accept: 'application/json',
+        },
+      })
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch history from database (status ${res.status})`)
+      }
+
+      const data = await res.json()
+      if (data.success && Array.isArray(data.transactions)) {
+        const serverItems: HistoryItem[] = data.transactions
+
+        // Strict address filter: records must involve this wallet address
+        const validItems = serverItems
+          .filter((item) => {
+            const isSender = item.userAddress && item.userAddress.toLowerCase().trim() === norm
+            const isRecipient = item.recipient && item.recipient.toLowerCase().trim() === norm
+            return Boolean(isSender || isRecipient)
+          })
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+          .slice(0, 300)
+
+        inMemoryWalletHistory.set(norm, validItems)
+        loadedWallets.add(norm)
+        return validItems
+      }
+    } catch (err) {
+      console.warn('[history.ts] Vercel KV database fetch failed, serving in-memory state:', err)
+    } finally {
+      inFlightHistoryFetches.delete(norm)
+    }
+
+    return getHistory(norm)
+  })()
+
+  inFlightHistoryFetches.set(norm, fetchPromise)
+  return fetchPromise
+}
+
+/**
+ * Prefetches history for a wallet address in the background without blocking the UI.
+ */
+export const prefetchHistory = (filterAddress?: string): Promise<HistoryItem[]> => {
+  return fetchHistory(filterAddress)
 }
 
 /**
@@ -176,6 +211,11 @@ export const addTransaction = (item: Omit<HistoryItem, 'id' | 'timestamp'>) => {
       }
     }
     inMemoryWalletHistory.set(normRecipient, recipItems)
+    loadedWallets.add(normRecipient)
+  }
+
+  if (normUser) {
+    loadedWallets.add(normUser)
   }
 
   // 2. Notify active components

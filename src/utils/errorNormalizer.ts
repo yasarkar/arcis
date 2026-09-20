@@ -434,6 +434,33 @@ export function normalizeAppError(err: unknown): ArcisAppError {
     return normalizePasskeyError(err)
   }
 
+  const code = (err as any)?.code ?? (err as any)?.cause?.code
+
+  // 1b. Request Already Pending in Wallet (-32002)
+  if (
+    code === -32002 ||
+    lowMsg.includes('already pending') ||
+    lowMsg.includes('resource unavailable')
+  ) {
+    const isNetworkSwitch =
+      lowMsg.includes('wallet_switchethereumchain') ||
+      lowMsg.includes('network switch') ||
+      lowMsg.includes('switch')
+
+    return {
+      category: 'WALLET_DESYNC',
+      code: 'REQUEST_ALREADY_PENDING',
+      title: isNetworkSwitch ? 'Network Switch Request Pending' : 'Wallet Request Pending',
+      message: isNetworkSwitch
+        ? 'A network switch request is already open in your wallet extension. Please open MetaMask to approve or reject it.'
+        : 'A request is already pending in your wallet extension. Please open MetaMask to complete it.',
+      actionHint: 'Click on your wallet extension icon in your browser toolbar to approve or cancel the pending prompt.',
+      isCanceled: false,
+      isRetryable: true,
+      rawMessage,
+    }
+  }
+
   // 2. User Canceled in Wallet
   if (isUserCanceledError(err)) {
     const isNetworkSwitch =
