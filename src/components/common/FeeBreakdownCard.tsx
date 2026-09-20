@@ -119,7 +119,7 @@ export const FeeBreakdownCard: React.FC<FeeBreakdownCardProps> = ({
                   className={`font-mono text-right tabular-nums text-[13px] shrink-0 ${
                     item.highlightColor
                       ? `${item.highlightColor} font-semibold`
-                      : typeof item.value === 'string' && item.value.includes('Sponsored by Arcis')
+                      : typeof item.value === 'string' && item.value.includes('Arcis Sponsored')
                       ? 'text-indigo-400 font-semibold'
                       : item.label.toLowerCase().includes('net received') || item.label.toLowerCase().includes('recipient gets')
                       ? 'text-emerald-400 font-semibold'

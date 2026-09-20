@@ -21,6 +21,7 @@ import { useArcCopilot } from './hooks/useArcCopilot'
 import { useAutoSwitchArcChain } from './hooks/useAutoSwitchArcChain'
 import { BroadcastProvider } from './components/BroadcastNotification'
 import ArcCopilotDrawer from './components/copilot/ArcCopilotDrawer'
+import { prefetchGlobalData, prefetchAllWalletData } from './services/prefetchCoordinator'
 
 function AutoChainSwitchWatcher() {
   useAutoSwitchArcChain()
@@ -129,11 +130,31 @@ export default function App() {
 
   const walletConnected = Boolean(walletAddress)
 
-  // Central refresh helper for all balances (Gateway + Wallet Testnets)
+  // Central refresh helper for all balances (Gateway + Wallet Testnets), pools, and history
   const refreshBalances = () => {
     queryClient.invalidateQueries({ queryKey: ['gatewayBalances'] })
     queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances'] })
+    queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
+    if (walletAddress) {
+      prefetchAllWalletData(queryClient, walletAddress).catch(() => {})
+    }
   }
+
+  // Eager background prefetch for global pool metrics (TVL, 24h Vol, Vaults) and token prices on app launch
+  useEffect(() => {
+    prefetchGlobalData(queryClient).catch((err) => {
+      console.warn('[App] Background global prefetch failed:', err)
+    })
+  }, [queryClient])
+
+  // Background prefetch all wallet data (Gateway, Testnets, Pools, History, Portfolio snapshot) as soon as wallet connects or changes
+  useEffect(() => {
+    if (walletAddress && walletAddress.trim()) {
+      prefetchAllWalletData(queryClient, walletAddress).catch((err) => {
+        console.warn('[App] Background wallet prefetch failed:', err)
+      })
+    }
+  }, [walletAddress, queryClient])
 
   // Track previous connection state to trigger clearing inputs on wallet disconnect
   const prevWalletConnectedRef = useRef(walletConnected)
@@ -231,7 +252,11 @@ export default function App() {
             {/* Unified Balance Tab */}
             {activeTab === 'unified' && (
               <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
-                <UnifiedBalance onNavigate={(tab) => setActiveTab(tab)} connector={connector} />
+                <UnifiedBalance
+                  onNavigate={(tab) => setActiveTab(tab)}
+                  connector={connector}
+                  connectedAddress={walletAddress}
+                />
               </div>
             )}
 

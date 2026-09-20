@@ -65,7 +65,6 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
               onClick={onMaxClick}
               disabled={disabled || readOnly}
               className="font-medium text-slate-200 hover:text-indigo-300 transition-colors cursor-pointer tabular-nums disabled:cursor-default"
-              title="Click to set maximum balance"
             >
               {balance} {tokenSymbol}
             </button>

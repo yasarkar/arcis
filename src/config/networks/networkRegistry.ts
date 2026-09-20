@@ -991,7 +991,7 @@ export const CHAIN_DEFS: Record<string, Chain> = Object.fromEntries(
 /** UI Visual metadata dictionary (used by icons, colors, dropdowns) */
 export const CHAIN_META: Record<string, NetworkUiConfig> = {
   Unified_Gateway: {
-    iconId: 'circle',
+    iconId: 'arc',
     name: 'Unified Gateway (Multi-Chain)',
     color: '#38bdf8',
     gradient: 'linear-gradient(135deg, #0052ff, #38bdf8)',

@@ -315,7 +315,9 @@ export const STABLE_SWAP_ABI = [
     ],
   },
 ] as const
-
+// Note: CONSTANT_PRODUCT_ABI intentionally aliases STABLE_SWAP_ABI.
+// On Arc Testnet, both Constant-Product and Curve-style pools share the identical
+// external interface (swap, addLiquidity, removeLiquidity, reserveA, reserveB, totalLp).
 export const CONSTANT_PRODUCT_ABI = STABLE_SWAP_ABI
 
 
@@ -327,6 +329,27 @@ export const YIELD_VAULT_ABI = [
   { type: 'function', name: 'totalAssets', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
+  {
+    type: 'event',
+    name: 'Deposit',
+    inputs: [
+      { name: 'sender', type: 'address', indexed: true },
+      { name: 'owner', type: 'address', indexed: true },
+      { name: 'assets', type: 'uint256', indexed: false },
+      { name: 'shares', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'Withdraw',
+    inputs: [
+      { name: 'sender', type: 'address', indexed: true },
+      { name: 'receiver', type: 'address', indexed: true },
+      { name: 'owner', type: 'address', indexed: true },
+      { name: 'assets', type: 'uint256', indexed: false },
+      { name: 'shares', type: 'uint256', indexed: false },
+    ],
+  },
 ] as const
 
 export const ARCIS_SWAP_ROUTER_ABI = [
