@@ -108,11 +108,31 @@ export async function executeDirectCopilotAction(
       const estimatedOutput = (amountIn * rate).toFixed(4)
 
       // Step 1: Check real on-chain balance on Arc Testnet
-      const publicClient = getModularPublicClient()
-      const onChainBalanceWei = await publicClient.getBalance({ address: activeWallet as Hex }).catch(() => BigInt(0))
-      const requiredWei = parseUnits(amountIn.toString(), 6)
+      const arcRoute = resolveArcNativeRoute(fromTok, toTok)
+      const decIn = arcRoute ? arcRoute.decIn : 6
+      const decOut = arcRoute ? arcRoute.decOut : 6
+      const amountInUnits = parseUnits(amountIn.toString(), decIn)
+      const minOutUnits = (parseUnits(estimatedOutput, decOut) * 98n) / 100n // 2% slippage protection
 
-      if (onChainBalanceWei < requiredWei) {
+      const publicClient = getModularPublicClient()
+      const [nativeBal, erc20Bal] = await Promise.all([
+        publicClient.getBalance({ address: activeWallet as Hex }).catch(() => BigInt(0)),
+        arcRoute?.tokenInAddr
+          ? publicClient
+              .readContract({
+                address: arcRoute.tokenInAddr as Hex,
+                abi: ERC20_ABI,
+                functionName: 'balanceOf',
+                args: [activeWallet as Hex],
+              })
+              .catch(() => BigInt(0))
+          : Promise.resolve(BigInt(0)),
+      ])
+
+      const nativeUnits = nativeBal >= BigInt(1e12) ? nativeBal / BigInt(1e12) : nativeBal
+      const effectiveBalUnits = erc20Bal > nativeUnits ? erc20Bal : nativeUnits
+
+      if (effectiveBalUnits < amountInUnits) {
         if (onProgress) onProgress('failed')
         return {
           id: `rcpt_err_${Date.now()}`,
@@ -126,7 +146,7 @@ export async function executeDirectCopilotAction(
           gasUsdc: 0,
           settlementLatencyMs: Date.now() - startTime,
           timestamp: Date.now(),
-          errorMessage: `Arc Testnet üzerinde cüzdanınızda (${activeWallet.slice(0, 6)}...${activeWallet.slice(-4)}) yeterli bakiye bulunamadı (Mevcut Bakiye: ${(Number(onChainBalanceWei) / 1e6).toFixed(2)} USDC). Lütfen faucet.circle.com adresinden 'Arc Testnet' ağını seçerek bu adrese ücretsiz USDC talep edin.`,
+          errorMessage: `Arc Testnet üzerinde cüzdanınızda (${activeWallet.slice(0, 6)}...${activeWallet.slice(-4)}) yeterli bakiye bulunamadı (Mevcut: ${(Number(effectiveBalUnits) / 10 ** decIn).toFixed(2)} ${fromTok}). Lütfen faucet.circle.com adresinden 'Arc Testnet' ağını seçerek ücretsiz bakiye talep edin.`,
         }
       }
 
@@ -135,11 +155,6 @@ export async function executeDirectCopilotAction(
 
       // Step 2: Send real on-chain swap transaction
       let realTxHash = ''
-      const arcRoute = resolveArcNativeRoute(fromTok, toTok)
-      const decIn = arcRoute ? arcRoute.decIn : 6
-      const decOut = arcRoute ? arcRoute.decOut : 6
-      const amountInUnits = parseUnits(amountIn.toString(), decIn)
-      const minOutUnits = parseUnits(estimatedOutput, decOut) * 98n / 100n // 2% slippage protection
 
       if (sessionConfig.ephemeralPrivateKey && arcRoute) {
         try {

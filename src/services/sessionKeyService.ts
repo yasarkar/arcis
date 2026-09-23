@@ -13,7 +13,7 @@ export const DEFAULT_SESSION_KEY_CONFIG = {
   maxSpendUsdc: 100.0,
   maxPerTxUsdc: 50.0,
   autoExecute: true,
-  allowedActions: ['swap', 'deposit', 'bridge', 'send', 'faucet'] as SessionActionType[],
+  allowedActions: ['swap', 'deposit', 'bridge', 'send', 'faucet', 'ai_service'] as SessionActionType[],
 }
 
 // Volatile in-memory key reference (cleared on page reload / garbage collection)
