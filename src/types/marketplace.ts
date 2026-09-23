@@ -40,6 +40,11 @@ export interface x402Service {
   sampleResponseData: Record<string, any>
   supportedChains: string[]
   paymentScheme: 'GatewayWalletBatched' | 'x402-exact'
+  totalEarnedUsdc?: number
+  callCount?: number
+  isCommunity?: boolean
+  createdAt?: number
+  creatorAddress?: string
 }
 
 export interface x402PaymentChallenge {
@@ -55,6 +60,25 @@ export interface x402PaymentChallenge {
   validUntil: number
 }
 
+export interface ActionableSignalPayload {
+  type: 'swap' | 'arbitrage' | 'deposit' | 'navigate'
+  title: string
+  badgeText: string
+  details: {
+    fromToken?: string
+    toToken?: string
+    amountIn?: number
+    estimatedOut?: number
+    poolAddress?: string
+    spreadPct?: number
+    estimatedProfitUsdc?: number
+    priceImpactPct?: number
+    targetChain?: string
+    navTab?: string
+    [key: string]: any
+  }
+}
+
 export interface x402ExecutionResult {
   statusCode: number
   success: boolean
@@ -62,13 +86,27 @@ export interface x402ExecutionResult {
   error?: string
   executionTimeMs: number
   costUsdc: number
+  protocolFeeUsdc?: number
+  providerEarnedUsdc?: number
   txHash?: string
+  blockNumber?: number
+  explorerUrl?: string
+  actionablePayload?: ActionableSignalPayload
   challenge?: x402PaymentChallenge
   authProof?: {
     signature: string
     payerAddress: string
     timestamp: number
   }
+  executionMode?: 'onchain_verified' | 'session_autonomous'
+  gasSponsored?: boolean
+}
+
+export interface ProviderStats {
+  totalCallsServed: number
+  totalUsdcEarned: number
+  unclaimedEarningsUsdc: number
+  activeServicesCount: number
 }
 
 export interface CopilotStepLog {

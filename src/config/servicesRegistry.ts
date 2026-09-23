@@ -1,26 +1,24 @@
 // src/config/servicesRegistry.ts
-// Arc Arbitraj ve Likidite x402 AI Hizmet Kataloğu & Yapılandırması
+// Arc Arbitrage and Liquidity x402 AI Services Catalog & Configuration
 
 import type { x402Service, MarketplaceStats } from '../types/marketplace'
 
 export const MARKETPLACE_STATS: MarketplaceStats = {
-  totalCallsProcessed: 482914,
-  totalVolumeUsdc: 2414.57,
-  totalYieldGeneratedUsdc: 24.15, // 1% diverted to Real-Yield Vault
-  averageResponseTimeMs: 142,
+  totalCallsProcessed: 0,
+  totalVolumeUsdc: 0.00,
+  totalYieldGeneratedUsdc: 0.00,
+  averageResponseTimeMs: 120,
   activeServicesCount: 5,
-  savedSubscriptionCostUsd: 144874.20, // compared to $50/mo API tiers
+  savedSubscriptionCostUsd: 0.00,
 }
-
-export const DEFAULT_DEMO_PAYER_ADDRESS = '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A'
 
 export const ARC_SERVICES_REGISTRY: x402Service[] = [
   {
     id: 'arc-cross-dex-arbitrage-sentinel',
     name: 'Arc Cross-DEX Arbitrage Sentinel',
-    tagline: 'Anlık Arc L1 DEX Havuzları Arasındaki Fiyat Farklarını ve Net Kârı Hesaplar',
+    tagline: 'Calculates Real-Time Price Spreads and Net Profit Across Arc L1 DEX Pools',
     category: 'Arbitrage',
-    description: 'Arc L1 üzerindeki Uniswap v3, Curve ve Aerodrome çatalları ile harici CEX/Gateway köprüleri arasındaki arbitraj döngülerini milisaniyeler içinde tespit eder. Tahmini brüt kâr, gas maliyeti (USDC) ve net getiri yüzdesini döner.',
+    description: 'Detects arbitrage cycles across Arc L1 Uniswap v3, Curve, and Aerodrome forks alongside external CEX/Gateway bridges in milliseconds. Returns estimated gross profit, gas costs (USDC), and net yield percentage.',
     priceUsdc: 0.005,
     latencyMs: 125,
     successRate: 99.9,
@@ -38,7 +36,7 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     inputParameters: [
       {
         name: 'pair',
-        label: 'İşlem Çifti (Token Pair)',
+        label: 'Token Pair',
         type: 'select',
         defaultValue: 'USDC/WETH',
         options: [
@@ -47,23 +45,23 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
           { label: 'USDC / EURC', value: 'USDC/EURC' },
           { label: 'af-USDC / USDC (Vault Peg)', value: 'af-USDC/USDC' },
         ],
-        description: 'Taranacak birincil likidite çifti.',
+        description: 'Primary liquidity pair to scan.',
         required: true,
       },
       {
         name: 'tradeSizeUsdc',
-        label: 'Sermaye Büyüklüğü (USDC)',
+        label: 'Trade Capital (USDC)',
         type: 'number',
         defaultValue: 25000,
-        description: 'Simüle edilecek takas büyüklüğü.',
+        description: 'Simulated swap trade volume.',
         required: true,
       },
       {
         name: 'minNetProfitPct',
-        label: 'Min. Net Kâr Eşiği (%)',
+        label: 'Min. Net Profit Threshold (%)',
         type: 'number',
         defaultValue: 0.35,
-        description: 'Sadece bu kâr oranının üzerindeki fırsatları filtrele.',
+        description: 'Filter opportunities exceeding this net profit margin.',
         required: false,
       },
     ],
@@ -104,9 +102,9 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
   {
     id: 'arc-deep-liquidity-slippage-optimizer',
     name: 'Deep Liquidity Depth & Slippage Predictor',
-    tagline: 'Büyük Hacimli İşlemler İçin En Düşük Kayma (Slippage) ve Çok Adımlı Rotalama',
+    tagline: 'Lowest Slippage and Multi-Hop Routing for High-Volume Trades',
     category: 'Liquidity & Routing',
-    description: 'Arc L1 üzerindeki tüm havuzların konsantre likidite derinliğini analiz ederek, $10K - $5M arası büyük hacimli takaslar için 0.01% hassasiyetle fiyat etkisini (price impact) ve en optimum parçalı emir dağılımını hesaplar.',
+    description: 'Analyzes concentrated liquidity depth across all Arc L1 pools to calculate price impact with 0.01% precision and optimal split-order distribution for trades from $10K to $5M.',
     priceUsdc: 0.002,
     latencyMs: 95,
     successRate: 99.95,
@@ -124,7 +122,7 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     inputParameters: [
       {
         name: 'fromToken',
-        label: 'Satılacak Token',
+        label: 'Sell Token',
         type: 'select',
         defaultValue: 'USDC',
         options: [
@@ -133,12 +131,12 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
           { label: 'WETH', value: 'WETH' },
           { label: 'af-USDC (Yield Vault)', value: 'af-USDC' },
         ],
-        description: 'Takas edilecek kaynak varlık.',
+        description: 'Source asset to swap.',
         required: true,
       },
       {
         name: 'toToken',
-        label: 'Alınacak Token',
+        label: 'Buy Token',
         type: 'select',
         defaultValue: 'WETH',
         options: [
@@ -147,15 +145,15 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
           { label: 'EURC', value: 'EURC' },
           { label: 'WBTC', value: 'WBTC' },
         ],
-        description: 'Hedef varlık.',
+        description: 'Target destination asset.',
         required: true,
       },
       {
         name: 'amount',
-        label: 'Miktar',
+        label: 'Amount',
         type: 'number',
         defaultValue: 50000,
-        description: 'Takas edilecek token miktarı.',
+        description: 'Token amount to swap.',
         required: true,
       },
     ],
@@ -183,9 +181,9 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
   {
     id: 'arc-flash-loan-yield-radar',
     name: 'Flash-Loan Yield & Liquidation Radar',
-    tagline: 'Sermayesiz Flash-Loan Arbitrajı ve Tasfiye Primlerini Tespit Eder',
+    tagline: 'Identifies Zero-Capital Flash-Loan Arbitrage and Liquidation Premiums',
     category: 'Yield & Flash-Loan',
-    description: 'Arc borç verme protokollerinde (Aave / Compound Arc L1 çatalları) teminat oranı kritik seviyeye inen pozisyonları ve anlık flash-loan arbitraj fırsatlarını izler. Sıfır sermaye riskiyle 5% - 12% tasfiye bonusu yakalama çağrı verisi üretir.',
+    description: 'Monitors undercollateralized positions and flash-loan arbitrage opportunities across Arc lending protocols (Aave / Compound Arc L1 forks). Generates execution calldata to capture 5% - 12% liquidation bonuses with zero capital risk.',
     priceUsdc: 0.008,
     latencyMs: 160,
     successRate: 99.7,
@@ -203,23 +201,23 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     inputParameters: [
       {
         name: 'minLiquidationRewardUsdc',
-        label: 'Min. Tasfiye Ödülü (USDC)',
+        label: 'Min. Liquidation Reward (USDC)',
         type: 'number',
         defaultValue: 100,
-        description: 'Taranacak minimum net tasfiye geliri.',
+        description: 'Minimum net liquidation revenue threshold.',
         required: true,
       },
       {
         name: 'targetProtocol',
-        label: 'Hedef Kredi Protokolü',
+        label: 'Target Lending Protocol',
         type: 'select',
         defaultValue: 'All',
         options: [
-          { label: 'Tüm Arc Borç Verme Protokolleri', value: 'All' },
+          { label: 'All Arc Lending Protocols', value: 'All' },
           { label: 'ArcLend (Aave v3 Fork)', value: 'ArcLend' },
           { label: 'ArcCompound Core', value: 'ArcCompound' },
         ],
-        description: 'Taranacak borç protokolü.',
+        description: 'Target lending protocol to monitor.',
         required: false,
       },
     ],
@@ -251,9 +249,9 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
   {
     id: 'arc-mempool-mev-shield',
     name: 'Arc Mempool & MEV Shield Simulator',
-    tagline: 'Bekleyen İşlemlerde Sandwich Attack ve Frontrunning Riskini Önceden Analiz Eder',
+    tagline: 'Pre-Simulates Sandwich Attacks and Frontrunning Risks for Pending Transactions',
     category: 'MEV & Security',
-    description: 'Büyük boyutlu işlemlerin mempool üzerinde kötü niyetli MEV botları tarafından sandviçlenip sandviçlenmeyeceğini simüle eder. Arc L1 öncelikli gaz optimizasyonu ve özel RPC gizlilik rotaları ile 100% koruma sağlar.',
+    description: 'Simulates pending high-volume transactions against malicious mempool MEV bots. Provides 100% protection through Arc L1 priority gas optimizations and private RPC relayer routes.',
     priceUsdc: 0.004,
     latencyMs: 110,
     successRate: 99.98,
@@ -271,18 +269,18 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     inputParameters: [
       {
         name: 'targetTxAmountUsdc',
-        label: 'İşlem Tutarı (USDC)',
+        label: 'Transaction Value (USDC)',
         type: 'number',
         defaultValue: 100000,
-        description: 'MEV risk analizi yapılacak işlem büyüklüğü.',
+        description: 'Transaction size to evaluate for MEV exposure.',
         required: true,
       },
       {
         name: 'slippageTolerancePct',
-        label: 'Slippage Toleransı (%)',
+        label: 'Slippage Tolerance (%)',
         type: 'number',
         defaultValue: 0.5,
-        description: 'Ayarlanan maksimum kayma toleransı.',
+        description: 'Configured maximum slippage tolerance.',
         required: true,
       },
     ],
@@ -306,9 +304,9 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
   {
     id: 'arc-cross-chain-gateway-flow-indexer',
     name: 'Cross-Chain Gateway Flow Indexer',
-    tagline: '13+ Ağdan Arc L1\'e Akan Kurumsal USDC Likidite Göçünü Anlık Raporlar',
+    tagline: 'Real-Time Institutional USDC Liquidity Migration Flowing into Arc L1 from 13+ Chains',
     category: 'Cross-Chain Gateway',
-    description: 'Ethereum, Base, Arbitrum, Solana ve diğer EVM ağlarından Circle Gateway aracılığıyla Arc L1 ekosistemine giren ve çıkan net USDC akışlarını dakikalık bazda analiz eder. Balina ve kurumsal sermaye hareketlerini önceden sinyaller.',
+    description: 'Tracks real-time net USDC inflows and outflows between Circle Gateway-supported chains (Ethereum, Base, Arbitrum, Solana) and Arc L1. Delivers early signals on institutional capital movements and whale migrations.',
     priceUsdc: 0.003,
     latencyMs: 130,
     successRate: 99.85,
@@ -326,15 +324,15 @@ export const ARC_SERVICES_REGISTRY: x402Service[] = [
     inputParameters: [
       {
         name: 'timeWindow',
-        label: 'Zaman Aralığı',
+        label: 'Time Window',
         type: 'select',
         defaultValue: '1h',
         options: [
-          { label: 'Son 1 Saat', value: '1h' },
-          { label: 'Son 24 Saat', value: '24h' },
-          { label: 'Son 7 Gün', value: '7d' },
+          { label: 'Past 1 Hour', value: '1h' },
+          { label: 'Past 24 Hours', value: '24h' },
+          { label: 'Past 7 Days', value: '7d' },
         ],
-        description: 'İncelenecek zaman dilimi.',
+        description: 'Timeframe window to analyze.',
         required: true,
       },
     ],

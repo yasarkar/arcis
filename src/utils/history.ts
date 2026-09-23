@@ -6,7 +6,7 @@
 
 export interface HistoryItem {
   id: string
-  type: 'send' | 'swap' | 'bridge' | 'deposit'
+  type: 'send' | 'swap' | 'bridge' | 'deposit' | 'ai_service'
   txHash: string
   amount: string
   tokenSymbol: string
@@ -30,6 +30,12 @@ export interface HistoryItem {
   memo?: string
   memoId?: string
   memoIndex?: number
+
+  // AI Service specific
+  serviceId?: string
+  serviceName?: string
+  providerAddress?: string
+  latencyMs?: number
 }
 
 // In-memory runtime cache partitioned by wallet address for instant UI reactivity

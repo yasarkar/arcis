@@ -1,7 +1,7 @@
 // src/types/sessionKey.ts
 // Data structures for Circle Modular Wallets & Autonomous Session Keys in Arcis
 
-export type SessionActionType = 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet'
+export type SessionActionType = 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet' | 'ai_service'
 
 export interface SessionKeyConfig {
   sessionId: string
@@ -37,7 +37,7 @@ export type ExecutionProgressState =
 
 export interface InlineExecutionReceipt {
   id: string
-  actionType: 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet'
+  actionType: 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet' | 'ai_service'
   title: string
   status: 'SUCCESS' | 'FAILED' | 'CANCELED'
   txHash: string
