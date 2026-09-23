@@ -7,6 +7,7 @@ import {
   ARC_SERVICES_REGISTRY,
   MARKETPLACE_STATS,
 } from '../config/servicesRegistry'
+import { ecosystemStatsService } from '../services/ecosystemStatsService'
 import {
   executeX402Call,
   getSessionBudget,
@@ -21,12 +22,49 @@ import type {
   MarketplaceStats,
 } from '../types/marketplace'
 
-export function useMarketplaceServices(walletAddress?: string) {
-  const [services] = useState<x402Service[]>(ARC_SERVICES_REGISTRY)
-  const [stats, setStats] = useState<MarketplaceStats>(MARKETPLACE_STATS)
+const CUSTOM_SERVICES_KEY = 'arcis_custom_registered_services_v2'
+
+function loadCustomServices(): x402Service[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_SERVICES_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch (e) {
+    console.error('Failed to load custom services', e)
+  }
+  return []
+}
+
+function saveCustomServices(list: x402Service[]) {
+  try {
+    localStorage.setItem(CUSTOM_SERVICES_KEY, JSON.stringify(list))
+  } catch (e) {
+    console.error('Failed to save custom services', e)
+  }
+}
+
+export function useMarketplaceServices(walletAddress?: string, provider?: any) {
+  const [customServices, setCustomServices] = useState<x402Service[]>(loadCustomServices)
+  const [services, setServices] = useState<x402Service[]>([
+    ...ARC_SERVICES_REGISTRY,
+    ...loadCustomServices(),
+  ])
+  const [stats, setStats] = useState<MarketplaceStats>(() => ecosystemStatsService.getStats())
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>('All')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [filterCommunity, setFilterCommunity] = useState<'all' | 'verified' | 'community'>('all')
+
+  // Modals
+  const [isProviderHubOpen, setIsProviderHubOpen] = useState<boolean>(false)
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState<boolean>(false)
   
+  // Subscribe to live ecosystem stats updates
+  useEffect(() => {
+    const unsubscribe = ecosystemStatsService.subscribe((updatedStats) => {
+      setStats(updatedStats)
+    })
+    return () => unsubscribe()
+  }, [])
+
   // Systematic input clearing on wallet disconnect
   useClearOnWalletDisconnect(() => {
     setSearchQuery('')
@@ -58,6 +96,14 @@ export function useMarketplaceServices(walletAddress?: string) {
     refreshSessionBudget()
   }, [refreshSessionBudget])
 
+  const registerService = (newService: x402Service) => {
+    const updated = [newService, ...customServices]
+    setCustomServices(updated)
+    saveCustomServices(updated)
+    setServices([newService, ...services])
+    ecosystemStatsService.incrementServiceCount()
+  }
+
   // Filtered services
   const filteredServices = useMemo(() => {
     return services.filter((s) => {
@@ -68,27 +114,26 @@ export function useMarketplaceServices(walletAddress?: string) {
         s.name.toLowerCase().includes(q) ||
         s.description.toLowerCase().includes(q) ||
         s.tags.some((t) => t.toLowerCase().includes(q))
-      return matchesCategory && matchesSearch
+      const matchesCommunity =
+        filterCommunity === 'all' ||
+        (filterCommunity === 'verified' && s.provider.isVerified) ||
+        (filterCommunity === 'community' && s.isCommunity)
+      return matchesCategory && matchesSearch && matchesCommunity
     })
-  }, [services, selectedCategory, searchQuery])
+  }, [services, selectedCategory, searchQuery, filterCommunity])
 
   // Execute a service call
   const runService = async (service: x402Service, payload: Record<string, any>) => {
     setIsExecuting(true)
     setExecutionResult(null)
     try {
-      const result = await executeX402Call(service, payload, walletAddress)
+      const result = await executeX402Call(service, payload, walletAddress, provider)
       setExecutionResult(result)
       refreshSessionBudget()
 
-      // Increment stats slightly to feel dynamic
+      // Increment stats dynamically and persist across sessions
       if (result.success) {
-        setStats((prev) => ({
-          ...prev,
-          totalCallsProcessed: prev.totalCallsProcessed + 1,
-          totalVolumeUsdc: Number((prev.totalVolumeUsdc + service.priceUsdc).toFixed(4)),
-          totalYieldGeneratedUsdc: Number((prev.totalYieldGeneratedUsdc + service.priceUsdc * 0.01).toFixed(4)),
-        }))
+        ecosystemStatsService.recordExecution(service.priceUsdc)
       }
       return result
     } catch (err: any) {
@@ -135,6 +180,8 @@ export function useMarketplaceServices(walletAddress?: string) {
     setSelectedCategory,
     searchQuery,
     setSearchQuery,
+    filterCommunity,
+    setFilterCommunity,
     activeService,
     isPlaygroundOpen,
     isExecuting,
@@ -146,5 +193,10 @@ export function useMarketplaceServices(walletAddress?: string) {
     handleResetBudget,
     toggleAutoApprove,
     refreshSessionBudget,
+    isProviderHubOpen,
+    setIsProviderHubOpen,
+    isRegisterModalOpen,
+    setIsRegisterModalOpen,
+    registerService,
   }
 }
