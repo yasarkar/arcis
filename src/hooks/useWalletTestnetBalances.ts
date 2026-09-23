@@ -165,7 +165,7 @@ export function useWalletTestnetBalances(walletAddress: string) {
     isFetching,
     refetch: () => {
       queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances', walletAddress] })
-      refetch()
+      return refetch()
     },
   }
 }

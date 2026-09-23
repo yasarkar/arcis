@@ -89,7 +89,7 @@ export function useGatewayBalance(walletAddress: string) {
     error: queryError ? (queryError as Error).message : null,
     refresh: () => {
       queryClient.invalidateQueries({ queryKey: ['gatewayBalances', walletAddress] })
-      refetch()
+      return refetch()
     },
   }
 }
