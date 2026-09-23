@@ -16,7 +16,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  FileText
+  FileText,
+  Bot,
 } from 'lucide-react'
 import { getHistory, fetchHistory, isHistoryLoaded, HistoryItem } from '../utils/history'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -624,6 +625,18 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
           <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
             <span>{formatAmountDisplay(item.amount)}</span>
             <RenderTokenIcon symbol={item.tokenSymbol} />
+          </span>
+        )
+      case 'ai_service':
+        return (
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+            <span>{formatAmountDisplay(item.amount)}</span>
+            <RenderTokenIcon symbol="USDC" />
+            {item.serviceName && (
+              <span className="text-[11px] text-cyan-300 font-mono font-medium truncate max-w-[140px]">
+                ({item.serviceName})
+              </span>
+            )}
           </span>
         )
     }
@@ -1507,9 +1520,10 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                           {item.type === 'send' && <ArrowUpRight className="w-3.5 h-3.5 text-indigo-300" />}
                           {item.type === 'swap' && <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-300" />}
                           {item.type === 'bridge' && <Globe className="w-3.5 h-3.5 text-indigo-300" />}
+                          {item.type === 'ai_service' && <Bot className="w-3.5 h-3.5 text-cyan-400" />}
                         </div>
                         <span className="font-semibold text-white uppercase text-xs" style={{ fontFamily: 'var(--font-app)' }}>
-                          {item.type}
+                          {item.type === 'ai_service' ? 'x402 AI' : item.type}
                         </span>
                       </div>
                     </td>

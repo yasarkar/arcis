@@ -277,6 +277,8 @@ export default function App() {
                 <MarketplaceTab
                   walletAddress={walletAddress}
                   walletConnected={walletConnected}
+                  provider={connectedProvider}
+                  onNavigate={(tab) => setActiveTab(tab as any)}
                 />
               </div>
             )}
