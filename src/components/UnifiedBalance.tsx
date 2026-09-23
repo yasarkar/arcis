@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
-import { RefreshCw, AlertTriangle, ChevronDown, Plus, X, Layers, ShieldCheck, ArrowDownRight, Ban } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ChevronDown, Plus, X, Layers, ShieldCheck, ArrowDownRight, Ban, Info } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 
@@ -30,8 +30,9 @@ interface UnifiedBalanceProps {
 export default function UnifiedBalance({ connector, onNavigate, connectedAddress }: UnifiedBalanceProps) {
   const { address, chainId } = useAccount()
   const walletAddress = connectedAddress || address || ''
-  const { balances, loading, totalBalance, refresh } = useGatewayBalance(walletAddress)
-  const { walletBalances, loading: walletLoading, refetch: refetchWalletBalances } = useWalletTestnetBalances(walletAddress)
+  const { balances, loading, isFetching: isGatewayFetching, totalBalance, refresh } = useGatewayBalance(walletAddress)
+  const { walletBalances, loading: walletLoading, isFetching: isWalletFetching, refetch: refetchWalletBalances } = useWalletTestnetBalances(walletAddress)
+  const [isManualSyncing, setIsManualSyncing] = useState(false)
   const { addBroadcast, updateBroadcast } = useBroadcast()
   const total = parseFloat(totalBalance)
 
@@ -115,9 +116,20 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
   const selectedWalletTokenBalance = selectedWalletItem?.usdc || '0.00'
   const isInsufficientWalletBalance = depositAmount !== '' && parseFloat(depositAmount) > parseFloat(selectedWalletTokenBalance)
 
-  const handleSyncAll = () => {
-    refresh()
-    refetchWalletBalances()
+  const isSyncing = loading || walletLoading || isGatewayFetching || isWalletFetching || isManualSyncing
+
+  const handleSyncAll = async () => {
+    if (isSyncing) return
+    setIsManualSyncing(true)
+    try {
+      await Promise.allSettled([
+        refresh(),
+        refetchWalletBalances(),
+        new Promise(resolve => setTimeout(resolve, 600)),
+      ])
+    } finally {
+      setIsManualSyncing(false)
+    }
   }
 
   const sortedBalances = [...balances].sort(
@@ -281,14 +293,16 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
             {walletAddress && (
               <button
                 onClick={handleSyncAll}
-                disabled={loading || walletLoading}
+                disabled={isSyncing}
                 className="ub-action-btn"
-                style={{ opacity: (loading || walletLoading) ? 0.5 : 1 }}
+                style={{
+                  opacity: isSyncing ? 0.6 : 1,
+                  cursor: isSyncing ? 'not-allowed' : 'pointer',
+                }}
               >
-                <span>Sync</span>
                 <RefreshCw
                   size={13}
-                  className={`sync-icon ${(loading || walletLoading) ? 'arcis-spin' : ''}`}
+                  className={`sync-icon ${isSyncing ? 'arcis-spin' : ''}`}
                 />
               </button>
             )}
@@ -362,7 +376,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
               </span>
             </div>
 
-            {walletLoading && (
+            {(walletLoading || isWalletFetching) && (
               <span style={{ fontSize: 11, color: 'var(--secondary-colors--sky-sync)', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-app)' }}>
                 <RefreshCw size={11} className="arcis-spin" /> Refreshing Wallet Balances...
               </span>
@@ -373,7 +387,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
             {/* Custom Chain selector with icons */}
             <div style={{ position: 'relative' }} ref={dropdownRef}>
               <label style={{ fontSize: 11, fontFamily: 'var(--font-app)', fontWeight: 600, color: 'var(--fp-3)', marginBottom: 6, display: 'block', letterSpacing: '0.5px' }}>
-                SOURCE CHAIN
+                NETWORK
               </label>
               <button
                 type="button"
@@ -622,13 +636,24 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
               </div>
             )}
 
-            {/* Fee Transparency Note */}
-            <div style={{ padding: '8px 12px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: 12, fontSize: 11, color: 'var(--fp-3)', fontFamily: 'var(--font-app)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ShieldCheck size={13} style={{ color: '#10b981' }} />
-                <span>Zero Deposit Fee</span>
-              </div>
-              <span style={{ color: '#10b981', fontWeight: 600 }}>0.00 USDC</span>
+            {/* Gateway Settlement Info */}
+            <div
+              style={{
+                padding: '8px 12px',
+                background: 'rgba(152, 150, 255, 0.05)',
+                border: '1px solid rgba(152, 150, 255, 0.15)',
+                borderRadius: 12,
+                fontSize: 11,
+                color: 'var(--fp-3)',
+                fontFamily: 'var(--font-app)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                lineHeight: 1.4,
+              }}
+            >
+              <Info size={13} style={{ color: 'var(--purple-1)', flexShrink: 0 }} />
+              <span>Deposited funds may take up to 60 seconds to reflect in your Gateway balance.</span>
             </div>
 
             <button

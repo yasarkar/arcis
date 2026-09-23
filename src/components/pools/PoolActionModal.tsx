@@ -9,7 +9,6 @@ import {
   X,
   Plus,
   Minus,
-  TrendingUp,
   AlertTriangle,
   AlertCircle,
   RefreshCw,
@@ -20,7 +19,6 @@ import {
   ChevronDown,
   SlidersHorizontal,
   Wallet,
-  Shield,
   Info,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
@@ -101,11 +99,24 @@ export default function PoolActionModal({
 
   // Circle Gateway balances & Wallet multi-chain balances for Cross-Chain Gateway Zap
   const { totalBalance: gatewayTotalBalance, balances: gatewayBalances } = useGatewayBalance(walletAddress)
-  const { walletBalances } = useWalletTestnetBalances(walletAddress)
 
   // Deposit Source: Native Arc vs Cross-Chain 1-Click Gateway Zap
   const [depositSource, setDepositSource] = useState<'native' | 'crosschain'>('native')
-  const [selectedSourceChain, setSelectedSourceChain] = useState<string>('Unified_Gateway')
+
+  // Helper to pick preferred default source chain (highest non-Arc gateway balance, or Base_Sepolia)
+  const getPreferredSourceChain = useCallback(() => {
+    const validChains = (gatewayBalances || []).filter((b) => b.chainKey !== 'Arc_Testnet')
+    const withBal = validChains.filter((b) => parseFloat(b.balance) > 0)
+    if (withBal.length > 0) {
+      const highest = withBal.reduce((prev, curr) =>
+        parseFloat(curr.balance) > parseFloat(prev.balance) ? curr : prev
+      , withBal[0])
+      return highest.chainKey
+    }
+    return 'Base_Sepolia'
+  }, [gatewayBalances])
+
+  const [selectedSourceChain, setSelectedSourceChain] = useState<string>('Base_Sepolia')
   const [showChainDropdown, setShowChainDropdown] = useState<boolean>(false)
 
   // Standard & Zap inputs
@@ -115,26 +126,14 @@ export default function PoolActionModal({
   // Helper to get Gateway balance for a given chainKey
   const getGatewayChainBalance = useCallback(
     (chainKey: string) => {
-      if (chainKey === 'Unified_Gateway') return gatewayTotalBalance || '0.00'
       const found = gatewayBalances?.find((b) => b.chainKey === chainKey)
       return found?.balance || '0.00'
     },
-    [gatewayBalances, gatewayTotalBalance]
+    [gatewayBalances]
   )
 
-  // Dynamic source chain resolution: if Unified_Gateway is selected, pick the non-Arc chain with the highest balance (or balance >= amount)
-  const resolvedSourceChainKey = useMemo(() => {
-    if (selectedSourceChain !== 'Unified_Gateway') return selectedSourceChain
-    const validChains = (gatewayBalances || []).filter((b) => b.chainKey !== 'Arc_Testnet')
-    if (validChains.length === 0) return 'Base_Sepolia'
-    const inputNum = parseFloat(amount) || 0
-    const sufficient = validChains.find((b) => parseFloat(b.balance) >= inputNum && parseFloat(b.balance) > 0)
-    if (sufficient) return sufficient.chainKey
-    const maxItem = validChains.reduce((prev, curr) =>
-      parseFloat(curr.balance) > parseFloat(prev.balance) ? curr : prev
-    , validChains[0])
-    return maxItem?.chainKey || 'Base_Sepolia'
-  }, [selectedSourceChain, gatewayBalances, amount])
+  // Direct source chain resolution (selectedSourceChain is always a physical EVM chain)
+  const resolvedSourceChainKey = selectedSourceChain
 
   const effectiveSourceDef = (POOLS_CHAIN_DEFS as Record<string, any>)[resolvedSourceChainKey]
 
@@ -247,7 +246,7 @@ export default function PoolActionModal({
   useEffect(() => {
     setActiveMode(initialMode)
     setDepositSource('native')
-    setSelectedSourceChain('Unified_Gateway')
+    setSelectedSourceChain(getPreferredSourceChain())
     setAmount('')
     setAmountA('')
     setAmountB('')
@@ -270,15 +269,12 @@ export default function PoolActionModal({
       setSwapTokenIn(pool.tokens[0].symbol)
       setSwapTokenOut(pool.tokens[1].symbol)
     }
-  }, [initialMode, pool, isOpen])
+  }, [initialMode, pool, isOpen, getPreferredSourceChain])
 
   // Cross-Chain balance on selected source chain (shows Circle Gateway balance)
   const crossChainBalNum = useMemo(() => {
-    if (selectedSourceChain === 'Unified_Gateway') {
-      return parseFloat(gatewayTotalBalance || '0')
-    }
     return parseFloat(getGatewayChainBalance(selectedSourceChain) || '0')
-  }, [selectedSourceChain, gatewayTotalBalance, getGatewayChainBalance])
+  }, [selectedSourceChain, getGatewayChainBalance])
 
   if (!isOpen || !pool) return null
 
@@ -315,7 +311,7 @@ export default function PoolActionModal({
 
   const maxAvailableStr = activeMode === 'deposit'
     ? depositSource === 'crosschain'
-      ? `${crossChainBalStr} USDC (${selectedSourceChain === 'Unified_Gateway' ? 'Gateway Unified' : (GATEWAY_CHAIN_NAMES[selectedSourceChain] || selectedSourceChain)})`
+      ? `${crossChainBalStr} USDC (${GATEWAY_CHAIN_NAMES[selectedSourceChain] || selectedSourceChain})`
       : `${availableWalletUsdc} USDC`
     : `${userStaked.toFixed(2)} USD`
 
@@ -633,7 +629,7 @@ export default function PoolActionModal({
           return
         }
         if (inputAmountNum > crossChainBalNum) {
-          setErrorMsg(`Amount exceeds your balance of ${crossChainBalStr} USDC on ${selectedSourceChain === 'Unified_Gateway' ? 'Gateway' : (GATEWAY_CHAIN_NAMES[selectedSourceChain] || selectedSourceChain)}.`)
+          setErrorMsg(`Amount exceeds your balance of ${crossChainBalStr} USDC on ${GATEWAY_CHAIN_NAMES[selectedSourceChain] || selectedSourceChain}.`)
           return
         }
 
@@ -749,16 +745,23 @@ export default function PoolActionModal({
     }
   }
 
-  // Eligible source chains for Cross-Chain Zap (Circle Gateway balances across chains)
-  const sourceChainsList = useMemo(() => [
-    { chain: 'Unified_Gateway', name: 'Unified Gateway (Multi-Chain)', balance: gatewayTotalBalance || '0.00' },
-    { chain: 'Base_Sepolia', name: 'Base Sepolia', balance: getGatewayChainBalance('Base_Sepolia') },
-    { chain: 'Ethereum_Sepolia', name: 'Ethereum Sepolia', balance: getGatewayChainBalance('Ethereum_Sepolia') },
-    { chain: 'Arbitrum_Sepolia', name: 'Arbitrum Sepolia', balance: getGatewayChainBalance('Arbitrum_Sepolia') },
-    { chain: 'Optimism_Sepolia', name: 'Optimism Sepolia', balance: getGatewayChainBalance('Optimism_Sepolia') },
-    { chain: 'Polygon_Amoy_Testnet', name: 'Polygon PoS Amoy', balance: getGatewayChainBalance('Polygon_Amoy_Testnet') },
-    { chain: 'Avalanche_Fuji', name: 'Avalanche Fuji', balance: getGatewayChainBalance('Avalanche_Fuji') },
-  ], [gatewayTotalBalance, getGatewayChainBalance])
+  // Eligible source chains for Cross-Chain Zap (Circle Gateway balances sorted descending by balance)
+  const sourceChainsList = useMemo(() => {
+    const list = [
+      { chain: 'Base_Sepolia', name: 'Base Sepolia', balance: getGatewayChainBalance('Base_Sepolia') },
+      { chain: 'Ethereum_Sepolia', name: 'Ethereum Sepolia', balance: getGatewayChainBalance('Ethereum_Sepolia') },
+      { chain: 'Arbitrum_Sepolia', name: 'Arbitrum Sepolia', balance: getGatewayChainBalance('Arbitrum_Sepolia') },
+      { chain: 'Optimism_Sepolia', name: 'Optimism Sepolia', balance: getGatewayChainBalance('Optimism_Sepolia') },
+      { chain: 'Polygon_Amoy_Testnet', name: 'Polygon PoS Amoy', balance: getGatewayChainBalance('Polygon_Amoy_Testnet') },
+      { chain: 'Avalanche_Fuji', name: 'Avalanche Fuji', balance: getGatewayChainBalance('Avalanche_Fuji') },
+    ]
+    return [...list].sort((a, b) => {
+      const balA = parseFloat(a.balance || '0')
+      const balB = parseFloat(b.balance || '0')
+      if (balB !== balA) return balB - balA
+      return a.name.localeCompare(b.name)
+    })
+  }, [getGatewayChainBalance])
 
   if (typeof document === 'undefined') return null
 
@@ -1145,7 +1148,7 @@ export default function PoolActionModal({
             </button>
           </div>
 
-          {/* ── Deposit Source Switcher: Arc Native vs Cross-Chain Gateway Zap ── */}
+          {/* ── Deposit Source Switcher: Arc Testnet vs Cross-Chain Gateway Zap ── */}
           {activeMode === 'deposit' && (
             <div
               style={{
@@ -1187,7 +1190,7 @@ export default function PoolActionModal({
                 }}
               >
                 <Wallet size={13} style={{ color: 'var(--purple-1)' }} />
-                <span>Arc Native</span>
+                <span>Arc Testnet</span>
               </button>
 
               <button
@@ -1240,10 +1243,10 @@ export default function PoolActionModal({
                     className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider"
                     style={{ fontFamily: 'var(--font-app)' }}
                   >
-                    SOURCE NETWORK (CIRCLE GATEWAY)
+                    NETWORK
                   </div>
                   <span className="text-[12px] text-slate-400 font-medium">
-                    {crossChainBalStr} USDC
+                    Available: <strong className="text-white">{crossChainBalStr} USDC</strong>
                   </span>
                 </div>
 
@@ -1266,17 +1269,14 @@ export default function PoolActionModal({
                       <span className="text-xs font-semibold text-white truncate">
                         {CHAIN_META[selectedSourceChain]?.name || getChainDisplayName(selectedSourceChain)}
                       </span>
-                      {selectedSourceChain === 'Unified_Gateway' && (
-                        <span className="text-[10px] text-indigo-400/90 font-medium">
-                          Routes via {CHAIN_META[resolvedSourceChainKey]?.name || resolvedSourceChainKey}
-                        </span>
-                      )}
                     </div>
                   </div>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <div className="flex items-center gap-2 shrink-0">
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </div>
                 </button>
 
-                {parseFloat(gatewayTotalBalance || '0') <= 0 && (
+                {parseFloat(gatewayTotalBalance || '0') <= 0 ? (
                   <div className="mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300/90 leading-relaxed flex items-start gap-2">
                     <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                     <div>
@@ -1284,7 +1284,15 @@ export default function PoolActionModal({
                       Cross-Chain Zap burns deposited USDC from Circle Gateway. Please deposit testnet USDC into Circle Gateway via the <strong>Unified Balance</strong> tab before zapping.
                     </div>
                   </div>
-                )}
+                ) : crossChainBalNum <= 0 ? (
+                  <div className="mt-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300/90 leading-relaxed flex items-start gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-amber-200 block mb-0.5">0 USDC on {CHAIN_META[selectedSourceChain]?.name || selectedSourceChain}</strong>
+                      Your Gateway balance on this specific network is 0. Please select another source network with available balance above, or deposit via the <strong>Unified Balance</strong> tab.
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           )}
@@ -1438,6 +1446,7 @@ export default function PoolActionModal({
                     setSwapAmountIn(val)
                     setErrorMsg(null)
                   }}
+                  placeholder={swapTokenIn === 'cirBTC' || swapTokenIn.toLowerCase().includes('btc') ? '0.0000' : '0.00'}
                   tokenSymbol={swapTokenIn}
                   tokenIcon={swapTokenIn === 'EURC' ? EurcIcon : (swapTokenIn === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
                   tokenListAvailable={false}
@@ -1486,7 +1495,7 @@ export default function PoolActionModal({
                   label="YOU RECEIVE (ESTIMATED)"
                   amount={calculatedSwapOut}
                   readOnly={true}
-                  placeholder={swapTokenOut === 'cirBTC' ? '0.0000' : '0.00'}
+                  placeholder={swapTokenOut === 'cirBTC' || swapTokenOut.toLowerCase().includes('btc') ? '0.0000' : '0.00'}
                   tokenSymbol={swapTokenOut}
                   tokenIcon={swapTokenOut === 'EURC' ? EurcIcon : (swapTokenOut === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
                   tokenListAvailable={false}
@@ -1526,6 +1535,7 @@ export default function PoolActionModal({
                   label="AMOUNT TO DEPOSIT"
                   amount={amountB}
                   onAmountChange={handleAmountBChange}
+                  placeholder={counterTokenSymbol === 'cirBTC' || counterTokenSymbol.toLowerCase().includes('btc') ? '0.0000' : '0.00'}
                   tokenSymbol={counterTokenSymbol}
                   tokenIcon={counterTokenSymbol === 'EURC' ? EurcIcon : CirBtcIcon}
                   tokenListAvailable={false}
@@ -1555,6 +1565,7 @@ export default function PoolActionModal({
                   label={depositLabel}
                   amount={amount}
                   onAmountChange={handleAmountInputChange}
+                  placeholder={depositTokenSymbol === 'cirBTC' || depositTokenSymbol.toLowerCase().includes('btc') ? '0.0000' : '0.00'}
                   tokenSymbol={depositTokenSymbol}
                   tokenIcon={depositTokenIcon}
                   tokenListAvailable={false}
@@ -1996,7 +2007,6 @@ export default function PoolActionModal({
           setErrorMsg(null)
         }}
         getChainIconId={(c) => CHAIN_META[c]?.iconId || getChainIconId(c)}
-        title="Select Source Network"
       />
     </>,
     document.body

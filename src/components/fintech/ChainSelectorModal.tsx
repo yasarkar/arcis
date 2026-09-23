@@ -146,12 +146,9 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
 
                   <div className="flex items-center gap-2 shrink-0">
                     {c.balance !== undefined && (
-                      <span className="text-xs text-slate-400 font-medium">
+                      <span className="text-xs font-mono font-medium text-slate-400">
                         {c.balance} USDC
                       </span>
-                    )}
-                    {isSelected && (
-                      <Check className="w-4 h-4 text-indigo-400" />
                     )}
                   </div>
                 </button>
