@@ -10,8 +10,46 @@ export interface UcwWalletInfo {
 }
 
 export type AuthMethodType = 'google' | 'apple' | 'facebook' | 'email' | 'pin' | null;
+export type AuthPhaseType = 'idle' | 'requesting' | 'awaiting_code' | 'creating_wallet' | 'success' | 'error';
 
 const UCW_TOKEN_EXPIRY_MS = 55 * 60 * 1000; // 55 minutes validity
+
+export function cleanupCircleIframe(): void {
+  if (typeof document === 'undefined') return;
+  const iframe = document.getElementById('sdkIframe');
+  if (iframe && iframe.parentNode) {
+    iframe.parentNode.removeChild(iframe);
+  }
+}
+
+export function parseCircleAuthError(err: any): string {
+  if (!err) return 'Bilinmeyen bir hata oluştu.';
+  const msg = err?.message || (typeof err === 'string' ? err : JSON.stringify(err));
+  const code = err?.code || err?.response?.data?.code || err?.statusCode || err?.status;
+
+  if (code === 401 || String(code) === '401' || msg.includes('401') || msg.toLowerCase().includes('invalid credentials')) {
+    return 'Circle API kimlik doğrulama hatası (401). Lütfen Circle API anahtarınızı (CIRCLE_API_KEY) kontrol edin.';
+  }
+  if (code === 429 || String(code) === '429' || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+    return 'Çok fazla istek gönderildi. Lütfen bir süre bekleyip tekrar deneyin.';
+  }
+  if (code === 155130 || msg.includes('155130')) {
+    return 'Doğrulama kodunun süresi doldu. Lütfen yeni bir kod isteyin.';
+  }
+  if (code === 155131 || msg.includes('155131')) {
+    return 'Geçersiz OTP doğrulama belirteci. Lütfen tekrar deneyin.';
+  }
+  if (code === 155133 || code === 155134 || msg.includes('155133') || msg.includes('155134')) {
+    return 'Girilen doğrulama kodu hatalı. Lütfen e-postanızı kontrol edip tekrar deneyin.';
+  }
+  if (code === 155141 || code === 155146 || msg.includes('155146')) {
+    return 'Çok fazla hatalı deneme yapıldı. Güvenlik nedeniyle hesap geçici olarak kilitlendi. Lütfen birkaç dakika sonra tekrar deneyin.';
+  }
+  if (code === 155138 || msg.toLowerCase().includes('smtp') || msg.includes('email sending failed')) {
+    return 'E-posta gönderim hatası: Circle Console üzerinde SMTP sağlayıcısı yapılandırılmamış olabilir.';
+  }
+  return msg || 'OTP işlemi sırasında bir hata oluştu.';
+}
 
 function isStoredTokenValid(): boolean {
   if (typeof window === 'undefined') return false;
@@ -47,6 +85,7 @@ export function useUserControlledWallet() {
   });
   
   const [otpStep, setOtpStep] = useState<'input' | 'verify'>('input');
+  const [authPhase, setAuthPhase] = useState<AuthPhaseType>('idle');
   const [pendingEmail, setPendingEmail] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +111,9 @@ export function useUserControlledWallet() {
         const onLoginComplete = async (err: unknown, result: unknown) => {
           if (err) {
             console.error("Circle Auth Callback Error:", err);
-            setError((err as Error).message || "Authentication failed");
+            const userFriendlyMsg = parseCircleAuthError(err);
+            setError(userFriendlyMsg);
+            setAuthPhase('error');
             setIsLoading(false);
             return;
           }
@@ -80,6 +121,8 @@ export function useUserControlledWallet() {
           if (result && typeof result === 'object') {
             const { userToken: uToken, encryptionKey: eKey } = result as { userToken: string; encryptionKey: string };
             if (uToken && eKey) {
+              setAuthPhase('creating_wallet');
+              setIsLoading(true);
               setUserToken(uToken);
               setEncryptionKey(eKey);
               localStorage.setItem('arc_ucw_user_token', uToken);
@@ -103,7 +146,9 @@ export function useUserControlledWallet() {
                   targetSdk.execute(initData.challengeId, async (cErr: any) => {
                     if (cErr) {
                       console.error("Challenge execution error:", cErr);
-                      setError(cErr.message || "Failed to execute wallet creation challenge");
+                      const msg = parseCircleAuthError(cErr);
+                      setError(msg);
+                      setAuthPhase('error');
                       setIsLoading(false);
                       return;
                     }
@@ -119,12 +164,14 @@ export function useUserControlledWallet() {
                       if (walletAddr) {
                         setUcwAddress(walletAddr);
                         setAuthMethod('email');
+                        setAuthPhase('success');
                         localStorage.setItem('arc_ucw_address', walletAddr);
                         localStorage.setItem('arc_ucw_auth_method', 'email');
                         setIsLoading(false);
                         setOtpStep('input');
                       } else {
-                        setError("No wallet address returned from Circle service.");
+                        setError("Circle servisinden cüzdan adresi alınamadı.");
+                        setAuthPhase('error');
                         setIsLoading(false);
                       }
                     }
@@ -143,19 +190,23 @@ export function useUserControlledWallet() {
                     if (walletAddr) {
                       setUcwAddress(walletAddr);
                       setAuthMethod('email');
+                      setAuthPhase('success');
                       localStorage.setItem('arc_ucw_address', walletAddr);
                       localStorage.setItem('arc_ucw_auth_method', 'email');
                       setIsLoading(false);
                       setOtpStep('input');
                     } else {
-                      setError("No existing wallet found for user.");
+                      setError("Kullanıcı için mevcut cüzdan bulunamadı.");
+                      setAuthPhase('error');
                       setIsLoading(false);
                     }
                   }
                 }
               } catch (e: any) {
                 console.error("Error setting up wallet after auth:", e);
-                setError(e.message || "Failed to set up wallet after auth");
+                const msg = parseCircleAuthError(e);
+                setError(msg);
+                setAuthPhase('error');
                 setIsLoading(false);
               }
             }
@@ -212,6 +263,7 @@ export function useUserControlledWallet() {
   // Step 1: Request Email OTP
   const requestEmailOtp = useCallback(async (email: string) => {
     setIsLoading(true);
+    setAuthPhase('requesting');
     setError(null);
     try {
       if (!circleAppId || !sdkInstance) {
@@ -219,6 +271,7 @@ export function useUserControlledWallet() {
           ? 'VITE_CIRCLE_APP_ID is not configured in environment.'
           : 'Circle Web SDK is not initialized yet.';
         setError(errMsg);
+        setAuthPhase('error');
         setIsLoading(false);
         return { success: false, error: errMsg };
       }
@@ -234,7 +287,8 @@ export function useUserControlledWallet() {
       });
       const data = await res.json();
       if (!data.success) {
-        throw new Error(data.error || 'Failed to send Email OTP');
+        const friendlyError = parseCircleAuthError(data);
+        throw new Error(friendlyError || data.error || 'Failed to send Email OTP');
       }
 
       // Update SDK config with returned tokens
@@ -256,18 +310,20 @@ export function useUserControlledWallet() {
 
       setPendingEmail(email);
       setOtpStep('verify');
+      setAuthPhase('awaiting_code');
       setIsLoading(false);
       return { success: true };
     } catch (err: any) {
-      const errMsg = err.message || 'OTP request failed';
+      const errMsg = parseCircleAuthError(err);
       setError(errMsg);
+      setAuthPhase('error');
       setIsLoading(false);
       return { success: false, error: errMsg };
     }
   }, [circleAppId, sdkInstance, deviceId]);
 
-  // Step 2: Verify Email OTP Code (In-App or Hosted UI completion)
-  const verifyEmailOtpCode = useCallback(async (otpCode: string) => {
+  // Step 2: Fallback Verify Email OTP Code (In-App or Hosted UI completion)
+  const verifyEmailOtpCode = useCallback(async (otpCode?: string) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -276,6 +332,7 @@ export function useUserControlledWallet() {
           ? 'VITE_CIRCLE_APP_ID is not configured in environment.'
           : 'Circle Web SDK is not initialized yet.';
         setError(errMsg);
+        setAuthPhase('error');
         setIsLoading(false);
         return { success: false, error: errMsg };
       }
@@ -296,6 +353,7 @@ export function useUserControlledWallet() {
 
         setUcwAddress(address);
         setAuthMethod('email');
+        setAuthPhase('success');
         localStorage.setItem('arc_ucw_address', address);
         localStorage.setItem('arc_ucw_auth_method', 'email');
         setIsLoading(false);
@@ -308,12 +366,32 @@ export function useUserControlledWallet() {
       setIsLoading(false);
       return { success: true };
     } catch (err: any) {
-      const errMsg = err.message || 'Verification error';
+      const errMsg = parseCircleAuthError(err);
       setError(errMsg);
+      setAuthPhase('error');
       setIsLoading(false);
       return { success: false, error: errMsg };
     }
   }, [circleAppId, sdkInstance, userToken]);
+
+  // Helper to re-open the Circle verification window if closed or obscured
+  const reopenOtpVerificationWindow = useCallback(() => {
+    if (sdkInstance) {
+      try {
+        sdkInstance.verifyOtp();
+        return true;
+      } catch (e) {
+        console.warn('[useUserControlledWallet] reopenOtpVerificationWindow error:', e);
+      }
+    }
+    return false;
+  }, [sdkInstance]);
+
+  // Helper to cleanly remove Circle iframe from DOM on modal close or cancel
+  const cleanupIframe = useCallback(() => {
+    cleanupCircleIframe();
+    setAuthPhase('idle');
+  }, []);
 
   // Login via Email direct wrapper
   const loginWithEmail = useCallback(async (email: string) => {
@@ -500,11 +578,13 @@ export function useUserControlledWallet() {
 
   // Disconnect UCW
   const disconnectUcw = useCallback(() => {
+    cleanupCircleIframe();
     setUcwAddress('');
     setUserToken('');
     setEncryptionKey('');
     setAuthMethod(null);
     setOtpStep('input');
+    setAuthPhase('idle');
     setPendingEmail('');
     localStorage.removeItem('arc_ucw_address');
     localStorage.removeItem('arc_ucw_user_token');
@@ -519,6 +599,7 @@ export function useUserControlledWallet() {
     ucwAddress,
     userToken,
     authMethod,
+    authPhase,
     otpStep,
     pendingEmail,
     isUcwConnected: Boolean(ucwAddress),
@@ -526,11 +607,14 @@ export function useUserControlledWallet() {
     error,
     requestEmailOtp,
     verifyEmailOtpCode,
+    reopenOtpVerificationWindow,
+    cleanupIframe,
     loginWithEmail,
     loginWithPin,
     loginWithSocial,
     disconnectUcw,
     setOtpStep,
+    setAuthPhase,
   };
 }
 

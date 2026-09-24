@@ -15,6 +15,7 @@ import {
   Zap,
   Lock,
   Smartphone,
+  ExternalLink,
 } from 'lucide-react'
 import circleTokenIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import arcLogo from '../assets/Arcis-Icon.svg'
@@ -27,13 +28,18 @@ interface CircleAuthModalProps {
   isOpen: boolean
   onClose: () => void
   onRequestOtp: (email: string) => Promise<{ success: boolean; error?: string }>
-  onVerifyOtp: (code: string) => Promise<{ success: boolean; address?: string; error?: string }>
+  onVerifyOtp?: (code?: string) => Promise<{ success: boolean; address?: string; error?: string }>
+  onReopenOtpVerification?: () => boolean
+  onCleanupIframe?: () => void
   onLoginPin: () => Promise<{ success: boolean; address?: string; error?: string }>
   onLoginSocial: (provider: 'google' | 'apple' | 'facebook') => Promise<{ success: boolean; address?: string; error?: string }>
   onRegisterPasskey?: (username: string) => Promise<{ success: boolean; address?: string; error?: string }>
   onLoginPasskey?: () => Promise<{ success: boolean; address?: string; error?: string }>
   isPasskeyConnected?: boolean
   mscaAddress?: string
+  isUcwConnected?: boolean
+  ucwAddress?: string
+  authPhase?: 'idle' | 'requesting' | 'awaiting_code' | 'creating_wallet' | 'success' | 'error'
   hasStoredCredential?: boolean
   isLoading: boolean
   otpStep: 'input' | 'verify'
@@ -46,12 +52,17 @@ export default function CircleAuthModal({
   onClose,
   onRequestOtp,
   onVerifyOtp,
+  onReopenOtpVerification,
+  onCleanupIframe,
   onLoginPin,
   onLoginSocial,
   onRegisterPasskey,
   onLoginPasskey,
   isPasskeyConnected,
   mscaAddress,
+  isUcwConnected,
+  ucwAddress,
+  authPhase,
   hasStoredCredential,
   isLoading,
   otpStep,
@@ -59,7 +70,6 @@ export default function CircleAuthModal({
   pendingEmail,
 }: CircleAuthModalProps) {
   const [email, setEmail] = useState('')
-  const [otpCode, setOtpCode] = useState('')
   const [passkeyName, setPasskeyName] = useState('')
   const [showPasskeyRegister, setShowPasskeyRegister] = useState(false)
   const [viewMode, setViewMode] = useState<'auth' | 'pin'>('auth')
@@ -67,10 +77,24 @@ export default function CircleAuthModal({
   const [autoLoginPhase, setAutoLoginPhase] = useState<'idle' | 'authenticating' | 'success' | 'failed'>('idle')
   const [autoLoginAddress, setAutoLoginAddress] = useState<string>('')
 
+  const handleClose = () => {
+    if (onCleanupIframe) onCleanupIframe()
+    onClose()
+  }
+
+  // Auto-close modal when UCW wallet successfully connects
+  useEffect(() => {
+    if (isOpen && isUcwConnected && ucwAddress) {
+      const timer = setTimeout(() => {
+        handleClose()
+      }, 1400)
+      return () => clearTimeout(timer)
+    }
+  }, [isOpen, isUcwConnected, ucwAddress])
+
   // Systematic input clearing on wallet disconnect
   useClearOnWalletDisconnect(() => {
     setEmail('')
-    setOtpCode('')
     setPasskeyName('')
     setStatusMessage(null)
   })
@@ -80,7 +104,6 @@ export default function CircleAuthModal({
     if (isOpen) {
       setStatusMessage(null)
       setEmail('')
-      setOtpCode('')
       setPasskeyName('')
       setShowPasskeyRegister(false)
       setViewMode('auth')
@@ -201,30 +224,6 @@ export default function CircleAuthModal({
     }
   }
 
-  const handleOtpVerify = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!otpCode || otpCode.length < 4) {
-      setStatusMessage({ text: 'Please enter the 6-digit verification code.', isError: true })
-      return
-    }
-
-    setStatusMessage({ text: 'Verifying OTP and connecting Circle wallet...' })
-    const res = await onVerifyOtp(otpCode)
-    if (res.success) {
-      setStatusMessage({
-        text: res.address
-          ? `Circle wallet connected: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
-          : `Circle wallet verified successfully.`,
-        isSuccess: true,
-      })
-      setTimeout(() => {
-        onClose()
-      }, 1500)
-    } else {
-      setStatusMessage({ text: res.error || 'OTP verification failed.', isError: true })
-    }
-  }
-
   // ─────────────────────────────────────────────────────────────
   // PIN & SOCIAL HANDLERS
   // ─────────────────────────────────────────────────────────────
@@ -288,7 +287,7 @@ export default function CircleAuthModal({
 
         {/* Close Button */}
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-5 right-5 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] transition-all cursor-pointer z-10"
         >
           <X className="w-4 h-4" />
@@ -300,20 +299,22 @@ export default function CircleAuthModal({
             <img src={arcLogo} alt="Arcis Logo" className="h-10 w-auto object-contain" />
           </div>
 
-          {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && (
+          {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
             <div className="space-y-2 mt-10">
               <h2 className="text-2xl text-slate-300 tracking-tight">
-                Sign up / Login
+                {otpStep === 'verify' ? 'Email Verification' : 'Sign up / Login'}
               </h2>
               <p className="text-xs text-slate-400">
-                Connect seamlessly with email, Passkey or social accounts.
+                {otpStep === 'verify'
+                  ? 'Circle secure prompt launched in your browser window.'
+                  : 'Connect seamlessly with email, Passkey or social accounts.'}
               </p>
             </div>
           )}
         </div>
 
         {/* Status / Alert Message */}
-        {statusMessage && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && (
+        {statusMessage && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
           <div className="px-6 md:px-7 pt-1">
             <div
               className={`p-3 rounded-2xl text-xs flex items-center gap-2.5 border transition backdrop-blur-md ${statusMessage.isError
@@ -390,8 +391,28 @@ export default function CircleAuthModal({
           </div>
         )}
 
-        {/* MAIN VIEW MODE: Passkeys, Email, Social — only when not auto-login overlay */}
-        {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && (
+        {/* UCW Connection Success Overlay */}
+        {isUcwConnected && ucwAddress && (
+          <div className="p-8 md:p-10 flex flex-col items-center justify-center gap-5 min-h-[280px] animate-fade-in">
+            {/* Success Check Animation */}
+            <div className="relative">
+              <div className="absolute inset-0 w-20 h-20 rounded-full bg-blue-500/20 animate-ping" style={{ animationDuration: '1.5s' }} />
+              <div className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <CheckCircle2 className="w-10 h-10 text-white" />
+              </div>
+            </div>
+            <div className="text-center space-y-1.5">
+              <h3 className="text-lg font-bold text-white tracking-tight">Circle Wallet Connected</h3>
+              <p className="text-xs text-blue-300 font-mono font-semibold">
+                UCW: {ucwAddress.slice(0, 8)}...{ucwAddress.slice(-6)}
+              </p>
+              <p className="text-[11px] text-slate-400">User-Controlled Non-Custodial Wallet active.</p>
+            </div>
+          </div>
+        )}
+
+        {/* MAIN VIEW MODE: Passkeys, Email, Social — only when not auto-login overlay and not connected */}
+        {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
           <div className="px-6 pt-3 pb-2 md:px-7 md:pt-3 md:pb-2.5 space-y-3.5 max-h-[80vh] overflow-y-auto custom-scrollbar">
             {otpStep === 'input' ? (
               <>
@@ -583,67 +604,97 @@ export default function CircleAuthModal({
                 </div>
               </>
             ) : (
-              /* OTP Code Entry View (Step 2) */
-              <form onSubmit={handleOtpVerify} className="space-y-5">
-                <div>
-                  <h2 className="text-xl font-bold text-white tracking-tight mb-1">
-                    Enter 6-Digit Code
-                  </h2>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Verification code sent to <span className="text-white font-mono font-semibold">{pendingEmail || email}</span>.
-                  </p>
+              /* Awaiting Circle Verification View (Step 2) */
+              <div className="space-y-4 pt-1 animate-fade-in">
+                <div className="text-center space-y-2 pt-2">
+                  <div className="relative inline-flex items-center justify-center">
+                    <div className="absolute inset-0 w-16 h-16 rounded-full bg-blue-500/20 animate-ping" style={{ animationDuration: '2s' }} />
+                    <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600/30 to-indigo-600/30 border border-blue-500/40 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                      <Mail className="w-8 h-8 text-blue-400" />
+                    </div>
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white tracking-tight">
+                      Check Your Inbox
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-1">
+                      A 6-digit verification code was sent to:
+                    </p>
+                    <p className="text-xs font-mono font-semibold text-blue-300 mt-1 bg-blue-950/50 py-1 px-3 rounded-lg border border-blue-500/30 inline-block">
+                      {pendingEmail || email}
+                    </p>
+                  </div>
                 </div>
 
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-semibold text-slate-300">
-                      Verification Code
-                    </label>
+                {/* Instructions Card */}
+                <div className="p-4 rounded-2xl bg-white/[0.03] border border-blue-500/20 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-blue-200">
+                    <Shield className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span>Circle Secure Verification</span>
+                  </div>
+                  <p className="text-[12px] text-slate-300 leading-relaxed">
+                    Circle's secure prompt has been launched in your browser. Please enter the 6-digit verification code directly into Circle's window to authorize your wallet.
+                  </p>
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 pt-1 border-t border-white/[0.06]">
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span>Keys are non-custodial and MPC-protected.</span>
+                  </div>
+                </div>
+
+                {/* Actions: Re-open Prompt / Resend / Change Email */}
+                <div className="space-y-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onReopenOtpVerification) {
+                        const opened = onReopenOtpVerification()
+                        if (opened) {
+                          setStatusMessage({ text: 'Circle verification window re-opened.', isSuccess: true })
+                        } else {
+                          setStatusMessage({ text: 'Could not open window. Click resend to try again.', isError: true })
+                        }
+                      }
+                    }}
+                    className="w-full py-3.5 rounded-full text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-600/25 active:scale-[0.99] uppercase tracking-wider"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>RE-OPEN CIRCLE WINDOW</span>
+                  </button>
+
+                  <div className="flex items-center justify-between px-1 pt-1">
                     <button
                       type="button"
-                      onClick={() => setOtpStep('input')}
-                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer font-medium"
+                      onClick={async () => {
+                        const targetEmail = pendingEmail || email
+                        if (!targetEmail) return
+                        setStatusMessage({ text: 'Resending verification code...' })
+                        const res = await onRequestOtp(targetEmail)
+                        if (res.success) {
+                          setStatusMessage({ text: 'New verification code sent!', isSuccess: true })
+                        } else {
+                          setStatusMessage({ text: res.error || 'Failed to resend code.', isError: true })
+                        }
+                      }}
+                      disabled={isLoading}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 cursor-pointer font-medium disabled:opacity-50 transition"
                     >
-                      <RefreshCw className="w-3 h-3" /> Change Email
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                      <span>Resend Code</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onCleanupIframe) onCleanupIframe()
+                        setOtpStep('input')
+                      }}
+                      className="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                    >
+                      ← Change Email
                     </button>
                   </div>
-
-                  <div className="relative flex items-center">
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="• • • • • •"
-                      disabled={isLoading}
-                      className="w-full rounded-2xl px-4 py-4 pl-12 text-center text-xl tracking-[0.6em] font-mono text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
-                      style={{
-                        background: 'rgba(11, 13, 24, 0.75)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                      }}
-                    />
-                    <KeyRound className="w-5 h-5 text-indigo-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
                 </div>
-
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="ub-action-btn ub-action-btn-primary w-full py-3.5 rounded-full text-xs font-bold text-white shadow-lg flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 active:scale-[0.99] mt-6"
-                >
-                  {isLoading ? (
-                    <>
-                      <Sparkles className="w-4 h-4 animate-spin text-purple-200" />
-                      VERIFYING...
-                    </>
-                  ) : (
-                    <>
-                      <span>VERIFY &amp; CONNECT</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
+              </div>
             )}
           </div>
         )}

@@ -63,10 +63,13 @@ export default function App() {
     ucwAddress,
     isUcwConnected,
     isLoading: isUcwLoading,
+    authPhase: ucwAuthPhase,
     otpStep,
     pendingEmail,
     requestEmailOtp,
     verifyEmailOtpCode,
+    reopenOtpVerificationWindow,
+    cleanupIframe,
     loginWithPin,
     loginWithSocial,
     disconnectUcw,
@@ -383,9 +386,14 @@ export default function App() {
           onLoginPasskey={loginPasskey}
           isPasskeyConnected={isPasskeyConnected}
           mscaAddress={mscaAddress}
+          isUcwConnected={isUcwConnected}
+          ucwAddress={ucwAddress}
+          authPhase={ucwAuthPhase}
           hasStoredCredential={hasStoredCredential}
           onRequestOtp={requestEmailOtp}
           onVerifyOtp={verifyEmailOtpCode}
+          onReopenOtpVerification={reopenOtpVerificationWindow}
+          onCleanupIframe={cleanupIframe}
           onLoginPin={loginWithPin}
           onLoginSocial={loginWithSocial}
           isLoading={isUcwLoading || isModularLoading}

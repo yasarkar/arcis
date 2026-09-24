@@ -9,7 +9,8 @@
     "start": "tsx server.ts",
     "serve": "tsx server.ts",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:circle": "node scripts/verify-circle-email-auth.mjs"
   },
   "dependencies": {
     "@circle-fin/adapter-circle-wallets": "^1.5.0",

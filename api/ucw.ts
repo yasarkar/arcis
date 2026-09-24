@@ -216,9 +216,12 @@ export async function POST(req: Request) {
 
       const client = getCircleClient();
       try {
+        const isTestnet = (process.env.VITE_APP_ENV || 'testnet').toLowerCase() !== 'mainnet';
+        const targetBlockchain = isTestnet ? 'ARC-TESTNET' : 'ARC';
+
         const response = await client.createUserPinWithWallets({
           userToken,
-          blockchains: ["EVM"], // EVM account compatibility (Arc Testnet / EVM)
+          blockchains: [targetBlockchain as any],
           accountType: "EOA",
         });
 
