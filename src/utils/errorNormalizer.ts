@@ -542,6 +542,25 @@ export function normalizeAppError(err: unknown): ArcisAppError {
     }
   }
 
+  // 3b. Insufficient Native Gas (ETH) for Circle User-Controlled Wallets / External EVM Chains
+  if (
+    lowMsg.includes('the asset amount owned by the wallet is insufficient') ||
+    lowMsg.includes('insufficient native gas') ||
+    lowMsg.includes('insufficient eth')
+  ) {
+    const def = ERROR_DEFINITIONS.INSUFFICIENT_NATIVE_GAS
+    return {
+      category: def.category,
+      code: 'INSUFFICIENT_NATIVE_GAS',
+      title: def.title,
+      message: def.message,
+      actionHint: def.actionHint,
+      isCanceled: false,
+      isRetryable: false,
+      rawMessage,
+    }
+  }
+
   // 4. Circle AppKit Treasury / Recipient Chain Mismatch
   if (
     lowMsg.includes('recipientaddress') ||
