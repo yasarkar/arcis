@@ -14,6 +14,8 @@ import {
   TrendingUp,
   Zap,
   Sparkles,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -48,6 +50,9 @@ export interface BroadcastDetails {
   sourceChain?: string
   destChain?: string
   sourceTxHash?: string
+  destTxHash?: string
+  sourceExplorerUrl?: string
+  destExplorerUrl?: string
   bridgeMode?: 'direct' | 'gateway'
 
   // Swap
@@ -171,8 +176,13 @@ export function ChainIconBadge({
 }
 
 const getExplorerLink = (hash: string, network?: string) => {
-  if (!hash) return '#'
   const net = (network || '').toLowerCase().replace(/_/g, '-')
+
+  const isEvmHash = Boolean(hash && hash.startsWith('0x') && hash.length >= 10)
+  if (!isEvmHash && !isSolanaChain(network)) {
+    return '#'
+  }
+
   if (net.includes('arc')) return `https://testnet.arcscan.app/tx/${hash}`
   if (net.includes('base')) return `https://sepolia.basescan.org/tx/${hash}`
   if (net.includes('arbitrum')) return `https://sepolia.arbiscan.io/tx/${hash}`
@@ -189,6 +199,18 @@ const getExplorerLink = (hash: string, network?: string) => {
   if (net.includes('world')) return `https://worldchain-sepolia.explorer.alchemy.com/tx/${hash}`
   if (net.includes('linea')) return `https://sepolia.lineascan.build/tx/${hash}`
   return `https://sepolia.etherscan.io/tx/${hash}`
+}
+
+const getExplorerAddressLink = (address?: string, network?: string) => {
+  if (!address) return '#'
+  const net = (network || '').toLowerCase().replace(/_/g, '-')
+  if (net.includes('arc')) return `https://testnet.arcscan.app/address/${address}`
+  if (net.includes('base')) return `https://sepolia.basescan.org/address/${address}`
+  if (net.includes('arbitrum')) return `https://sepolia.arbiscan.io/address/${address}`
+  if (net.includes('optimism') || net.includes('op-sepolia')) return `https://sepolia-optimism.etherscan.io/address/${address}`
+  if (net.includes('polygon') || net.includes('amoy')) return `https://amoy.polygonscan.com/address/${address}`
+  if (net.includes('avalanche') || net.includes('fuji')) return `https://testnet.snowtrace.io/address/${address}`
+  return `https://sepolia.basescan.org/address/${address}`
 }
 
 const getExplorerName = (network?: string) => {
@@ -311,6 +333,15 @@ function BroadcastCard({
   const remainingTimeRef = useRef<number>(autoCloseDelay || 5000)
   const startTimeRef = useRef<number>(Date.now())
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [copiedTx, setCopiedTx] = useState(false)
+
+  const handleCopyTx = (hash: string) => {
+    if (hash) {
+      navigator.clipboard.writeText(hash)
+      setCopiedTx(true)
+      setTimeout(() => setCopiedTx(false), 2000)
+    }
+  }
 
   useEffect(() => {
     remainingTimeRef.current = autoCloseDelay || 5000
@@ -369,12 +400,14 @@ function BroadcastCard({
 
   // Chain to display explorer for
   const explorerChain =
-    details?.network ||
-    details?.destChain ||
-    details?.toChain ||
-    details?.sourceChain ||
-    details?.fromChain ||
-    'Arc_Testnet'
+    details?.bridgeMode === 'gateway'
+      ? (details?.destChain || details?.network || 'Base_Sepolia')
+      : (details?.network ||
+        details?.destChain ||
+        details?.toChain ||
+        details?.sourceChain ||
+        details?.fromChain ||
+        'Arc_Testnet')
 
   return (
     <div
@@ -515,23 +548,111 @@ function BroadcastCard({
         </p>
       )}
 
-      {/* BOTTOM ROW: Explorer Link */}
-      {(details?.explorerUrl || details?.txHash) && (
-        <div className="mt-2 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] px-2">
-          <span className={`text-slate-400 font-medium`}>Transaction:</span>
-          <a
-            href={details?.explorerUrl || (details?.txHash ? getExplorerLink(details.txHash, explorerChain) : '#')}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer"
-            title={`View transaction on ${getExplorerName(explorerChain)}`}
-          >
-            <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
-              View on {getExplorerName(explorerChain)}</span>
-            <ArrowUpRightFromSquare className="w-3 h-3 text-indigo-400 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-          </a>
-        </div>
-      )}
+      {/* BOTTOM ROW: On-Chain Transaction Link */}
+      {(() => {
+        const rawTxHash =
+          details?.txHash && typeof details.txHash === 'string' && (details.txHash.startsWith('0x') || isSolanaChain(explorerChain))
+            ? details.txHash
+            : details?.destTxHash && typeof details.destTxHash === 'string' && details.destTxHash.startsWith('0x')
+              ? details.destTxHash
+              : details?.sourceTxHash && typeof details.sourceTxHash === 'string' && details.sourceTxHash.startsWith('0x')
+                ? details.sourceTxHash
+                : (details?.txHash || details?.destTxHash || details?.sourceTxHash || '')
+
+        const isSolana = isSolanaChain(explorerChain)
+        const hasValidTxHash = Boolean(
+          rawTxHash &&
+          typeof rawTxHash === 'string' &&
+          (rawTxHash.startsWith('0x') || isSolana) &&
+          rawTxHash.length >= 10
+        )
+        const hasExplorerUrl = Boolean(
+          (details?.explorerUrl || details?.destExplorerUrl || details?.sourceExplorerUrl) &&
+          typeof (details?.explorerUrl || details?.destExplorerUrl || details?.sourceExplorerUrl) === 'string' &&
+          (details?.explorerUrl || details?.destExplorerUrl || details?.sourceExplorerUrl) !== '#' &&
+          !(details?.explorerUrl || details?.destExplorerUrl || details?.sourceExplorerUrl)?.includes('/address/')
+        )
+
+        if (hasValidTxHash || hasExplorerUrl) {
+          const effectiveChain =
+            details?.bridgeMode === 'gateway'
+              ? (details?.destChain || explorerChain)
+              : (details?.txHash && typeof details.txHash === 'string' && details.txHash.startsWith('0x')
+                ? explorerChain
+                : (details?.sourceChain || explorerChain))
+
+          const finalUrl =
+            details?.explorerUrl ||
+            (details?.bridgeMode === 'gateway' ? details?.destExplorerUrl : undefined) ||
+            details?.sourceExplorerUrl ||
+            details?.destExplorerUrl ||
+            getExplorerLink(rawTxHash || '', effectiveChain)
+
+          const isHashFormatted = typeof rawTxHash === 'string' && rawTxHash.startsWith('0x') && rawTxHash.length >= 16
+          const formattedHash = isHashFormatted
+            ? `${rawTxHash.slice(0, 6)}...${rawTxHash.slice(-4)}`
+            : null
+
+          return (
+            <div className="mt-2 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] px-2 animate-fade-in">
+              <span className="text-slate-400 font-medium">
+                Transaction:
+              </span>
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={finalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
+                >
+                  <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
+                    {getExplorerName(effectiveChain)}
+                  </span>
+                  <ArrowUpRightFromSquare className="w-3 h-3 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                </a>
+              </div>
+            </div>
+          )
+        }
+
+        if (isSuccess && (opType === 'bridge' || opType === 'send' || opType === 'swap')) {
+          const effectiveChain =
+            details?.bridgeMode === 'gateway'
+              ? (details?.destChain || explorerChain)
+              : (details?.sourceChain || explorerChain)
+          const targetAddress = details?.recipient || (details as any)?.destinationAddress || (details as any)?.userAddress
+          const addressUrl = targetAddress ? getExplorerAddressLink(targetAddress, effectiveChain) : undefined
+
+          return (
+            <div className="mt-2 pt-2 border-slate-800/70 flex items-center justify-between gap-2 text-[11px] px-2 animate-fade-in">
+              <span className="text-slate-400 font-medium">
+                Transaction:
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20 font-mono">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin text-emerald-400" />
+                  Indexing on-chain...
+                </span>
+                {addressUrl && addressUrl !== '#' && (
+                  <a
+                    href={addressUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex items-center gap-1 text-slate-300 hover:text-white transition-colors cursor-pointer ml-1 text-[10px]"
+                  >
+                    <span className="font-medium text-slate-300 group-hover:text-indigo-300 transition-colors">
+                      {getExplorerName(effectiveChain)}
+                    </span>
+                    <ArrowUpRightFromSquare className="w-2.5 h-2.5 text-indigo-400 group-hover:text-indigo-300" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        return null
+      })()}
 
       {/* AUTO-CLOSE COUNTDOWN PROGRESS BAR */}
       {autoClose && autoCloseDelay && status !== 'pending' && (
@@ -652,8 +773,8 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
   const isSuccess = status === 'success'
 
   const amount = details.amount || details.fromAmount
-  const tokenSym = details.tokenSymbol || details.fromSymbol
-  const tokenIconSrc = details.tokenIcon || details.fromIcon
+  const tokenSym = details.tokenSymbol || details.fromSymbol || 'USDC'
+  const tokenIconSrc = details.tokenIcon || details.fromIcon || (tokenSym ? TOKEN_ICON_MAP[tokenSym] : undefined)
   const sourceChain = details.sourceChain || details.fromChain
   const destChain = details.destChain || details.toChain
 
@@ -665,11 +786,13 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
           <span className="text-[11px] font-medium text-slate-400 ml-1.5">Bridge Amount</span>
           <div
             className={`flex items-center gap-1.5 font-bold px-2 py-0.5 rounded-lg border ${isFailed
-                ? 'border-rose-500/25 bg-rose-500/10 text-rose-300/90'
-                : 'border-slate-800 bg-slate-900/80 text-white'
+              ? 'border-rose-500/25 bg-rose-500/10 text-rose-300/90'
+              : 'border-slate-800 bg-slate-900/80 text-white'
               }`}
           >
-            <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
+            {tokenIconSrc ? (
+              <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
+            ) : null}
             <div className="flex items-center gap-1.5">
               <span className="tabular-nums">{amount}</span>
               <span>{tokenSym}</span>
@@ -681,8 +804,8 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
       {/* Cross-Chain Route Card */}
       <div
         className={`flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs ${isFailed
-            ? 'border-rose-500/25 bg-rose-500/5'
-            : 'border-slate-800 bg-slate-900/60'
+          ? 'border-rose-500/25 bg-rose-500/5'
+          : 'border-slate-800 bg-slate-900/60'
           }`}
       >
         {/* Source Network */}
@@ -696,15 +819,14 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
         {/* Route Arrow */}
         <div className="flex items-center gap-1 text-slate-500 shrink-0 px-1">
           <ArrowRight
-            className={`w-4 h-4 shrink-0 ${
-              isCanceled
+            className={`w-4 h-4 shrink-0 ${isCanceled
                 ? 'text-amber-400'
                 : isFailed
                   ? 'text-rose-400'
                   : isSuccess
                     ? 'text-emerald-400'
                     : 'text-cyan-400'
-            }`}
+              }`}
           />
         </div>
 
@@ -773,15 +895,14 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
 
         {/* Swap Icon */}
         <div
-          className={`shrink-0 p-1 rounded-full bg-slate-800 ${
-            isCanceled
+          className={`shrink-0 p-1 rounded-full bg-slate-800 ${isCanceled
               ? 'text-amber-400'
               : isFailed
                 ? 'text-rose-400'
                 : isSuccess
                   ? 'text-emerald-400'
                   : 'text-cyan-400'
-          }`}
+            }`}
         >
           <Repeat className="w-3.5 h-3.5" />
         </div>
@@ -816,15 +937,14 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
             <ChainIconBadge chain={fromChain} size={14} />
             <span>{getChainDisplayName(fromChain)}</span>
             <ArrowRight
-              className={`w-3 h-3 ${
-                isCanceled
+              className={`w-3 h-3 ${isCanceled
                   ? 'text-amber-400'
                   : isFailed
                     ? 'text-rose-400'
                     : isSuccess
                       ? 'text-emerald-400'
                       : 'text-cyan-400'
-              }`}
+                }`}
             />
             <ChainIconBadge chain={toChain} size={14} />
             <span className="text-white font-medium">{getChainDisplayName(toChain)}</span>
@@ -897,16 +1017,16 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
   const resolvedApy = details.poolApy ?? matchedPool?.apy
   const displayApy = resolvedApy !== undefined && resolvedApy !== null && resolvedApy !== ''
     ? (() => {
-        const str = String(resolvedApy).trim()
-        if (str.toLowerCase().startsWith('avg')) {
-          return str.toLowerCase().endsWith('apy') ? str : `${str} APY`
-        }
-        const cleanNum = str.replace(/[%a-zA-Z\s]/g, '')
-        if (isMultiplePools) {
-          return `Avg ${cleanNum}% APY`
-        }
-        return `${cleanNum}% APY`
-      })()
+      const str = String(resolvedApy).trim()
+      if (str.toLowerCase().startsWith('avg')) {
+        return str.toLowerCase().endsWith('apy') ? str : `${str} APY`
+      }
+      const cleanNum = str.replace(/[%a-zA-Z\s]/g, '')
+      if (isMultiplePools) {
+        return `Avg ${cleanNum}% APY`
+      }
+      return `${cleanNum}% APY`
+    })()
     : null
 
 
@@ -998,15 +1118,14 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
             {/* Route Arrow */}
             <div className="flex items-center gap-1 text-slate-500 shrink-0 px-1">
               <ArrowRight
-                className={`w-4 h-4 shrink-0 ${
-                  isCanceled
+                className={`w-4 h-4 shrink-0 ${isCanceled
                     ? 'text-amber-400'
                     : isFailed
                       ? 'text-rose-400'
                       : isSuccess
                         ? 'text-emerald-400'
                         : 'text-cyan-400'
-                }`}
+                  }`}
               />
             </div>
 
@@ -1106,11 +1225,10 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
 
       {/* Deposit Flow: Wallet Chain ➔ Circle Gateway */}
       <div
-        className={`flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs ${
-          isFailed
+        className={`flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs ${isFailed
             ? 'border-rose-500/25 bg-rose-500/5'
             : 'border-slate-800 bg-slate-900/60'
-        }`}
+          }`}
       >
         {/* Source Wallet Chain */}
         <div className="flex items-center gap-1.5 min-w-0">
@@ -1123,15 +1241,14 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
         {/* Route Arrow */}
         <div className="shrink-0 flex items-center justify-center px-1">
           <ArrowRight
-            className={`w-3.5 h-3.5 ${
-              isCanceled
+            className={`w-3.5 h-3.5 ${isCanceled
                 ? 'text-amber-400'
                 : isFailed
                   ? 'text-rose-400'
                   : isSuccess
                     ? 'text-emerald-400'
                     : 'text-cyan-400'
-            }`}
+              }`}
           />
         </div>
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import {
   Wallet,
@@ -13,6 +13,10 @@ import {
   Bot,
   Sparkles,
   Fingerprint,
+  ChevronDown,
+  Copy,
+  Check,
+  LogOut,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import customLogo from '../assets/Arcis-Icon.svg'
@@ -64,8 +68,27 @@ export default function Header({
 }: HeaderProps) {
   const { solana, disconnectSolana, injective, disconnectInjective } = useMultiChainWallet()
   const [copiedMsca, setCopiedMsca] = useState<boolean>(false)
+  const [copiedUcw, setCopiedUcw] = useState<boolean>(false)
   const [copiedSol, setCopiedSol] = useState<boolean>(false)
   const [copiedInj, setCopiedInj] = useState<boolean>(false)
+  const [isCircleMenuOpen, setIsCircleMenuOpen] = useState<boolean>(false)
+  const [isPasskeyMenuOpen, setIsPasskeyMenuOpen] = useState<boolean>(false)
+
+  const circleMenuRef = useRef<HTMLDivElement>(null)
+  const passkeyMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (circleMenuRef.current && !circleMenuRef.current.contains(event.target as Node)) {
+        setIsCircleMenuOpen(false)
+      }
+      if (passkeyMenuRef.current && !passkeyMenuRef.current.contains(event.target as Node)) {
+        setIsPasskeyMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
   const tabs = [
     { id: 'home' as const, label: 'Overview', icon: Sparkles },
     { id: 'unified' as const, label: 'Unified Balance', icon: Coins },
@@ -203,88 +226,197 @@ export default function Header({
 
           {/* 1. Circle Modular Passkey MSCA Connected State */}
           {isPasskeyConnected && mscaAddress && (
-            <div
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all animate-fade-in ${
-                activeAuthSource === 'passkey'
-                  ? 'bg-cyan-500/20 border-2 border-cyan-400 shadow-[0_0_16px_rgba(6,182,212,0.4)]'
-                  : 'bg-cyan-950/30 border border-cyan-500/30 opacity-80 hover:opacity-100'
-              }`}
-            >
-              <Fingerprint className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <div className="relative" ref={passkeyMenuRef}>
               <button
                 type="button"
                 onClick={() => {
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('passkey')
-                  navigator.clipboard.writeText(mscaAddress)
-                  setCopiedMsca(true)
-                  setTimeout(() => setCopiedMsca(false), 2000)
+                  setIsPasskeyMenuOpen((prev) => !prev)
                 }}
-                className="flex items-center gap-1 text-xs font-extrabold text-cyan-200 hover:text-white transition cursor-pointer"
-                title={activeAuthSource === 'passkey' ? 'Aktif İmzalayıcı Cüzdan (Kopyalamak İçin Tıklayın)' : 'Bu cüzdanı aktif imzalayıcı yapmak için tıklayın'}
+                className={`flex items-center gap-2 rounded-full px-3 py-1.5 transition-all duration-200 cursor-pointer select-none ${isPasskeyMenuOpen || activeAuthSource === 'passkey'
+                    ? 'bg-cyan-500/20 border-2 border-cyan-400 text-white shadow-[0_0_16px_rgba(6,182,212,0.4)]'
+                    : 'bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 text-cyan-200'
+                  }`}
+                title="Passkey Cüzdan Menüsü"
               >
-                <span>MSCA: {mscaAddress.slice(0, 6)}...{mscaAddress.slice(-4)}</span>
-                {activeAuthSource === 'passkey' && (
-                  <span className="text-[9px] text-cyan-300 bg-cyan-500/20 px-1 rounded font-normal">Aktif</span>
-                )}
-                {copiedMsca ? (
-                  <span className="text-[10px] text-emerald-400 font-bold ml-0.5">Kopyalandı!</span>
-                ) : (
-                  <span className="text-[10px] text-cyan-400 opacity-60 hover:opacity-100">📋</span>
-                )}
+                <Fingerprint className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="text-xs font-bold text-cyan-200">
+                  {mscaAddress.slice(0, 6)}...{mscaAddress.slice(-4)}
+                </span>
+                <ChevronDown
+                  size={12}
+                  className={`text-cyan-300 transition-transform duration-200 ${isPasskeyMenuOpen ? 'rotate-180 text-cyan-100' : 'opacity-70'
+                    }`}
+                />
               </button>
 
-              <a
-                href={getExplorerAddressUrl('Arc_Testnet', mscaAddress)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-slate-400 hover:text-cyan-300 p-0.5 transition"
-                title="ArcScan Üzerinde Görüntüle"
-              >
-                <ExternalLink size={11} />
-              </a>
+              {/* Passkey Dropdown Menu */}
+              {isPasskeyMenuOpen && (
+                <div
+                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                  style={{
+                    background: 'rgba(13, 17, 28, 0.96)',
+                    border: '1px solid rgba(6, 182, 212, 0.25)',
+                    boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(6, 182, 212, 0.15)',
+                  }}
+                >
+                  <div className="px-3 py-2 border-b border-white/[0.08] flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse" />
+                      <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Passkey MSCA</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.5 rounded-md">
+                      Arc Testnet
+                    </span>
+                  </div>
 
-              <button
-                onClick={onDisconnectPasskey}
-                className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
-                title="Passkey Cüzdanını Kapat"
-              >
-                Çıkış
-              </button>
+                  {/* Copy Address */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(mscaAddress)
+                      setCopiedMsca(true)
+                      setTimeout(() => {
+                        setCopiedMsca(false)
+                        setIsPasskeyMenuOpen(false)
+                      }, 1200)
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      {copiedMsca ? (
+                        <Check size={14} className="text-emerald-400 shrink-0" />
+                      ) : (
+                        <Copy size={14} className="text-slate-400 group-hover:text-cyan-400 transition-colors shrink-0" />
+                      )}
+                      <span>{copiedMsca ? 'Copied!' : 'Copy Address'}</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {mscaAddress.slice(0, 4)}...{mscaAddress.slice(-4)}
+                    </span>
+                  </button>
+
+                  {/* ArcScan Explorer */}
+                  <a
+                    href={getExplorerAddressUrl('Arc_Testnet', mscaAddress)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsPasskeyMenuOpen(false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ExternalLink size={14} className="text-slate-400 group-hover:text-cyan-400 transition-colors shrink-0" />
+                      <span>View on ArcScan</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500">↗</span>
+                  </a>
+
+                  <div className="my-1 border-t border-white/[0.08]" />
+
+                  {/* Log out */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPasskeyMenuOpen(false)
+                      if (onDisconnectPasskey) onDisconnectPasskey()
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all cursor-pointer group"
+                  >
+                    <LogOut size={14} className="text-rose-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                    <span>Log out</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           {/* 2. Circle UCW Connected State */}
           {isUcwConnected && ucwAddress && (
-            <div
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all ${
-                activeAuthSource === 'ucw'
-                  ? 'bg-blue-500/20 border-2 border-blue-400 shadow-[0_0_16px_rgba(59,130,246,0.4)]'
-                  : 'bg-blue-950/30 border border-blue-500/30 opacity-80 hover:opacity-100'
-              }`}
-            >
-              <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
-                <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
-              </div>
+            <div className="relative" ref={circleMenuRef}>
               <button
                 type="button"
                 onClick={() => {
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('ucw')
-                  navigator.clipboard.writeText(ucwAddress)
+                  setIsCircleMenuOpen((prev) => !prev)
                 }}
-                className="flex items-center gap-1 text-xs font-semibold text-blue-200 hover:text-white transition cursor-pointer"
-                title={activeAuthSource === 'ucw' ? 'Aktif İmzalayıcı Cüzdan' : 'Bu cüzdanı aktif yapmak için tıklayın'}
+                className="ub-action-btn ub-action-btn-primary"
               >
-                <span>UCW: {ucwAddress.slice(0, 6)}...{ucwAddress.slice(-4)}</span>
-                {activeAuthSource === 'ucw' && (
-                  <span className="text-[9px] text-blue-300 bg-blue-500/20 px-1 rounded font-normal">Aktif</span>
-                )}
+                <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
+                  <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
+                </div>
+                <span className="text-xs font-semibold tracking-wide text-white">
+                  {ucwAddress.slice(0, 6)}...{ucwAddress.slice(-4)}
+                </span>
+                <ChevronDown
+                  size={12}
+                  className={`text-white transition-transform duration-200 ${isCircleMenuOpen ? 'rotate-180 text-blue-100' : 'opacity-70'
+                    }`}
+                />
               </button>
-              <button
-                onClick={onDisconnectUcw}
-                className="text-[11px] text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
-              >
-                Çıkış
-              </button>
+
+              {/* Circle UCW Dropdown Menu */}
+              {isCircleMenuOpen && (
+                <div
+                  className="absolute right-0 top-full mt-2 w-40 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                  style={{
+                    background: 'rgba(13, 17, 28, 0.96)',
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(59, 130, 246, 0.15)',
+                  }}
+                >
+                  {/* Copy Address */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(ucwAddress)
+                      setCopiedUcw(true)
+                      setTimeout(() => {
+                        setCopiedUcw(false)
+                        setIsCircleMenuOpen(false)
+                      }, 1200)
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      {copiedUcw ? (
+                        <Check size={14} className="text-slate-400 shrink-0" />
+                      ) : (
+                        <Copy size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                      )}
+                      <span>{copiedUcw ? 'Copied!' : 'Copy Address'}</span>
+                    </div>
+                  </button>
+
+                  {/* ArcScan Explorer */}
+                  <a
+                    href={getExplorerAddressUrl('Arc_Testnet', ucwAddress)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsCircleMenuOpen(false)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ExternalLink size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                      <span>View on ArcScan</span>
+                    </div>
+                  </a>
+
+                  <div className="my-1 border-t border-white/[0.08]" />
+
+                  {/* Log out */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCircleMenuOpen(false)
+                      if (onDisconnectUcw) onDisconnectUcw()
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all cursor-pointer group"
+                  >
+                    <LogOut size={14} className="text-rose-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                    <span>Log out</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -348,7 +480,7 @@ export default function Header({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-purple-300 p-0.5 transition"
-                title="Solana Explorer'da Görüntüle"
+                title="View on Solana Explorer"
               >
                 <ExternalLink size={11} />
               </a>
@@ -356,9 +488,9 @@ export default function Header({
               <button
                 onClick={disconnectSolana}
                 className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
-                title="Solana Cüzdanını Kapat"
+                title="Disconnect Solana Wallet"
               >
-                Çıkış
+                Disconnect
               </button>
             </div>
           )}
@@ -382,7 +514,7 @@ export default function Header({
                   setTimeout(() => setCopiedInj(false), 2000)
                 }}
                 className="flex items-center gap-1 text-xs font-bold text-blue-200 hover:text-white transition cursor-pointer"
-                title="Injective Adresini Kopyala"
+                title="Copy Injective Address"
               >
                 <span>Inj: {injective.address.slice(0, 6)}...{injective.address.slice(-4)}</span>
                 {copiedInj ? (
@@ -397,7 +529,7 @@ export default function Header({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-blue-300 p-0.5 transition"
-                title="Injective Explorer'da Görüntüle"
+                title="View on Injective Explorer"
               >
                 <ExternalLink size={11} />
               </a>
@@ -405,9 +537,9 @@ export default function Header({
               <button
                 onClick={disconnectInjective}
                 className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
-                title="Injective Cüzdanını Kapat"
+                title="Disconnect Injective Wallet"
               >
-                Çıkış
+                Disconnect
               </button>
             </div>
           )}

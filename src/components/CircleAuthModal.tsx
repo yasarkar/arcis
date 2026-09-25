@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
@@ -8,21 +8,23 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowRight,
-  KeyRound,
   Key,
-  RefreshCw,
   Fingerprint,
-  Zap,
-  Lock,
-  Smartphone,
-  ExternalLink,
+  ChevronDown,
+  Loader,
 } from 'lucide-react'
 import circleTokenIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import arcLogo from '../assets/Arcis-Icon.svg'
 import googleLogo from '../assets/Social-Login-Icon/google-logo.svg.svg'
 import appleLogo from '../assets/Social-Login-Icon/apple-logo.svg.svg'
 import facebookLogo from '../assets/Social-Login-Icon/facebook-logo.svg.svg'
-import { getSocialProviderInfo, isSocialProviderConfigured } from '../config/socialAuthConfig'
+import { getSocialProviderInfo } from '../config/socialAuthConfig'
+import {
+  getSavedAuthEmails,
+  saveAuthEmail,
+  removeSavedAuthEmail,
+  clearAllSavedAuthEmails,
+} from '../utils/savedAuthEmails'
 
 interface CircleAuthModalProps {
   isOpen: boolean
@@ -40,34 +42,36 @@ interface CircleAuthModalProps {
   isUcwConnected?: boolean
   ucwAddress?: string
   authPhase?: 'idle' | 'requesting' | 'awaiting_code' | 'creating_wallet' | 'success' | 'error'
+  error?: string | null
   hasStoredCredential?: boolean
   isLoading: boolean
-  otpStep: 'input' | 'verify'
-  setOtpStep: (step: 'input' | 'verify') => void
-  pendingEmail: string
+  otpStep?: 'input' | 'verify'
+  setOtpStep?: (step: 'input' | 'verify') => void
+  pendingEmail?: string
 }
 
 export default function CircleAuthModal({
   isOpen,
   onClose,
   onRequestOtp,
-  onVerifyOtp,
-  onReopenOtpVerification,
+  onVerifyOtp: _onVerifyOtp,
+  onReopenOtpVerification: _onReopenOtpVerification,
   onCleanupIframe,
   onLoginPin,
   onLoginSocial,
   onRegisterPasskey,
   onLoginPasskey,
-  isPasskeyConnected,
-  mscaAddress,
+  isPasskeyConnected: _isPasskeyConnected,
+  mscaAddress: _mscaAddress,
   isUcwConnected,
   ucwAddress,
   authPhase,
+  error: externalError,
   hasStoredCredential,
   isLoading,
-  otpStep,
+  otpStep: _otpStep,
   setOtpStep,
-  pendingEmail,
+  pendingEmail: _pendingEmail,
 }: CircleAuthModalProps) {
   const [email, setEmail] = useState('')
   const [passkeyName, setPasskeyName] = useState('')
@@ -76,11 +80,27 @@ export default function CircleAuthModal({
   const [statusMessage, setStatusMessage] = useState<{ text: string; isError?: boolean; isSuccess?: boolean } | null>(null)
   const [autoLoginPhase, setAutoLoginPhase] = useState<'idle' | 'authenticating' | 'success' | 'failed'>('idle')
   const [autoLoginAddress, setAutoLoginAddress] = useState<string>('')
+  const [savedEmails, setSavedEmails] = useState<string[]>([])
+  const [showSavedDropdown, setShowSavedDropdown] = useState(false)
+
+  const emailInputRef = useRef<HTMLInputElement>(null)
+  const savedDropdownRef = useRef<HTMLDivElement>(null)
 
   const handleClose = () => {
     if (onCleanupIframe) onCleanupIframe()
     onClose()
   }
+
+  // Close saved accounts dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (savedDropdownRef.current && !savedDropdownRef.current.contains(event.target as Node)) {
+        setShowSavedDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Auto-close modal when UCW wallet successfully connects
   useEffect(() => {
@@ -92,24 +112,43 @@ export default function CircleAuthModal({
     }
   }, [isOpen, isUcwConnected, ucwAddress])
 
+  // Synchronize external error and authPhase changes
+  useEffect(() => {
+    if (externalError) {
+      setStatusMessage({ text: externalError, isError: true })
+    }
+  }, [externalError])
+
+  useEffect(() => {
+    if (authPhase === 'creating_wallet') {
+      setStatusMessage({ text: 'Verification successful! Initializing wallet... Please complete the security prompt.', isSuccess: false })
+    } else if (authPhase === 'success') {
+      setStatusMessage({ text: 'Wallet connected successfully!', isSuccess: true })
+    }
+  }, [authPhase])
+
   // Systematic input clearing on wallet disconnect
   useClearOnWalletDisconnect(() => {
     setEmail('')
     setPasskeyName('')
     setStatusMessage(null)
+    setShowSavedDropdown(false)
   })
 
-  // Reset modal state on open/reopen
+  // Reset modal state on open/reopen & load saved emails
   useEffect(() => {
     if (isOpen) {
       setStatusMessage(null)
+      const stored = getSavedAuthEmails()
+      setSavedEmails(stored)
       setEmail('')
       setPasskeyName('')
       setShowPasskeyRegister(false)
       setViewMode('auth')
-      setOtpStep('input')
+      if (setOtpStep) setOtpStep('input')
       setAutoLoginPhase('idle')
       setAutoLoginAddress('')
+      setShowSavedDropdown(false)
     }
   }, [isOpen, setOtpStep])
 
@@ -215,14 +254,42 @@ export default function CircleAuthModal({
     setStatusMessage({ text: 'Sending verification code to your email...' })
     const res = await onRequestOtp(email)
     if (res.success) {
-      setStatusMessage({
-        text: `Verification code sent to ${email}.`,
-        isSuccess: true,
-      })
+      const updated = saveAuthEmail(email)
+      setSavedEmails(updated)
+      setShowSavedDropdown(false)
+      // Circle launches its own native verification prompt, so close this modal cleanly
+      onClose()
     } else {
       setStatusMessage({ text: res.error || 'Failed to send OTP code.', isError: true })
     }
   }
+
+  const handleSelectSavedEmail = (selectedEmail: string) => {
+    setEmail(selectedEmail)
+    setShowSavedDropdown(false)
+  }
+
+  const handleRemoveSavedEmail = (e: React.MouseEvent, emailToRemove: string) => {
+    e.stopPropagation()
+    const updated = removeSavedAuthEmail(emailToRemove)
+    setSavedEmails(updated)
+    if (updated.length === 0) {
+      setShowSavedDropdown(false)
+    }
+  }
+
+  const handleClearAllSavedEmails = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    clearAllSavedAuthEmails()
+    setSavedEmails([])
+    setShowSavedDropdown(false)
+  }
+
+  const displayEmails = email.trim() && !savedEmails.includes(email.trim().toLowerCase())
+    ? savedEmails.filter((item) => item.toLowerCase().includes(email.trim().toLowerCase()))
+    : savedEmails
+
+  const isDropdownOpen = showSavedDropdown && savedEmails.length > 0 && displayEmails.length > 0
 
   // ─────────────────────────────────────────────────────────────
   // PIN & SOCIAL HANDLERS
@@ -302,12 +369,10 @@ export default function CircleAuthModal({
           {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
             <div className="space-y-2 mt-10">
               <h2 className="text-2xl text-slate-300 tracking-tight">
-                {otpStep === 'verify' ? 'Email Verification' : 'Sign up / Login'}
+                Sign up / Login
               </h2>
               <p className="text-xs text-slate-400">
-                {otpStep === 'verify'
-                  ? 'Circle secure prompt launched in your browser window.'
-                  : 'Connect seamlessly with email, Passkey or social accounts.'}
+                Connect seamlessly with email, Passkey or social accounts.
               </p>
             </div>
           )}
@@ -318,10 +383,10 @@ export default function CircleAuthModal({
           <div className="px-6 md:px-7 pt-1">
             <div
               className={`p-3 rounded-2xl text-xs flex items-center gap-2.5 border transition backdrop-blur-md ${statusMessage.isError
-                  ? 'bg-rose-950/60 border-rose-500/40 text-rose-200'
-                  : statusMessage.isSuccess
-                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
-                    : 'bg-indigo-950/60 border-indigo-500/40 text-indigo-200'
+                ? 'bg-rose-950/60 border-rose-500/40 text-rose-200'
+                : statusMessage.isSuccess
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
+                  : 'bg-indigo-950/60 border-indigo-500/40 text-indigo-200'
                 }`}
             >
               {statusMessage.isError ? (
@@ -329,7 +394,7 @@ export default function CircleAuthModal({
               ) : statusMessage.isSuccess ? (
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
               ) : (
-                <Sparkles className="w-4 h-4 shrink-0 animate-spin text-cyan-300" />
+                <Loader className="w-4 h-4 shrink-0 animate-spin text-cyan-300" />
               )}
               <span className="leading-snug">{statusMessage.text}</span>
             </div>
@@ -391,311 +456,280 @@ export default function CircleAuthModal({
           </div>
         )}
 
-        {/* UCW Connection Success Overlay */}
-        {isUcwConnected && ucwAddress && (
-          <div className="p-8 md:p-10 flex flex-col items-center justify-center gap-5 min-h-[280px] animate-fade-in">
-            {/* Success Check Animation */}
-            <div className="relative">
-              <div className="absolute inset-0 w-20 h-20 rounded-full bg-blue-500/20 animate-ping" style={{ animationDuration: '1.5s' }} />
-              <div className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-                <CheckCircle2 className="w-10 h-10 text-white" />
-              </div>
-            </div>
-            <div className="text-center space-y-1.5">
-              <h3 className="text-lg font-bold text-white tracking-tight">Circle Wallet Connected</h3>
-              <p className="text-xs text-blue-300 font-mono font-semibold">
-                UCW: {ucwAddress.slice(0, 8)}...{ucwAddress.slice(-6)}
-              </p>
-              <p className="text-[11px] text-slate-400">User-Controlled Non-Custodial Wallet active.</p>
-            </div>
-          </div>
-        )}
-
         {/* MAIN VIEW MODE: Passkeys, Email, Social — only when not auto-login overlay and not connected */}
         {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
           <div className="px-6 pt-3 pb-2 md:px-7 md:pt-3 md:pb-2.5 space-y-3.5 max-h-[80vh] overflow-y-auto custom-scrollbar">
-            {otpStep === 'input' ? (
-              <>
-                {/* ═════════════════════════════════════════════════════════ */}
-                {/* 1. EMAIL FORM (PRIMARY INPUT)                            */}
-                {/* ═════════════════════════════════════════════════════════ */}
-                <form onSubmit={handleEmailRequest} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-200 mb-1.5">
-                      Email address
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="Email"
-                        disabled={isLoading}
-                        className={`w-full rounded-xl px-4 py-3.5 pl-11 pr-11 text-xs text-white placeholder-slate-500 focus:outline-none transition-all ${isValidEmail(email)
-                            ? 'border-emerald-500/60 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40'
-                            : 'border-white/[0.12] focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50'
-                          }`}
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.04)',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                        }}
-                      />
-                      <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+            {/* ═════════════════════════════════════════════════════════ */}
+            {/* 1. EMAIL FORM (PRIMARY INPUT)                            */}
+            {/* ═════════════════════════════════════════════════════════ */}
+            <form onSubmit={handleEmailRequest} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-200 mb-1.5">
+                  Email address
+                </label>
 
-                      {isValidEmail(email) && (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      )}
-                    </div>
-                    <p className="text-[12px] text-slate-400 mt-1.5">
-                      We'll send an email with a verification code.
-                    </p>
-                  </div>
-
-                  <button
-                    type="submit"
+                <div className="relative" ref={savedDropdownRef}>
+                  <input
+                    ref={emailInputRef}
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      if (savedEmails.length > 0) setShowSavedDropdown(true)
+                    }}
+                    onClick={() => {
+                      if (savedEmails.length > 0) setShowSavedDropdown(true)
+                    }}
+                    onFocus={() => {
+                      if (savedEmails.length > 0) setShowSavedDropdown(true)
+                    }}
+                    placeholder="Email"
                     disabled={isLoading}
-                    className="w-full py-3.5 rounded-full text-xs font-extrabold text-white bg-blue-900 hover:bg-blue-800 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.99] uppercase tracking-wider"
-                  >
-                    {isLoading ? (
-                      <>
-                        <Sparkles className="w-4 h-4 animate-spin text-purple-200" />
-                        <span>SENDING CODE...</span>
-                      </>
-                    ) : (
-                      <span>CONTINUE</span>
-                    )}
-                  </button>
-                </form>
+                    className={`w-full px-4 py-3.5 pl-11 pr-14 text-xs text-white placeholder-slate-500 focus:outline-none transition-all ${isDropdownOpen
+                      ? 'rounded-t-xl rounded-b-none'
+                      : 'rounded-xl'
+                      }`}
+                    style={{
+                      background: isDropdownOpen ? '#101426' : 'rgba(255, 255, 255, 0.04)',
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: isDropdownOpen
+                        ? 'rgba(6, 182, 212, 0.6)'
+                        : isValidEmail(email)
+                          ? 'rgba(16, 185, 129, 0.6)'
+                          : 'rgba(255, 255, 255, 0.1)',
+                      borderBottom: isDropdownOpen ? '1px solid rgba(255, 255, 255, 0.08)' : undefined,
+                    }}
+                  />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
 
-                {/* Divider Line: or */}
-                <div className="relative flex items-center justify-center my-4">
-                  <div className="border-t border-white/[0.1] w-full" />
-                  <span className="bg-[#0d0f1b] px-3 text-[11px] text-slate-500 lowercase font-medium">or</span>
-                  <div className="border-t border-white/[0.1] w-full" />
-                </div>
-
-                {/* ═════════════════════════════════════════════════════════ */}
-                {/* 2. CONTINUE WITH STACK (PASSKEY & SOCIALS)                */}
-                {/* ═════════════════════════════════════════════════════════ */}
-                <div className="space-y-2.5">
-                  {/* Passkey (FaceID / TouchID) Option */}
-                  {!showPasskeyRegister ? (
-                    <div className="space-y-1">
-                      <div className="flex justify-end px-1 pb-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setShowPasskeyRegister(true)}
-                          className="text-[11px] text-slate-400 hover:text-cyan-400 transition cursor-pointer"
-                        >
-                          Create new Passkey
-                        </button>
-                      </div>
+                  {/* Right icons: Clear & Chevron */}
+                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                    {email && (
                       <button
                         type="button"
-                        onClick={handlePasskeyLogin}
-                        disabled={isLoading}
-                        className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEmail('')
+                          setShowSavedDropdown(true)
+                          emailInputRef.current?.focus()
+                        }}
+                        className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                        title="Clear"
                       >
-                        <div className="w-5 h-5 flex items-center justify-center text-cyan-400 mr-3 shrink-0">
-                          <Fingerprint className="w-5 h-5" />
-                        </div>
-                        <span className="flex-1 text-center pr-5">Continue with Passkey</span>
+                        <X className="w-3.5 h-3.5" />
                       </button>
-                    </div>
-                  ) : (
-                    <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-cyan-500/30 space-y-2.5 animate-fade-in">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-white flex items-center gap-1.5">
-                          <span>New Passkey Smart Account</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowPasskeyRegister(false)}
-                          className="text-[11px] text-slate-400 hover:text-white transition cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-
-                      <form onSubmit={handlePasskeyRegister} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={passkeyName}
-                          onChange={(e) => setPasskeyName(e.target.value)}
-                          placeholder="Wallet name (e.g. My Passkey)"
-                          className="flex-1 rounded-xl px-3.5 py-2.5 text-xs bg-slate-950/80 border border-white/[0.12] focus:border-cyan-500 text-white placeholder-slate-500 focus:outline-none transition-colors"
+                    )}
+                    {savedEmails.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setShowSavedDropdown((prev) => !prev)
+                        }}
+                        className="p-1 rounded-md text-slate-400 hover:text-cyan-400 transition cursor-pointer"
+                        title="Saved emails"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-cyan-400' : ''
+                            }`}
                         />
-                        <button
-                          type="submit"
-                          disabled={isLoading}
-                          className="px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white text-xm font-bold transition-all cursor-pointer disabled:opacity-50 active:scale-[0.99]"
-                        >
-                          Create
-                        </button>
-                      </form>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Attached Droplist (Bitişik Dropdown) */}
+                  {isDropdownOpen && (
+                    <div
+                      className="absolute left-0 right-0 top-full rounded-b-xl overflow-hidden z-50 transition-all duration-150 shadow-2xl animate-fade-in"
+                      style={{
+                        marginTop: '-1px', // Seamless connection to input bottom border
+                        background: '#101426',
+                        backdropFilter: 'blur(20px)',
+                        WebkitBackdropFilter: 'blur(20px)',
+                        border: '1px solid rgba(6, 182, 212, 0.6)',
+                        borderTop: 'none',
+                        boxShadow: '0 20px 40px -8px rgba(0, 0, 0, 0.9), 0 0 20px rgba(6, 182, 212, 0.15)',
+                      }}
+                    >
+                      <div className="max-h-48 overflow-y-auto custom-scrollbar divide-y divide-white/[0.04]">
+                        {displayEmails.map((savedEmail, idx) => {
+                          const isSelected = email.trim().toLowerCase() === savedEmail
+                          return (
+                            <div
+                              key={savedEmail}
+                              onClick={() => handleSelectSavedEmail(savedEmail)}
+                              className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer group ${isSelected
+                                ? 'bg-cyan-500/15 text-cyan-300 font-medium'
+                                : 'text-slate-200 hover:bg-white/[0.06] hover:text-white'
+                                }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                <span className="truncate">{savedEmail}</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
-
-                  {/* Google */}
-                  <button
-                    type="button"
-                    onClick={() => handleSocialClick('google')}
-                    disabled={isLoading}
-                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
-                  >
-                    <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                      <img src={googleLogo} alt="Google" className="w-5 h-5 object-contain" />
-                    </div>
-                    <span className="flex-1 text-center pr-5">Continue with Google</span>
-                  </button>
-
-                  {/* Apple */}
-                  <button
-                    type="button"
-                    onClick={() => handleSocialClick('apple')}
-                    disabled={isLoading}
-                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
-                  >
-                    <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                      <img src={appleLogo} alt="Apple" className="w-5 h-5 object-contain brightness-0 invert" />
-                    </div>
-                    <span className="flex-1 text-center pr-5">Continue with Apple</span>
-                  </button>
-
-                  {/* Facebook */}
-                  <button
-                    type="button"
-                    onClick={() => handleSocialClick('facebook')}
-                    disabled={isLoading}
-                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
-                  >
-                    <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                      <img src={facebookLogo} alt="Facebook" className="w-5 h-5 object-contain" />
-                    </div>
-                    <span className="flex-1 text-center pr-5">Continue with Facebook</span>
-                  </button>
                 </div>
 
-                {/* Terms and Privacy Policy Footer */}
-                <div className="pt-1.5 text-center space-y-1">
-                  <p className="text-[12px] text-slate-400 leading-relaxed">
-                    By continuing, you agree to our{' '}
-                    <a href="#" className="text-blue-400 hover:underline font-medium">
-                      Terms of Use
-                    </a>{' '}
-                    &amp;{' '}
-                    <a href="#" className="text-blue-400 hover:underline font-medium">
-                      Privacy Policy
-                    </a>
-                    .
-                  </p>
-
-                  {/* Optional Circle PIN Link */}
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('pin')}
-                    className="text-[11px] text-slate-400 hover:text-cyan-400 transition cursor-pointer inline-flex items-center gap-1"
-                  >
-                    <div className="w-3 h-3 rounded-full overflow-hidden shrink-0" style={{ clipPath: 'circle(50%)' }}>
-                      <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
-                    </div>
-                    <span>Circle PIN Login</span>
-                  </button>
-                </div>
-              </>
-            ) : (
-              /* Awaiting Circle Verification View (Step 2) */
-              <div className="space-y-4 pt-1 animate-fade-in">
-                <div className="text-center space-y-2 pt-2">
-                  <div className="relative inline-flex items-center justify-center">
-                    <div className="absolute inset-0 w-16 h-16 rounded-full bg-blue-500/20 animate-ping" style={{ animationDuration: '2s' }} />
-                    <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600/30 to-indigo-600/30 border border-blue-500/40 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                      <Mail className="w-8 h-8 text-blue-400" />
-                    </div>
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-white tracking-tight">
-                      Check Your Inbox
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-1">
-                      A 6-digit verification code was sent to:
-                    </p>
-                    <p className="text-xs font-mono font-semibold text-blue-300 mt-1 bg-blue-950/50 py-1 px-3 rounded-lg border border-blue-500/30 inline-block">
-                      {pendingEmail || email}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Instructions Card */}
-                <div className="p-4 rounded-2xl bg-white/[0.03] border border-blue-500/20 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-blue-200">
-                    <Shield className="w-4 h-4 text-blue-400 shrink-0" />
-                    <span>Circle Secure Verification</span>
-                  </div>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">
-                    Circle's secure prompt has been launched in your browser. Please enter the 6-digit verification code directly into Circle's window to authorize your wallet.
-                  </p>
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 pt-1 border-t border-white/[0.06]">
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span>Keys are non-custodial and MPC-protected.</span>
-                  </div>
-                </div>
-
-                {/* Actions: Re-open Prompt / Resend / Change Email */}
-                <div className="space-y-2.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (onReopenOtpVerification) {
-                        const opened = onReopenOtpVerification()
-                        if (opened) {
-                          setStatusMessage({ text: 'Circle verification window re-opened.', isSuccess: true })
-                        } else {
-                          setStatusMessage({ text: 'Could not open window. Click resend to try again.', isError: true })
-                        }
-                      }
-                    }}
-                    className="w-full py-3.5 rounded-full text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-600/25 active:scale-[0.99] uppercase tracking-wider"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>RE-OPEN CIRCLE WINDOW</span>
-                  </button>
-
-                  <div className="flex items-center justify-between px-1 pt-1">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const targetEmail = pendingEmail || email
-                        if (!targetEmail) return
-                        setStatusMessage({ text: 'Resending verification code...' })
-                        const res = await onRequestOtp(targetEmail)
-                        if (res.success) {
-                          setStatusMessage({ text: 'New verification code sent!', isSuccess: true })
-                        } else {
-                          setStatusMessage({ text: res.error || 'Failed to resend code.', isError: true })
-                        }
-                      }}
-                      disabled={isLoading}
-                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 cursor-pointer font-medium disabled:opacity-50 transition"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                      <span>Resend Code</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onCleanupIframe) onCleanupIframe()
-                        setOtpStep('input')
-                      }}
-                      className="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer"
-                    >
-                      ← Change Email
-                    </button>
-                  </div>
-                </div>
+                <p className="text-[12px] text-slate-400 mt-1.5">
+                  We'll send an email with a verification code.
+                </p>
               </div>
-            )}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3.5 rounded-full text-xs font-extrabold text-white bg-blue-900 hover:bg-blue-800 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.99] uppercase tracking-wider"
+              >
+                {isLoading ? (
+                  <>
+                    <span>SENDING CODE...</span>
+                  </>
+                ) : (
+                  <span>CONTINUE</span>
+                )}
+              </button>
+            </form>
+
+            {/* Divider Line: or */}
+            <div className="relative flex items-center justify-center my-4">
+              <div className="border-t border-white/[0.1] w-full" />
+              <span className="bg-[#0d0f1b] px-3 text-[11px] text-slate-500 lowercase font-medium">or</span>
+              <div className="border-t border-white/[0.1] w-full" />
+            </div>
+
+            {/* ═════════════════════════════════════════════════════════ */}
+            {/* 2. CONTINUE WITH STACK (PASSKEY & SOCIALS)                */}
+            {/* ═════════════════════════════════════════════════════════ */}
+            <div className="space-y-2.5">
+              {/* Passkey (FaceID / TouchID) Option */}
+              {!showPasskeyRegister ? (
+                <div className="space-y-1">
+                  <div className="flex justify-end px-1 pb-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowPasskeyRegister(true)}
+                      className="text-[11px] text-slate-400 hover:text-cyan-400 transition cursor-pointer"
+                    >
+                      Create new Passkey
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePasskeyLogin}
+                    disabled={isLoading}
+                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
+                  >
+                    <div className="w-5 h-5 flex items-center justify-center text-cyan-400 mr-3 shrink-0">
+                      <Fingerprint className="w-5 h-5" />
+                    </div>
+                    <span className="flex-1 text-center pr-5">Continue with Passkey</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-cyan-500/30 space-y-2.5 animate-fade-in">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-white flex items-center gap-1.5">
+                      <span>New Passkey Smart Account</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowPasskeyRegister(false)}
+                      className="text-[11px] text-slate-400 hover:text-white transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  <form onSubmit={handlePasskeyRegister} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={passkeyName}
+                      onChange={(e) => setPasskeyName(e.target.value)}
+                      placeholder="Wallet name (e.g. My Passkey)"
+                      className="flex-1 rounded-xl px-3.5 py-2.5 text-xs bg-slate-950/80 border border-white/[0.12] focus:border-cyan-500 text-white placeholder-slate-500 focus:outline-none transition-colors"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white text-xm font-bold transition-all cursor-pointer disabled:opacity-50 active:scale-[0.99]"
+                    >
+                      Create
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Google */}
+              <button
+                type="button"
+                onClick={() => handleSocialClick('google')}
+                disabled={isLoading}
+                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
+              >
+                <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
+                  <img src={googleLogo} alt="Google" className="w-5 h-5 object-contain" />
+                </div>
+                <span className="flex-1 text-center pr-5">Continue with Google</span>
+              </button>
+
+              {/* Apple */}
+              <button
+                type="button"
+                onClick={() => handleSocialClick('apple')}
+                disabled={isLoading}
+                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
+              >
+                <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
+                  <img src={appleLogo} alt="Apple" className="w-5 h-5 object-contain brightness-0 invert" />
+                </div>
+                <span className="flex-1 text-center pr-5">Continue with Apple</span>
+              </button>
+
+              {/* Facebook */}
+              <button
+                type="button"
+                onClick={() => handleSocialClick('facebook')}
+                disabled={isLoading}
+                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
+              >
+                <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
+                  <img src={facebookLogo} alt="Facebook" className="w-5 h-5 object-contain" />
+                </div>
+                <span className="flex-1 text-center pr-5">Continue with Facebook</span>
+              </button>
+            </div>
+
+            {/* Terms and Privacy Policy Footer */}
+            <div className="pt-1.5 text-center space-y-1">
+              <p className="text-[12px] text-slate-400 leading-relaxed">
+                By continuing, you agree to our{' '}
+                <a href="#" className="text-blue-400 hover:underline font-medium">
+                  Terms of Use
+                </a>{' '}
+                &amp;{' '}
+                <a href="#" className="text-blue-400 hover:underline font-medium">
+                  Privacy Policy
+                </a>
+                .
+              </p>
+
+              {/* Optional Circle PIN Link */}
+              <button
+                type="button"
+                onClick={() => setViewMode('pin')}
+                className="text-[11px] text-slate-400 hover:text-cyan-400 transition cursor-pointer inline-flex items-center gap-1"
+              >
+                <div className="w-3 h-3 rounded-full overflow-hidden shrink-0" style={{ clipPath: 'circle(50%)' }}>
+                  <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
+                </div>
+                <span>Circle PIN Login</span>
+              </button>
+            </div>
           </div>
         )}
 

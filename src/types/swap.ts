@@ -20,7 +20,7 @@ export interface SwapExecuteParams {
   tokenIn: SwapSupportedToken
   tokenOut: SwapSupportedToken
   amountIn: string
-  sourceAdapter: any
+  sourceAdapter?: any
   recipientAddress?: string
   slippageTolerance?: number
   speedTier?: 'standard' | 'fast' | 'turbo'
@@ -29,6 +29,14 @@ export interface SwapExecuteParams {
     recipientAddress: string
   }
   allowanceStrategy?: 'approve' | 'permit'
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
+  executeUcwContract?: (params: {
+    contractAddress: string
+    abiFunctionSignature?: string
+    abiParameters?: any[]
+    callData?: string
+    amount?: string
+  }) => Promise<{ success: boolean; txHash?: string; error?: string }>
 }
 
 export interface SwapQuoteResult {

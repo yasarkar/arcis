@@ -11,11 +11,14 @@ import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { depositToGateway } from '../services/gatewayService'
 import { useBroadcast } from './BroadcastNotification'
 import { normalizeAppError } from '../utils/errorNormalizer'
-import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
+import { parseUnits, encodeFunctionData, erc20Abi, maxUint256, type Hex } from 'viem'
+import { getResilientPublicClient, resilientWaitForReceipt } from '../services/rpc'
+import { GATEWAY_SUPPORTED_CHAINS, GATEWAY_CONTRACTS, GATEWAY_WALLET_ABI, USDC_ADDRESSES } from '../config/gatewayConfig'
 import { CHAIN_META, CHAIN_DEFS, getChainDisplayName } from '../config/chainMeta'
 import { Tooltip } from './common/Tooltip'
 import { ensureNetwork } from '../services/chainSwitchService'
 import { setAutoSwitchPaused } from '../hooks/useAutoSwitchArcChain'
+import { mapChainKeyToCircleBlockchain } from '../services/gatewayUcwService'
 
 const DEPOSIT_TOKEN = 'USDC' as const
 
@@ -24,10 +27,22 @@ interface UnifiedBalanceProps {
   connector?: any // wagmi connector for provider access
   onNavigate?: (tab: 'unified' | 'send' | 'swap' | 'bridge' | 'history') => void
   connectedAddress?: string
+  activeAuthSource?: 'passkey' | 'ucw' | 'evm' | null
+  sendModularUserOp?: (calls: any[]) => Promise<{ success: boolean; txHash?: string; error?: string }>
+  executeUcwContract?: (params: any) => Promise<{ success: boolean; txHash?: string; error?: string }>
+  walletConnected?: boolean
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
-export default function UnifiedBalance({ connector, onNavigate, connectedAddress }: UnifiedBalanceProps) {
+export default function UnifiedBalance({
+  connector,
+  onNavigate,
+  connectedAddress,
+  activeAuthSource,
+  sendModularUserOp,
+  executeUcwContract,
+  walletConnected,
+}: UnifiedBalanceProps) {
   const { address, chainId } = useAccount()
   const walletAddress = connectedAddress || address || ''
   const { balances, loading, isFetching: isGatewayFetching, totalBalance, refresh } = useGatewayBalance(walletAddress)
@@ -43,6 +58,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
   const [depositing, setDepositing] = useState(false)
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
   const [depositError, setDepositError] = useState<string | null>(null)
+  const [depositActionHint, setDepositActionHint] = useState<string | null>(null)
   const [isCanceledError, setIsCanceledError] = useState(false)
 
   // Pause auto-switch while deposit panel is open
@@ -59,6 +75,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
 
   const targetChainDef = CHAIN_DEFS[depositChain]
   const isWrongDepositChain = Boolean(
+    activeAuthSource === 'evm' &&
     targetChainDef &&
     chainId &&
     chainId !== targetChainDef.id
@@ -68,6 +85,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
     if (!targetChainDef) return
     setIsSwitchingNetwork(true)
     setDepositError(null)
+    setDepositActionHint(null)
     setIsCanceledError(false)
     try {
       const provider = await connector?.getProvider()
@@ -86,6 +104,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
   const resetFormInputs = useCallback(() => {
     setDepositAmount('')
     setDepositError(null)
+    setDepositActionHint(null)
     setIsCanceledError(false)
     setDepositing(false)
   }, [])
@@ -149,13 +168,26 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault()
     setDepositError(null)
+    setDepositActionHint(null)
     setIsCanceledError(false)
 
     if (depositing || isSwitchingNetwork) return
 
-    // Step 1: If wallet is not on the chosen deposit chain, cleanly switch first!
-    if (isWrongDepositChain) {
+    const isConnected = Boolean(walletConnected || connectedAddress || address || connector)
+    if (!isConnected) {
+      setDepositError('Wallet not connected. Please connect your wallet first.')
+      return
+    }
+
+    // Step 1: If using EVM and wallet is not on the chosen deposit chain, cleanly switch first!
+    if (activeAuthSource === 'evm' && isWrongDepositChain) {
       await handleSwitchDepositNetwork()
+      return
+    }
+
+    // Passkey wallets operate natively on Arc Testnet
+    if (activeAuthSource === 'passkey' && depositChain !== 'Arc_Testnet') {
+      setDepositError('Passkey wallets currently operate on Arc Testnet. Please select Arc Testnet for deposit, or connect MetaMask for other networks.')
       return
     }
 
@@ -166,11 +198,6 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
 
     if (isInsufficientWalletBalance) {
       setDepositError(`Insufficient USDC wallet balance on ${getChainDisplayName(depositChain)}. Max available: ${selectedWalletTokenBalance} USDC`)
-      return
-    }
-
-    if (!connector) {
-      setDepositError('Wallet not connected. Please connect your wallet first.')
       return
     }
 
@@ -190,14 +217,89 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
 
     setDepositing(true)
     try {
-      const provider = await connector.getProvider()
-      const result = await depositToGateway(
-        provider,
-        depositChain,
-        depositAmount,
-        CHAIN_DEFS[depositChain],
-        DEPOSIT_TOKEN
-      )
+      let txHash = ''
+
+      if (activeAuthSource === 'passkey' && sendModularUserOp) {
+        // ── PASSKEY MSCA DEPOSIT (Circle Modular ERC-4337) ───────────
+        const tokenAddress = USDC_ADDRESSES[depositChain]
+        const gatewayWallet = GATEWAY_CONTRACTS.testnet.gatewayWallet
+        const amountBaseUnits = parseUnits(depositAmount, 6)
+
+        const approveData = encodeFunctionData({
+          abi: erc20Abi,
+          functionName: 'approve',
+          args: [gatewayWallet, maxUint256],
+        })
+        const depositData = encodeFunctionData({
+          abi: GATEWAY_WALLET_ABI,
+          functionName: 'deposit',
+          args: [tokenAddress, amountBaseUnits],
+        })
+
+        const res = await sendModularUserOp([
+          { to: tokenAddress, data: approveData },
+          { to: gatewayWallet, data: depositData },
+        ])
+
+        if (!res.success) {
+          throw new Error(res.error || 'Passkey deposit operation failed.')
+        }
+        txHash = res.txHash || ''
+      } else if (activeAuthSource === 'ucw' && executeUcwContract) {
+        // ── CIRCLE UCW DEPOSIT (Email OTP / User-Controlled Wallet) ─
+        const tokenAddress = USDC_ADDRESSES[depositChain]
+        const gatewayWallet = GATEWAY_CONTRACTS.testnet.gatewayWallet
+        const amountBaseUnits = parseUnits(depositAmount, 6)
+        const targetBlockchain = mapChainKeyToCircleBlockchain(depositChain)
+
+        // Step 1: Approve Gateway Wallet
+        console.log(`[UCW Gateway Deposit] Requesting USDC approval challenge on ${targetBlockchain}...`)
+        const approveRes = await executeUcwContract({
+          contractAddress: tokenAddress,
+          abiFunctionSignature: 'approve(address,uint256)',
+          abiParameters: [gatewayWallet, amountBaseUnits.toString()],
+          blockchain: targetBlockchain,
+        })
+        if (!approveRes.success) {
+          throw new Error(approveRes.error || 'USDC approval challenge was not authorized.')
+        }
+
+        // Wait for on-chain inclusion of approval to prevent Error -32603 nonce desync
+        if (approveRes.txHash && approveRes.txHash.startsWith('0x')) {
+          try {
+            const publicClient = getResilientPublicClient(depositChain)
+            await resilientWaitForReceipt(publicClient, approveRes.txHash as Hex, 'Gateway deposit approval')
+          } catch (rErr) {
+            console.warn('[UnifiedBalance UCW] Approval receipt wait warning:', rErr)
+          }
+        }
+
+        // Step 2: Deposit to Gateway Wallet
+        console.log(`[UCW Gateway Deposit] Requesting deposit challenge on ${targetBlockchain}...`)
+        const depositRes = await executeUcwContract({
+          contractAddress: gatewayWallet,
+          abiFunctionSignature: 'deposit(address,uint256)',
+          abiParameters: [tokenAddress, amountBaseUnits.toString()],
+          blockchain: targetBlockchain,
+        })
+        if (!depositRes.success) {
+          throw new Error(depositRes.error || 'Gateway deposit challenge was not authorized.')
+        }
+        txHash = depositRes.txHash || ''
+      } else if (connector) {
+        // ── STANDARD EVM / WAGMI DEPOSIT (MetaMask, Rainbow) ─────────
+        const provider = await connector.getProvider()
+        const result = await depositToGateway(
+          provider,
+          depositChain,
+          depositAmount,
+          CHAIN_DEFS[depositChain],
+          DEPOSIT_TOKEN
+        )
+        txHash = result.depositTxHash
+      } else {
+        throw new Error('No active wallet signing method found. Please connect your wallet.')
+      }
 
       // Update broadcast notification to success
       updateBroadcast(broadcastId, {
@@ -210,7 +312,8 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
           tokenSymbol: DEPOSIT_TOKEN,
           sourceChain: depositChain,
           network: depositChain,
-          txHash: result.depositTxHash,
+          txHash,
+          recipient: walletAddress,
         },
       })
 
@@ -228,6 +331,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
       const isCanceled = normalized.isCanceled
       setIsCanceledError(isCanceled)
       setDepositError(normalized.message)
+      setDepositActionHint(normalized.actionHint || null)
 
       const status = isCanceled ? 'canceled' : 'failed'
       const title = isCanceled ? (normalized.title || 'Deposit Canceled') : (normalized.title || 'Deposit Failed')
@@ -253,20 +357,24 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
   }
 
   return (
-    <div className="arc-animate-reveal w-full flex-1 flex flex-col justify-start" style={{ maxWidth: 860, margin: '0 auto', paddingTop: 16, minHeight: 'calc(100vh - 100px)' }}>
+    <div style={{ maxWidth: 900, width: '100%', margin: '0 auto', padding: '24px 16px 80px', animation: 'arc-reveal 0.35s var(--ease-out-smooth)' }}>
 
       {/* ── HERO CARD (AAVE LUXURY GLASS CONTAINER) ── */}
       <div className="ub-hero-card" style={{ marginBottom: 24 }}>
         {/* Header Tag & Quick Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span className="arc-eyebrow" style={{ fontSize: 15, color: 'var(--base-colors--white)', fontWeight: 600, letterSpacing: '2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="arc-eyebrow" style={{ fontSize: 13, color: 'var(--base-colors--white)', fontWeight: 600 }}>
               UNIFIED BALANCE
             </span>
-            <Tooltip content="Circle Gateway Realtime Sub-Second Finality" position="top">
-              <span className="ub-live-badge cursor-help">
-                <span>LIVE GATEWAY</span>
-                <svg className="ub-ecg-svg" viewBox="0 0 48 16" fill="none" aria-hidden="true">
+            <Tooltip content="Live streaming multi-chain balance synced via Circle Gateway" position="top">
+              <span className="ub-live-badge">
+                <svg
+                  className="ub-ecg-svg"
+                  viewBox="0 0 35 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
                   <path
                     d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
                     className="ub-ecg-path-bg"
@@ -565,6 +673,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
                     setDepositAmount(val.startsWith('-') ? '0' : val)
                     if (depositError) {
                       setDepositError(null)
+                      setDepositActionHint(null)
                       setIsCanceledError(false)
                     }
                   }}
@@ -633,6 +742,26 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
                   <AlertTriangle size={14} style={{ flexShrink: 0, color: '#f87171' }} />
                 )}
                 <span>{depositError}</span>
+              </div>
+            )}
+
+            {depositActionHint && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  background: 'rgba(56, 189, 248, 0.08)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  color: '#38bdf8',
+                  fontFamily: 'var(--font-app)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Info size={14} style={{ flexShrink: 0, color: '#38bdf8' }} />
+                <span>{depositActionHint}</span>
               </div>
             )}
 
@@ -708,7 +837,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
           </div>
           <div className="ub-stat-item">
             <div className="ub-stat-label">Active Deposits</div>
-            <div className="ub-stat-value" >
+            <div className="ub-stat-value">
               {activeChains}
             </div>
           </div>
@@ -722,7 +851,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
                     variant={CHAIN_META[topChain.chainKey]?.iconId === 'solana' ? 'branded' : 'background'}
                     size={16}
                   />
-                  <span>{topChain.name}</span>
+                  <span>{topChain.name || getChainDisplayName(topChain.chainKey)}</span>
                 </>
               ) : '—'}
             </div>
@@ -765,7 +894,7 @@ export default function UnifiedBalance({ connector, onNavigate, connectedAddress
                     </div>
                     <div>
                       <span style={{ fontFamily: 'var(--font-app)', fontSize: 14, fontWeight: 500, color: 'var(--base-colors--white)', display: 'block', lineHeight: 1.2 }}>
-                        {item.name}
+                        {item.name || getChainDisplayName(item.chainKey)}
                       </span>
                     </div>
                   </div>

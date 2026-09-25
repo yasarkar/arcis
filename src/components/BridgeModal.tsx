@@ -17,6 +17,8 @@ import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import { transferFromGateway, estimateGatewayTransfer, ensureChain } from '../services/gatewayService'
 import { executeBridge, estimateBridgeCost } from '../services/bridgeService'
+import { executeUcwBridgeTransfer } from '../services/bridgeUcwService'
+import { executeUcwGatewayTransfer, mapChainKeyToCircleBlockchain } from '../services/gatewayUcwService'
 import { createViemAdapter } from '../services/sendService'
 import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
 import { normalizeAppError } from '../utils/errorNormalizer'
@@ -37,7 +39,7 @@ import {
   BRIDGE_CUSTOM_FEE_CONFIG,
 } from '../config/treasuryConfig'
 import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants'
-import { formatFeeDecimals } from '../utils/tokenUtils'
+import { formatFeeDecimals, CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 import { addTransaction } from '../utils/history'
 import { Tooltip } from './common/Tooltip'
 import {
@@ -60,6 +62,20 @@ interface BridgeModalProps {
   connectedAddress: string
   provider: any // Injected EIP-1193 provider
   currentChainId: number
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
+  executeUcwContract?: (params: {
+    contractAddress: string
+    abiFunctionSignature?: string
+    abiParameters?: any[]
+    callData?: string
+    amount?: string
+    blockchain?: string
+  }) => Promise<{ success: boolean; txHash?: string; error?: string }>
+  signTypedData?: (params: {
+    data: any
+    memo?: string
+    blockchain?: string
+  }) => Promise<{ success: boolean; signature?: string; error?: string }>
   onSuccess: (amount?: string, txHash?: string) => void
   addToast?: (
     title: string,
@@ -77,6 +93,9 @@ export default function BridgeModal({
   onClose,
   connectedAddress,
   provider,
+  authSource,
+  executeUcwContract,
+  signTypedData,
   onSuccess,
 }: BridgeModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
@@ -108,6 +127,7 @@ export default function BridgeModal({
   // Chain selection modals
   const [showSourceChainModal, setShowSourceChainModal] = useState(false)
   const [showDestChainModal, setShowDestChainModal] = useState(false)
+
 
   const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
   const isValidSolanaAddress = (addr: string): boolean =>
@@ -202,6 +222,19 @@ export default function BridgeModal({
     const getEstimation = async () => {
       setIsEstimating(true)
       try {
+        if (authSource === 'ucw') {
+          if (bridgeMode === 'gateway') {
+            const fee = await estimateGatewayTransfer(sourceChain, destChain, amount)
+            if (isMounted) setEstimatedFee(fee)
+          } else {
+            // Circle UCW CCTP transfer fee estimation
+            if (isMounted) {
+              setEstimatedFee(speedTier === 'standard' ? '0.00' : '0.20')
+            }
+          }
+          return
+        }
+
         if (bridgeMode === 'gateway') {
           const fee = await estimateGatewayTransfer(sourceChain, destChain, amount)
           if (isMounted) setEstimatedFee(fee)
@@ -278,7 +311,14 @@ export default function BridgeModal({
   if (!isOpen && !isInline) return null
 
   // Chains formatting for selector modal
-  const supportedChainsList = useMemo(() => {
+  const sourceChainsList = useMemo(() => {
+    return GATEWAY_SUPPORTED_CHAINS.map((c) => ({
+      chain: c,
+      name: getChainDisplayName(c),
+    }))
+  }, [])
+
+  const destChainsList = useMemo(() => {
     return GATEWAY_SUPPORTED_CHAINS.map((c) => ({
       chain: c,
       name: getChainDisplayName(c),
@@ -370,8 +410,101 @@ export default function BridgeModal({
       let burnTxHash = ''
       let destExplorerUrl: string | undefined = undefined
       let sourceExplorerUrl: string | undefined = undefined
+      let ucwChallengeId: string | undefined = undefined
 
-      if (bridgeMode === 'direct') {
+      if (authSource === 'ucw') {
+        if (bridgeMode === 'gateway') {
+          // Circle UCW Gateway Fast Transfer via EIP-712 BurnIntent & destination gatewayMint
+          if (!signTypedData) {
+            throw new Error('Wallet signature module is not initialized. Please refresh or re-authenticate.')
+          }
+          if (!executeUcwContract) {
+            throw new Error('Wallet contract execution module is not initialized. Please refresh or re-authenticate.')
+          }
+
+          const gatewayUcwResult = await executeUcwGatewayTransfer({
+            amount,
+            sourceChain,
+            destChain,
+            recipientAddress: targetRecipient,
+            connectedAddress,
+            signTypedData,
+            executeUcwContract,
+            onStepProgress: (step) => {
+              if (step === 'checking_balance') {
+                updateBroadcast(broadcastId, {
+                  title: 'Verifying Gateway Balance...',
+                  badgeText: 'Verifying',
+                })
+              } else if (step === 'preparing_wallet') {
+                updateBroadcast(broadcastId, {
+                  title: 'Preparing Multi-Chain Wallet...',
+                  badgeText: 'Setup',
+                })
+              } else if (step === 'signing') {
+                updateBroadcast(broadcastId, {
+                  title: 'Awaiting Authorization Signature...',
+                  badgeText: 'Authorize',
+                })
+              } else if (step === 'gateway_api') {
+                updateBroadcast(broadcastId, {
+                  title: 'Processing Gateway Transfer...',
+                  badgeText: 'Gateway API',
+                })
+              } else if (step === 'forwarding') {
+                updateBroadcast(broadcastId, {
+                  title: 'Circle is minting USDC...',
+                  badgeText: 'Forwarding',
+                })
+              } else if (step === 'minting') {
+                updateBroadcast(broadcastId, {
+                  title: 'Circle is minting USDC...',
+                  badgeText: 'Minting',
+                })
+              }
+            },
+          })
+
+          mintTxHash = gatewayUcwResult.mintTxHash || ''
+          burnTxHash = ''
+          sourceExplorerUrl = undefined
+          destExplorerUrl = gatewayUcwResult.destExplorerUrl
+          ucwChallengeId = gatewayUcwResult.challengeId
+        } else {
+          // Circle UCW Direct CCTP Bridge via smart contract execution
+          if (!executeUcwContract) {
+            throw new Error('Wallet contract execution module is not initialized. Please refresh or re-authenticate.')
+          }
+
+          const ucwResult = await executeUcwBridgeTransfer({
+            amount,
+            sourceChain,
+            destChain,
+            recipientAddress: targetRecipient,
+            connectedAddress,
+            executeUcwContract,
+            onStepProgress: (step) => {
+              if (step === 'approving') {
+                updateBroadcast(broadcastId, {
+                  title: 'Approving USDC Allowance...',
+                  badgeText: 'Approving',
+                })
+              } else if (step === 'burning') {
+                updateBroadcast(broadcastId, {
+                  title: 'Initiating CCTP Bridge...',
+                  badgeText: 'Bridging',
+                })
+              }
+            },
+          })
+
+          burnTxHash = ucwResult.burnTxHash
+          mintTxHash = ucwResult.burnTxHash
+          sourceExplorerUrl = ucwResult.sourceExplorerUrl
+          destExplorerUrl = ucwResult.destExplorerUrl
+          ucwChallengeId = ucwResult.challengeId
+        }
+      } else if (bridgeMode === 'direct') {
         // Direct CCTP Bridge via App Kit SDK
         if (!provider) throw new Error('No wallet provider available')
 
@@ -466,13 +599,38 @@ export default function BridgeModal({
           : '0.0001')
       const netAmount = Math.max(0, parseFloat(amount) - parseFloat(computedFee)).toFixed(6)
 
-      // Primary explorer URL is on the destination chain for minting/delivery
-      const explorerUrl = destExplorerUrl || (mintTxHash ? getExplorerTxUrl(destChain, mintTxHash) : undefined)
+      const isGateway = bridgeMode === 'gateway'
+      const primaryTxHash =
+        isGateway
+          ? (mintTxHash && mintTxHash.startsWith('0x') ? mintTxHash : '')
+          : (burnTxHash && burnTxHash.startsWith('0x'))
+            ? burnTxHash
+            : (mintTxHash && mintTxHash.startsWith('0x'))
+              ? mintTxHash
+              : (burnTxHash || mintTxHash || '')
+
+      const explorerUrl = destExplorerUrl || (mintTxHash && mintTxHash.startsWith('0x') ? getExplorerTxUrl(destChain, mintTxHash) : undefined)
+
+      const primaryExplorerUrl =
+        isGateway
+          ? (destExplorerUrl || explorerUrl)
+          : (burnTxHash && burnTxHash.startsWith('0x') && sourceExplorerUrl)
+            ? sourceExplorerUrl
+            : (destExplorerUrl || explorerUrl)
+
+      const broadcastNetwork = isGateway
+        ? destChain
+        : (burnTxHash && burnTxHash.startsWith('0x'))
+          ? sourceChain
+          : destChain
+
       setSuccessReceipt({
-        txHash: mintTxHash,
-        sourceTxHash: burnTxHash,
-        explorerUrl,
-        sourceExplorerUrl,
+        txHash: isGateway ? mintTxHash : (mintTxHash || burnTxHash),
+        sourceTxHash: isGateway ? undefined : burnTxHash,
+        destTxHash: mintTxHash,
+        explorerUrl: primaryExplorerUrl,
+        sourceExplorerUrl: isGateway ? undefined : sourceExplorerUrl,
+        destExplorerUrl: destExplorerUrl || explorerUrl,
         amount,
         sourceChain,
         destChain,
@@ -483,7 +641,7 @@ export default function BridgeModal({
 
       updateBroadcast(broadcastId, {
         type: 'bridge',
-        title: bridgeMode === 'direct' ? 'Bridge Completed Successfully' : 'Gateway Transfer Completed Successfully',
+        title: 'Bridge Completed Successfully',
         status: 'success',
         badgeText: 'Confirmed',
         details: {
@@ -493,9 +651,13 @@ export default function BridgeModal({
           sourceChain,
           destChain,
           bridgeMode,
-          network: destChain,
-          txHash: mintTxHash,
-          sourceTxHash: burnTxHash,
+          network: broadcastNetwork,
+          txHash: primaryTxHash,
+          sourceTxHash: isGateway ? undefined : burnTxHash,
+          destTxHash: mintTxHash,
+          explorerUrl: primaryExplorerUrl,
+          sourceExplorerUrl: isGateway ? undefined : sourceExplorerUrl,
+          destExplorerUrl: destExplorerUrl || explorerUrl,
         },
       })
 
@@ -504,7 +666,7 @@ export default function BridgeModal({
 
       addTransaction({
         type: 'bridge',
-        txHash: mintTxHash || `bridge-${Date.now()}`,
+        txHash: primaryTxHash || mintTxHash || `bridge-${Date.now()}`,
         amount,
         tokenSymbol: 'USDC',
         sourceChain,
@@ -516,6 +678,75 @@ export default function BridgeModal({
       })
 
       onSuccess(amount, mintTxHash)
+
+      // Background Polling for Asynchronous On-Chain Indexing (Circle UCW Relayer)
+      if (authSource === 'ucw' && (!mintTxHash || !mintTxHash.startsWith('0x'))) {
+        const uToken = localStorage.getItem('arc_ucw_user_token')
+        const wId = localStorage.getItem('arc_ucw_wallet_id')
+        if (uToken) {
+          ;(async () => {
+            const targetChainForTx = isGateway ? destChain : sourceChain
+            const circleBlockchain = mapChainKeyToCircleBlockchain(targetChainForTx)
+            for (let i = 0; i < 15; i++) {
+              await new Promise((r) => setTimeout(r, 2000))
+              try {
+                const pollRes = await fetch('/api/ucw?action=getLatestTransaction', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userToken: uToken,
+                    walletId: wId,
+                    challengeId: ucwChallengeId,
+                    blockchain: circleBlockchain,
+                  }),
+                })
+                const pollData = await pollRes.json()
+                if (pollData.success && pollData.txHash && pollData.txHash.startsWith('0x')) {
+                  const resolvedTxHash = pollData.txHash
+                  const resolvedExplorerUrl = getExplorerTxUrl(targetChainForTx, resolvedTxHash)
+
+                  // Update Success Receipt Modal state in real-time
+                  setSuccessReceipt((prev: any) =>
+                    prev
+                      ? {
+                          ...prev,
+                          txHash: resolvedTxHash,
+                          destTxHash: isGateway ? resolvedTxHash : prev.destTxHash,
+                          sourceTxHash: !isGateway ? resolvedTxHash : prev.sourceTxHash,
+                          explorerUrl: resolvedExplorerUrl,
+                          destExplorerUrl: isGateway ? resolvedExplorerUrl : prev.destExplorerUrl,
+                          sourceExplorerUrl: !isGateway ? resolvedExplorerUrl : prev.sourceExplorerUrl,
+                        }
+                      : prev
+                  )
+
+                  // Update Floating Broadcast Notification in real-time
+                  updateBroadcast(broadcastId, {
+                    details: {
+                      amount,
+                      tokenSymbol: 'USDC',
+                      tokenIcon: UsdcIcon,
+                      sourceChain,
+                      destChain,
+                      bridgeMode,
+                      network: broadcastNetwork,
+                      txHash: resolvedTxHash,
+                      destTxHash: isGateway ? resolvedTxHash : undefined,
+                      sourceTxHash: !isGateway ? resolvedTxHash : undefined,
+                      explorerUrl: resolvedExplorerUrl,
+                      destExplorerUrl: isGateway ? resolvedExplorerUrl : undefined,
+                      sourceExplorerUrl: !isGateway ? resolvedExplorerUrl : undefined,
+                    },
+                  })
+                  break
+                }
+              } catch (e) {
+                console.warn('[BridgeModal] Background tx polling error:', e)
+              }
+            }
+          })()
+        }
+      }
     } catch (err: any) {
       console.error('[BridgeModal] Execution error:', err)
       setIsTransferring(false)
@@ -699,7 +930,7 @@ export default function BridgeModal({
       {
         label: 'Source Network Fee',
         tooltip: 'Transaction gas fee required to initiate the bridge deposit on the source chain.',
-        value: sourceChain === 'Arc_Testnet' ? '~0.000021 USDC' : '< 0.001 ETH',
+        value: sourceChain === 'Arc_Testnet' ? '~0.000021 USDC' : `< 0.001 ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}`,
       },
       {
         label: 'Platform Fee',
@@ -854,8 +1085,10 @@ export default function BridgeModal({
           mode={successReceipt.mode}
           txHash={successReceipt.txHash}
           sourceTxHash={successReceipt.sourceTxHash}
+          destTxHash={successReceipt.destTxHash}
           explorerUrl={successReceipt.explorerUrl}
           sourceExplorerUrl={successReceipt.sourceExplorerUrl}
+          destExplorerUrl={successReceipt.destExplorerUrl}
           fee={successReceipt.fee}
           netReceived={successReceipt.netReceived}
           isInline={isInline}
@@ -1004,6 +1237,31 @@ export default function BridgeModal({
             disabled={isTransferring}
           />
 
+          {/* Smart Gateway Balance Helper: suggest switching to Direct CCTP if user has wallet balance */}
+          {bridgeMode === 'gateway' && isInsufficient && parseFloat(sourceWalletBalance) > 0 && (
+            <div className="text-[11px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/25 rounded-xl p-3 flex items-start gap-2.5 animate-fade-in">
+              <Zap className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1.5">
+                <p className="leading-relaxed">
+                  Gateway üzerinde {getChainDisplayName(sourceChain)} için birleşik bakiyeniz yetersiz ancak cüzdanınızda <strong>{sourceWalletBalance} USDC</strong> bulunuyor.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBridgeMode('direct')
+                    setSpeedTier('fast')
+                    setError(null)
+                    setIsCanceledError(false)
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-300 hover:text-white bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-500/30 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Direct CCTP Moduna Geç</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Minimum Amount Warning for CCTP Direct */}
           {bridgeMode === 'direct' && amount && parseFloat(amount) > 0 && parseFloat(amount) < MIN_DIRECT_BRIDGE_AMOUNT && (
             <div className="text-[11px] text-amber-400/90 flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl animate-fade-in">
@@ -1065,7 +1323,7 @@ export default function BridgeModal({
       <ChainSelectorModal
         isOpen={showSourceChainModal}
         onClose={() => setShowSourceChainModal(false)}
-        chains={supportedChainsList}
+        chains={sourceChainsList}
         selectedChain={sourceChain}
         onSelectChain={(c) => {
           setSourceChain(c)
@@ -1085,7 +1343,7 @@ export default function BridgeModal({
       <ChainSelectorModal
         isOpen={showDestChainModal}
         onClose={() => setShowDestChainModal(false)}
-        chains={supportedChainsList}
+        chains={destChainsList}
         selectedChain={destChain}
         onSelectChain={(c) => {
           setDestChain(c)

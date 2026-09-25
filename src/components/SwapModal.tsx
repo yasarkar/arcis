@@ -64,6 +64,14 @@ interface SwapModalProps {
   connectedAddress: string
   provider: any
   currentChainId: number
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
+  executeUcwContract?: (params: {
+    contractAddress: string
+    abiFunctionSignature?: string
+    abiParameters?: any[]
+    callData?: string
+    amount?: string
+  }) => Promise<{ success: boolean; txHash?: string; error?: string }>
   onSuccess: (amountIn: string, amountOut: string, tokenIn: string, tokenOut: string, txHash: string) => void
   addToast?: (title: string, description: string, type: 'info' | 'success' | 'warning' | 'error' | 'pending', txHash?: string, network?: string) => string
   removeToast?: (id: string) => void
@@ -75,6 +83,8 @@ export default function SwapModal({
   onClose,
   connectedAddress,
   provider,
+  authSource,
+  executeUcwContract,
   onSuccess,
 }: SwapModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
@@ -84,6 +94,13 @@ export default function SwapModal({
   // Dynamic Chain Selector
   const [selectedChain, setSelectedChain] = useState('Arc_Testnet')
   const [showChainModal, setShowChainModal] = useState(false)
+
+  // Enforce Arc Testnet when UCW wallet is connected
+  useEffect(() => {
+    if (authSource === 'ucw' && selectedChain !== 'Arc_Testnet') {
+      setSelectedChain('Arc_Testnet')
+    }
+  }, [authSource, selectedChain])
 
   // Token Selector Modals
   const [showTokenInModal, setShowTokenInModal] = useState(false)
@@ -212,6 +229,28 @@ export default function SwapModal({
 
   const effectiveRecipient = useCustomRecipient && recipientIsValid ? customRecipient : connectedAddress
   const supportedChains = useMemo(() => getSupportedSwapChains(), [])
+
+  // When UCW wallet is connected: Arc Testnet is prioritized at the top and selected,
+  // and all other networks are rendered muted/dimmed and unselectable (seçilemez).
+  const availableSwapChains = useMemo(() => {
+    const arcChain = supportedChains.find((c) => c.chain === 'Arc_Testnet') || {
+      chain: 'Arc_Testnet',
+      name: 'Arc Testnet',
+    }
+    const otherChains = supportedChains.filter((c) => c.chain !== 'Arc_Testnet')
+
+    if (authSource === 'ucw') {
+      const formattedArc = [{ ...arcChain, disabled: false }]
+      const formattedOthers = otherChains.map((c) => ({
+        ...c,
+        disabled: true,
+        disabledReason: 'Arc Only',
+      }))
+      return [...formattedArc, ...formattedOthers]
+    }
+
+    return [arcChain, ...otherChains]
+  }, [supportedChains, authSource])
 
   // Reset modal state on open
   useEffect(() => {
@@ -353,31 +392,39 @@ export default function SwapModal({
 
     const fetchEstimate = async () => {
       try {
+        let sourceAdapter: any = undefined
         if (provider) {
-          const quote = await getSwapEstimate({
-            fromChain,
-            toChain: toChain === fromChain ? undefined : toChain,
-            tokenIn,
-            tokenOut,
-            amountIn,
-            sourceAdapter: await createViemAdapter(provider),
-            recipientAddress: effectiveRecipient,
-            slippageTolerance,
-            allowanceStrategy,
-            ...(platformFeeEnabled && {
-              customFee: {
-                percentageBps: platformFeeBps,
-                recipientAddress: getSwapFeeRecipient(fromChain),
-              },
-            }),
-          })
-          if (isMounted) {
-            setEstimatedOutput(quote.estimatedOutput)
-            setStopLimit(quote.stopLimit)
-            setRate(quote.rate)
-            setQuoteFees(quote.fees || [])
-            setIsEstimating(false)
+          try {
+            sourceAdapter = await createViemAdapter(provider)
+          } catch {
+            sourceAdapter = undefined
           }
+        }
+
+        const quote = await getSwapEstimate({
+          fromChain,
+          toChain: toChain === fromChain ? undefined : toChain,
+          tokenIn,
+          tokenOut,
+          amountIn,
+          sourceAdapter,
+          recipientAddress: effectiveRecipient,
+          slippageTolerance,
+          allowanceStrategy,
+          authSource,
+          ...(platformFeeEnabled && {
+            customFee: {
+              percentageBps: platformFeeBps,
+              recipientAddress: getSwapFeeRecipient(fromChain),
+            },
+          }),
+        })
+        if (isMounted) {
+          setEstimatedOutput(quote.estimatedOutput)
+          setStopLimit(quote.stopLimit)
+          setRate(quote.rate)
+          setQuoteFees(quote.fees || [])
+          setIsEstimating(false)
         }
       } catch (err: any) {
         console.error('[Swap Quote Error]', err)
@@ -406,6 +453,7 @@ export default function SwapModal({
     slippageTolerance,
     allowanceStrategy,
     provider,
+    authSource,
     speedTier,
     platformFeeBps,
     platformFeeEnabled,
@@ -465,11 +513,28 @@ export default function SwapModal({
     })
 
     try {
-      if (!provider) {
-        throw new Error('No crypto wallet provider found. Please connect your wallet.')
-      }
+      const isArcNative = fromChain === 'Arc_Testnet' && (!toChain || toChain === 'Arc_Testnet')
+      let sourceAdapter: any = undefined
 
-      const sourceAdapter = await createViemAdapter(provider)
+      if (authSource === 'ucw') {
+        if (!isArcNative) {
+          throw new Error('Swap functionality is currently supported on Arc Testnet. Please select Arc Testnet to execute swaps.')
+        }
+        if (!executeUcwContract) {
+          throw new Error('Wallet contract execution handler is not initialized. Please refresh or re-authenticate.')
+        }
+      } else if (authSource === 'passkey') {
+        // Passkey (MSCA) handles execution natively in swapService
+        if (!isArcNative && provider) {
+          sourceAdapter = await createViemAdapter(provider)
+        }
+      } else {
+        // Standard EOA wallet (MetaMask, etc.) requires an active provider
+        if (!provider) {
+          throw new Error('No crypto wallet provider found. Please connect your wallet.')
+        }
+        sourceAdapter = await createViemAdapter(provider)
+      }
 
       const finalStatus = await executeSwap({
         fromChain,
@@ -482,6 +547,8 @@ export default function SwapModal({
         slippageTolerance,
         allowanceStrategy,
         speedTier,
+        authSource,
+        executeUcwContract,
         ...(platformFeeEnabled && {
           customFee: {
             percentageBps: platformFeeBps,
@@ -733,6 +800,9 @@ export default function SwapModal({
     if (!amountIn || parseFloat(amountIn) <= 0) {
       return { disabled: true, text: 'ENTER AN AMOUNT', loading: false }
     }
+    if (authSource === 'ucw' && (fromChain !== 'Arc_Testnet' || toChain !== 'Arc_Testnet')) {
+      return { disabled: true, text: 'SWAP ONLY AVAILABLE ON ARC', loading: false }
+    }
     if (tokenIn === tokenOut) {
       return { disabled: true, text: 'SELECT DIFFERENT TOKENS', loading: false }
     }
@@ -766,6 +836,9 @@ export default function SwapModal({
     amountIn,
     tokenIn,
     tokenOut,
+    fromChain,
+    toChain,
+    authSource,
     isInsufficient,
     isEstimating,
     estimateError,
@@ -1095,7 +1168,7 @@ export default function SwapModal({
       <ChainSelectorModal
         isOpen={showChainModal}
         onClose={() => setShowChainModal(false)}
-        chains={supportedChains}
+        chains={availableSwapChains}
         selectedChain={selectedChain}
         onSelectChain={(chainKey) => setSelectedChain(chainKey)}
         getChainIconId={getChainIconId}

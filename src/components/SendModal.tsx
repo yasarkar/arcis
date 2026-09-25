@@ -11,6 +11,7 @@ import {
   FileText,
   ChevronDown,
   Ban,
+  Shield,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -25,7 +26,8 @@ import { estimateGas, sendToken } from '../services/sendService'
 import { sendUsdcWithMemo } from '../services/memoService'
 import { MEMO_PRESETS, type MemoPreset } from '../config/memoConfig'
 import { transferFromGateway } from '../services/gatewayService'
-import { GATEWAY_DOMAINS } from '../config/gatewayConfig'
+import { GATEWAY_DOMAINS, USDC_ADDRESSES, EURC_ADDRESSES } from '../config/gatewayConfig'
+import { mapChainKeyToCircleBlockchain } from '../services/gatewayUcwService'
 import {
   SUPPORTED_SEND_CHAINS,
   CHAIN_DEFS,
@@ -72,6 +74,51 @@ const TOKEN_ICONS: Record<string, string> = {
   cirBTC: CircleIcon,
 }
 
+/** Helper to map app chain names to Circle UCW TokenBlockchain enum */
+export function normalizeCircleBlockchain(chainStr?: string): string {
+  if (!chainStr) return 'ARC-TESTNET'
+  const mapped = mapChainKeyToCircleBlockchain(chainStr)
+  if (mapped && mapped !== 'ARC-TESTNET') return mapped
+  if (chainStr === 'Arc_Testnet' || chainStr === 'Arc') return mapped
+
+  const s = chainStr.toUpperCase().replace(/[\s_]/g, '-')
+  if (s.includes('ARC')) return 'ARC-TESTNET'
+  if (s.includes('BASE')) return 'BASE-SEPOLIA'
+  if (s.includes('ARB')) return 'ARB-SEPOLIA'
+  if (s.includes('OP')) return 'OP-SEPOLIA'
+  if (s.includes('AVAX') || s.includes('FUJI')) return 'AVAX-FUJI'
+  if (s.includes('MATIC') || s.includes('POLYGON') || s.includes('AMOY')) return 'MATIC-AMOY'
+  if (s.includes('ETH') || s.includes('SEPOLIA')) return 'ETH-SEPOLIA'
+  if (s.includes('SOL')) return 'SOL-DEVNET'
+  return s
+}
+
+/** Resolves the appropriate tokenAddress parameter for Circle UCW transfers */
+export function resolveUcwTokenAddress(
+  chain: string,
+  tokenSymbol: string,
+  isCustomToken: boolean,
+  customAddress?: string
+): string {
+  if (isCustomToken && customAddress) {
+    return customAddress
+  }
+  if (tokenSymbol === 'NATIVE') {
+    return ''
+  }
+  if (tokenSymbol === 'USDC') {
+    // Arc Testnet uses native USDC for gas, so empty string represents native currency
+    if (chain === 'Arc_Testnet') {
+      return ''
+    }
+    return USDC_ADDRESSES[chain] || ''
+  }
+  if (tokenSymbol === 'EURC') {
+    return EURC_ADDRESSES[chain] || ''
+  }
+  return ''
+}
+
 interface SendModalProps {
   isOpen: boolean
   isInline?: boolean
@@ -79,6 +126,16 @@ interface SendModalProps {
   connectedAddress: string
   provider: any
   currentChainId: number
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
+  executeUcwTransfer?: (params: {
+    destinationAddress: string
+    amount: string
+    tokenId?: string
+    tokenAddress?: string
+    tokenSymbol?: string
+    blockchain?: string
+    feeLevel?: 'LOW' | 'MEDIUM' | 'HIGH'
+  }) => Promise<{ success: boolean; txHash?: string; error?: string }>
   onSuccess?: (amount?: string, txHash?: string) => void
   addToast?: (title: string, description: string, type: 'info' | 'success' | 'warning' | 'error' | 'pending', txHash?: string, network?: string) => string
   removeToast?: (id: string) => void
@@ -90,6 +147,8 @@ export default function SendModal({
   onClose,
   connectedAddress,
   provider,
+  authSource,
+  executeUcwTransfer,
   onSuccess,
 }: SendModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
@@ -112,6 +171,28 @@ export default function SendModal({
   // Dynamic Chain Selector
   const [selectedChain, setSelectedChain] = useState('Arc_Testnet')
   const [showChainModal, setShowChainModal] = useState(false)
+
+  // Fallback to Arc Testnet if UCW wallet is connected and an unsupported non-EVM chain is selected
+  useEffect(() => {
+    if (authSource === 'ucw' && selectedChain.toLowerCase().includes('solana')) {
+      setSelectedChain('Arc_Testnet')
+    }
+  }, [authSource, selectedChain])
+
+  // All EVM chains supported by Circle are unlocked for UCW; only non-EVM (Solana) is disabled.
+  const availableSendChains = useMemo(() => {
+    if (authSource === 'ucw') {
+      return SUPPORTED_SEND_CHAINS.map((c) => {
+        const isSolana = c.chain.toLowerCase().includes('solana')
+        return {
+          ...c,
+          disabled: isSolana,
+          disabledReason: isSolana ? 'EVM Only' : undefined,
+        }
+      })
+    }
+    return SUPPORTED_SEND_CHAINS
+  }, [authSource])
 
   // Address validation
   const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
@@ -271,14 +352,12 @@ export default function SendModal({
     let isMounted = true
     const fetchNativeBal = async () => {
       try {
-        if (provider) {
-          const rpcClient = getResilientPublicClient(selectedChain)
-          const bal = await resilientGetBalance(rpcClient, { address: connectedAddress as `0x${string}` })
-          const decimals = CHAIN_NATIVE_MAP[selectedChain]?.decimals || 18
-          const formatted = parseFloat(formatUnits(bal, decimals)).toFixed(4)
-          if (isMounted) {
-            setNativeBalance(formatted)
-          }
+        const rpcClient = getResilientPublicClient(selectedChain)
+        const bal = await resilientGetBalance(rpcClient, { address: connectedAddress as `0x${string}` })
+        const decimals = CHAIN_NATIVE_MAP[selectedChain]?.decimals || 18
+        const formatted = parseFloat(formatUnits(bal, decimals)).toFixed(4)
+        if (isMounted) {
+          setNativeBalance(formatted)
         }
       } catch (e) {
         console.error('[SendModal] Failed to fetch native balance:', e)
@@ -290,7 +369,7 @@ export default function SendModal({
     return () => {
       isMounted = false
     }
-  }, [selectedChain, token, isCustom, connectedAddress, isOpen, provider, sendMode])
+  }, [selectedChain, token, isCustom, connectedAddress, isOpen, sendMode])
 
   // Custom ERC-20 Token Contract Inspection Effect
   useEffect(() => {
@@ -367,11 +446,11 @@ export default function SendModal({
     let isMounted = true
     const calculateFee = async () => {
       if (sendMode === 'gateway') {
-        setEstimatedFee('0.00 (Gateway)')
+        setEstimatedFee('0.00')
         return
       }
       if (isGaslessActive) {
-        setEstimatedFee('0.00 (Gasless Sponsored)')
+        setEstimatedFee('0.00')
         return
       }
 
@@ -500,6 +579,130 @@ export default function SendModal({
       },
     })
 
+    // ── 1. Circle User-Controlled Wallet (UCW) Pathway ────────
+    if (authSource === 'ucw') {
+      if (!executeUcwTransfer) {
+        const errorText = 'Wallet transfer handler is not initialized. Please refresh or re-authenticate.'
+        setError(errorText)
+        setIsSending(false)
+        updateBroadcast(broadcastId, {
+          type: 'send',
+          title: 'Transfer Failed',
+          status: 'failed',
+          badgeText: 'Failed',
+          message: errorText,
+          details: {
+            amount,
+            tokenSymbol: displayToken,
+            tokenIcon,
+            recipient,
+            network: selectedChain,
+          },
+        })
+        return
+      }
+
+      try {
+        const circleFeeLevel: 'LOW' | 'MEDIUM' | 'HIGH' =
+          speedTier === 'turbo' ? 'HIGH' : speedTier === 'fast' ? 'MEDIUM' : 'LOW'
+        const circleBlockchain = normalizeCircleBlockchain(selectedChain)
+        const resolvedToken = isCustom ? customTokenResult?.symbol || activeToken : activeToken
+        const resolvedAddress = resolveUcwTokenAddress(
+          selectedChain,
+          resolvedToken,
+          isCustom,
+          customTokenAddress
+        )
+
+        const ucwResult = await executeUcwTransfer({
+          destinationAddress: recipient,
+          amount,
+          tokenSymbol: resolvedToken,
+          tokenAddress: resolvedAddress,
+          blockchain: circleBlockchain,
+          feeLevel: circleFeeLevel,
+        })
+
+        if (!ucwResult.success) {
+          throw new Error(ucwResult.error || 'Transfer authorization was canceled or failed.')
+        }
+
+        const txHash = ucwResult.txHash || ''
+        setIsSending(false)
+
+        const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
+
+        setSuccessReceipt({
+          txHash,
+          explorerUrl,
+          gasFee: estimatedFee ? `${estimatedFee} USDC` : '0.00052 USDC',
+          blockNumber: 'Circle MPC Confirmed',
+        })
+
+        updateBroadcast(broadcastId, {
+          type: 'send',
+          title: `${displayToken} Transferred Successfully`,
+          status: 'success',
+          badgeText: 'Confirmed',
+          details: {
+            amount,
+            tokenSymbol: displayToken,
+            tokenIcon,
+            recipient,
+            network: selectedChain,
+            txHash,
+            explorerUrl,
+          },
+        })
+
+        refetchWalletBalances()
+        refreshGatewayBalances()
+        addTransaction({
+          type: 'send',
+          txHash,
+          amount,
+          tokenSymbol: displayToken,
+          sourceChain: selectedChain,
+          recipient,
+          userAddress: connectedAddress,
+          status: 'success',
+          isPrivate: isPrivateSend,
+        })
+        onSuccess?.(amount, txHash)
+        return
+      } catch (err: any) {
+        console.error('[SendModal] Circle UCW transfer failed:', err)
+        const normalized = normalizeAppError(err)
+        const isCanceled = normalized.isCanceled
+        const errMsg = normalized.message || err.message || 'Transfer failed'
+
+        setError(errMsg)
+        setIsSending(false)
+        setIsCanceledError(isCanceled)
+
+        const status = isCanceled ? 'canceled' : 'failed'
+        const title = isCanceled ? 'Transfer Cancelled' : 'Transfer Failed'
+        const badgeText = isCanceled ? 'Canceled' : 'Failed'
+
+        updateBroadcast(broadcastId, {
+          type: 'send',
+          title,
+          status,
+          badgeText,
+          message: errMsg,
+          details: {
+            amount,
+            tokenSymbol: displayToken,
+            tokenIcon,
+            recipient,
+            network: selectedChain,
+          },
+        })
+        return
+      }
+    }
+
+    // ── 2. Standard Browser EIP-1193 Provider Pathway (MetaMask, Rabby, Wagmi, etc.) ──
     if (provider) {
       try {
         if (sendMode === 'gateway') {
@@ -789,6 +992,24 @@ export default function SendModal({
           },
         })
       }
+    } else {
+      const errorText = 'No wallet provider found. Please connect your Web3 wallet or log in with Circle.'
+      setError(errorText)
+      setIsSending(false)
+      updateBroadcast(broadcastId, {
+        type: 'send',
+        title: 'Wallet Disconnected',
+        status: 'failed',
+        badgeText: 'Failed',
+        message: errorText,
+        details: {
+          amount,
+          tokenSymbol: displayToken,
+          tokenIcon,
+          recipient,
+          network: selectedChain,
+        },
+      })
     }
   }
 
@@ -874,7 +1095,7 @@ export default function SendModal({
         ) : selectedChain === 'Arc_Testnet' ? (
           `~${SPEED_TIERS[speedTier]?.arcGas?.estimatedCostUsdc || '0.000021'} USDC`
         ) : (
-          '<0.001 USDC'
+          `<0.001 ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
         ),
       },
       {
@@ -934,7 +1155,11 @@ export default function SendModal({
       return { disabled: true, text: `INSUFFICIENT ${tokenSymbol} BALANCE`, loading: false }
     }
     if (isSending) {
-      return { disabled: true, text: 'SENDING...', loading: true }
+      return {
+        disabled: true,
+        text: 'SENDING...',
+        loading: true,
+      }
     }
     return {
       disabled: false,
@@ -950,6 +1175,7 @@ export default function SendModal({
     isInsufficient,
     isSending,
     tokenSymbol,
+    authSource,
   ])
 
   if (!isOpen && !isInline) return null
@@ -976,8 +1202,8 @@ export default function SendModal({
         <ChevronDown className="w-3 h-3 text-slate-400" />
       </button>
 
-      {/* Gasless Icon Button (if Arc USDC) */}
-      {isArcUsdc && (
+      {/* Gasless Icon Button (if Arc USDC and not UCW) */}
+      {isArcUsdc && authSource !== 'ucw' && (
         <GaslessIconButton
           isActive={isGaslessActive}
           onToggle={() => setIsGaslessMode((prev) => !prev)}
@@ -1281,21 +1507,19 @@ export default function SendModal({
           setToken(sym)
           setIsCustom(false)
         }}
-        title="Select Asset"
       />
 
       {/* Network Selector Modal */}
       <ChainSelectorModal
         isOpen={showChainModal}
         onClose={() => setShowChainModal(false)}
-        chains={SUPPORTED_SEND_CHAINS}
+        chains={availableSendChains}
         selectedChain={selectedChain}
         onSelectChain={(chainKey) => {
           setSelectedChain(chainKey)
           setRecipientError(null)
         }}
         getChainIconId={getChainIconId}
-        title="Select Network"
       />
     </FintechCard>
   )

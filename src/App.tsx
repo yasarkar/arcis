@@ -56,6 +56,7 @@ export default function App() {
     register: registerPasskey,
     login: loginPasskey,
     disconnect: disconnectPasskey,
+    sendUserOp: sendModularUserOp,
   } = useModularWallet()
 
   // 2. Circle UCW Integration
@@ -64,6 +65,7 @@ export default function App() {
     isUcwConnected,
     isLoading: isUcwLoading,
     authPhase: ucwAuthPhase,
+    error: ucwError,
     otpStep,
     pendingEmail,
     requestEmailOtp,
@@ -72,6 +74,9 @@ export default function App() {
     cleanupIframe,
     loginWithPin,
     loginWithSocial,
+    executeContractCall: executeUcwContract,
+    signTypedData: executeUcwSignTypedData,
+    executeTransfer: executeUcwTransfer,
     disconnectUcw,
     setOtpStep,
   } = useUserControlledWallet()
@@ -259,6 +264,10 @@ export default function App() {
                   onNavigate={(tab) => setActiveTab(tab)}
                   connector={connector}
                   connectedAddress={walletAddress}
+                  walletConnected={walletConnected}
+                  activeAuthSource={activeAuthSource}
+                  sendModularUserOp={sendModularUserOp}
+                  executeUcwContract={executeUcwContract}
                 />
               </div>
             )}
@@ -296,6 +305,8 @@ export default function App() {
                   connectedAddress={walletAddress}
                   provider={connectedProvider}
                   currentChainId={5042002}
+                  authSource={activeAuthSource}
+                  executeUcwTransfer={executeUcwTransfer}
                   onSuccess={() => {
                     refreshBalances()
                   }}
@@ -313,6 +324,8 @@ export default function App() {
                   connectedAddress={walletAddress}
                   provider={connectedProvider}
                   currentChainId={5042002}
+                  authSource={activeAuthSource}
+                  executeUcwContract={executeUcwContract}
                   onSuccess={() => {
                     refreshBalances()
                   }}
@@ -330,6 +343,9 @@ export default function App() {
                   connectedAddress={walletAddress}
                   provider={connectedProvider}
                   currentChainId={5042002}
+                  authSource={activeAuthSource}
+                  executeUcwContract={executeUcwContract}
+                  signTypedData={executeUcwSignTypedData}
                   onSuccess={() => {
                     refreshBalances()
                   }}
@@ -389,6 +405,7 @@ export default function App() {
           isUcwConnected={isUcwConnected}
           ucwAddress={ucwAddress}
           authPhase={ucwAuthPhase}
+          error={ucwError}
           hasStoredCredential={hasStoredCredential}
           onRequestOtp={requestEmailOtp}
           onVerifyOtp={verifyEmailOtpCode}
