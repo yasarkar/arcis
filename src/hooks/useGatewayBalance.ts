@@ -15,6 +15,7 @@ export interface GatewayBalance {
   domain: number
   chainKey: string
   name: string
+  chainName?: string
   balance: string
   status: 'success' | 'error' | 'loading'
   error?: string
@@ -31,10 +32,12 @@ export async function fetchGatewayBalancesData(
 
   const mapped: GatewayBalance[] = (rawData.balances || []).map((item: GatewayBalanceItem) => {
     const chainKey = DOMAIN_TO_CHAIN[item.domain] || `domain_${item.domain}`
+    const displayName = GATEWAY_CHAIN_NAMES[chainKey] || `Domain ${item.domain}`
     return {
       domain: item.domain,
       chainKey,
-      name: GATEWAY_CHAIN_NAMES[chainKey] || `Domain ${item.domain}`,
+      name: displayName,
+      chainName: displayName,
       balance: parseFloat(item.balance || '0').toFixed(2),
       status: 'success' as const,
     }

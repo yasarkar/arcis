@@ -523,7 +523,132 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         }
       }
 
-      // B. EOA Wallet Execution (MetaMask, Rainbow, Viem)
+      // B. Circle User-Controlled Wallet (UCW) Execution
+      if ((params.authSource === 'ucw' || !params.sourceAdapter) && params.executeUcwContract) {
+        const userAddress = (params.recipientAddress || '') as Address
+        if (!userAddress || !userAddress.startsWith('0x')) {
+          throw new Error('Circle UCW cüzdan adresi bulunamadı.')
+        }
+
+        const routerAddress = POOL_CONTRACTS.ARCIS_SWAP_ROUTER
+
+        // 1. Check on-chain allowance against ArcisSwapRouter
+        let currentAllowance = 0n
+        try {
+          currentAllowance = await resilientReadContract(arcPublicClient, {
+            address: arcRoute.tokenInAddr,
+            abi: ERC20_ABI,
+            functionName: 'allowance',
+            args: [userAddress, routerAddress],
+          })
+        } catch (readErr) {
+          console.warn('[swapService UCW] Allowance read warning:', readErr)
+        }
+
+        const ceilingStatus = checkCeilingStatus(userAddress, params.tokenIn, parseFloat(params.amountIn))
+        const requiresApprove = currentAllowance < amountInUnits
+
+        // 2. Request ERC-20 approval via Circle UCW challenge if allowance is insufficient
+        if (requiresApprove) {
+          console.log('[swapService UCW] Insufficient allowance. Initiating approve challenge...')
+          const approveRes = await params.executeUcwContract({
+            contractAddress: arcRoute.tokenInAddr,
+            abiFunctionSignature: 'approve(address,uint256)',
+            abiParameters: [routerAddress, maxUint256.toString()],
+          })
+
+          if (!approveRes.success) {
+            const isCanceled =
+              approveRes.error?.toLowerCase().includes('cancel') ||
+              approveRes.error?.toLowerCase().includes('iptal') ||
+              approveRes.error?.toLowerCase().includes('closed')
+            const err: any = new Error(approveRes.error || 'Token onay işlemi kullanıcı tarafından iptal edildi.')
+            if (isCanceled) err.isCanceled = true
+            throw err
+          }
+
+          if (approveRes.txHash && approveRes.txHash.startsWith('0x')) {
+            try {
+              await resilientWaitForReceipt(arcPublicClient, approveRes.txHash as Hex, 'UCW Token approval')
+              setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling, approveRes.txHash)
+            } catch (waitErr) {
+              console.warn('[swapService UCW] Receipt wait warning for approval:', waitErr)
+            }
+          }
+        } else if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
+          setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling)
+        }
+
+        // 3. Request swapWithFee challenge on ArcisSwapRouter via Circle UCW
+        const treasuryRecipient = (params.customFee?.recipientAddress || zeroAddress) as Address
+        const feeBps = BigInt(params.customFee?.percentageBps || 0)
+
+        console.log('[swapService UCW] Requesting swapWithFee challenge...')
+        const swapRes = await params.executeUcwContract({
+          contractAddress: routerAddress,
+          abiFunctionSignature: 'swapWithFee(address,address,address,uint256,uint256,address,uint256)',
+          abiParameters: [
+            arcRoute.poolAddress,
+            arcRoute.tokenInAddr,
+            arcRoute.tokenOutAddr,
+            amountInUnits.toString(),
+            minOutUnits.toString(),
+            treasuryRecipient,
+            feeBps.toString(),
+          ],
+        })
+
+        if (!swapRes.success) {
+          const isCanceled =
+            swapRes.error?.toLowerCase().includes('cancel') ||
+            swapRes.error?.toLowerCase().includes('iptal') ||
+            swapRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(swapRes.error || 'Takas işlemi kullanıcı tarafından iptal edildi.')
+          if (isCanceled) err.isCanceled = true
+          throw err
+        }
+
+        const realTxHash = swapRes.txHash || ''
+
+        // Wait for swap receipt if txHash is resolved
+        if (realTxHash && realTxHash.startsWith('0x')) {
+          try {
+            await resilientWaitForReceipt(arcPublicClient, realTxHash as Hex, 'UCW Swap')
+          } catch (receiptErr) {
+            console.warn('[swapService UCW] Receipt wait warning for swap:', receiptErr)
+          }
+        }
+
+        // 4. Track 24h pool volume and dispatch reactive event
+        try {
+          const inUpper = params.tokenIn.toUpperCase()
+          const outUpper = params.tokenOut.toUpperCase()
+          const isCirBtc = inUpper === 'CIRBTC' || inUpper === 'BTC' || outUpper === 'CIRBTC' || outUpper === 'BTC'
+          const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
+          let volUsd = 0
+          const inAmt = parseFloat(params.amountIn) || 0
+          if (inUpper === 'USDC') {
+            volUsd = inAmt
+          } else if (inUpper === 'EURC') {
+            volUsd = inAmt * 1.08
+          } else if (inUpper === 'CIRBTC' || inUpper === 'BTC') {
+            volUsd = inAmt * 78500
+          }
+          if (volUsd > 0 && realTxHash) {
+            recordClientSwapVolume(poolId, volUsd, realTxHash)
+          }
+        } catch (volErr) {
+          console.warn('[swapService UCW] Volume tracking error:', volErr)
+        }
+
+        return {
+          status: 'DONE',
+          sourceTxHash: realTxHash || undefined,
+          destinationTxHash: realTxHash || undefined,
+        }
+      }
+
+      // C. EOA Wallet Execution (MetaMask, Rainbow, Viem)
       const provider =
         params.sourceAdapter?.provider ||
         (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
@@ -648,6 +773,16 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     // ─────────────────────────────────────────────────────────────
     // 2. CROSS-CHAIN APP-KIT SWAP FALLBACK
     // ─────────────────────────────────────────────────────────────
+    if (params.authSource === 'ucw') {
+      throw new Error(
+        'Circle UCW cüzdanları şu anda yalnızca Arc Testnet içi takasları desteklemektedir. Cross-chain takas işlemleri için lütfen MetaMask veya Circle Modular Wallet (Passkey) bağlayın.'
+      )
+    }
+
+    if (!params.sourceAdapter) {
+      throw new Error('Cross-chain takas işlemi için aktif bir Web3 cüzdan bağlantısı gereklidir.')
+    }
+
     const from = {
       adapter: params.sourceAdapter,
       chain: params.fromChain as any

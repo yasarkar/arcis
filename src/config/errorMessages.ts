@@ -54,6 +54,16 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     isRetryable: false,
   },
 
+  // 3b. Insufficient Native Gas Token (ETH) on External EVM Networks (Base, Sepolia, etc.)
+  INSUFFICIENT_NATIVE_GAS: {
+    category: 'INSUFFICIENT_GAS',
+    title: 'Insufficient Native Gas (ETH)',
+    message: 'Your wallet does not have sufficient native gas tokens (ETH) to cover transaction fees on this network.',
+    actionHint: 'Please fund your wallet with testnet ETH (e.g. Sepolia ETH) to execute contract calls, or use Arc Testnet where fees are paid in USDC.',
+    isCanceled: false,
+    isRetryable: false,
+  },
+
   // 4. Insufficient Token Balance
   INSUFFICIENT_BALANCE: {
     category: 'INSUFFICIENT_BALANCE',
@@ -114,12 +124,12 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     isRetryable: false,
   },
 
-  // 10. Wallet / RPC Desync (MetaMask -32603)
+  // 10. Wallet / RPC Desync (-32603)
   WALLET_RPC_DESYNC: {
     category: 'WALLET_DESYNC',
     title: 'Wallet Nonce Desynchronization',
     message: 'Your wallet internal transaction queue is out of sync with the network RPC node (Error -32603).',
-    actionHint: 'Open MetaMask > Settings > Advanced > click "Clear activity tab data" to resync your transaction nonce.',
+    actionHint: 'Wait a few seconds for pending transactions to confirm on-chain and try again. If using a browser extension like MetaMask, clear activity tab data in Settings > Advanced.',
     isCanceled: false,
     isRetryable: true,
   },

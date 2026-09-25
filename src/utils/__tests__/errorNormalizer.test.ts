@@ -69,4 +69,15 @@ describe('errorNormalizer', () => {
     expect(normalized.title).toBe('Wallet Request Pending')
     expect(normalized.isRetryable).toBe(true)
   })
+
+  it('correctly normalizes Circle insufficient native gas error to INSUFFICIENT_NATIVE_GAS with clear English guidance', () => {
+    const circleGasErr = new Error('the asset amount owned by the wallet is insufficient for the transaction')
+
+    const normalized = normalizeAppError(circleGasErr)
+    expect(normalized.code).toBe('INSUFFICIENT_NATIVE_GAS')
+    expect(normalized.category).toBe('INSUFFICIENT_GAS')
+    expect(normalized.title).toBe('Insufficient Native Gas (ETH)')
+    expect(normalized.message).toContain('native gas tokens (ETH)')
+    expect(normalized.actionHint).toContain('fund your wallet with testnet ETH')
+  })
 })
