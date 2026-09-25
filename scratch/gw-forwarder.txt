@@ -1,0 +1,13 @@
+Ephemeral depositor: 0x0A4b542dBB4f8b07bcFA7AF883c6636263b8D45D
+
+=== /estimate?enableForwarder=true (1 USDC) -> HTTP 200  maxFee=56638 (0.056638 USDC) ===
+
+=== /estimate?enableForwarder=true (10 USDC) -> HTTP 200  maxFee=56638 (0.056638 USDC) ===
+
+=== /estimate?enableForwarder=false (10 USDC) -> HTTP 200  maxFee=3850 (0.003850 USDC) ===
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.056638) -> HTTP 400 ===
+{"success":false,"message":"Insufficient total maxFee across intents to cover forwarding fee. Required additional: 0.000002"}
+
+=== /transfer?enableForwarder=true (10 USDC, maxFee=0.056638) -> HTTP 400 ===
+{"success":false,"message":"Insufficient total maxFee across intents to cover forwarding fee. Required additional: 0.000002"}

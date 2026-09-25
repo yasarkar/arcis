@@ -1,0 +1,33 @@
+Ephemeral depositor (zero Gateway balance): 0xD8D6e8691d9eAd4F5F9A78b9E700E41438A63C49
+
+=== /transfer [project formula] amount=10 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 10.0035"}
+
+=== /transfer [circle estimate fee] amount=10 maxFee=0.003850 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 10.0035"}
+
+=== Real required balance per amount (maxFee = 1 USDC floor) ===
+
+=== /transfer [scaling] amount=0.001 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 0.0045"}
+
+=== /transfer [scaling] amount=0.01 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 0.0135"}
+
+=== /transfer [scaling] amount=0.1 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 0.1035"}
+
+=== /transfer [scaling] amount=1 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 1.0035"}
+
+=== /transfer [scaling] amount=10 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 10.0035"}
+
+=== /transfer [scaling] amount=100 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 100.0035"}
+
+=== /transfer [scaling] amount=1000 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 1000.0035"}
+
+=== /transfer [scaling] amount=10000 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xd8d6e8691d9ead4f5f9a78b9e700e41438a63c49: available 0, required 10000.0035"}

@@ -1,0 +1,26 @@
+
+=== /balances  ->  HTTP 200 ===
+{"token":"USDC","balances":[{"domain":26,"depositor":"0x1111111111111111111111111111111111111111","balance":"0.852485","pendingBatch":"0"},{"domain":6,"depositor":"0x1111111111111111111111111111111111111111","balance":"1.010001","pendingBatch":"0"},{"domain":0,"depositor":"0x1111111111111111111111111111111111111111","balance":"0","pendingBatch":"0"},{"domain":3,"depositor":"0x1111111111111111111111111111111111111111","balance":"0","pendingBatch":"0"},{"domain":7,"depositor":"0x1111111111111111111111111111111111111111","balance":"0","pendingBatch":"0"}]}
+
+=== /estimate Arc_Testnet -> Base_Sepolia (1 USDC) [spec as object] -> HTTP 200 ===
+[{"burnIntent":{"maxBlockHeight":"65324520","maxFee":"3850","spec":{"version":1,"sourceDomain":26,"destinationDomain":6,"sourceContract":"0x0077777d7eba4688bdef3e311b846f25870a19b9","destinationContract":"0x0022222abe238cc2c7bb1f21003f0a260052475b","sourceToken":"0x3600000000000000000000000000000000000000","destinationToken":"0x036cbd53842c5426634e7929541ec2318f3dcf7e","sourceDepositor":"0x1111111111111111111111111111111111111111","destinationRecipient":"0x1111111111111111111111111111111111111111","sourceSigner":"0x1111111111111111111111111111111111111111","destinationCaller":"0x0000000000000000000000000000000000000000","value":"1000000","salt":"0xabababababababababababababababababababababababababababababababab","hookData":"0x"}}}]
+
+=== /estimate Arc_Testnet -> Base_Sepolia (10 USDC) [spec as object] -> HTTP 200 ===
+[{"burnIntent":{"maxBlockHeight":"65324520","maxFee":"3850","spec":{"version":1,"sourceDomain":26,"destinationDomain":6,"sourceContract":"0x0077777d7eba4688bdef3e311b846f25870a19b9","destinationContract":"0x0022222abe238cc2c7bb1f21003f0a260052475b","sourceToken":"0x3600000000000000000000000000000000000000","destinationToken":"0x036cbd53842c5426634e7929541ec2318f3dcf7e","sourceDepositor":"0x1111111111111111111111111111111111111111","destinationRecipient":"0x1111111111111111111111111111111111111111","sourceSigner":"0x1111111111111111111111111111111111111111","destinationCaller":"0x0000000000000000000000000000000000000000","value":"10000000","salt":"0xabababababababababababababababababababababababababababababababab","hookData":"0x"}}}]
+
+=== /estimate Arc_Testnet -> Arbitrum_Sepolia (5 USDC) [spec as object] -> HTTP 200 ===
+[{"burnIntent":{"maxBlockHeight":"65324520","maxFee":"3850","spec":{"version":1,"sourceDomain":26,"destinationDomain":3,"sourceContract":"0x0077777d7eba4688bdef3e311b846f25870a19b9","destinationContract":"0x0022222abe238cc2c7bb1f21003f0a260052475b","sourceToken":"0x3600000000000000000000000000000000000000","destinationToken":"0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d","sourceDepositor":"0x1111111111111111111111111111111111111111","destinationRecipient":"0x1111111111111111111111111111111111111111","sourceSigner":"0x1111111111111111111111111111111111111111","destinationCaller":"0x0000000000000000000000000000000000000000","value":"5000000","salt":"0xabababababababababababababababababababababababababababababababab","hookData":"0x"}}}]
+
+=== /estimate Arc_Testnet -> Polygon_Amoy (5 USDC) [spec as object] -> HTTP 200 ===
+[{"burnIntent":{"maxBlockHeight":"65324520","maxFee":"3850","spec":{"version":1,"sourceDomain":26,"destinationDomain":7,"sourceContract":"0x0077777d7eba4688bdef3e311b846f25870a19b9","destinationContract":"0x0022222abe238cc2c7bb1f21003f0a260052475b","sourceToken":"0x3600000000000000000000000000000000000000","destinationToken":"0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582","sourceDepositor":"0x1111111111111111111111111111111111111111","destinationRecipient":"0x1111111111111111111111111111111111111111","sourceSigner":"0x1111111111111111111111111111111111111111","destinationCaller":"0x0000000000000000000000000000000000000000","value":"5000000","salt":"0xabababababababababababababababababababababababababababababababab","hookData":"0x"}}}]
+
+=== /estimate Arc_Testnet -> Ethereum_Sepolia (5 USDC) [spec as object] -> HTTP 200 ===
+[{"burnIntent":{"maxBlockHeight":"65324520","maxFee":"3850","spec":{"version":1,"sourceDomain":26,"destinationDomain":0,"sourceContract":"0x0077777d7eba4688bdef3e311b846f25870a19b9","destinationContract":"0x0022222abe238cc2c7bb1f21003f0a260052475b","sourceToken":"0x3600000000000000000000000000000000000000","destinationToken":"0x1c7d4b196cb0c7b01d743fbc6116a902379c7238","sourceDepositor":"0x1111111111111111111111111111111111111111","destinationRecipient":"0x1111111111111111111111111111111111111111","sourceSigner":"0x1111111111111111111111111111111111111111","destinationCaller":"0x0000000000000000000000000000000000000000","value":"5000000","salt":"0xabababababababababababababababababababababababababababababababab","hookData":"0x"}}}]
+
+=== Project maxFee formula vs. Circle 0.005% + gas ===
+  1 USDC  ->  project=1.000000  circle≈0.050050
+  5 USDC  ->  project=1.000000  circle≈0.050250
+  10 USDC  ->  project=1.000000  circle≈0.050500
+  100 USDC  ->  project=1.000000  circle≈0.055000
+
+/balances reachable: true

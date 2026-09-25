@@ -1,0 +1,84 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.0 [39m[90mC:/arc-mini-app[39m
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2morchestrates end-to-end Gateway Fast Transfer with EIP-712 sign and destination minting
+[22m[39m[executeUcwGatewayTransfer] Requesting signTypedData challenge on ARC-TESTNET...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2morchestrates end-to-end Gateway Fast Transfer with EIP-712 sign and destination minting
+[22m[39m[executeUcwGatewayTransfer] Signature acquired successfully: 0xmock_eip712_si...
+[executeUcwGatewayTransfer] Submitting to Gateway API: https://gateway-api-testnet.circle.com/v1/transfer...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2morchestrates end-to-end Gateway Fast Transfer with EIP-712 sign and destination minting
+[22m[39m[executeUcwGatewayTransfer] Gateway API returned attestation & mintSignature.
+[executeUcwGatewayTransfer] Executing gatewayMint on BASE-SEPOLIA at minter: 0x0022222ABE238Cc2C7Bb1f21003F0a260052475B...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mrejects when user cancels or denies EIP-712 signature challenge
+[22m[39m[executeUcwGatewayTransfer] Requesting signTypedData challenge on ARC-TESTNET...
+
+ [32m✓[39m src/services/__tests__/gatewayUcwExecution.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mcheckUcwAllowanceSufficient[2m > [22m[2mreturns true when current allowance is greater than or equal to required amount
+[22m[39m[bridgeUcwService] Checked allowance on Base_Sepolia: current=100000000, required=50000000
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mcheckUcwAllowanceSufficient[2m > [22m[2mreturns false when current allowance is less than required amount
+[22m[39m[bridgeUcwService] Checked allowance on Base_Sepolia: current=20000000, required=50000000
+
+[90mstderr[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mcheckUcwAllowanceSufficient[2m > [22m[2mreturns false if reading allowance throws an error
+[22m[39m[bridgeUcwService] Failed to read on-chain allowance on Arc_Testnet, defaulting to false: Error: RPC Timeout
+    at C:/arc-mini-app/src/services/__tests__/bridgeUcwExecution.test.ts:81:70
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:1628:35
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:26
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3319:20
+    at new Promise (<anonymous>)
+    at runWithCancel [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3314:10[90m)[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3299:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3257:10[90m)[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3876:64
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Arc Testnet to Base Sepolia without re-approval
+[22m[39m[bridgeUcwService] Checked allowance on Arc_Testnet: current=500000000, required=25000000
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Arc Testnet to Base Sepolia without re-approval
+[22m[39m[bridgeUcwService] Existing allowance is sufficient on Arc_Testnet. Skipping approve step.
+[bridgeUcwService] Initiating UCW depositForBurn challenge on Arc_Testnet (ARC-TESTNET)...
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Arc Testnet to Base Sepolia without re-approval
+[22m[39m[bridgeUcwService] CCTP burn transaction successful: 0xarcburn1234567890abcdef
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] Checked allowance on Base_Sepolia: current=0, required=10000000
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] Allowance insufficient on Base_Sepolia. Initiating UCW approve challenge...
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] USDC approval authorized on Base_Sepolia: 0xapproveTx987654321
+
+[90mstderr[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[ResilientRpc] USDC spending approval receipt polling fallback check for 0xapproveTx987654321: TypeError: client.waitForTransactionReceipt is not a function
+    at resilientWaitForReceipt (C:/arc-mini-app/src/services/rpc/resilientRpcService.ts:558:34)
+    at executeUcwBridgeTransfer (C:/arc-mini-app/src/services/bridgeUcwService.ts:260:15)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at C:/arc-mini-app/src/services/__tests__/bridgeUcwExecution.test.ts:154:22
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20
+[ResilientRpc] getTransaction secondary check note: TypeError: client.getTransaction is not a function
+    at resilientWaitForReceipt (C:/arc-mini-app/src/services/rpc/resilientRpcService.ts:577:31)
+    at executeUcwBridgeTransfer (C:/arc-mini-app/src/services/bridgeUcwService.ts:260:15)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at C:/arc-mini-app/src/services/__tests__/bridgeUcwExecution.test.ts:154:22
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] On-chain receipt confirmed for approval on Base_Sepolia
+[bridgeUcwService] Initiating UCW depositForBurn challenge on Base_Sepolia (BASE-SEPOLIA)...
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] CCTP burn transaction successful: 0xbaseBurnTx123456
+
+ [32m✓[39m src/services/__tests__/bridgeUcwExecution.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 53[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[32m22 passed[39m[22m[90m (22)[39m
+[2m   Start at [22m 17:05:50
+[2m   Duration [22m 1.59s[2m (import 80%, transform 17%, tests 2%, worker 1%)[22m
+

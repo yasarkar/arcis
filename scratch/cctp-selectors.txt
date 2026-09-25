@@ -1,0 +1,22 @@
+depositForBurn(uint256,uint32,bytes32,address) selector: 0x6fd3504e
+depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32) selector: 0x8e0250ee
+
+=== app code: 4-arg depositForBurn ===
+  selector: 0x6fd3504e
+  result  : REVERT
+  error   : execution reverted
+  data    : (empty)
+
+=== CCTP V2: 7-arg depositForBurn ===
+  selector: 0x8e0250ee
+  result  : REVERT
+  error   : execution reverted: Mint recipient must be nonzero
+  data    : 0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001e4d696e7420726563697069656e74206d757374206265206e6f6e7a65726f0000
+  reason  : "Mint recipient must be nonzero"
+
+=== MessageTransmitterV2 receiveMessage(bytes,bytes) ===
+  selector: 0x57ecfd28
+  result  : REVERT
+  error   : execution reverted: Invalid attestation length
+  data    : 0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001a496e76616c6964206174746573746174696f6e206c656e677468000000000000
+  reason  : "Invalid attestation length"

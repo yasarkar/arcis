@@ -1,0 +1,395 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.0 [39m[90mC:/arc-mini-app[39m
+
+[90mstderr[2m | src/utils/__tests__/savedAuthEmails.test.ts[2m > [22m[2msavedAuthEmails utility[2m > [22m[2mgracefully handles corrupted JSON in localStorage
+[22m[39m[savedAuthEmails] Error reading from localStorage: SyntaxError: Unexpected token 'i', "invalid-json{{{" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at getSavedAuthEmails (C:/arc-mini-app/src/utils/savedAuthEmails.ts:18:25)
+    at C:/arc-mini-app/src/utils/__tests__/savedAuthEmails.test.ts:95:12
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:1628:35
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:26
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3319:20
+    at new Promise (<anonymous>)
+    at runWithCancel [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3314:10[90m)[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3299:20
+    at new Promise (<anonymous>)
+
+ [32m✓[39m src/utils/__tests__/savedAuthEmails.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/poolVolumeUtils.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/hooks/__tests__/useLiveTokenPrices.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 34[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/poolShare.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+[90mstdout[2m | src/utils/__tests__/logger.test.ts[2m > [22m[2mArcis logger shim & structured API[2m > [22m[2mdoes not throw when invoked (integration safety)
+[22m[39m[Arcis] safe info
+[Arcis] safe debug
+
+[90mstdout[2m | src/utils/__tests__/logger.test.ts[2m > [22m[2mArcis logger shim & structured API[2m > [22m[2mdegrades gracefully even if console.warn is temporarily missing (strict/sandbox env)
+[22m[39m[Arcis] resilient under missing console.warn
+
+ [32m✓[39m src/utils/__tests__/logger.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/poolEvents.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+[90mstderr[2m | src/services/rpc/__tests__/resilientRpcService.test.ts[2m > [22m[2mresilientRpcService Unit & Integration Tests[2m > [22m[2mResilient Multicall3[2m > [22m[2mretries on rate-limiting before resolving successfully
+[22m[39m[resilientRpc] multicall rate-limited by RPC node (attempt 1/3), retrying in 989ms...
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mcheckUcwAllowanceSufficient[2m > [22m[2mreturns true when current allowance is greater than or equal to required amount
+[22m[39m[bridgeUcwService] Checked allowance on Base_Sepolia: current=100000000, required=50000000
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mcheckUcwAllowanceSufficient[2m > [22m[2mreturns false when current allowance is less than required amount
+[22m[39m[bridgeUcwService] Checked allowance on Base_Sepolia: current=20000000, required=50000000
+
+[90mstderr[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mcheckUcwAllowanceSufficient[2m > [22m[2mreturns false if reading allowance throws an error
+[22m[39m[bridgeUcwService] Failed to read on-chain allowance on Arc_Testnet, defaulting to false: Error: RPC Timeout
+    at C:/arc-mini-app/src/services/__tests__/bridgeUcwExecution.test.ts:81:70
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:1628:35
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:26
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3319:20
+    at new Promise (<anonymous>)
+    at runWithCancel [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3314:10[90m)[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3299:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3257:10[90m)[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3876:64
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Arc Testnet to Base Sepolia without re-approval
+[22m[39m[bridgeUcwService] Checked allowance on Arc_Testnet: current=500000000, required=25000000
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Arc Testnet to Base Sepolia without re-approval
+[22m[39m[bridgeUcwService] Existing allowance is sufficient on Arc_Testnet. Skipping approve step.
+[bridgeUcwService] Initiating UCW depositForBurn challenge on Arc_Testnet (ARC-TESTNET)...
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Arc Testnet to Base Sepolia without re-approval
+[22m[39m[bridgeUcwService] CCTP burn transaction successful: 0xarcburn1234567890abcdef
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] Checked allowance on Base_Sepolia: current=0, required=10000000
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] Allowance insufficient on Base_Sepolia. Initiating UCW approve challenge...
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] USDC approval authorized on Base_Sepolia: 0xapproveTx987654321
+
+[90mstderr[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[ResilientRpc] USDC spending approval receipt polling fallback check for 0xapproveTx987654321: TypeError: client.waitForTransactionReceipt is not a function
+    at resilientWaitForReceipt (C:/arc-mini-app/src/services/rpc/resilientRpcService.ts:558:34)
+    at executeUcwBridgeTransfer (C:/arc-mini-app/src/services/bridgeUcwService.ts:260:15)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at C:/arc-mini-app/src/services/__tests__/bridgeUcwExecution.test.ts:154:22
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20
+[ResilientRpc] getTransaction secondary check note: TypeError: client.getTransaction is not a function
+    at resilientWaitForReceipt (C:/arc-mini-app/src/services/rpc/resilientRpcService.ts:577:31)
+    at executeUcwBridgeTransfer (C:/arc-mini-app/src/services/bridgeUcwService.ts:260:15)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at C:/arc-mini-app/src/services/__tests__/bridgeUcwExecution.test.ts:154:22
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] On-chain receipt confirmed for approval on Base_Sepolia
+[bridgeUcwService] Initiating UCW depositForBurn challenge on Base_Sepolia (BASE-SEPOLIA)...
+
+[90mstdout[2m | src/services/__tests__/bridgeUcwExecution.test.ts[2m > [22m[2mbridgeUcwService Multi-Chain CCTP V2 Tests[2m > [22m[2mexecuteUcwBridgeTransfer[2m > [22m[2msuccessfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge
+[22m[39m[bridgeUcwService] CCTP burn transaction successful: 0xbaseBurnTx123456
+
+ [32m✓[39m src/utils/__tests__/poolsAuditRemediation.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/bridgeUcwExecution.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 74[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/claimMath.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/poolApyIntegration.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/errorNormalizer.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2morchestrates end-to-end Gateway Fast Transfer with EIP-712 sign and destination minting
+[22m[39m[executeUcwGatewayTransfer] Requesting signTypedData challenge on ARC-TESTNET...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2morchestrates end-to-end Gateway Fast Transfer with EIP-712 sign and destination minting
+[22m[39m[executeUcwGatewayTransfer] Signature acquired successfully: 0xmock_eip712_si...
+[executeUcwGatewayTransfer] Submitting to Gateway API: https://gateway-api-testnet.circle.com/v1/transfer...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2morchestrates end-to-end Gateway Fast Transfer with EIP-712 sign and destination minting
+[22m[39m[executeUcwGatewayTransfer] Gateway API returned attestation & mintSignature.
+[executeUcwGatewayTransfer] Executing gatewayMint on BASE-SEPOLIA at minter: 0x0022222ABE238Cc2C7Bb1f21003F0a260052475B...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mrejects when user cancels or denies EIP-712 signature challenge
+[22m[39m[executeUcwGatewayTransfer] Requesting signTypedData challenge on ARC-TESTNET...
+
+ [32m✓[39m src/services/__tests__/gatewayUcwExecution.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+[90mstderr[2m | src/services/__tests__/swapUcwExecution.test.ts[2m > [22m[2mSwap UCW Execution Tests[2m > [22m[2mrejects cross-chain swap when using Circle UCW with a clear informative error
+[22m[39m[swapService] executeSwap failed: Error: Circle UCW cüzdanları şu anda yalnızca Arc Testnet içi takasları desteklemektedir. Cross-chain takas işlemleri için lütfen MetaMask veya Circle Modular Wallet (Passkey) bağlayın.
+    at Module.executeSwap (C:/arc-mini-app/src/services/swapService.ts:777:13)
+    at C:/arc-mini-app/src/services/__tests__/swapUcwExecution.test.ts:32:26
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:1628:35
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:26
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3319:20
+    at new Promise (<anonymous>)
+    at runWithCancel [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3314:10[90m)[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3299:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:3257:10[90m)[39m
+
+[90mstdout[2m | src/services/__tests__/swapUcwExecution.test.ts[2m > [22m[2mSwap UCW Execution Tests[2m > [22m[2mexecutes approval then swapWithFee via executeUcwContract when allowance is insufficient
+[22m[39m[swapService UCW] Insufficient allowance. Initiating approve challenge...
+
+[90mstdout[2m | src/services/__tests__/swapUcwExecution.test.ts[2m > [22m[2mSwap UCW Execution Tests[2m > [22m[2mexecutes approval then swapWithFee via executeUcwContract when allowance is insufficient
+[22m[39m[swapService UCW] Requesting swapWithFee challenge...
+
+[90mstdout[2m | src/services/__tests__/swapUcwExecution.test.ts[2m > [22m[2mSwap UCW Execution Tests[2m > [22m[2mskips approve challenge when on-chain allowance is already sufficient
+[22m[39m[swapService UCW] Requesting swapWithFee challenge...
+
+[90mstdout[2m | src/services/__tests__/swapUcwExecution.test.ts[2m > [22m[2mSwap UCW Execution Tests[2m > [22m[2mflags isCanceled when user cancels the UCW challenge
+[22m[39m[swapService UCW] Requesting swapWithFee challenge...
+
+[90mstderr[2m | src/services/__tests__/swapUcwExecution.test.ts[2m > [22m[2mSwap UCW Execution Tests[2m > [22m[2mflags isCanceled when user cancels the UCW challenge
+[22m[39m[swapService] executeSwap failed: Error: Challenge was canceled by user
+    at Module.executeSwap (C:/arc-mini-app/src/services/swapService.ts:606:28)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at C:/arc-mini-app/src/services/__tests__/swapUcwExecution.test.ts:135:20
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20 {
+  isCanceled: [33mtrue[39m
+}
+
+ [32m✓[39m src/services/__tests__/swapUcwExecution.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+[90mstderr[2m | src/services/__tests__/x402PaymentEngine.test.ts[2m > [22m[2mx402PaymentEngine & x402Client Unit Tests[2m > [22m[2mWallet Guard & Rejection Handling[2m > [22m[2mfails settlement and returns x402 challenge when no wallet or payment can be made
+[22m[39m[x402PaymentEngine] Ephemeral session key payment attempt notice: ContractFunctionExecutionError: The contract function "transfer" reverted with the following reason:
+ERC20: transfer amount exceeds balance
+
+Contract Call:
+  address:   0x3600000000000000000000000000000000000000
+  function:  transfer(address to, uint256 amount)
+  args:              (0x1111111111111111111111111111111111111111, 5000)
+  sender:    0x56C09a3193fA9B100abCBeBAE83193Dd894bAeCF
+
+Docs: https://viem.sh/docs/contract/writeContract
+Details: execution reverted: ERC20: transfer amount exceeds balance
+Version: viem@2.55.10
+    at getContractError [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getContractError.js:34:12[90m)[39m
+    at writeContract.internal [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/actions/wallet/writeContract.js:82:19[90m)[39m
+[90m    ... 3 lines matching cause stack trace ...[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20 {
+  cause: ContractFunctionRevertedError: The contract function "transfer" reverted with the following reason:
+  ERC20: transfer amount exceeds balance
+  
+  Details: execution reverted: ERC20: transfer amount exceeds balance
+  Version: viem@2.55.10
+      at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getContractError.js:22:20
+      at getContractError [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getContractError.js:33:7[90m)[39m
+      at writeContract.internal [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/actions/wallet/writeContract.js:82:19[90m)[39m
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+      at Module.settleX402Payment (C:/arc-mini-app/src/services/x402PaymentEngine.ts:259:20)
+      at C:/arc-mini-app/src/services/__tests__/x402PaymentEngine.test.ts:104:22
+      at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20 {
+    details: [32m'execution reverted: ERC20: transfer amount exceeds balance'[39m,
+    docsPath: [90mundefined[39m,
+    metaMessages: [90mundefined[39m,
+    shortMessage: [32m'The contract function "transfer" reverted with the following reason:\n'[39m +
+      [32m'ERC20: transfer amount exceeds balance'[39m,
+    version: [32m'2.55.10'[39m,
+    data: { abiItem: [36m[Object][39m, args: [36m[Array][39m, errorName: [32m'Error'[39m },
+    raw: [32m'0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002645524332303a207472616e7366657220616d6f756e7420657863656564732062616c616e63650000000000000000000000000000000000000000000000000000'[39m,
+    reason: [32m'ERC20: transfer amount exceeds balance'[39m,
+    signature: [90mundefined[39m,
+    [cause]: TransactionExecutionError: Execution reverted with reason: ERC20: transfer amount exceeds balance.
+    
+    Request Arguments:
+      from:  0x56C09a3193fA9B100abCBeBAE83193Dd894bAeCF
+      to:    0x3600000000000000000000000000000000000000
+      data:  0xa9059cbb00000000000000000000000011111111111111111111111111111111111111110000000000000000000000000000000000000000000000000000000000001388
+    
+    Details: execution reverted: ERC20: transfer amount exceeds balance
+    Version: viem@2.55.10
+        at getTransactionError [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getTransactionError.js:11:12[90m)[39m
+        at sendTransaction [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/actions/wallet/sendTransaction.js:224:15[90m)[39m
+    [90m    ... 4 lines matching cause stack trace ...[39m
+        at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20 {
+      cause: [36m[ExecutionRevertedError][39m,
+      details: [32m'execution reverted: ERC20: transfer amount exceeds balance'[39m,
+      docsPath: [90mundefined[39m,
+      metaMessages: [36m[Array][39m,
+      shortMessage: [32m'Execution reverted with reason: ERC20: transfer amount exceeds balance.'[39m,
+      version: [32m'2.55.10'[39m
+    }
+  },
+  details: [32m'execution reverted: ERC20: transfer amount exceeds balance'[39m,
+  docsPath: [32m'/docs/contract/writeContract'[39m,
+  metaMessages: [
+    [32m'Contract Call:'[39m,
+    [32m'  address:   0x3600000000000000000000000000000000000000\n'[39m +
+      [32m'  function:  transfer(address to, uint256 amount)\n'[39m +
+      [32m'  args:              (0x1111111111111111111111111111111111111111, 5000)\n'[39m +
+      [32m'  sender:    0x56C09a3193fA9B100abCBeBAE83193Dd894bAeCF'[39m
+  ],
+  shortMessage: [32m'The contract function "transfer" reverted with the following reason:\n'[39m +
+    [32m'ERC20: transfer amount exceeds balance'[39m,
+  version: [32m'2.55.10'[39m,
+  abi: [
+    {
+      type: [32m'function'[39m,
+      name: [32m'balanceOf'[39m,
+      stateMutability: [32m'view'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'allowance'[39m,
+      stateMutability: [32m'view'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'approve'[39m,
+      stateMutability: [32m'nonpayable'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'transfer'[39m,
+      stateMutability: [32m'nonpayable'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'transferFrom'[39m,
+      stateMutability: [32m'nonpayable'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    }
+  ],
+  args: [ [32m'0x1111111111111111111111111111111111111111'[39m, [33m5000n[39m ],
+  contractAddress: [32m'0x3600000000000000000000000000000000000000'[39m,
+  formattedArgs: [90mundefined[39m,
+  functionName: [32m'transfer'[39m,
+  sender: [32m'0x56C09a3193fA9B100abCBeBAE83193Dd894bAeCF'[39m
+}
+
+[90mstderr[2m | src/services/__tests__/x402PaymentEngine.test.ts[2m > [22m[2mx402PaymentEngine & x402Client Unit Tests[2m > [22m[2mexecuteX402Call End-to-End Orchestration[2m > [22m[2mrejects executeX402Call when settlement fails on-chain
+[22m[39m[x402PaymentEngine] Ephemeral session key payment attempt notice: ContractFunctionExecutionError: The contract function "transfer" reverted with the following reason:
+ERC20: transfer amount exceeds balance
+
+Contract Call:
+  address:   0x3600000000000000000000000000000000000000
+  function:  transfer(address to, uint256 amount)
+  args:              (0x1111111111111111111111111111111111111111, 5000)
+  sender:    0x350bD4248D2B0381123B21c09262FB209Ed29860
+
+Docs: https://viem.sh/docs/contract/writeContract
+Details: execution reverted: ERC20: transfer amount exceeds balance
+Version: viem@2.55.10
+    at getContractError [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getContractError.js:34:12[90m)[39m
+    at writeContract.internal [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/actions/wallet/writeContract.js:82:19[90m)[39m
+[90m    ... 4 lines matching cause stack trace ...[39m
+    at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20 {
+  cause: ContractFunctionRevertedError: The contract function "transfer" reverted with the following reason:
+  ERC20: transfer amount exceeds balance
+  
+  Details: execution reverted: ERC20: transfer amount exceeds balance
+  Version: viem@2.55.10
+      at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getContractError.js:22:20
+      at getContractError [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getContractError.js:33:7[90m)[39m
+      at writeContract.internal [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/actions/wallet/writeContract.js:82:19[90m)[39m
+  [90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+      at settleX402Payment (C:/arc-mini-app/src/services/x402PaymentEngine.ts:259:20)
+  [90m    ... 2 lines matching cause stack trace ...[39m
+      at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20 {
+    details: [32m'execution reverted: ERC20: transfer amount exceeds balance'[39m,
+    docsPath: [90mundefined[39m,
+    metaMessages: [90mundefined[39m,
+    shortMessage: [32m'The contract function "transfer" reverted with the following reason:\n'[39m +
+      [32m'ERC20: transfer amount exceeds balance'[39m,
+    version: [32m'2.55.10'[39m,
+    data: { abiItem: [36m[Object][39m, args: [36m[Array][39m, errorName: [32m'Error'[39m },
+    raw: [32m'0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002645524332303a207472616e7366657220616d6f756e7420657863656564732062616c616e63650000000000000000000000000000000000000000000000000000'[39m,
+    reason: [32m'ERC20: transfer amount exceeds balance'[39m,
+    signature: [90mundefined[39m,
+    [cause]: TransactionExecutionError: Execution reverted with reason: ERC20: transfer amount exceeds balance.
+    
+    Request Arguments:
+      from:  0x350bD4248D2B0381123B21c09262FB209Ed29860
+      to:    0x3600000000000000000000000000000000000000
+      data:  0xa9059cbb00000000000000000000000011111111111111111111111111111111111111110000000000000000000000000000000000000000000000000000000000001388
+    
+    Details: execution reverted: ERC20: transfer amount exceeds balance
+    Version: viem@2.55.10
+        at getTransactionError [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/utils/errors/getTransactionError.js:11:12[90m)[39m
+        at sendTransaction [90m(file:///C:/arc-mini-app/[39mnode_modules/[4mviem[24m/_esm/actions/wallet/sendTransaction.js:224:15[90m)[39m
+    [90m    ... 5 lines matching cause stack trace ...[39m
+        at [90mfile:///C:/arc-mini-app/[39mnode_modules/[4mvitest[24m/dist/chunks/run.CQOUYP-x.js:2783:20 {
+      cause: [36m[ExecutionRevertedError][39m,
+      details: [32m'execution reverted: ERC20: transfer amount exceeds balance'[39m,
+      docsPath: [90mundefined[39m,
+      metaMessages: [36m[Array][39m,
+      shortMessage: [32m'Execution reverted with reason: ERC20: transfer amount exceeds balance.'[39m,
+      version: [32m'2.55.10'[39m
+    }
+  },
+  details: [32m'execution reverted: ERC20: transfer amount exceeds balance'[39m,
+  docsPath: [32m'/docs/contract/writeContract'[39m,
+  metaMessages: [
+    [32m'Contract Call:'[39m,
+    [32m'  address:   0x3600000000000000000000000000000000000000\n'[39m +
+      [32m'  function:  transfer(address to, uint256 amount)\n'[39m +
+      [32m'  args:              (0x1111111111111111111111111111111111111111, 5000)\n'[39m +
+      [32m'  sender:    0x350bD4248D2B0381123B21c09262FB209Ed29860'[39m
+  ],
+  shortMessage: [32m'The contract function "transfer" reverted with the following reason:\n'[39m +
+    [32m'ERC20: transfer amount exceeds balance'[39m,
+  version: [32m'2.55.10'[39m,
+  abi: [
+    {
+      type: [32m'function'[39m,
+      name: [32m'balanceOf'[39m,
+      stateMutability: [32m'view'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'allowance'[39m,
+      stateMutability: [32m'view'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'approve'[39m,
+      stateMutability: [32m'nonpayable'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'transfer'[39m,
+      stateMutability: [32m'nonpayable'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    },
+    {
+      type: [32m'function'[39m,
+      name: [32m'transferFrom'[39m,
+      stateMutability: [32m'nonpayable'[39m,
+      inputs: [36m[Array][39m,
+      outputs: [36m[Array][39m
+    }
+  ],
+  args: [ [32m'0x1111111111111111111111111111111111111111'[39m, [33m5000n[39m ],
+  contractAddress: [32m'0x3600000000000000000000000000000000000000'[39m,
+  formattedArgs: [90mundefined[39m,
+  functionName: [32m'transfer'[39m,
+  sender: [32m'0x350bD4248D2B0381123B21c09262FB209Ed29860'[39m
+}
+
+ [32m✓[39m src/services/__tests__/x402PaymentEngine.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 299[2mms[22m[39m
+ [32m✓[39m src/services/rpc/__tests__/resilientRpcService.test.ts [2m([22m[2m12 tests[22m[2m)[22m[33m 1138[2mms[22m[39m
+   [32m✓[39m resilientRpcService Unit & Integration Tests [2m(12)[22m
+     [32m✓[39m Resilient Multicall3 [2m(3)[22m
+       [33m[2m✓[22m[39m retries on rate-limiting before resolving successfully[33m 991[2mms[22m[39m
+ [32m✓[39m src/services/__tests__/sendUcwExecution.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/poolMath.test.ts [2m([22m[2m13 tests[22m[2m)[22m[33m 3719[2mms[22m[39m
+   [32m✓[39m poolMath [2m(13)[22m
+     [32m✓[39m computeMinLpShares (Curve Invariant Slippage Guard) [2m(4)[22m
+       [33m[2m✓[22m[39m provides backwards-compatible alias usePoolsV2MinLpShares[33m 3707[2mms[22m[39m
+ [32m✓[39m src/utils/__tests__/poolCheckpoints.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m18 passed[39m[22m[90m (18)[39m
+[2m      Tests [22m [1m[32m149 passed[39m[22m[90m (149)[39m
+[2m   Start at [22m 17:07:07
+[2m   Duration [22m 4.21s[2m (import 69%, tests 18%, transform 12%)[22m
+

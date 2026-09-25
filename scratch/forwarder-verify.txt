@@ -1,0 +1,18 @@
+Ephemeral depositor: 0x3dC9881aFfCd495E8a39a2fa272565BC20b54Da8
+
+=== 1 USDC (Arc -> Base Sepolia, forwarder) ===
+  quoted maxFee : 56640 (0.056640 USDC)
+  app maxFee    : 59472 (0.059472 USDC)
+  /transfer     : HTTP 400 
+  body          : {"success":false,"message":"Insufficient balance for depositor 0x3dc9881affcd495e8a39a2fa272565bc20b54da8: available 0, required 1.05664"}
+
+=== 10 USDC (Arc -> Base Sepolia, forwarder) ===
+  quoted maxFee : 56640 (0.056640 USDC)
+  app maxFee    : 59472 (0.059472 USDC)
+  /transfer     : HTTP 400 
+  body          : {"success":false,"message":"Insufficient balance for depositor 0x3dc9881affcd495e8a39a2fa272565bc20b54da8: available 0, required 10.05664"}
+
+=== GET /transfer/<unknown id> -> HTTP 400 ===
+{"success":false,"message":"Transfer details are not available for transferId: 00000000-0000-0000-0000-000000000000"}
+
+RESULT: forwarding payload accepted by the Gateway API for both amounts: true

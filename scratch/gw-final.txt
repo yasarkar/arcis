@@ -1,0 +1,65 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.0 [39m[90mC:/arc-mini-app[39m
+
+[90mstderr[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mthrows error when Gateway unified balance is lower than required fee buffer
+[22m[39m[executeUcwGatewayTransfer] /estimate request failed; using fallback fee: TypeError: Cannot read properties of undefined (reading 'ok')
+    at estimateGatewayMaxFee (C:/arc-mini-app/src/services/gatewayUcwService.ts:115:19)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.executeUcwGatewayTransfer (C:/arc-mini-app/src/services/gatewayUcwService.ts:241:22)
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mthrows error when Gateway unified balance is lower than required fee buffer
+[22m[39m[executeUcwGatewayTransfer] Burn intent fee: maxFee=0.050500 USDC, maxBlockHeight=115792089237316195423570985008687907853269984665640564039457584007913129639935
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2muses the canonical maxFee from the Gateway /estimate endpoint in the signed burn intent
+[22m[39m[executeUcwGatewayTransfer] Burn intent fee: maxFee=0.003850 USDC, maxBlockHeight=65324520
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2muses the canonical maxFee from the Gateway /estimate endpoint in the signed burn intent
+[22m[39m[executeUcwGatewayTransfer] Requesting signTypedData challenge on ARC-TESTNET...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2muses the canonical maxFee from the Gateway /estimate endpoint in the signed burn intent
+[22m[39m[executeUcwGatewayTransfer] Signature acquired successfully: 0xmock_eip712_si...
+[executeUcwGatewayTransfer] Submitting to Gateway API: https://gateway-api-testnet.circle.com/v1/transfer...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2muses the canonical maxFee from the Gateway /estimate endpoint in the signed burn intent
+[22m[39m[executeUcwGatewayTransfer] Gateway API returned attestation & mintSignature.
+[executeUcwGatewayTransfer] Executing gatewayMint on BASE-SEPOLIA at minter: 0x0022222ABE238Cc2C7Bb1f21003F0a260052475B...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mnever silently reduces the amount: throws an actionable error when balance cannot cover value + estimated fee
+[22m[39m[executeUcwGatewayTransfer] Burn intent fee: maxFee=0.003850 USDC, maxBlockHeight=65324520
+
+[90mstderr[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mfalls back to the local fee formula (0.05 USDC gas + 0.005%) when /estimate is unavailable
+[22m[39m[executeUcwGatewayTransfer] /estimate returned HTTP 503; falling back to the local fee formula.
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mfalls back to the local fee formula (0.05 USDC gas + 0.005%) when /estimate is unavailable
+[22m[39m[executeUcwGatewayTransfer] Burn intent fee: maxFee=0.050500 USDC, maxBlockHeight=115792089237316195423570985008687907853269984665640564039457584007913129639935
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mfalls back to the local fee formula (0.05 USDC gas + 0.005%) when /estimate is unavailable
+[22m[39m[executeUcwGatewayTransfer] Requesting signTypedData challenge on ARC-TESTNET...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mfalls back to the local fee formula (0.05 USDC gas + 0.005%) when /estimate is unavailable
+[22m[39m[executeUcwGatewayTransfer] Signature acquired successfully: 0xmock_eip712_si...
+[executeUcwGatewayTransfer] Submitting to Gateway API: https://gateway-api-testnet.circle.com/v1/transfer...
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mfalls back to the local fee formula (0.05 USDC gas + 0.005%) when /estimate is unavailable
+[22m[39m[executeUcwGatewayTransfer] Gateway API returned attestation & mintSignature.
+[executeUcwGatewayTransfer] Executing gatewayMint on BASE-SEPOLIA at minter: 0x0022222ABE238Cc2C7Bb1f21003F0a260052475B...
+
+[90mstderr[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mrejects when user cancels or denies EIP-712 signature challenge
+[22m[39m[executeUcwGatewayTransfer] /estimate request failed; using fallback fee: TypeError: Cannot read properties of undefined (reading 'ok')
+    at estimateGatewayMaxFee (C:/arc-mini-app/src/services/gatewayUcwService.ts:115:19)
+[90m    at processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at Module.executeUcwGatewayTransfer (C:/arc-mini-app/src/services/gatewayUcwService.ts:241:22)
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mrejects when user cancels or denies EIP-712 signature challenge
+[22m[39m[executeUcwGatewayTransfer] Burn intent fee: maxFee=0.050250 USDC, maxBlockHeight=115792089237316195423570985008687907853269984665640564039457584007913129639935
+
+[90mstdout[2m | src/services/__tests__/gatewayUcwExecution.test.ts[2m > [22m[2mGateway UCW Execution & Multi-Chain Tests[2m > [22m[2mexecuteUcwGatewayTransfer[2m > [22m[2mrejects when user cancels or denies EIP-712 signature challenge
+[22m[39m[executeUcwGatewayTransfer] Requesting signTypedData challenge on ARC-TESTNET...
+
+ [32m✓[39m src/services/__tests__/gatewayUcwExecution.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 17:12:17
+[2m   Duration [22m 1.42s[2m (import 82%, transform 16%, tests 2%, worker 1%)[22m
+

@@ -1,0 +1,7 @@
+Ephemeral depositor (zero Gateway balance): 0xa172c8633155A2CacFFDD16199253A08FAb11b21
+
+=== /transfer [project formula] amount=10 maxFee=1.000000 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xa172c8633155a2cacffdd16199253a08fab11b21: available 0, required 10.0035"}
+
+=== /transfer [circle estimate fee] amount=10 maxFee=0.003850 -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0xa172c8633155a2cacffdd16199253a08fab11b21: available 0, required 10.0035"}

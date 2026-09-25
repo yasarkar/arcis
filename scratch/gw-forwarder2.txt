@@ -1,0 +1,33 @@
+Ephemeral depositor: 0x39b8a653b73147100627351C19bc754c6564A8a2
+
+=== /estimate?enableForwarder=true (1 USDC) -> HTTP 200  maxFee=56637 (0.056637 USDC) ===
+
+=== /estimate?enableForwarder=true (10 USDC) -> HTTP 200  maxFee=56637 (0.056637 USDC) ===
+
+=== /estimate?enableForwarder=false (10 USDC) -> HTTP 200  maxFee=3850 (0.003850 USDC) ===
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.056637) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 1.056637"}
+
+=== /transfer?enableForwarder=true (10 USDC, maxFee=0.056637) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 10.056637"}
+
+### Buffer probe (1 USDC, forwarding enabled) ###
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.060000) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 1.056637"}
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.070000) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 1.056637"}
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.100000) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 1.056637"}
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.250000) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 1.056637"}
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.300000) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 1.056637"}
+
+=== /transfer?enableForwarder=true (1 USDC, maxFee=0.400000) -> HTTP 400 ===
+{"success":false,"message":"Insufficient balance for depositor 0x39b8a653b73147100627351c19bc754c6564a8a2: available 0, required 1.056637"}
