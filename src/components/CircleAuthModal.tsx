@@ -474,15 +474,10 @@ export default function CircleAuthModal({
                       : 'rounded-xl'
                       }`}
                     style={{
-                      background: isDropdownOpen ? '#101426' : 'rgba(255, 255, 255, 0.04)',
+                      background: 'rgba(255, 255, 255, 0.04)',
                       borderWidth: '1px',
                       borderStyle: 'solid',
-                      borderColor: isDropdownOpen
-                        ? 'rgba(6, 182, 212, 0.6)'
-                        : isValidEmail(email)
-                          ? 'rgba(16, 185, 129, 0.6)'
-                          : 'rgba(255, 255, 255, 0.1)',
-                      borderBottom: isDropdownOpen ? '1px solid rgba(255, 255, 255, 0.08)' : undefined,
+                      borderColor: 'rgba(255, 255, 255, 0.1)',
                     }}
                   />
                   <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -511,11 +506,11 @@ export default function CircleAuthModal({
                           e.stopPropagation()
                           setShowSavedDropdown((prev) => !prev)
                         }}
-                        className="p-1 rounded-md text-slate-400 hover:text-cyan-400 transition cursor-pointer"
+                        className="p-1 rounded-md text-slate-400 hover:text-indigo-400 transition cursor-pointer"
                         title="Saved emails"
                       >
                         <ChevronDown
-                          className={`w-4 h-4 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-cyan-400' : ''
+                          className={`w-4 h-4 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180 text-indigo-400' : ''
                             }`}
                         />
                       </button>
@@ -528,10 +523,12 @@ export default function CircleAuthModal({
                       className="absolute left-0 right-0 top-full rounded-b-xl overflow-hidden z-50 transition-all duration-150 shadow-2xl animate-fade-in"
                       style={{
                         marginTop: '-1px', // Seamless connection to input bottom border
-                        background: '#101426',
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
                         backdropFilter: 'blur(20px)',
                         WebkitBackdropFilter: 'blur(20px)',
-                        border: '1px solid rgba(6, 182, 212, 0.6)',
                         borderTop: 'none',
                         boxShadow: '0 20px 40px -8px rgba(0, 0, 0, 0.9), 0 0 20px rgba(6, 182, 212, 0.15)',
                       }}

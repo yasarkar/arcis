@@ -234,7 +234,7 @@ export default function PortfolioDrawer({
           <div
             className="relative p-5 rounded-3xl overflow-hidden"
             style={{
-              background: 'linear-gradient(135deg, rgba(30, 41, 79, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%)',
+              background: 'linear-gradient(180deg, #0e1224 0%, #080a14 100%)',
               border: '1px solid rgba(99, 102, 241, 0.25)',
               boxShadow: '0 8px 32px -4px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
             }}
@@ -328,7 +328,7 @@ export default function PortfolioDrawer({
           {/* ── Search & Filter Controls ── */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
                 placeholder="Search Networks..."
@@ -394,12 +394,15 @@ export default function PortfolioDrawer({
                     <div className="p-3.5 flex items-center justify-between">
                       {/* Left: Chain Icon & Name */}
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="relative w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                          <NetworkIcon
-                            name={iconId}
-                            variant={iconId === 'solana' ? 'branded' : 'background'}
-                            size={24}
-                          />
+                        <div className="relative w-10 h-10 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform overflow-hidden shadow-inner">
+                          <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center shrink-0 shadow-sm">
+                            <NetworkIcon
+                              name={iconId}
+                              variant={iconId === 'solana' ? 'branded' : 'background'}
+                              size={36}
+                              className="rounded-full overflow-hidden"
+                            />
+                          </div>
                         </div>
 
                         <div className="min-w-0">
@@ -441,18 +444,18 @@ export default function PortfolioDrawer({
                         {/* USDC Token Row */}
                         <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
-                            <img src={UsdcIcon} alt="USDC" className="w-5 h-5 object-contain" />
+                            <img src={UsdcIcon} alt="USDC" className="w-8 h-8 object-contain" />
                             <div>
                               <div className="text-xs font-semibold text-slate-200">USDC</div>
-                              <div className="text-[9px] text-slate-400">USD Coin</div>
+                              <div className="text-[12px] text-slate-400">USD Coin</div>
                             </div>
                           </div>
 
                           <div className="text-right">
-                            <div className="font-mono text-xs font-bold text-white">
+                            <div className="font-mono text-s font-bold text-white">
                               {usdcAmount} USDC
                             </div>
-                            <div className="text-[9px] text-slate-400 font-mono">
+                            <div className="text-[12px] text-slate-400 font-mono">
                               ≈ ${parseFloat(usdcAmount || '0').toFixed(2)} USD
                             </div>
                           </div>
@@ -461,10 +464,10 @@ export default function PortfolioDrawer({
                         {/* EURC Token Row */}
                         <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
-                            <img src={EurcIcon} alt="EURC" className="w-5 h-5 object-contain" />
+                            <img src={EurcIcon} alt="EURC" className="w-8 h-8 object-contain" />
                             <div>
-                              <div className="text-xs font-semibold text-slate-200">EURC</div>
-                              <div className="text-[9px] text-slate-400">Circle Euro Coin</div>
+                              <div className="text-s font-semibold text-slate-200">EURC</div>
+                              <div className="text-[12px] text-slate-400">Circle Euro Coin</div>
                             </div>
                           </div>
 
@@ -474,12 +477,12 @@ export default function PortfolioDrawer({
                                 <div className="font-mono text-xs font-bold text-slate-200">
                                   {eurcAmount} EURC
                                 </div>
-                                <div className="text-[9px] text-slate-400 font-mono">
+                                <div className="text-[12px] text-slate-400 font-mono">
                                   ≈ ${(parseFloat(eurcAmount || '0') * (prices?.EURC || 1.08)).toFixed(2)} USD
                                 </div>
                               </>
                             ) : (
-                              <span className="text-[10px] text-slate-500 italic">
+                              <span className="text-[12px] text-slate-500 italic">
                                 Bu ağda tanımlı değil
                               </span>
                             )}
@@ -489,10 +492,10 @@ export default function PortfolioDrawer({
                         {/* cirBTC Token Row */}
                         <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
-                            <img src={CirBtcIcon} alt="cirBTC" className="w-5 h-5 object-contain" />
+                            <img src={CirBtcIcon} alt="cirBTC" className="w-8 h-8 object-contain" />
                             <div>
-                              <div className="text-xs font-semibold text-slate-200">cirBTC</div>
-                              <div className="text-[9px] text-slate-400">Circle Wrapped Bitcoin</div>
+                              <div className="text-s font-semibold text-slate-200">cirBTC</div>
+                              <div className="text-[12px] text-slate-400">Circle Wrapped Bitcoin</div>
                             </div>
                           </div>
 
@@ -502,12 +505,12 @@ export default function PortfolioDrawer({
                                 <div className="font-mono text-xs font-bold text-white">
                                   {cirbtcAmount} cirBTC
                                 </div>
-                                <div className="text-[9px] text-slate-400 font-mono">
+                                <div className="text-[12px] text-slate-400 font-mono">
                                   {formatFiatEstimate(cirbtcAmount, 'cirBTC', prices) || 'AMM Live Price'}
                                 </div>
                               </>
                             ) : (
-                              <span className="text-[10px] text-slate-500 italic">
+                              <span className="text-[12px] text-slate-500 italic">
                                 Bu ağda tanımlı değil
                               </span>
                             )}
@@ -526,9 +529,9 @@ export default function PortfolioDrawer({
                                 onClose()
                                 onNavigateToTab('swap')
                               }}
-                              className="px-2.5 py-1 rounded-lg text-[10px] font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-indigo-600/30 border border-white/[0.08] hover:border-indigo-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                              className="px-2.5 py-1 rounded-xl text-[12px] font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-indigo-600/30 border border-white/[0.08] hover:border-indigo-500/40 transition-all flex items-center gap-1 cursor-pointer"
                             >
-                              <ArrowRightLeft size={11} />
+                              <ArrowRightLeft size={12} />
                               <span>Swap</span>
                             </button>
                             <button
@@ -538,9 +541,9 @@ export default function PortfolioDrawer({
                                 onClose()
                                 onNavigateToTab('send')
                               }}
-                              className="px-2.5 py-1 rounded-lg text-[10px] font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-blue-600/30 border border-white/[0.08] hover:border-blue-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                              className="px-2.5 py-1 rounded-xl text-[12px] font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-blue-600/30 border border-white/[0.08] hover:border-blue-500/40 transition-all flex items-center gap-1 cursor-pointer"
                             >
-                              <ArrowUpRight size={11} />
+                              <ArrowUpRight size={12} />
                               <span>Send</span>
                             </button>
                           </>
