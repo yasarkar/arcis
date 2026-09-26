@@ -218,11 +218,10 @@ export async function loginPasskey(): Promise<{
                 category: 'PASSKEY_AUTH',
                 code: 'NO_STORED_PASSKEY',
                 title: 'No Registered Passkey Found',
-                message: 'No Passkey credentials have been registered on this device yet.',
+                message: 'No registered passkey on this device. Click "Create New Passkey" to register.',
                 isCanceled: false,
                 isRetryable: true,
                 isActionable: true,
-                actionHint: 'Please click "Create New Passkey", set a wallet name, and confirm biometric prompt.',
               },
             }
         }

@@ -78,6 +78,17 @@ describe('errorNormalizer', () => {
     expect(normalized.category).toBe('INSUFFICIENT_GAS')
     expect(normalized.title).toBe('Insufficient Native Gas (ETH)')
     expect(normalized.message).toContain('native gas tokens (ETH)')
-    expect(normalized.actionHint).toContain('fund your wallet with testnet ETH')
+    expect(normalized.message).toContain('fund your wallet with testnet ETH')
+  })
+
+  it('correctly normalizes Circle insufficient gas error on Arc Testnet to INSUFFICIENT_USDC_FOR_GAS', () => {
+    const circleGasErr = new Error('the asset amount owned by the wallet is insufficient for the transaction')
+
+    const normalized = normalizeAppError(circleGasErr, 'Arc_Testnet')
+    expect(normalized.code).toBe('INSUFFICIENT_USDC_FOR_GAS')
+    expect(normalized.category).toBe('INSUFFICIENT_GAS')
+    expect(normalized.title).toBe('Insufficient USDC for Gas')
+    expect(normalized.message).toContain('Insufficient USDC for Arc gas fees')
+    expect(normalized.message).not.toContain('ETH')
   })
 })

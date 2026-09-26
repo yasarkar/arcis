@@ -36,6 +36,8 @@ export interface SwapExecuteParams {
     abiParameters?: any[]
     callData?: string
     amount?: string
+    blockchain?: string
+    walletId?: string
   }) => Promise<{ success: boolean; txHash?: string; error?: string }>
 }
 

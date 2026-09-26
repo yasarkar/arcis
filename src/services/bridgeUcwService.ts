@@ -346,7 +346,8 @@ export async function executeUcwBridgeTransfer(
   onStepProgress?.('completed')
 
   const sourceExplorerUrl = getExplorerTxUrl(sourceChain, burnTxHash)
-  const destExplorerUrl = getExplorerTxUrl(destChain, burnTxHash)
+  // destExplorerUrl must remain undefined until the real mint transaction is confirmed on the destination chain
+  const destExplorerUrl = undefined
 
   return {
     burnTxHash,
@@ -357,6 +358,138 @@ export async function executeUcwBridgeTransfer(
     mintRecipient: trimmedRecipient,
     challengeId,
   }
+}
+
+export interface PollCctpDestinationParams {
+  sourceChain: string
+  destChain: string
+  burnTxHash: string
+  recipientAddress: string
+  amount?: string
+  maxAttempts?: number
+  intervalMs?: number
+}
+
+/**
+ * Polls Circle Iris API and the destination chain to resolve the real on-chain mint transaction hash.
+ * 1. Checks Circle Iris V2 messages endpoint for attestation completion.
+ * 2. Scans destination chain USDC Transfer(0x0, recipient, amount) events emitted upon CCTP mint.
+ */
+export async function pollCctpDestinationTx(
+  params: PollCctpDestinationParams
+): Promise<{ status: string; destTxHash?: string }> {
+  const {
+    sourceChain,
+    destChain,
+    burnTxHash,
+    recipientAddress,
+    amount,
+    maxAttempts = 40,
+    intervalMs = 3000,
+  } = params
+
+  if (!burnTxHash || !burnTxHash.startsWith('0x')) {
+    return { status: 'invalid_burn_hash' }
+  }
+
+  const sourceDomain = GATEWAY_DOMAINS[sourceChain]
+  const destUsdc = USDC_ADDRESSES[destChain]
+  if (sourceDomain === undefined || !destUsdc) {
+    return { status: 'unsupported_chain' }
+  }
+
+  const irisBase = IS_TESTNET
+    ? 'https://iris-api-sandbox.circle.com/v2/messages'
+    : 'https://iris-api.circle.com/v2/messages'
+
+  const cleanRecipient = (
+    recipientAddress.startsWith('0x') ? recipientAddress.toLowerCase() : `0x${recipientAddress.toLowerCase()}`
+  ) as Address
+
+  const amountUnits = amount ? parseUnits(amount, 6) : undefined
+
+  let destPublicClient: any = null
+  try {
+    destPublicClient = getResilientPublicClient(destChain)
+  } catch (err) {
+    console.warn(`[pollCctpDestinationTx] Could not initialize publicClient for ${destChain}:`, err)
+  }
+
+  // Record initial start block height on destination chain if available
+  let startBlock: bigint = 0n
+  if (destPublicClient) {
+    try {
+      const cur = await destPublicClient.getBlockNumber()
+      startBlock = cur > 100n ? cur - 100n : 0n
+    } catch {
+      // ignore
+    }
+  }
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Step A: Check Circle Iris API for message status
+      const irisUrl = `${irisBase}/${sourceDomain}?transactionHash=${burnTxHash}`
+      const irisRes = await fetch(irisUrl)
+      if (irisRes.ok) {
+        const data = await irisRes.json()
+        const msg = data?.messages?.[0]
+        if (msg) {
+          console.log(`[pollCctpDestinationTx] Iris status=${msg.status} (attempt ${attempt}/${maxAttempts})`)
+        }
+      }
+
+      // Step B: Query destination chain for USDC Transfer from zeroAddress to recipient (the mint event)
+      if (destPublicClient && destUsdc) {
+        try {
+          const latestBlock = await destPublicClient.getBlockNumber()
+          const fromBlock = startBlock > 0n ? startBlock : (latestBlock > 200n ? latestBlock - 200n : 0n)
+
+          const logs = await destPublicClient.getLogs({
+            address: destUsdc,
+            event: {
+              type: 'event',
+              name: 'Transfer',
+              inputs: [
+                { type: 'address', indexed: true, name: 'from' },
+                { type: 'address', indexed: true, name: 'to' },
+                { type: 'uint256', indexed: false, name: 'value' },
+              ],
+            },
+            args: {
+              from: '0x0000000000000000000000000000000000000000' as Address,
+              to: cleanRecipient,
+            },
+            fromBlock,
+            toBlock: latestBlock,
+          })
+
+          if (logs && logs.length > 0) {
+            let matchingLog = logs[logs.length - 1]
+            if (amountUnits) {
+              const exact = logs.find((l: any) => l.args?.value === amountUnits)
+              if (exact) matchingLog = exact
+            }
+            if (matchingLog && matchingLog.transactionHash) {
+              console.log(
+                `[pollCctpDestinationTx] Found confirmed destination mint tx on ${destChain}:`,
+                matchingLog.transactionHash
+              )
+              return { status: 'confirmed', destTxHash: matchingLog.transactionHash }
+            }
+          }
+        } catch (logErr) {
+          console.warn(`[pollCctpDestinationTx] Log query notice on attempt ${attempt}:`, logErr)
+        }
+      }
+    } catch (err) {
+      console.warn(`[pollCctpDestinationTx] Attempt ${attempt} failed:`, err)
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+
+  return { status: 'pending' }
 }
 
 /**

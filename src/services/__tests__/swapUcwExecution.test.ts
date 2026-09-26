@@ -80,12 +80,14 @@ describe('Swap UCW Execution Tests', () => {
     expect(mockExecuteUcw).toHaveBeenNthCalledWith(1, expect.objectContaining({
       contractAddress: POOL_CONTRACTS.USDC,
       abiFunctionSignature: 'approve(address,uint256)',
+      blockchain: 'ARC-TESTNET',
     }))
 
     // Check swap challenge call
     expect(mockExecuteUcw).toHaveBeenNthCalledWith(2, expect.objectContaining({
       contractAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
       abiFunctionSignature: 'swapWithFee(address,address,address,uint256,uint256,address,uint256)',
+      blockchain: 'ARC-TESTNET',
     }))
   })
 
@@ -118,6 +120,7 @@ describe('Swap UCW Execution Tests', () => {
     expect(mockExecuteUcw).toHaveBeenCalledWith(expect.objectContaining({
       contractAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
       abiFunctionSignature: 'swapWithFee(address,address,address,uint256,uint256,address,uint256)',
+      blockchain: 'ARC-TESTNET',
     }))
   })
 

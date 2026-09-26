@@ -550,11 +550,12 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
 
         // 2. Request ERC-20 approval via Circle UCW challenge if allowance is insufficient
         if (requiresApprove) {
-          console.log('[swapService UCW] Insufficient allowance. Initiating approve challenge...')
+          console.log('[swapService UCW] Insufficient allowance. Initiating approve challenge on ARC-TESTNET...')
           const approveRes = await params.executeUcwContract({
             contractAddress: arcRoute.tokenInAddr,
             abiFunctionSignature: 'approve(address,uint256)',
             abiParameters: [routerAddress, maxUint256.toString()],
+            blockchain: 'ARC-TESTNET',
           })
 
           if (!approveRes.success) {
@@ -583,7 +584,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         const treasuryRecipient = (params.customFee?.recipientAddress || zeroAddress) as Address
         const feeBps = BigInt(params.customFee?.percentageBps || 0)
 
-        console.log('[swapService UCW] Requesting swapWithFee challenge...')
+        console.log('[swapService UCW] Requesting swapWithFee challenge on ARC-TESTNET...')
         const swapRes = await params.executeUcwContract({
           contractAddress: routerAddress,
           abiFunctionSignature: 'swapWithFee(address,address,address,uint256,uint256,address,uint256)',
@@ -596,6 +597,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             treasuryRecipient,
             feeBps.toString(),
           ],
+          blockchain: 'ARC-TESTNET',
         })
 
         if (!swapRes.success) {
