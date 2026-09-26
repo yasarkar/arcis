@@ -1178,6 +1178,8 @@ export function usePoolsData(
 
   // ── Helper: get a writable wallet client from the provider ────────────────
   const getWalletClient = useCallback(async (): Promise<WalletClient | null> => {
+    // If authenticated via Circle UCW or Passkey MSCA, do not bind to injected window.ethereum
+    if (authSource === 'ucw' || authSource === 'passkey') return null
     const activeProvider = provider || (typeof window !== 'undefined' ? (window as any).ethereum : null)
     if (!activeProvider) return null
     try {
@@ -1193,7 +1195,7 @@ export function usePoolsData(
       console.warn('[usePoolsData] wallet client setup failed:', err)
       return null
     }
-  }, [provider])
+  }, [provider, authSource])
 
   const requireDeployed = useCallback((address: string, poolName: string) => {
     if (!isDeployed(address)) {
@@ -1204,7 +1206,7 @@ export function usePoolsData(
   // ── Approve helper (ERC-20 USDC / EURC) ──────────────────────────────────
   const approveToken = useCallback(
     async (tokenAddress: `0x${string}`, spender: `0x${string}`, amount: bigint) => {
-      const targetAccount = (walletAddress || (await (await getWalletClient())?.getAddresses())?.[0]) as Address
+      const targetAccount = (walletAddress || (authSource !== 'ucw' && authSource !== 'passkey' ? (await (await getWalletClient())?.getAddresses())?.[0] : undefined)) as Address
       if (!targetAccount) throw new Error('Wallet not connected')
 
       // 0. Check on-chain allowance first using multi-RPC resilient reader
@@ -1243,6 +1245,30 @@ export function usePoolsData(
         return opRes.txHash
       }
 
+      // Circle UCW Execution (Email OTP / User-Controlled Wallet)
+      if (authSource === 'ucw' && executeUcwContract) {
+        console.log('[usePoolsData UCW] Requesting token approval challenge on ARC-TESTNET...')
+        const approveRes = await executeUcwContract({
+          contractAddress: tokenAddress,
+          abiFunctionSignature: 'approve(address,uint256)',
+          abiParameters: [spender, amount.toString()],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!approveRes.success) {
+          const isCanceled =
+            approveRes.error?.toLowerCase().includes('cancel') ||
+            approveRes.error?.toLowerCase().includes('iptal') ||
+            approveRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(approveRes.error || 'Token allowance authorization failed.')
+          if (isCanceled) (err as any).isCanceled = true
+          throw err
+        }
+        if (approveRes.txHash && approveRes.txHash.startsWith('0x')) {
+          await waitForReceiptSafe(approveRes.txHash as Hex, 'Approve token')
+        }
+        return approveRes.txHash
+      }
+
       const walletClient = await getWalletClient()
       if (!walletClient) throw new Error('Wallet not connected')
 
@@ -1258,7 +1284,7 @@ export function usePoolsData(
       await waitForReceiptSafe(txHash, 'Approve token')
       return txHash
     },
-    [getWalletClient, publicClient, waitForReceiptSafe, walletAddress]
+    [getWalletClient, publicClient, waitForReceiptSafe, walletAddress, authSource, executeUcwContract]
   )
 
   // ── Invalidate Redis & React Query Caches Helper ────────────────────────
@@ -1376,16 +1402,8 @@ export function usePoolsData(
 
       // 2. Circle UCW Execution (Email OTP / User-Controlled Wallet)
       if (authSource === 'ucw' && executeUcwContract) {
-        console.log('[usePoolsData UCW] Requesting USDC allowance challenge for Yield Vault...')
-        const approveRes = await executeUcwContract({
-          contractAddress: POOL_CONTRACTS.USDC,
-          abiFunctionSignature: 'approve(address,uint256)',
-          abiParameters: [POOL_CONTRACTS.YIELD_VAULT, amount.toString()],
-          blockchain: 'ARC-TESTNET',
-        })
-        if (!approveRes.success) {
-          throw new Error(approveRes.error || 'USDC allowance authorization failed.')
-        }
+        console.log('[usePoolsData UCW] Checking/requesting USDC allowance for Yield Vault...')
+        await approveToken(POOL_CONTRACTS.USDC, POOL_CONTRACTS.YIELD_VAULT, amount)
 
         console.log('[usePoolsData UCW] Requesting deposit challenge for Yield Vault...')
         const depositRes = await executeUcwContract({
@@ -1395,10 +1413,19 @@ export function usePoolsData(
           blockchain: 'ARC-TESTNET',
         })
         if (!depositRes.success) {
-          throw new Error(depositRes.error || 'Yield vault deposit authorization failed.')
+          const isCanceled =
+            depositRes.error?.toLowerCase().includes('cancel') ||
+            depositRes.error?.toLowerCase().includes('iptal') ||
+            depositRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(depositRes.error || 'Yield vault deposit authorization failed.')
+          if (isCanceled) (err as any).isCanceled = true
+          throw err
         }
 
         const txHash = depositRes.txHash || ''
+        if (txHash && txHash.startsWith('0x')) {
+          await waitForReceiptSafe(txHash as Hex, 'Yield Vault Deposit')
+        }
         applyYieldVaultOptimisticDeposit()
         recordClientSwapVolume('usdc-yield-vault', depositAmt, txHash)
         await invalidatePoolCaches()
@@ -1427,7 +1454,7 @@ export function usePoolsData(
       await invalidatePoolCaches()
       return { txHash }
     },
-    [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, provider, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, userPoolPositions]
+    [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, provider, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, userPoolPositions, authSource, executeUcwContract]
   )
 
   // ── 1-Click Zap: swap half USDC→counter, then add dual liquidity ──────────
@@ -1671,7 +1698,173 @@ export function usePoolsData(
         return { txHash: addRes.txHash, lpMinted, poolShare }
       }
 
-      // 2. EOA Provider
+      // 2. Circle UCW Execution (Email OTP / User-Controlled Wallet)
+      if (authSource === 'ucw' && executeUcwContract) {
+        console.log('[usePoolsData UCW] Executing Zap In on ARC-TESTNET...')
+
+        await approveToken(POOL_CONTRACTS.USDC, poolAddress, usdcAmount)
+
+        const counterBalBefore = (await resilientReadContract(publicClient, {
+          address: counterTokenAddress,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [targetAccount],
+        })) as bigint
+
+        console.log('[usePoolsData UCW] Requesting swap challenge for Zap...')
+        const swapRes = await executeUcwContract({
+          contractAddress: poolAddress,
+          abiFunctionSignature: 'swap(address,address,uint256,uint256)',
+          abiParameters: [POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc.toString(), minOut.toString()],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!swapRes.success) {
+          const isCanceled =
+            swapRes.error?.toLowerCase().includes('cancel') ||
+            swapRes.error?.toLowerCase().includes('iptal') ||
+            swapRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(swapRes.error || 'Zap swap authorization failed.')
+          if (isCanceled) (err as any).isCanceled = true
+          throw err
+        }
+
+        if (swapRes.txHash && swapRes.txHash.startsWith('0x')) {
+          await waitForReceiptSafe(swapRes.txHash as Hex, 'Zap swap')
+        }
+
+        const counterBalAfter = (await resilientReadContract(publicClient, {
+          address: counterTokenAddress,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [targetAccount],
+        })) as bigint
+
+        const actualCounterAmount = counterBalAfter > counterBalBefore ? counterBalAfter - counterBalBefore : 0n
+        if (actualCounterAmount === 0n) {
+          throw new Error('Failed to receive counter token from AMM swap output.')
+        }
+
+        // Fetch fresh on-chain reserves directly from pool to ensure exact post-swap slippage math
+        let freshPoolState = onchainPoolState
+        try {
+          const [freshReserveA, freshReserveB, freshTotalLp] = await Promise.all([
+            resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }).catch(() => 0n),
+            resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }).catch(() => 0n),
+            resilientReadContract(publicClient, { address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }).catch(() => 0n),
+          ])
+          if ((freshTotalLp as bigint) > 0n) {
+            freshPoolState = {
+              ...(onchainPoolState || {}),
+              [poolAddress]: {
+                ...(onchainPoolState?.[poolAddress] || {}),
+                reserveA: formatUnits(freshReserveA as bigint, 6),
+                reserveB: formatUnits(freshReserveB as bigint, counterDecimals),
+                totalLp: formatUnits(freshTotalLp as bigint, 18),
+              },
+            }
+          }
+        } catch (freshErr) {
+          console.warn('[zapIn UCW] Note: using cached reserves for minLpShares:', freshErr)
+        }
+
+        await approveToken(POOL_CONTRACTS.USDC, poolAddress, poolRemainingUsdc)
+        await approveToken(counterTokenAddress, poolAddress, actualCounterAmount)
+
+        const minLpShares = computeMinLpShares(
+          pool,
+          poolAddress,
+          freshPoolState,
+          poolRemainingUsdc,
+          actualCounterAmount,
+          counterDecimals,
+          slippageTolerance
+        )
+
+        console.log('[usePoolsData UCW] Requesting addLiquidity challenge for Zap...')
+        const addRes = await executeUcwContract({
+          contractAddress: poolAddress,
+          abiFunctionSignature: 'addLiquidity(uint256,uint256,uint256)',
+          abiParameters: [poolRemainingUsdc.toString(), actualCounterAmount.toString(), minLpShares.toString()],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!addRes.success) {
+          const isCanceled =
+            addRes.error?.toLowerCase().includes('cancel') ||
+            addRes.error?.toLowerCase().includes('iptal') ||
+            addRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(addRes.error || 'Zap addLiquidity authorization failed.')
+          if (isCanceled) (err as any).isCanceled = true
+          throw err
+        }
+
+        const txHash = (addRes.txHash || '') as Hex
+        let lpMintedRaw = 0n
+        if (txHash && txHash.startsWith('0x')) {
+          const addReceipt = await waitForReceiptSafe(txHash, 'Zap addLiquidity')
+          if (addReceipt?.logs) {
+            for (const log of addReceipt.logs) {
+              try {
+                const decoded = decodeEventLog({
+                  abi: STABLE_SWAP_ABI,
+                  eventName: 'LiquidityAdded',
+                  data: log.data,
+                  topics: log.topics,
+                })
+                if (decoded?.args && (decoded.args as any).lpMinted) {
+                  lpMintedRaw = (decoded.args as any).lpMinted as bigint
+                  break
+                }
+              } catch {}
+            }
+          }
+        }
+
+        const lpMinted = lpMintedRaw > 0n ? formatUnits(lpMintedRaw, 18) : formatUnits(minLpShares, 18)
+        const inputVal = parseFloat(inputAmountStr) || 0
+        const st = onchainPoolState?.[poolAddress]
+        const prevTotalLp = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
+        const totalLpAfter = prevTotalLp + lpMintedRaw
+        const poolShare = calculatePoolShare(lpMintedRaw, totalLpAfter)
+        recordClientSwapVolume(pool.id, inputVal / 2)
+
+        if (inputVal > 0) {
+          queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
+            if (!old) return old
+            const oldUsdc = parseFloat(old.usdc || '0')
+            return { ...old, usdc: Math.max(0, oldUsdc - inputVal).toFixed(2) }
+          })
+          queryClient.setQueryData<Record<string, UserPoolPosition>>(
+            ['userPoolPositions', targetAccount],
+            (old) => {
+              if (!old) return old
+              const curr = old[pool.id]
+              const oldStaked = curr?.stakedUsd || 0
+              const newStaked = oldStaked + inputVal
+              return {
+                ...old,
+                [pool.id]: {
+                  ...(curr || {
+                    poolId: pool.id,
+                    earnedRewards: '0.00',
+                    earnedUsd: 0,
+                    poolSharePct: poolShare,
+                    lastUpdatedTimestamp: Date.now(),
+                  }),
+                  stakedAmount: newStaked.toFixed(2),
+                  stakedUsd: newStaked,
+                  lpTokenBalance: newStaked.toFixed(2),
+                  poolSharePct: poolShare,
+                },
+              }
+            }
+          )
+        }
+
+        await invalidatePoolCaches()
+        return { txHash, lpMinted, poolShare }
+      }
+
+      // 3. EOA Provider
       const walletClient = await getWalletClient()
       if (!walletClient) throw new Error('Wallet not connected')
 
@@ -1831,7 +2024,7 @@ export function usePoolsData(
       await invalidatePoolCaches()
       return { txHash, lpMinted, poolShare }
     },
-    [getWalletClient, approveToken, publicClient, requireDeployed, invalidatePoolCaches, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, waitForReceiptSafe, poolsWithUserStats]
+    [getWalletClient, approveToken, publicClient, requireDeployed, invalidatePoolCaches, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, waitForReceiptSafe, poolsWithUserStats, authSource, executeUcwContract]
   )
 
   // ── Dual-asset deposit (USDC + counter token) ─────────────────────────────
@@ -1994,7 +2187,102 @@ export function usePoolsData(
         return { txHash: opRes.txHash, lpMinted, poolShare }
       }
 
-      // 2. EOA Provider
+      // 2. Circle UCW Execution (Email OTP / User-Controlled Wallet)
+      if (authSource === 'ucw' && executeUcwContract) {
+        console.log('[usePoolsData UCW] Providing dual liquidity on ARC-TESTNET...')
+
+        // Check allowance & approve Token A (USDC)
+        await approveToken(POOL_CONTRACTS.USDC, poolAddress, amountA)
+
+        // Check allowance & approve Token B (EURC, cirBTC, etc.)
+        await approveToken(counterTokenAddress, poolAddress, amountB)
+
+        console.log('[usePoolsData UCW] Requesting addLiquidity challenge on ARC-TESTNET...')
+        const addLiqRes = await executeUcwContract({
+          contractAddress: poolAddress,
+          abiFunctionSignature: 'addLiquidity(uint256,uint256,uint256)',
+          abiParameters: [amountA.toString(), amountB.toString(), minLpShares.toString()],
+          blockchain: 'ARC-TESTNET',
+        })
+
+        if (!addLiqRes.success) {
+          const isCanceled =
+            addLiqRes.error?.toLowerCase().includes('cancel') ||
+            addLiqRes.error?.toLowerCase().includes('iptal') ||
+            addLiqRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(addLiqRes.error || 'Dual liquidity authorization failed.')
+          if (isCanceled) (err as any).isCanceled = true
+          throw err
+        }
+
+        const txHash = (addLiqRes.txHash || '') as Hex
+        let lpMintedRaw = 0n
+        if (txHash && txHash.startsWith('0x')) {
+          const receipt = await waitForReceiptSafe(txHash, 'Add dual liquidity')
+          if (receipt?.logs) {
+            for (const log of receipt.logs) {
+              try {
+                const decoded = decodeEventLog({
+                  abi: STABLE_SWAP_ABI,
+                  eventName: 'LiquidityAdded',
+                  data: log.data,
+                  topics: log.topics,
+                })
+                if (decoded?.args && (decoded.args as any).lpMinted) {
+                  lpMintedRaw = (decoded.args as any).lpMinted as bigint
+                  break
+                }
+              } catch {}
+            }
+          }
+        }
+
+        const lpMinted = lpMintedRaw > 0n ? formatUnits(lpMintedRaw, 18) : formatUnits(minLpShares, 18)
+        const st = onchainPoolState?.[poolAddress]
+        const prevTotalLp = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
+        const totalLpAfter = prevTotalLp + lpMintedRaw
+        const poolShare = calculatePoolShare(lpMintedRaw, totalLpAfter)
+
+        const decA = parseFloat(amountAStr) || 0
+        if (totalUsdAdded > 0) {
+          queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
+            if (!old) return old
+            const oldUsdc = parseFloat(old.usdc || '0')
+            return { ...old, usdc: Math.max(0, oldUsdc - decA).toFixed(2) }
+          })
+          queryClient.setQueryData<Record<string, UserPoolPosition>>(
+            ['userPoolPositions', targetAccount],
+            (old) => {
+              if (!old) return old
+              const curr = old[pool.id]
+              const oldStaked = curr?.stakedUsd || 0
+              const newStaked = oldStaked + totalUsdAdded
+              return {
+                ...old,
+                [pool.id]: {
+                  ...(curr || {
+                    poolId: pool.id,
+                    earnedRewards: '0.00',
+                    earnedUsd: 0,
+                    poolSharePct: poolShare,
+                    lastUpdatedTimestamp: Date.now(),
+                  }),
+                  stakedAmount: newStaked.toFixed(2),
+                  stakedUsd: newStaked,
+                  lpTokenBalance: newStaked.toFixed(2),
+                  poolSharePct: poolShare,
+                },
+              }
+            }
+          )
+          recordClientSwapVolume(pool.id, parseFloat((totalUsdAdded * 0.15).toFixed(2)), txHash)
+        }
+
+        await invalidatePoolCaches()
+        return { txHash, lpMinted, poolShare }
+      }
+
+      // 3. EOA Provider
       const walletClient = await getWalletClient()
       if (!walletClient) throw new Error('Wallet not connected')
 
@@ -2075,7 +2363,7 @@ export function usePoolsData(
       await invalidatePoolCaches()
       return { txHash, lpMinted, poolShare }
     },
-    [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, poolsWithUserStats]
+    [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, poolsWithUserStats, authSource, executeUcwContract]
   )
 
   // ── Pool Swap (USDC ↔ EURC via StableSwapPool or USDC ↔ cirBTC via ConstantProductPool) ──
@@ -2184,7 +2472,60 @@ export function usePoolsData(
         return { txHash: opRes.txHash, amountOut: actualAmountOutStr }
       }
 
-      // EOA Provider
+      // 2. Circle UCW Execution (Email OTP / User-Controlled Wallet)
+      if (authSource === 'ucw' && executeUcwContract) {
+        console.log('[usePoolsData UCW] Requesting token approval for pool swap on ARC-TESTNET...')
+        await approveToken(tokenInAddr as `0x${string}`, poolAddress, amountIn)
+
+        console.log('[usePoolsData UCW] Requesting swap challenge on pool...')
+        const swapRes = await executeUcwContract({
+          contractAddress: poolAddress,
+          abiFunctionSignature: 'swap(address,address,uint256,uint256)',
+          abiParameters: [tokenInAddr, tokenOutAddr, amountIn.toString(), minOut.toString()],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!swapRes.success) {
+          const isCanceled =
+            swapRes.error?.toLowerCase().includes('cancel') ||
+            swapRes.error?.toLowerCase().includes('iptal') ||
+            swapRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(swapRes.error || 'Pool swap authorization failed.')
+          if (isCanceled) (err as any).isCanceled = true
+          throw err
+        }
+
+        const txHash = (swapRes.txHash || '') as Hex
+        let actualAmountOutStr = minOutStr || '0'
+        if (txHash && txHash.startsWith('0x')) {
+          const receipt = await waitForReceiptSafe(txHash, 'Pool swap')
+          if (receipt?.logs) {
+            for (const log of receipt.logs) {
+              try {
+                const decoded = decodeEventLog({
+                  abi: STABLE_SWAP_ABI,
+                  eventName: 'Swapped',
+                  data: log.data,
+                  topics: log.topics,
+                })
+                if (decoded?.args && (decoded.args as any).amountOut !== undefined) {
+                  actualAmountOutStr = formatUnits((decoded.args as any).amountOut as bigint, outDecimals)
+                  break
+                }
+              } catch {}
+            }
+          }
+        }
+
+        if (swapVolUsd > 0) {
+          recordClientSwapVolume(poolId, swapVolUsd, txHash)
+        }
+        if (!skipCacheInvalidation) {
+          await invalidatePoolCaches()
+        }
+        return { txHash, amountOut: actualAmountOutStr }
+      }
+
+      // 3. EOA Provider
       const walletClient = await getWalletClient()
       if (!walletClient) throw new Error('Wallet not connected')
 
@@ -2229,7 +2570,7 @@ export function usePoolsData(
       }
       return { txHash, amountOut: actualAmountOutStr }
     },
-    [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, walletAddress, liveBtcPrice, liveEurcPrice]
+    [getWalletClient, approveToken, publicClient, waitForReceiptSafe, requireDeployed, invalidatePoolCaches, walletAddress, liveBtcPrice, liveEurcPrice, authSource, executeUcwContract]
   )
 
   // ── Withdraw (vault redeem OR LP removeLiquidity) ─────────────────────────
@@ -2498,6 +2839,32 @@ export function usePoolsData(
         txHash = opRes.txHash
         await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')
         applyLpOptimisticWithdraw()
+      } else if (authSource === 'ucw' && executeUcwContract) {
+        console.log('[usePoolsData UCW] Requesting removeLiquidity challenge on pool...')
+        const removeRes = await executeUcwContract({
+          contractAddress: poolAddress,
+          abiFunctionSignature: 'removeLiquidity(uint256,uint256,uint256)',
+          abiParameters: [
+            removeLiquidityArgs[0].toString(),
+            removeLiquidityArgs[1].toString(),
+            removeLiquidityArgs[2].toString(),
+          ],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!removeRes.success) {
+          const isCanceled =
+            removeRes.error?.toLowerCase().includes('cancel') ||
+            removeRes.error?.toLowerCase().includes('iptal') ||
+            removeRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(removeRes.error || 'Remove liquidity authorization failed.')
+          if (isCanceled) (err as any).isCanceled = true
+          throw err
+        }
+        txHash = removeRes.txHash || ''
+        if (txHash && txHash.startsWith('0x')) {
+          await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')
+        }
+        applyLpOptimisticWithdraw()
       } else {
         const walletClient = await getWalletClient()
         if (!walletClient) throw new Error('Wallet not connected')
@@ -2603,7 +2970,7 @@ export function usePoolsData(
         counterAmount: autoSwapCounterAmount 
       }
     },
-    [getWalletClient, publicClient, requireDeployed, invalidatePoolCaches, userPoolPositions, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, waitForReceiptSafe, swapInPool]
+    [getWalletClient, publicClient, requireDeployed, invalidatePoolCaches, userPoolPositions, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, waitForReceiptSafe, swapInPool, authSource, executeUcwContract]
   )
 
   // ── Auto-Accrued Yield Claim Management ───────────────────────────────────

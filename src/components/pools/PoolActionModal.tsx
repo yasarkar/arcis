@@ -835,7 +835,6 @@ export default function PoolActionModal({
                 padding: 8,
                 borderRadius: '50%',
               }}
-              title="Close Modal"
             >
               <X size={16} />
             </button>
@@ -1484,7 +1483,6 @@ export default function PoolActionModal({
                     type="button"
                     onClick={handleFlipSwapDirection}
                     className="w-8 h-8 rounded-full bg-[#1e2238] hover:bg-[#282d4a] border border-white/10 flex items-center justify-center text-slate-300 hover:text-white transition-all shadow-md active:scale-95 cursor-pointer"
-                    title="Switch Swap Direction"
                   >
                     <ArrowUpDown size={14} />
                   </button>

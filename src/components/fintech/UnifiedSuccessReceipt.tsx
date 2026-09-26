@@ -7,10 +7,11 @@ import {
   ArrowUpRightFromSquare,
   Copy,
   Check,
+  Loader2,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import { getChainIconId, getChainDisplayName } from '../../config/chainMeta'
-import { getExplorerTxUrl, getExplorerName } from '../../config/sendConfig'
+import { getExplorerTxUrl, getExplorerAddressUrl, getExplorerName } from '../../config/sendConfig'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
@@ -137,6 +138,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 }) => {
   const [copiedRecipient, setCopiedRecipient] = useState(false)
 
+  const [copiedTxKey, setCopiedTxKey] = useState<string | null>(null)
   const handleCopyRecipient = () => {
     if (recipient) {
       navigator.clipboard.writeText(recipient)
@@ -145,7 +147,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
     }
   }
 
+  const handleCopyTx = (hash: string, key: string) => {
+    if (hash) {
+      navigator.clipboard.writeText(hash)
+      setCopiedTxKey(key)
+      setTimeout(() => setCopiedTxKey(null), 2000)
+    }
+  }
+
   // Network resolution
+  const isGatewayBridge = type === 'bridge' && mode === 'gateway'
   const effectiveSourceChain = sourceChain || network || 'Arc_Testnet'
   const effectiveDestChain = destChain || (isCrossChain ? destChain : undefined)
 
@@ -166,20 +177,25 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
   const isMultiChain = Boolean(type === 'bridge' || (type === 'swap' && isCrossChain && toChainDisplayName))
 
-  // Explorers
-  const primaryTxHash = txHash || sourceTxHash
-  const secondaryTxHash = destTxHash || (type === 'bridge' && txHash !== sourceTxHash ? txHash : undefined)
+  // Explorers:
+  // For Gateway bridge: On-chain transaction is the mint on the destination chain!
+  // For Direct CCTP: Primary is the burn on source chain, secondary is mint on dest chain.
+  const primaryTxHash = isGatewayBridge ? (txHash || sourceTxHash) : (sourceTxHash || txHash)
+  const secondaryTxHash = isGatewayBridge ? undefined : destTxHash
 
   const sourceExplorerName = getExplorerName(effectiveSourceChain)
   const effectiveSourceExplorerUrl =
     sourceExplorerUrl ||
-    explorerUrl ||
-    (primaryTxHash ? getExplorerTxUrl(effectiveSourceChain, primaryTxHash) : '#')
+    (!isGatewayBridge ? explorerUrl : undefined) ||
+    (primaryTxHash && !isGatewayBridge ? getExplorerTxUrl(effectiveSourceChain, primaryTxHash) : '#')
 
   const destExplorerName = effectiveDestChain ? getExplorerName(effectiveDestChain) : null
   const effectiveDestExplorerUrl =
     destExplorerUrl ||
-    (effectiveDestChain && secondaryTxHash ? getExplorerTxUrl(effectiveDestChain, secondaryTxHash) : '#')
+    (isGatewayBridge ? explorerUrl : undefined) ||
+    (effectiveDestChain && (isGatewayBridge ? primaryTxHash : secondaryTxHash)
+      ? getExplorerTxUrl(effectiveDestChain, (isGatewayBridge ? primaryTxHash : secondaryTxHash)!)
+      : '#')
 
   // Auto Titles and Subtitles
   const defaultTitle =
@@ -187,20 +203,20 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
     (type === 'send'
       ? 'Transfer Finalized!'
       : type === 'swap'
-      ? 'Swap Finalized!'
-      : 'Bridge Finalized!')
+        ? 'Swap Finalized!'
+        : 'Bridge Finalized!')
 
   const defaultSubtitle =
     subtitle ||
     (type === 'send'
       ? 'Transaction successfully broadcasted and confirmed onchain'
       : type === 'swap'
-      ? isCrossChain
-        ? 'Cross-chain transfer initiated via Circle CCTP'
-        : 'Transaction successfully settled onchain'
-      : mode === 'gateway'
-      ? `USDC instantly minted on ${toChainDisplayName || 'destination chain'} via Circle Gateway`
-      : `USDC cross-chain delivery finalized on ${toChainDisplayName || 'destination chain'} via Circle CCTP`)
+        ? isCrossChain
+          ? 'Cross-chain transfer initiated via Circle CCTP'
+          : 'Transaction successfully settled onchain'
+        : mode === 'gateway'
+          ? `USDC instantly minted on ${toChainDisplayName || 'destination chain'} via Circle Gateway`
+          : `USDC cross-chain delivery finalized on ${toChainDisplayName || 'destination chain'} via Circle CCTP`)
 
   // Method string
   const effectiveMethod =
@@ -210,10 +226,10 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
         ? 'Cross-Chain CCTP Swap'
         : 'Arc L1 Direct Swap'
       : type === 'bridge'
-      ? mode === 'direct'
-        ? 'Direct CCTP Bridge'
-        : 'Circle Gateway Fast Transfer'
-      : 'Arc L1 Direct Transfer')
+        ? mode === 'direct'
+          ? 'Direct CCTP Bridge'
+          : 'Circle Gateway Fast Transfer'
+        : 'Arc L1 Direct Transfer')
 
   // Icons resolution
   const resolvedTokenIcon = tokenIcon || DEFAULT_TOKEN_ICONS[tokenSymbol]
@@ -291,7 +307,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                       className="w-4 h-4 object-contain rounded-full"
                     />
                   )}
-                  <span className="font-semibold text-sm text-indigo-300 tabular-nums">
+                  <span className="font-semibold text-sm text-white tabular-nums">
                     {amountOut} {tokenOut}
                   </span>
                 </div>
@@ -321,7 +337,14 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-slate-400">Net Received</div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-base text-indigo-300 tabular-nums">
+                    {resolvedTokenIcon && (
+                      <img
+                        src={resolvedTokenIcon}
+                        alt={tokenSymbol}
+                        className="w-5 h-5 object-contain rounded-full"
+                      />
+                    )}
+                    <span className="font-semibold text-base text-white tabular-nums">
                       {netReceived} {tokenSymbol}
                     </span>
                   </div>
@@ -361,7 +384,6 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                       type="button"
                       onClick={handleCopyRecipient}
                       className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-                      title="Copy Recipient Address"
                     >
                       {copiedRecipient ? (
                         <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -438,7 +460,6 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                   type="button"
                   onClick={handleCopyRecipient}
                   className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-                  title="Copy Recipient Address"
                 >
                   {copiedRecipient ? (
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -489,42 +510,95 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             </div>
           )}
 
-          {/* Primary Transaction Hash Link */}
-          {primaryTxHash && (
+          {/* Gateway Bridge: Single Destination Mint Transaction */}
+          {/* Gateway Bridge: Single Destination Mint Transaction */}
+          {isGatewayBridge ? (
             <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
-              <span>{isMultiChain ? 'Source Transaction:' : 'Transaction:'}</span>
-              <a
-                href={effectiveSourceExplorerUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer"
-                title={`View transaction on ${sourceExplorerName}`}
-              >
-                <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
-                  View on {sourceExplorerName}
-                </span>
-                <ArrowUpRightFromSquare className="w-3 h-3 text-indigo-400 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-              </a>
+              <span>Transaction:</span>
+              {primaryTxHash && primaryTxHash.startsWith('0x') ? (
+                <div className="flex items-center gap-1.5">
+                  <a
+                    href={effectiveDestExplorerUrl !== '#' ? effectiveDestExplorerUrl : getExplorerTxUrl(effectiveDestChain || 'Base_Sepolia', primaryTxHash)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
+                  >
+                    <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
+                      {destExplorerName}
+                    </span>
+                    <ArrowUpRightFromSquare className="w-3 h-3 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                  </a>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                    <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                    Pending...
+                  </span>
+                </div>
+              )}
             </div>
-          )}
+          ) : (
+            <>
+              {/* Primary Transaction Hash Link (Source / Single Chain) */}
+              {primaryTxHash && primaryTxHash.startsWith('0x') ? (
+                <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+                  <span>{isMultiChain ? 'Source Transaction:' : 'Transaction:'}</span>
+                  <div className="flex items-center gap-1.5">
+                    <a
+                      href={effectiveSourceExplorerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
+                    >
+                      <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
+                        {sourceExplorerName}
+                      </span>
+                      <ArrowUpRightFromSquare className="w-3 h-3 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                    </a>
+                  </div>
+                </div>
+              ) : type === 'bridge' ? (
+                <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+                  <span>Source Transaction:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                      <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                      Pending...
+                    </span>
+                  </div>
+                </div>
+              ) : null}
 
-          {/* Secondary / Destination Transaction Hash Link */}
-          {secondaryTxHash && isMultiChain && destExplorerName && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
-              <span>Destination Transaction:</span>
-              <a
-                href={effectiveDestExplorerUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer"
-                title={`View destination transaction on ${destExplorerName}`}
-              >
-                <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
-                  View on {destExplorerName}
-                </span>
-                <ArrowUpRightFromSquare className="w-3 h-3 text-indigo-400 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-              </a>
-            </div>
+              {/* Secondary / Destination Transaction Hash Link */}
+              {isMultiChain && destExplorerName && (
+                <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+                  <span>Destination Transaction:</span>
+                  {secondaryTxHash && secondaryTxHash.startsWith('0x') ? (
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={effectiveDestExplorerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
+                      >
+                        <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
+                          {destExplorerName}
+                        </span>
+                        <ArrowUpRightFromSquare className="w-3 h-3 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                        <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                        Pending...
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

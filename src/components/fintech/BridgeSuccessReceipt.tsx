@@ -14,8 +14,10 @@ export interface BridgeSuccessReceiptProps {
   mode: 'direct' | 'gateway'
   txHash?: string
   sourceTxHash?: string
+  destTxHash?: string
   explorerUrl?: string
   sourceExplorerUrl?: string
+  destExplorerUrl?: string
   fee?: string
   netReceived?: string
   onBridgeAgain: () => void
@@ -35,8 +37,10 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
   mode,
   txHash,
   sourceTxHash,
+  destTxHash,
   explorerUrl,
   sourceExplorerUrl,
+  destExplorerUrl,
   fee,
   netReceived,
   onBridgeAgain,
@@ -59,8 +63,10 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
       mode={mode}
       txHash={txHash}
       sourceTxHash={sourceTxHash}
+      destTxHash={destTxHash}
       explorerUrl={explorerUrl}
       sourceExplorerUrl={sourceExplorerUrl}
+      destExplorerUrl={destExplorerUrl}
       fee={fee}
       netReceived={netReceived}
       onActionAgain={onBridgeAgain}

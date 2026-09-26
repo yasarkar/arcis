@@ -8,6 +8,8 @@ export interface ChainItem {
   chain: string
   name: string
   balance?: string
+  disabled?: boolean
+  disabledReason?: string
 }
 
 interface ChainSelectorModalProps {
@@ -116,22 +118,27 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
             filteredChains.map((c) => {
               const iconId = getChainIconId(c.chain)
               const isSelected = selectedChain === c.chain
+              const isDisabled = !!c.disabled
+
               return (
                 <button
                   key={c.chain}
                   type="button"
+                  disabled={isDisabled}
                   onClick={() => {
+                    if (isDisabled) return
                     onSelectChain(c.chain)
                     onClose()
                   }}
-                  className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all flex items-center justify-between cursor-pointer ${
-                    isSelected
-                      ? 'bg-indigo-500/15 border border-indigo-500/30 text-white'
-                      : 'hover:bg-white/[0.05] border border-transparent text-slate-300 hover:text-white'
-                  }`}
+                  className={`w-full text-left px-3.5 py-2.5 rounded-xl transition-all flex items-center justify-between ${isDisabled
+                      ? 'opacity-35 cursor-not-allowed border border-transparent text-slate-500 hover:bg-transparent select-none'
+                      : isSelected
+                        ? 'bg-indigo-500/15 border border-indigo-500/30 text-white cursor-pointer'
+                        : 'hover:bg-white/[0.05] border border-transparent text-slate-300 hover:text-white cursor-pointer'
+                    }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                    <div className={`w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0 ${isDisabled ? 'grayscale opacity-50' : ''}`}>
                       <NetworkIcon
                         name={iconId}
                         variant={iconId === 'solana' ? 'branded' : 'background'}
@@ -139,16 +146,36 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
                         className="rounded-full overflow-hidden"
                       />
                     </div>
-                    <span className="font-semibold text-xs text-white truncate">
+                    <span className={`font-semibold text-xs truncate ${isDisabled ? 'text-slate-400' : 'text-white'}`}>
                       {c.name}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    {c.balance !== undefined && (
-                      <span className="text-xs font-mono font-medium text-slate-400">
-                        {c.balance} USDC
+                    {isDisabled ? (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontFamily: 'var(--font-app)',
+                          color: 'rgba(255, 255, 255, 0.75)',
+                          background: 'rgba(255, 255, 255, 0.1)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          padding: '2px 8px',
+                          borderRadius: 99,
+                          fontWeight: 500,
+                          letterSpacing: '0.2px',
+                        }}>
+                          {c.disabledReason}
                       </span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {c.balance !== undefined && (
+                          <span className={`text-xs font-mono font-medium ${isSelected ? 'text-indigo-300' : 'text-slate-400'}`}>
+                            {c.balance} USDC
+                          </span>
+                        )}
+                        {isSelected && <Check className="w-4 h-4 text-indigo-400" />}
+                      </div>
                     )}
                   </div>
                 </button>

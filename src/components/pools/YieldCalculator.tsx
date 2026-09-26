@@ -123,7 +123,6 @@ export default function YieldCalculator({
             borderRadius: '50%',
             zIndex: 10,
           }}
-          title="Close Simulator"
         >
           <X size={16} />
         </button>
@@ -329,7 +328,6 @@ export default function YieldCalculator({
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                     }}
-                    title={p.name}
                   >
                     {shortName}
                   </div>
