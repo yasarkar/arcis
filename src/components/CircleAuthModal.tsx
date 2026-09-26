@@ -121,9 +121,9 @@ export default function CircleAuthModal({
 
   useEffect(() => {
     if (authPhase === 'creating_wallet') {
-      setStatusMessage({ text: 'Verification successful! Initializing wallet... Please complete the security prompt.', isSuccess: false })
+      setStatusMessage({ text: 'Doğrulama başarılı! Circle cüzdanı hazırlanıyor, lütfen bekleyin...', isSuccess: false })
     } else if (authPhase === 'success') {
-      setStatusMessage({ text: 'Wallet connected successfully!', isSuccess: true })
+      setStatusMessage({ text: 'Cüzdan başarıyla bağlandı!', isSuccess: true })
     }
   }, [authPhase])
 
@@ -257,8 +257,8 @@ export default function CircleAuthModal({
       const updated = saveAuthEmail(email)
       setSavedEmails(updated)
       setShowSavedDropdown(false)
-      // Circle launches its own native verification prompt, so close this modal cleanly
-      onClose()
+      // Keep modal open with prompt to enter code in Circle's window; auto-close will trigger upon wallet connection
+      if (setOtpStep) setOtpStep('verify')
     } else {
       setStatusMessage({ text: res.error || 'Failed to send OTP code.', isError: true })
     }
@@ -266,22 +266,6 @@ export default function CircleAuthModal({
 
   const handleSelectSavedEmail = (selectedEmail: string) => {
     setEmail(selectedEmail)
-    setShowSavedDropdown(false)
-  }
-
-  const handleRemoveSavedEmail = (e: React.MouseEvent, emailToRemove: string) => {
-    e.stopPropagation()
-    const updated = removeSavedAuthEmail(emailToRemove)
-    setSavedEmails(updated)
-    if (updated.length === 0) {
-      setShowSavedDropdown(false)
-    }
-  }
-
-  const handleClearAllSavedEmails = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    clearAllSavedAuthEmails()
-    setSavedEmails([])
     setShowSavedDropdown(false)
   }
 

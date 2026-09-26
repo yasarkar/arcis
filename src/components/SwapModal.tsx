@@ -71,6 +71,8 @@ interface SwapModalProps {
     abiParameters?: any[]
     callData?: string
     amount?: string
+    blockchain?: string
+    walletId?: string
   }) => Promise<{ success: boolean; txHash?: string; error?: string }>
   onSuccess: (amountIn: string, amountOut: string, tokenIn: string, tokenOut: string, txHash: string) => void
   addToast?: (title: string, description: string, type: 'info' | 'success' | 'warning' | 'error' | 'pending', txHash?: string, network?: string) => string
@@ -244,7 +246,7 @@ export default function SwapModal({
       const formattedOthers = otherChains.map((c) => ({
         ...c,
         disabled: true,
-        disabledReason: 'Arc Only',
+        disabledReason: 'EVM Req.',
       }))
       return [...formattedArc, ...formattedOthers]
     }
@@ -626,7 +628,7 @@ export default function SwapModal({
       }
     } catch (err: any) {
       console.error('[SwapModal] Execution error:', err)
-      const normalized = normalizeAppError(err)
+      const normalized = normalizeAppError(err, fromChain)
       setError(normalized.message)
       setIsSwapping(false)
 

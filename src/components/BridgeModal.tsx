@@ -17,8 +17,12 @@ import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import { transferFromGateway, estimateGatewayTransfer, ensureChain } from '../services/gatewayService'
 import { executeBridge, estimateBridgeCost } from '../services/bridgeService'
-import { executeUcwBridgeTransfer } from '../services/bridgeUcwService'
-import { executeUcwGatewayTransfer, mapChainKeyToCircleBlockchain } from '../services/gatewayUcwService'
+import { executeUcwBridgeTransfer, pollCctpDestinationTx } from '../services/bridgeUcwService'
+import {
+  executeUcwGatewayTransfer,
+  pollForwardedGatewayTransfer,
+  mapChainKeyToCircleBlockchain,
+} from '../services/gatewayUcwService'
 import { createViemAdapter } from '../services/sendService'
 import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
 import { normalizeAppError } from '../utils/errorNormalizer'
@@ -411,6 +415,7 @@ export default function BridgeModal({
       let destExplorerUrl: string | undefined = undefined
       let sourceExplorerUrl: string | undefined = undefined
       let ucwChallengeId: string | undefined = undefined
+      let gatewayTransferId: string | undefined = undefined
 
       if (authSource === 'ucw') {
         if (bridgeMode === 'gateway') {
@@ -466,6 +471,7 @@ export default function BridgeModal({
           })
 
           mintTxHash = gatewayUcwResult.mintTxHash || ''
+          gatewayTransferId = gatewayUcwResult.transferId
           burnTxHash = ''
           sourceExplorerUrl = undefined
           destExplorerUrl = gatewayUcwResult.destExplorerUrl
@@ -499,9 +505,9 @@ export default function BridgeModal({
           })
 
           burnTxHash = ucwResult.burnTxHash
-          mintTxHash = ucwResult.burnTxHash
+          mintTxHash = '' // Destination tx will be resolved asynchronously on the destination chain
           sourceExplorerUrl = ucwResult.sourceExplorerUrl
-          destExplorerUrl = ucwResult.destExplorerUrl
+          destExplorerUrl = undefined
           ucwChallengeId = ucwResult.challengeId
         }
       } else if (bridgeMode === 'direct') {
@@ -624,13 +630,15 @@ export default function BridgeModal({
           ? sourceChain
           : destChain
 
+      const hasRealDestTx = Boolean(mintTxHash && mintTxHash.startsWith('0x'))
+
       setSuccessReceipt({
-        txHash: isGateway ? mintTxHash : (mintTxHash || burnTxHash),
+        txHash: isGateway ? (hasRealDestTx ? mintTxHash : undefined) : burnTxHash,
         sourceTxHash: isGateway ? undefined : burnTxHash,
-        destTxHash: mintTxHash,
+        destTxHash: hasRealDestTx ? mintTxHash : undefined,
         explorerUrl: primaryExplorerUrl,
         sourceExplorerUrl: isGateway ? undefined : sourceExplorerUrl,
-        destExplorerUrl: destExplorerUrl || explorerUrl,
+        destExplorerUrl: hasRealDestTx ? (destExplorerUrl || explorerUrl) : undefined,
         amount,
         sourceChain,
         destChain,
@@ -643,7 +651,7 @@ export default function BridgeModal({
         type: 'bridge',
         title: 'Bridge Completed Successfully',
         status: 'success',
-        badgeText: 'Confirmed',
+        badgeText: hasRealDestTx ? 'Confirmed' : 'Pending',
         details: {
           amount,
           tokenSymbol: 'USDC',
@@ -654,10 +662,10 @@ export default function BridgeModal({
           network: broadcastNetwork,
           txHash: primaryTxHash,
           sourceTxHash: isGateway ? undefined : burnTxHash,
-          destTxHash: mintTxHash,
+          destTxHash: hasRealDestTx ? mintTxHash : undefined,
           explorerUrl: primaryExplorerUrl,
           sourceExplorerUrl: isGateway ? undefined : sourceExplorerUrl,
-          destExplorerUrl: destExplorerUrl || explorerUrl,
+          destExplorerUrl: hasRealDestTx ? (destExplorerUrl || explorerUrl) : undefined,
         },
       })
 
@@ -679,73 +687,75 @@ export default function BridgeModal({
 
       onSuccess(amount, mintTxHash)
 
-      // Background Polling for Asynchronous On-Chain Indexing (Circle UCW Relayer)
-      if (authSource === 'ucw' && (!mintTxHash || !mintTxHash.startsWith('0x'))) {
-        const uToken = localStorage.getItem('arc_ucw_user_token')
-        const wId = localStorage.getItem('arc_ucw_wallet_id')
-        if (uToken) {
-          ;(async () => {
-            const targetChainForTx = isGateway ? destChain : sourceChain
-            const circleBlockchain = mapChainKeyToCircleBlockchain(targetChainForTx)
-            for (let i = 0; i < 15; i++) {
-              await new Promise((r) => setTimeout(r, 2000))
-              try {
-                const pollRes = await fetch('/api/ucw?action=getLatestTransaction', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    userToken: uToken,
-                    walletId: wId,
-                    challengeId: ucwChallengeId,
-                    blockchain: circleBlockchain,
-                  }),
-                })
-                const pollData = await pollRes.json()
-                if (pollData.success && pollData.txHash && pollData.txHash.startsWith('0x')) {
-                  const resolvedTxHash = pollData.txHash
-                  const resolvedExplorerUrl = getExplorerTxUrl(targetChainForTx, resolvedTxHash)
+      // Background Resolution for Real Destination On-Chain Transaction
+      if (authSource === 'ucw' && !hasRealDestTx) {
+        ;(async () => {
+          try {
+            let resolvedDestTx: string | undefined = undefined
 
-                  // Update Success Receipt Modal state in real-time
-                  setSuccessReceipt((prev: any) =>
-                    prev
-                      ? {
-                          ...prev,
-                          txHash: resolvedTxHash,
-                          destTxHash: isGateway ? resolvedTxHash : prev.destTxHash,
-                          sourceTxHash: !isGateway ? resolvedTxHash : prev.sourceTxHash,
-                          explorerUrl: resolvedExplorerUrl,
-                          destExplorerUrl: isGateway ? resolvedExplorerUrl : prev.destExplorerUrl,
-                          sourceExplorerUrl: !isGateway ? resolvedExplorerUrl : prev.sourceExplorerUrl,
-                        }
-                      : prev
-                  )
-
-                  // Update Floating Broadcast Notification in real-time
-                  updateBroadcast(broadcastId, {
-                    details: {
-                      amount,
-                      tokenSymbol: 'USDC',
-                      tokenIcon: UsdcIcon,
-                      sourceChain,
-                      destChain,
-                      bridgeMode,
-                      network: broadcastNetwork,
-                      txHash: resolvedTxHash,
-                      destTxHash: isGateway ? resolvedTxHash : undefined,
-                      sourceTxHash: !isGateway ? resolvedTxHash : undefined,
-                      explorerUrl: resolvedExplorerUrl,
-                      destExplorerUrl: isGateway ? resolvedExplorerUrl : undefined,
-                      sourceExplorerUrl: !isGateway ? resolvedExplorerUrl : undefined,
-                    },
-                  })
-                  break
-                }
-              } catch (e) {
-                console.warn('[BridgeModal] Background tx polling error:', e)
+            if (isGateway && gatewayTransferId) {
+              console.log('[BridgeModal] Polling Circle Gateway Forwarding for real destination tx:', gatewayTransferId)
+              const forwarded = await pollForwardedGatewayTransfer(gatewayTransferId, { maxAttempts: 30, intervalMs: 2500 })
+              if (forwarded.txHash && forwarded.txHash.startsWith('0x')) {
+                resolvedDestTx = forwarded.txHash
+              }
+            } else if (!isGateway && burnTxHash && burnTxHash.startsWith('0x')) {
+              console.log('[BridgeModal] Polling Circle CCTP destination mint for real destination tx:', burnTxHash)
+              const cctpDest = await pollCctpDestinationTx({
+                sourceChain,
+                destChain,
+                burnTxHash,
+                recipientAddress: targetRecipient,
+                amount,
+                maxAttempts: 40,
+                intervalMs: 3000,
+              })
+              if (cctpDest.destTxHash && cctpDest.destTxHash.startsWith('0x')) {
+                resolvedDestTx = cctpDest.destTxHash
               }
             }
-          })()
-        }
+
+            if (resolvedDestTx) {
+              console.log('[BridgeModal] Real destination tx confirmed on-chain:', resolvedDestTx)
+              const resolvedExplorerUrl = getExplorerTxUrl(destChain, resolvedDestTx)
+
+              // Update Success Receipt Modal state in real-time
+              setSuccessReceipt((prev: any) =>
+                prev
+                  ? {
+                      ...prev,
+                      txHash: isGateway ? resolvedDestTx : prev.txHash,
+                      destTxHash: resolvedDestTx,
+                      explorerUrl: isGateway ? resolvedExplorerUrl : prev.explorerUrl,
+                      destExplorerUrl: resolvedExplorerUrl,
+                    }
+                  : prev
+              )
+
+              // Update Floating Broadcast Notification in real-time
+              updateBroadcast(broadcastId, {
+                badgeText: 'Confirmed',
+                details: {
+                  amount,
+                  tokenSymbol: 'USDC',
+                  tokenIcon: UsdcIcon,
+                  sourceChain,
+                  destChain,
+                  bridgeMode,
+                  network: broadcastNetwork,
+                  txHash: isGateway ? resolvedDestTx : burnTxHash,
+                  destTxHash: resolvedDestTx,
+                  sourceTxHash: isGateway ? undefined : burnTxHash,
+                  explorerUrl: isGateway ? resolvedExplorerUrl : primaryExplorerUrl,
+                  destExplorerUrl: resolvedExplorerUrl,
+                  sourceExplorerUrl: isGateway ? undefined : sourceExplorerUrl,
+                },
+              })
+            }
+          } catch (pollingErr) {
+            console.warn('[BridgeModal] Background destination tx resolution notice:', pollingErr)
+          }
+        })()
       }
     } catch (err: any) {
       console.error('[BridgeModal] Execution error:', err)

@@ -784,12 +784,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
       {amount && (
         <div className="flex items-center justify-between text-xs">
           <span className="text-[11px] font-medium text-slate-400 ml-1.5">Bridge Amount</span>
-          <div
-            className={`flex items-center gap-1.5 font-bold px-2 py-0.5 rounded-lg border ${isFailed
-              ? 'border-rose-500/25 bg-rose-500/10 text-rose-300/90'
-              : 'border-slate-800 bg-slate-900/80 text-white'
-              }`}
-          >
+          <div className="flex items-center gap-1.5 font-bold px-2 py-0.5 rounded-lg border border-slate-800 bg-slate-900/80 text-white">
             {tokenIconSrc ? (
               <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
             ) : null}
@@ -802,12 +797,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
       )}
 
       {/* Cross-Chain Route Card */}
-      <div
-        className={`flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs ${isFailed
-          ? 'border-rose-500/25 bg-rose-500/5'
-          : 'border-slate-800 bg-slate-900/60'
-          }`}
-      >
+      <div className={`flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs border-slate-800 bg-slate-900/60`}>
         {/* Source Network */}
         <div className="flex items-center gap-1.5 min-w-0">
           <ChainIconBadge chain={sourceChain} size={18} />
@@ -820,12 +810,12 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
         <div className="flex items-center gap-1 text-slate-500 shrink-0 px-1">
           <ArrowRight
             className={`w-4 h-4 shrink-0 ${isCanceled
-                ? 'text-amber-400'
-                : isFailed
-                  ? 'text-rose-400'
-                  : isSuccess
-                    ? 'text-emerald-400'
-                    : 'text-cyan-400'
+              ? 'text-amber-400'
+              : isFailed
+                ? 'text-rose-400'
+                : isSuccess
+                  ? 'text-emerald-400'
+                  : 'text-cyan-400'
               }`}
           />
         </div>
@@ -834,7 +824,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
         <div className="flex items-center gap-1.5 min-w-0 justify-end">
           <ChainIconBadge chain={destChain} size={18} />
           <span
-            className={`font-semibold truncate max-w-[135px] ${isFailed ? 'text-rose-300/90' : 'text-white'
+            className={`font-semibold truncate max-w-[135px] text-white'
               }`}
             title={getChainDisplayName(destChain)}
           >
@@ -896,12 +886,12 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
         {/* Swap Icon */}
         <div
           className={`shrink-0 p-1 rounded-full bg-slate-800 ${isCanceled
-              ? 'text-amber-400'
-              : isFailed
-                ? 'text-rose-400'
-                : isSuccess
-                  ? 'text-emerald-400'
-                  : 'text-cyan-400'
+            ? 'text-amber-400'
+            : isFailed
+              ? 'text-rose-400'
+              : isSuccess
+                ? 'text-emerald-400'
+                : 'text-cyan-400'
             }`}
         >
           <Repeat className="w-3.5 h-3.5" />
@@ -938,12 +928,12 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
             <span>{getChainDisplayName(fromChain)}</span>
             <ArrowRight
               className={`w-3 h-3 ${isCanceled
-                  ? 'text-amber-400'
-                  : isFailed
-                    ? 'text-rose-400'
-                    : isSuccess
-                      ? 'text-emerald-400'
-                      : 'text-cyan-400'
+                ? 'text-amber-400'
+                : isFailed
+                  ? 'text-rose-400'
+                  : isSuccess
+                    ? 'text-emerald-400'
+                    : 'text-cyan-400'
                 }`}
             />
             <ChainIconBadge chain={toChain} size={14} />
@@ -1119,12 +1109,12 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
             <div className="flex items-center gap-1 text-slate-500 shrink-0 px-1">
               <ArrowRight
                 className={`w-4 h-4 shrink-0 ${isCanceled
-                    ? 'text-amber-400'
-                    : isFailed
-                      ? 'text-rose-400'
-                      : isSuccess
-                        ? 'text-emerald-400'
-                        : 'text-cyan-400'
+                  ? 'text-amber-400'
+                  : isFailed
+                    ? 'text-rose-400'
+                    : isSuccess
+                      ? 'text-emerald-400'
+                      : 'text-cyan-400'
                   }`}
               />
             </div>
@@ -1225,10 +1215,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
 
       {/* Deposit Flow: Wallet Chain ➔ Circle Gateway */}
       <div
-        className={`flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs ${isFailed
-            ? 'border-rose-500/25 bg-rose-500/5'
-            : 'border-slate-800 bg-slate-900/60'
-          }`}
+        className={`flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs border-slate-800 bg-slate-900/60`}
       >
         {/* Source Wallet Chain */}
         <div className="flex items-center gap-1.5 min-w-0">
@@ -1242,12 +1229,12 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
         <div className="shrink-0 flex items-center justify-center px-1">
           <ArrowRight
             className={`w-3.5 h-3.5 ${isCanceled
-                ? 'text-amber-400'
-                : isFailed
-                  ? 'text-rose-400'
-                  : isSuccess
-                    ? 'text-emerald-400'
-                    : 'text-cyan-400'
+              ? 'text-amber-400'
+              : isFailed
+                ? 'text-rose-400'
+                : isSuccess
+                  ? 'text-emerald-400'
+                  : 'text-cyan-400'
               }`}
           />
         </div>

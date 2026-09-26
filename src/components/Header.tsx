@@ -17,6 +17,7 @@ import {
   Copy,
   Check,
   LogOut,
+  PieChart,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import customLogo from '../assets/Arcis-Icon.svg'
@@ -34,8 +35,8 @@ interface HeaderProps {
   setActiveTab: (tab: TabType) => void
   walletConnected: boolean
   walletAddress: string
-  onConnect: () => void
-  onDisconnect: () => void
+  onConnect?: () => void
+  onDisconnect?: () => void
   isUcwConnected?: boolean
   ucwAddress?: string
   isPasskeyConnected?: boolean
@@ -47,6 +48,7 @@ interface HeaderProps {
   onDisconnectPasskey?: () => void
   onOpenFaucet?: () => void
   isRestoring?: boolean
+  onOpenPortfolio?: () => void
 }
 
 export default function Header({
@@ -54,6 +56,8 @@ export default function Header({
   setActiveTab,
   walletConnected,
   walletAddress,
+  onConnect,
+  onDisconnect,
   isUcwConnected,
   ucwAddress,
   isPasskeyConnected,
@@ -65,17 +69,21 @@ export default function Header({
   onDisconnectPasskey,
   onOpenFaucet,
   isRestoring,
+  onOpenPortfolio,
 }: HeaderProps) {
   const { solana, disconnectSolana, injective, disconnectInjective } = useMultiChainWallet()
   const [copiedMsca, setCopiedMsca] = useState<boolean>(false)
   const [copiedUcw, setCopiedUcw] = useState<boolean>(false)
   const [copiedSol, setCopiedSol] = useState<boolean>(false)
   const [copiedInj, setCopiedInj] = useState<boolean>(false)
+  const [copiedEvm, setCopiedEvm] = useState<boolean>(false)
   const [isCircleMenuOpen, setIsCircleMenuOpen] = useState<boolean>(false)
   const [isPasskeyMenuOpen, setIsPasskeyMenuOpen] = useState<boolean>(false)
+  const [isEvmMenuOpen, setIsEvmMenuOpen] = useState<boolean>(false)
 
   const circleMenuRef = useRef<HTMLDivElement>(null)
   const passkeyMenuRef = useRef<HTMLDivElement>(null)
+  const evmMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -84,6 +92,9 @@ export default function Header({
       }
       if (passkeyMenuRef.current && !passkeyMenuRef.current.contains(event.target as Node)) {
         setIsPasskeyMenuOpen(false)
+      }
+      if (evmMenuRef.current && !evmMenuRef.current.contains(event.target as Node)) {
+        setIsEvmMenuOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -206,10 +217,9 @@ export default function Header({
               onClick={onOpenFaucet}
               className="ub-action-btn flex items-center gap-1.5 cursor-pointer hover:border-indigo-400/50 hover:text-indigo-200 transition-all"
               style={{ padding: '6px 12px', fontSize: 11 }}
-              title="Request Testnet Tokens (Circle Faucet API)"
             >
               <span>Faucet</span>
-              <Droplets size={10} style={{ opacity: 0.6 }} />
+              <Droplets size={14} style={{ opacity: 0.6 }} />
             </button>
 
             <a
@@ -220,7 +230,7 @@ export default function Header({
               style={{ padding: '6px 12px', fontSize: 11 }}
             >
               <span>Explorer</span>
-              <ExternalLink size={10} style={{ opacity: 0.6 }} />
+              <ExternalLink size={14} style={{ opacity: 0.6 }} />
             </a>
           </div>
 
@@ -237,7 +247,6 @@ export default function Header({
                     ? 'bg-cyan-500/20 border-2 border-cyan-400 text-white shadow-[0_0_16px_rgba(6,182,212,0.4)]'
                     : 'bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 text-cyan-200'
                   }`}
-                title="Passkey Cüzdan Menüsü"
               >
                 <Fingerprint className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                 <span className="text-xs font-bold text-cyan-200">
@@ -269,6 +278,26 @@ export default function Header({
                       Arc Testnet
                     </span>
                   </div>
+
+                  {/* Portfolio Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPasskeyMenuOpen(false)
+                      if (onOpenPortfolio) onOpenPortfolio()
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <PieChart size={14} className="text-slate-400 group-hover:text-cyan-400 transition-colors shrink-0" />
+                      <span className="font-semibold text-slate-100">Portfolio</span>
+                    </div>
+                    <span className="text-[10px] font-semibold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">
+                      Multi-Chain
+                    </span>
+                  </button>
+
+                  <div className="my-1 border-t border-white/[0.08]" />
 
                   {/* Copy Address */}
                   <button
@@ -357,13 +386,28 @@ export default function Header({
               {/* Circle UCW Dropdown Menu */}
               {isCircleMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-40 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
                   style={{
                     background: 'rgba(13, 17, 28, 0.96)',
                     border: '1px solid rgba(59, 130, 246, 0.25)',
                     boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(59, 130, 246, 0.15)',
                   }}
                 >
+                  {/* Portfolio Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCircleMenuOpen(false)
+                      if (onOpenPortfolio) onOpenPortfolio()
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <PieChart size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                      <span className="font-semibold text-slate-100">Portfolio</span>
+                    </div>
+                  </button>
+
                   {/* Copy Address */}
                   <button
                     type="button"
@@ -465,7 +509,6 @@ export default function Header({
                   setTimeout(() => setCopiedSol(false), 2000)
                 }}
                 className="flex items-center gap-1 text-xs font-bold text-purple-200 hover:text-white transition cursor-pointer"
-                title="Solana Adresini Kopyala"
               >
                 <span>Sol: {solana.address.slice(0, 4)}...{solana.address.slice(-4)}</span>
                 {copiedSol ? (
@@ -480,7 +523,6 @@ export default function Header({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-purple-300 p-0.5 transition"
-                title="View on Solana Explorer"
               >
                 <ExternalLink size={11} />
               </a>
@@ -488,7 +530,6 @@ export default function Header({
               <button
                 onClick={disconnectSolana}
                 className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
-                title="Disconnect Solana Wallet"
               >
                 Disconnect
               </button>
@@ -514,7 +555,6 @@ export default function Header({
                   setTimeout(() => setCopiedInj(false), 2000)
                 }}
                 className="flex items-center gap-1 text-xs font-bold text-blue-200 hover:text-white transition cursor-pointer"
-                title="Copy Injective Address"
               >
                 <span>Inj: {injective.address.slice(0, 6)}...{injective.address.slice(-4)}</span>
                 {copiedInj ? (
@@ -529,7 +569,6 @@ export default function Header({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-blue-300 p-0.5 transition"
-                title="View on Injective Explorer"
               >
                 <ExternalLink size={11} />
               </a>
@@ -537,7 +576,6 @@ export default function Header({
               <button
                 onClick={disconnectInjective}
                 className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
-                title="Disconnect Injective Wallet"
               >
                 Disconnect
               </button>
@@ -549,7 +587,6 @@ export default function Header({
             {({
               account,
               chain,
-              openAccountModal,
               openChainModal,
               openConnectModal,
               authenticationStatus,
@@ -581,10 +618,13 @@ export default function Header({
                           onClick={openConnectModal}
                           type="button"
                           className="ub-action-btn ub-action-btn-primary"
-                          style={{ padding: '6px 16px' }}
+                          style={{
+                            padding: isUcwConnected ? '6px 10px' : '6px 16px',
+                          }}
+                          aria-label="Connect Wallet"
                         >
-                          <Wallet className="w-3.5 h-3.5" />
-                          <span>Connect Wallet</span>
+                          <Wallet className={isUcwConnected ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
+                          {!isUcwConnected && <span>Connect Wallet</span>}
                         </button>
                       )
                     }
@@ -598,28 +638,135 @@ export default function Header({
                           style={{
                             background: 'rgba(239, 68, 68, 0.15)',
                             borderColor: 'rgba(239, 68, 68, 0.4)',
-                            color: '#f87171'
+                            color: '#f87171',
+                            padding: isUcwConnected ? '6px 10px' : undefined,
                           }}
+                          aria-label="Wrong network"
                         >
-                          Wrong network
+                          {isUcwConnected ? '⚠️' : 'Wrong network'}
                         </button>
                       )
                     }
 
                     return (
-                      <button
-                        onClick={openAccountModal}
-                        type="button"
-                        className="ub-action-btn gap-2"
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.08)',
-                          borderColor: 'rgba(255, 255, 255, 0.15)',
-                          padding: '6px 14px'
-                        }}
-                      >
-                        <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain" />
-                        <span style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>{account.displayName}</span>
-                      </button>
+                      <div className="relative" ref={evmMenuRef}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onSelectActiveAuthSource) onSelectActiveAuthSource('evm')
+                            setIsEvmMenuOpen((prev) => !prev)
+                          }}
+                          className={`ub-action-btn ${isUcwConnected ? '' : 'gap-2'} transition-all duration-200 cursor-pointer select-none`}>
+                          <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain" />
+                          {!isUcwConnected && (
+                            <span style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>{account.displayName}</span>
+                          )}
+                          <ChevronDown
+                            size={12}
+                            className={`transition-transform duration-200 ${
+                              isEvmMenuOpen ? 'rotate-180 text-white' : 'opacity-70 text-slate-400'
+                            }`}
+                          />
+                        </button>
+
+                        {/* EVM Custom Dropdown Menu */}
+                        {isEvmMenuOpen && (
+                          <div
+                            className="absolute right-0 top-full mt-2 w-40 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                            style={{
+                              background: 'rgba(13, 17, 28, 0.96)',
+                              border: '1px solid rgba(99, 102, 241, 0.25)',
+                              boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(99, 102, 241, 0.15)',
+                            }}
+                          >
+                            {/* Portfolio Option */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsEvmMenuOpen(false)
+                                if (onOpenPortfolio) onOpenPortfolio()
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <PieChart size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                                <span className="font-semibold text-slate-100">Portfolio</span>
+                              </div>
+                            </button>
+
+                            {/* Switch Network */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsEvmMenuOpen(false)
+                                openChainModal()
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <Globe size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                                <span>Switch Network</span>
+                              </div>
+                            </button>
+
+                            {/* Copy Address */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (account.address) {
+                                  navigator.clipboard.writeText(account.address)
+                                  setCopiedEvm(true)
+                                  setTimeout(() => {
+                                    setCopiedEvm(false)
+                                    setIsEvmMenuOpen(false)
+                                  }, 1200)
+                                }
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                {copiedEvm ? (
+                                  <Check size={14} className="text-emerald-400 shrink-0" />
+                                ) : (
+                                  <Copy size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                                )}
+                                <span>{copiedEvm ? 'Copied!' : 'Copy Address'}</span>
+                              </div>
+                            </button>
+
+                            {/* Explorer Link */}
+                            {account.address && (
+                              <a
+                                href={getExplorerAddressUrl(chain?.name || 'Arc_Testnet', account.address)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => setIsEvmMenuOpen(false)}
+                                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <ExternalLink size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                                  <span>View on Explorer</span>
+                                </div>
+                              </a>
+                            )}
+
+                            <div className="my-1 border-t border-white/[0.08]" />
+
+                            {/* Disconnect */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsEvmMenuOpen(false)
+                                if (onDisconnect) onDisconnect()
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all cursor-pointer group"
+                            >
+                              <LogOut size={14} className="text-rose-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                              <span>Disconnect</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )
                   })()}
                 </div>

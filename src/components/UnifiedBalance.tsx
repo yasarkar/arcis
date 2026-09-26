@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useAccount } from 'wagmi'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import { RefreshCw, AlertTriangle, ChevronDown, Plus, X, Layers, ShieldCheck, ArrowDownRight, Ban, Info } from 'lucide-react'
@@ -15,7 +15,6 @@ import { parseUnits, encodeFunctionData, erc20Abi, maxUint256, type Hex } from '
 import { getResilientPublicClient, resilientWaitForReceipt } from '../services/rpc'
 import { GATEWAY_SUPPORTED_CHAINS, GATEWAY_CONTRACTS, GATEWAY_WALLET_ABI, USDC_ADDRESSES } from '../config/gatewayConfig'
 import { CHAIN_META, CHAIN_DEFS, getChainDisplayName } from '../config/chainMeta'
-import { Tooltip } from './common/Tooltip'
 import { ensureNetwork } from '../services/chainSwitchService'
 import { setAutoSwitchPaused } from '../hooks/useAutoSwitchArcChain'
 import { mapChainKeyToCircleBlockchain } from '../services/gatewayUcwService'
@@ -58,7 +57,6 @@ export default function UnifiedBalance({
   const [depositing, setDepositing] = useState(false)
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
   const [depositError, setDepositError] = useState<string | null>(null)
-  const [depositActionHint, setDepositActionHint] = useState<string | null>(null)
   const [isCanceledError, setIsCanceledError] = useState(false)
 
   // Pause auto-switch while deposit panel is open
@@ -85,7 +83,6 @@ export default function UnifiedBalance({
     if (!targetChainDef) return
     setIsSwitchingNetwork(true)
     setDepositError(null)
-    setDepositActionHint(null)
     setIsCanceledError(false)
     try {
       const provider = await connector?.getProvider()
@@ -104,7 +101,6 @@ export default function UnifiedBalance({
   const resetFormInputs = useCallback(() => {
     setDepositAmount('')
     setDepositError(null)
-    setDepositActionHint(null)
     setIsCanceledError(false)
     setDepositing(false)
   }, [])
@@ -165,10 +161,24 @@ export default function UnifiedBalance({
   const visibleBalances = showAll ? sortedBalances : sortedBalances.slice(0, INITIAL_SHOW)
   const hasMore = sortedBalances.length > INITIAL_SHOW
 
+  // Deposit network options sorted descending by wallet USDC balance
+  const sortedDepositChains = useMemo(() => {
+    const chains = GATEWAY_SUPPORTED_CHAINS.filter((c) => c !== 'Solana_Devnet')
+    return [...chains].sort((a, b) => {
+      const balA = parseFloat(walletBalances[a]?.usdc || '0')
+      const balB = parseFloat(walletBalances[b]?.usdc || '0')
+      if (balB !== balA) {
+        return balB - balA
+      }
+      if (a === 'Arc_Testnet') return -1
+      if (b === 'Arc_Testnet') return 1
+      return getChainDisplayName(a).localeCompare(getChainDisplayName(b))
+    })
+  }, [walletBalances])
+
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault()
     setDepositError(null)
-    setDepositActionHint(null)
     setIsCanceledError(false)
 
     if (depositing || isSwitchingNetwork) return
@@ -331,7 +341,6 @@ export default function UnifiedBalance({
       const isCanceled = normalized.isCanceled
       setIsCanceledError(isCanceled)
       setDepositError(normalized.message)
-      setDepositActionHint(normalized.actionHint || null)
 
       const status = isCanceled ? 'canceled' : 'failed'
       const title = isCanceled ? (normalized.title || 'Deposit Canceled') : (normalized.title || 'Deposit Failed')
@@ -364,28 +373,26 @@ export default function UnifiedBalance({
         {/* Header Tag & Quick Actions */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span className="arc-eyebrow" style={{ fontSize: 13, color: 'var(--base-colors--white)', fontWeight: 600 }}>
+            <span className="arc-eyebrow" style={{ fontSize: 18, color: 'var(--base-colors--white)', fontWeight: 600 }}>
               UNIFIED BALANCE
             </span>
-            <Tooltip content="Live streaming multi-chain balance synced via Circle Gateway" position="top">
-              <span className="ub-live-badge">
-                <svg
-                  className="ub-ecg-svg"
-                  viewBox="0 0 35 16"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
-                    className="ub-ecg-path-bg"
-                  />
-                  <path
-                    d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
-                    className="ub-ecg-path-pulse"
-                  />
-                </svg>
-              </span>
-            </Tooltip>
+            <span className="ub-live-badge">
+              <svg
+                className="ub-ecg-svg"
+                viewBox="0 0 35 16"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
+                  className="ub-ecg-path-bg"
+                />
+                <path
+                  d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10"
+                  className="ub-ecg-path-pulse"
+                />
+              </svg>
+            </span>
           </div>
 
           <div className="ub-quick-actions">
@@ -479,7 +486,7 @@ export default function UnifiedBalance({
               >
                 <ArrowDownRight size={18} />
               </div>
-              <span className="arc-eyebrow" style={{ fontSize: 13, color: 'var(--base-colors--white)', fontWeight: 600 }}>
+              <span className="arc-eyebrow" style={{ fontSize: 15, color: 'var(--base-colors--white)', fontWeight: 600 }}>
                 DEPOSIT
               </span>
             </div>
@@ -500,7 +507,15 @@ export default function UnifiedBalance({
               <button
                 type="button"
                 disabled={depositing}
-                onClick={() => setShowChainDropdown(prev => !prev)}
+                onClick={() => {
+                  setShowChainDropdown(prev => {
+                    const next = !prev
+                    if (next && walletAddress) {
+                      refetchWalletBalances()
+                    }
+                    return next
+                  })
+                }}
                 style={{
                   width: '100%',
                   background: 'rgba(11, 13, 24, 0.75)',
@@ -555,9 +570,13 @@ export default function UnifiedBalance({
                     padding: 6,
                   }}
                 >
-                  {GATEWAY_SUPPORTED_CHAINS.filter(c => c !== 'Solana_Devnet').map((c) => {
+                  {sortedDepositChains.map((c) => {
                     const isSelected = depositChain === c
                     const iconId = CHAIN_META[c]?.iconId || 'ethereum'
+                    const chainBalanceItem = walletBalances[c]
+                    const chainUsdcBalance = chainBalanceItem?.usdc || '0.00'
+                    const isChainLoading = Boolean(chainBalanceItem?.loading || (walletAddress && walletLoading))
+
                     return (
                       <button
                         key={c}
@@ -580,6 +599,7 @@ export default function UnifiedBalance({
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
+                          gap: 12,
                           transition: 'all 0.15s ease',
                         }}
                         onMouseEnter={(e) => {
@@ -595,19 +615,49 @@ export default function UnifiedBalance({
                           }
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
                           <NetworkIcon
                             name={iconId}
                             variant={iconId === 'solana' ? 'branded' : 'background'}
                             size={22}
                           />
-                          <span style={{ fontWeight: isSelected ? 600 : 400 }}>{getChainDisplayName(c)}</span>
-                        </div>
-                        {isSelected && (
-                          <span style={{ fontSize: 11, fontFamily: 'var(--font-app)', color: 'var(--purple-1)', fontWeight: 600 }}>
-                            SELECTED
+                          <span style={{ fontWeight: isSelected ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {getChainDisplayName(c)}
                           </span>
-                        )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginLeft: 8 }}>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontFamily: 'var(--fonts--space-grotesk)',
+                              fontWeight: 500,
+                              color: isSelected ? '#fff' : 'rgba(255, 255, 255, 0.65)',
+                            }}
+                          >
+                            {isChainLoading ? (
+                              <span style={{ opacity: 0.6 }}>...</span>
+                            ) : (
+                              `${chainUsdcBalance} USDC`
+                            )}
+                          </span>
+                          {isSelected && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontFamily: 'var(--font-app)',
+                                color: 'var(--purple-1)',
+                                background: 'rgba(152, 150, 255, 0.15)',
+                                border: '1px solid rgba(152, 150, 255, 0.3)',
+                                padding: '2px 6px',
+                                borderRadius: 6,
+                                fontWeight: 600,
+                                letterSpacing: '0.3px',
+                              }}
+                            >
+                              SELECTED
+                            </span>
+                          )}
+                        </div>
                       </button>
                     )
                   })}
@@ -673,7 +723,6 @@ export default function UnifiedBalance({
                     setDepositAmount(val.startsWith('-') ? '0' : val)
                     if (depositError) {
                       setDepositError(null)
-                      setDepositActionHint(null)
                       setIsCanceledError(false)
                     }
                   }}
@@ -745,25 +794,6 @@ export default function UnifiedBalance({
               </div>
             )}
 
-            {depositActionHint && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  background: 'rgba(56, 189, 248, 0.08)',
-                  border: '1px solid rgba(56, 189, 248, 0.25)',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  color: '#38bdf8',
-                  fontFamily: 'var(--font-app)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <Info size={14} style={{ flexShrink: 0, color: '#38bdf8' }} />
-                <span>{depositActionHint}</span>
-              </div>
-            )}
 
             {/* Gateway Settlement Info */}
             <div
@@ -864,7 +894,7 @@ export default function UnifiedBalance({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 12 }}>
             <Layers size={16} style={{ color: 'var(--purple-1)' }} />
-            <span className="arc-eyebrow" style={{ fontSize: 13, color: 'var(--base-colors--white)', fontWeight: 600 }}>
+            <span className="arc-eyebrow" style={{ fontSize: 15, color: 'var(--base-colors--white)', fontWeight: 600 }}>
               ASSET DISTRIBUTION
             </span>
           </div>
