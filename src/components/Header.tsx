@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useAccount } from 'wagmi'
 import {
   Wallet,
   ArrowRightLeft,
@@ -71,6 +72,9 @@ export default function Header({
   isRestoring,
   onOpenPortfolio,
 }: HeaderProps) {
+  const { isConnected: isEvmConnected } = useAccount()
+  const isEvmWalletConnected = Boolean(isEvmConnected || (walletConnected && activeAuthSource === 'evm'))
+
   const { solana, disconnectSolana, injective, disconnectInjective } = useMultiChainWallet()
   const [copiedMsca, setCopiedMsca] = useState<boolean>(false)
   const [copiedUcw, setCopiedUcw] = useState<boolean>(false)
@@ -468,24 +472,28 @@ export default function Header({
           {!isPasskeyConnected && !isUcwConnected && (
             isRestoring ? (
               <div
-                className="flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5"
+                className="flex items-center justify-center gap-1.5 rounded-full transition-all duration-200"
                 style={{
+                  padding: isEvmWalletConnected ? '6px 10px' : '6px 12px',
                   background: 'rgba(255, 255, 255, 0.04)',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
+                title="Circle & Passkey (Restoring session...)"
               >
                 <div className="w-3.5 h-3.5 rounded-full bg-slate-600 animate-pulse" />
-                <div className="hidden sm:block w-20 h-3 rounded bg-slate-700 animate-pulse" />
+                {!isEvmWalletConnected && <div className="hidden sm:block w-20 h-3 rounded bg-slate-700 animate-pulse" />}
               </div>
             ) : (
               <button
                 onClick={onOpenCircleAuth}
                 type="button"
-                className="ub-action-btn flex items-center justify-center gap-1.5"
-                style={{ padding: '6px 13px' }}
+                className="ub-action-btn flex items-center justify-center gap-1.5 transition-all duration-200"
+                style={{ padding: isEvmWalletConnected ? '6px 10px' : '6px 13px' }}
+                title="Circle & Passkey"
+                aria-label="Circle & Passkey"
               >
-                <img src={circleTokenIcon} alt="Circle Logo Icon" className="w-4 h-4 object-contain transition-transform hover:scale-110" />
-                <span className="hidden sm:inline font-semibold">Circle & Passkey</span>
+                <img src={circleTokenIcon} alt="Circle & Passkey" className="w-4 h-4 object-contain transition-transform hover:scale-110" />
+                {!isEvmWalletConnected && <span className="hidden sm:inline font-semibold">Circle & Passkey</span>}
               </button>
             )
           )}
@@ -619,12 +627,13 @@ export default function Header({
                           type="button"
                           className="ub-action-btn ub-action-btn-primary"
                           style={{
-                            padding: isUcwConnected ? '6px 10px' : '6px 16px',
+                            padding: isUcwConnected || isPasskeyConnected ? '6px 10px' : '6px 16px',
                           }}
                           aria-label="Connect Wallet"
+                          title="Connect Wallet"
                         >
-                          <Wallet className={isUcwConnected ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
-                          {!isUcwConnected && <span>Connect Wallet</span>}
+                          <Wallet className={isUcwConnected || isPasskeyConnected ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
+                          {!(isUcwConnected || isPasskeyConnected) && <span>Connect Wallet</span>}
                         </button>
                       )
                     }
@@ -639,11 +648,11 @@ export default function Header({
                             background: 'rgba(239, 68, 68, 0.15)',
                             borderColor: 'rgba(239, 68, 68, 0.4)',
                             color: '#f87171',
-                            padding: isUcwConnected ? '6px 10px' : undefined,
+                            padding: isUcwConnected || isPasskeyConnected ? '6px 10px' : undefined,
                           }}
                           aria-label="Wrong network"
                         >
-                          {isUcwConnected ? '⚠️' : 'Wrong network'}
+                          {isUcwConnected || isPasskeyConnected ? '⚠️' : 'Wrong network'}
                         </button>
                       )
                     }
