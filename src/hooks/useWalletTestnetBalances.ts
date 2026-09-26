@@ -6,10 +6,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { erc20Abi, formatUnits, type Chain } from 'viem'
 import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig'
-import { CHAIN_DEFS } from '../config/chainMeta'
+import { TESTNET_NETWORKS } from '../config/networks/networkRegistry'
 import { getResilientPublicClient, resilientReadContract } from '../services/rpc'
 
-export const TESTNET_CHAINS: Record<string, Chain> = CHAIN_DEFS
+export const TESTNET_CHAINS: Record<string, Chain> = Object.fromEntries(
+  Object.entries(TESTNET_NETWORKS)
+    .filter(([_, net]) => !net.ui?.isSolana && net.testnet)
+    .map(([key, net]) => [key, net.viemChain])
+)
 
 export interface WalletChainBalance {
   chainKey: string

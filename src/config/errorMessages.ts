@@ -7,7 +7,6 @@ export interface ErrorDefinition {
   category: ErrorCategory
   title: string
   message: string
-  actionHint?: string
   isCanceled: boolean
   isRetryable: boolean
   isActionable?: boolean
@@ -18,8 +17,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   USER_CANCELED: {
     category: 'WALLET_REJECTION',
     title: 'Transaction Canceled',
-    message: 'You canceled the confirmation request in your wallet. No balance was deducted.',
-    actionHint: 'Click the action button again whenever you are ready to confirm.',
+    message: 'Transaction canceled in wallet. Try again whenever you are ready.',
     isCanceled: true,
     isRetryable: true,
   },
@@ -28,8 +26,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   NETWORK_SWITCH_CANCELED: {
     category: 'WALLET_REJECTION',
     title: 'Network Switch Canceled',
-    message: 'The network switch request was canceled in your wallet. Switching to the source network is required to complete this deposit.',
-    actionHint: 'Please approve the network switch request in your wallet to proceed with the deposit.',
+    message: 'The network switch request was canceled in your wallet. Please approve the switch to proceed.',
     isCanceled: true,
     isRetryable: true,
   },
@@ -38,8 +35,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   GAS_PRICE_UNDERPRICED: {
     category: 'INSUFFICIENT_GAS',
     title: 'Gas Price Below Protocol Floor',
-    message: 'Arc L1 Testnet enforces a minimum base fee of 20 Gwei ($0.000000020 USDC/gas). Your wallet proposed a gas price below this threshold.',
-    actionHint: 'Please select "Fast" or "Turbo" speed tier in the speed selector to meet the minimum fee.',
+    message: 'Gas price is below the Arc 20 Gwei floor. Select Fast or Turbo speed and retry.',
     isCanceled: false,
     isRetryable: true,
   },
@@ -48,8 +44,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   INSUFFICIENT_USDC_FOR_GAS: {
     category: 'INSUFFICIENT_GAS',
     title: 'Insufficient USDC for Gas',
-    message: 'On Arc L1, all transaction gas fees are settled natively in USDC instead of ETH. Your wallet does not hold sufficient USDC to cover gas.',
-    actionHint: 'Claim free testnet USDC from the Circle Faucet or deposit USDC into your wallet.',
+    message: 'Insufficient USDC for Arc gas fees. Please deposit or claim USDC from faucet.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -58,8 +53,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   INSUFFICIENT_NATIVE_GAS: {
     category: 'INSUFFICIENT_GAS',
     title: 'Insufficient Native Gas (ETH)',
-    message: 'Your wallet does not have sufficient native gas tokens (ETH) to cover transaction fees on this network.',
-    actionHint: 'Please fund your wallet with testnet ETH (e.g. Sepolia ETH) to execute contract calls, or use Arc Testnet where fees are paid in USDC.',
+    message: 'Insufficient native gas tokens (ETH). Please fund your wallet with testnet ETH or use Arc Testnet.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -68,8 +62,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   INSUFFICIENT_BALANCE: {
     category: 'INSUFFICIENT_BALANCE',
     title: 'Insufficient Balance',
-    message: 'The requested transaction amount exceeds your available token balance.',
-    actionHint: 'Enter a lower amount or top up your wallet with test tokens.',
+    message: 'Amount exceeds available balance. Enter a lower amount or top up your wallet.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -78,8 +71,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   SLIPPAGE_EXCEEDED: {
     category: 'SLIPPAGE_EXCEEDED',
     title: 'Slippage Tolerance Exceeded',
-    message: 'The market price changed during transaction confirmation and exceeded your allowed slippage tolerance.',
-    actionHint: 'Increase your slippage tolerance in settings or try again with smaller size.',
+    message: 'Price moved beyond slippage tolerance. Increase slippage in settings or try a smaller amount.',
     isCanceled: false,
     isRetryable: true,
   },
@@ -88,8 +80,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   NO_LIQUIDITY_ROUTE: {
     category: 'NO_ROUTE',
     title: 'No Active Liquidity Route',
-    message: 'No testnet liquidity pool route was found for this token pair or specified amount.',
-    actionHint: 'Try swapping USDC ↔ EURC or adjust the input amount.',
+    message: 'No liquidity route found for this pair. Try adjusting the amount or trade USDC ↔ EURC.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -98,8 +89,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   CCTP_MIN_FEE_VIOLATION: {
     category: 'VALIDATION',
     title: 'Transfer Amount Below CCTP Minimum',
-    message: 'The bridge amount must be higher than the CCTP relayer forwarding fee (approximately 0.055 USDC).',
-    actionHint: 'Please enter at least 0.10 USDC for cross-chain bridging.',
+    message: 'Bridge amount must exceed the CCTP relayer fee. Please enter at least 0.10 USDC.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -108,8 +98,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   INSUFFICIENT_ALLOWANCE: {
     category: 'CONTRACT_REVERT',
     title: 'Token Spending Approval Required',
-    message: 'The smart contract requires an approved spending allowance for your tokens.',
-    actionHint: 'Confirm the initial token approval request in your wallet.',
+    message: 'Token approval required. Please approve spending allowance in your wallet.',
     isCanceled: false,
     isRetryable: true,
   },
@@ -118,8 +107,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   TREASURY_RECIPIENT_MISMATCH: {
     category: 'VALIDATION',
     title: 'Treasury Recipient Format Mismatch',
-    message: 'Per Circle AppKit rules, the custom protocol fee recipient address must match the format of the source blockchain.',
-    actionHint: 'Verify the treasury configuration matches EVM or Solana address format.',
+    message: 'Fee recipient format mismatch. Verify the treasury address matches the source chain.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -128,8 +116,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   WALLET_RPC_DESYNC: {
     category: 'WALLET_DESYNC',
     title: 'Wallet Nonce Desynchronization',
-    message: 'Your wallet internal transaction queue is out of sync with the network RPC node (Error -32603).',
-    actionHint: 'Wait a few seconds for pending transactions to confirm on-chain and try again. If using a browser extension like MetaMask, clear activity tab data in Settings > Advanced.',
+    message: 'Wallet transaction queue is desynced with network. Wait a few seconds and try again.',
     isCanceled: false,
     isRetryable: true,
   },
@@ -138,8 +125,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   NETWORK_TIMEOUT: {
     category: 'RPC_NETWORK',
     title: 'Network Timeout',
-    message: 'The Arc L1 RPC node did not respond in time or the network connection dropped.',
-    actionHint: 'Check your internet connection and try submitting the transaction again.',
+    message: 'Network request timed out. Please check your connection and try again.',
     isCanceled: false,
     isRetryable: true,
   },
@@ -149,7 +135,6 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     category: 'RPC_NETWORK',
     title: 'Network Limit Reached',
     message: 'Network request limit reached. Please wait a few seconds and try again.',
-    actionHint: 'Wait 5–10 seconds for the network queue to clear, then retry.',
     isCanceled: false,
     isRetryable: true,
   },
@@ -158,8 +143,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   CONTRACT_REVERT: {
     category: 'CONTRACT_REVERT',
     title: 'Contract Execution Reverted',
-    message: 'The blockchain smart contract rejected the transaction.',
-    actionHint: 'Review transaction parameters and verify your token allowances.',
+    message: 'Smart contract rejected the transaction. Review parameters and token allowances.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -168,8 +152,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   PASSKEY_CANCELED: {
     category: 'PASSKEY_AUTH',
     title: 'Biometric Verification Canceled',
-    message: 'FaceID, TouchID, or Passkey confirmation was canceled or timed out.',
-    actionHint: 'Click to try again and authenticate on your device.',
+    message: 'Biometric confirmation was canceled or timed out. Please try again on your device.',
     isCanceled: true,
     isRetryable: true,
     isActionable: true,
@@ -177,8 +160,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   PASSKEY_ALREADY_EXISTS: {
     category: 'PASSKEY_AUTH',
     title: 'Passkey Already Registered',
-    message: 'A passkey credential is already registered on this device and browser.',
-    actionHint: 'Use "Login with FaceID" instead of creating a new passkey.',
+    message: 'Passkey is already registered on this device. Please log in instead of creating a new one.',
     isCanceled: false,
     isRetryable: false,
     isActionable: true,
@@ -186,8 +168,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   PASSKEY_DOMAIN_MISMATCH: {
     category: 'PASSKEY_AUTH',
     title: 'Domain Security Mismatch',
-    message: 'The WebAuthn passkey origin does not match the current domain (RP ID mismatch).',
-    actionHint: 'Ensure you are accessing Arcis from an authorized domain.',
+    message: 'Passkey origin mismatch. Please ensure you access Arcis from an authorized domain.',
     isCanceled: false,
     isRetryable: false,
     isActionable: true,
@@ -195,8 +176,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   PASSKEY_NOT_SUPPORTED: {
     category: 'PASSKEY_AUTH',
     title: 'Biometrics Not Supported',
-    message: 'Your device or browser does not support WebAuthn passkeys or no authenticator is configured.',
-    actionHint: 'Enable Windows Hello, TouchID, or connect with a standard Web3 wallet.',
+    message: 'Device does not support passkeys. Enable biometrics or connect a Web3 wallet.',
     isCanceled: false,
     isRetryable: false,
     isActionable: false,
@@ -204,8 +184,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   CIRCLE_ENTITY_CONFIG_MISSING: {
     category: 'PASSKEY_AUTH',
     title: 'Circle Modular Config Missing',
-    message: 'Modular Wallets Configurator has not been completed for this domain in Circle Console.',
-    actionHint: 'Go to Circle Console > Wallets > Modular Wallets > Configurator to register your domain.',
+    message: 'Modular Config incomplete. Register your domain in Circle Console > Modular Wallets.',
     isCanceled: false,
     isRetryable: false,
     isActionable: true,
@@ -213,8 +192,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   CLIENT_KEY_UNAUTHORIZED: {
     category: 'PASSKEY_AUTH',
     title: 'Circle Client Key Unauthorized',
-    message: "The current domain is not listed under 'Allowed Domains' in Circle Developer Console.",
-    actionHint: 'Add this origin to your Allowed Domains list in the Circle Console.',
+    message: 'Domain unauthorized. Add this origin to Allowed Domains in Circle Developer Console.',
     isCanceled: false,
     isRetryable: false,
     isActionable: true,
@@ -222,8 +200,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   PAYMASTER_SPONSORSHIP_ERROR: {
     category: 'PASSKEY_AUTH',
     title: 'Gas Station Sponsorship Error',
-    message: 'Circle Gas Station could not sponsor gas for this transaction.',
-    actionHint: 'Check your testnet Gas Station balance in the Circle Console.',
+    message: 'Gas Station could not sponsor gas. Check your balance in Circle Console.',
     isCanceled: false,
     isRetryable: true,
     isActionable: true,
@@ -231,8 +208,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   WEBAUTHN_PROTOCOL_BAD_REQUEST: {
     category: 'PASSKEY_AUTH',
     title: 'WebAuthn Protocol Error',
-    message: 'The WebAuthn protocol rejected the request. Passkey Domain in Circle Console must not include protocol or ports (e.g. use "localhost" directly).',
-    actionHint: 'In Circle Console > Modular Wallets > Passkey, set the domain name to "localhost" or your app domain without port/protocol.',
+    message: 'WebAuthn protocol error. Ensure the domain in Circle Console excludes ports or protocols.',
     isCanceled: false,
     isRetryable: true,
     isActionable: true,
@@ -240,8 +216,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   NO_STORED_PASSKEY: {
     category: 'PASSKEY_AUTH',
     title: 'No Stored Passkey Found',
-    message: 'No registered passkey credential was found on this device.',
-    actionHint: 'Please click "Create New Passkey" to register your initial smart wallet.',
+    message: 'No registered passkey on this device. Click "Create New Passkey" to register.',
     isCanceled: false,
     isRetryable: true,
     isActionable: true,
@@ -249,8 +224,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   UNKNOWN_PASSKEY_ERROR: {
     category: 'PASSKEY_AUTH',
     title: 'Passkey Operation Failed',
-    message: 'An unknown biometric verification error occurred.',
-    actionHint: 'Please refresh the page and try authenticating again.',
+    message: 'Biometric verification failed. Please refresh the page and try again.',
     isCanceled: false,
     isRetryable: true,
     isActionable: true,
@@ -260,8 +234,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   VALIDATION_SAME_TOKEN: {
     category: 'VALIDATION',
     title: 'Identical Tokens Selected',
-    message: 'Source and destination tokens must be different for same-chain swaps.',
-    actionHint: 'Select a different destination token to trade.',
+    message: 'Source and destination tokens must be different. Select a different token to trade.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -269,23 +242,20 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     category: 'VALIDATION',
     title: 'Invalid Amount',
     message: 'Please enter a valid amount greater than zero.',
-    actionHint: 'Enter a numeric value above 0.00.',
     isCanceled: false,
     isRetryable: false,
   },
   VALIDATION_INVALID_ADDRESS: {
     category: 'VALIDATION',
     title: 'Invalid Recipient Address',
-    message: 'The specified recipient address format is invalid.',
-    actionHint: 'Provide a valid 0x EVM address (42 characters) or Solana public key.',
+    message: 'Invalid recipient address format. Provide a valid 0x EVM or Solana address.',
     isCanceled: false,
     isRetryable: false,
   },
   VALIDATION_SELF_TRANSFER: {
     category: 'VALIDATION',
     title: 'Identical Recipient Address',
-    message: 'The destination address is identical to your connected wallet.',
-    actionHint: 'Specify a different recipient address to proceed.',
+    message: 'Destination address is identical to connected wallet. Specify a different address.',
     isCanceled: false,
     isRetryable: false,
   },
@@ -294,8 +264,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   UNKNOWN_ERROR: {
     category: 'UNKNOWN',
     title: 'Transaction Failed',
-    message: 'The transaction could not be completed on the blockchain. Please verify parameters and try again.',
-    actionHint: 'Check your balance and network status before retrying.',
+    message: 'Transaction failed on blockchain. Check your balance and network status before retrying.',
     isCanceled: false,
     isRetryable: true,
   },

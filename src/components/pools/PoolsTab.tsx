@@ -36,6 +36,8 @@ interface PoolsTabProps {
   walletAddress: string
   walletConnected: boolean
   provider?: unknown
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
+  executeUcwContract?: (params: any) => Promise<{ success: boolean; txHash?: string; error?: string }>
   addToast?: (
     title: string,
     description: string,
@@ -50,6 +52,8 @@ export default function PoolsTab({
   walletAddress,
   walletConnected,
   provider,
+  authSource,
+  executeUcwContract,
   addToast,
   removeToast,
 }: PoolsTabProps) {
@@ -69,7 +73,7 @@ export default function PoolsTab({
     claimPoolRewards,
     claimAllRewards,
     refreshBalances,
-  } = usePoolsData(walletAddress, provider)
+  } = usePoolsData(walletAddress, provider, authSource, executeUcwContract)
 
   // Gateway unified balance (for cross-chain zap)
   const { totalBalance: gatewayTotalBalance, balances: gatewayBalances, refresh: refreshGatewayBalance } = useGatewayBalance(walletAddress)

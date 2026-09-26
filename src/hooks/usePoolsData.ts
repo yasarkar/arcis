@@ -942,7 +942,12 @@ export async function prefetchUserWalletPoolsData(
   ])
 }
 
-export function usePoolsData(walletAddress: string, provider?: unknown) {
+export function usePoolsData(
+  walletAddress: string,
+  provider?: unknown,
+  authSource?: 'passkey' | 'ucw' | 'evm' | null,
+  executeUcwContract?: (params: any) => Promise<{ success: boolean; txHash?: string; error?: string }>
+) {
   const queryClient = useQueryClient()
   const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
 
@@ -1369,7 +1374,38 @@ export function usePoolsData(walletAddress: string, provider?: unknown) {
         return { txHash: opRes.txHash }
       }
 
-      // 2. EOA Provider (MetaMask / Rainbow)
+      // 2. Circle UCW Execution (Email OTP / User-Controlled Wallet)
+      if (authSource === 'ucw' && executeUcwContract) {
+        console.log('[usePoolsData UCW] Requesting USDC allowance challenge for Yield Vault...')
+        const approveRes = await executeUcwContract({
+          contractAddress: POOL_CONTRACTS.USDC,
+          abiFunctionSignature: 'approve(address,uint256)',
+          abiParameters: [POOL_CONTRACTS.YIELD_VAULT, amount.toString()],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!approveRes.success) {
+          throw new Error(approveRes.error || 'USDC allowance authorization failed.')
+        }
+
+        console.log('[usePoolsData UCW] Requesting deposit challenge for Yield Vault...')
+        const depositRes = await executeUcwContract({
+          contractAddress: POOL_CONTRACTS.YIELD_VAULT,
+          abiFunctionSignature: 'deposit(uint256,address)',
+          abiParameters: [amount.toString(), targetAccount],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!depositRes.success) {
+          throw new Error(depositRes.error || 'Yield vault deposit authorization failed.')
+        }
+
+        const txHash = depositRes.txHash || ''
+        applyYieldVaultOptimisticDeposit()
+        recordClientSwapVolume('usdc-yield-vault', depositAmt, txHash)
+        await invalidatePoolCaches()
+        return { txHash }
+      }
+
+      // 3. EOA Provider (MetaMask / Rainbow)
       const walletClient = await getWalletClient()
       if (!walletClient) throw new Error('Wallet not connected')
 
@@ -2311,6 +2347,28 @@ export function usePoolsData(walletAddress: string, provider?: unknown) {
             await invalidatePoolCaches()
           }
           return { txHash: opRes.txHash }
+        }
+
+        // Circle UCW Execution (Email OTP / User-Controlled Wallet)
+        if (authSource === 'ucw' && executeUcwContract) {
+          console.log('[usePoolsData UCW] Requesting redeem challenge for Yield Vault...')
+          const redeemRes = await executeUcwContract({
+            contractAddress: POOL_CONTRACTS.YIELD_VAULT,
+            abiFunctionSignature: 'redeem(uint256,address,address)',
+            abiParameters: [sharesToRedeem.toString(), targetAccount, targetAccount],
+            blockchain: 'ARC-TESTNET',
+          })
+          if (!redeemRes.success) {
+            throw new Error(redeemRes.error || 'Yield vault redeem authorization failed.')
+          }
+
+          const txHash = redeemRes.txHash || ''
+          applyYieldVaultOptimisticWithdraw()
+          recordClientSwapVolume('usdc-yield-vault', withdrawAmountUsd, txHash)
+          if (!skipCacheInvalidation) {
+            await invalidatePoolCaches()
+          }
+          return { txHash }
         }
 
         // EOA Provider

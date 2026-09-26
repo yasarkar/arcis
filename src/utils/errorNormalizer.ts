@@ -171,7 +171,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'UNKNOWN_PASSKEY_ERROR',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: def.isRetryable,
       isActionable: def.isActionable ?? true,
@@ -199,7 +198,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'PASSKEY_CANCELED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: true,
       isRetryable: true,
       isActionable: true,
@@ -219,7 +217,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'PASSKEY_ALREADY_EXISTS',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       isActionable: true,
@@ -240,7 +237,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'PASSKEY_DOMAIN_MISMATCH',
       title: def.title,
       message: `The WebAuthn key does not match or is not authorized for this domain (${origin}).`,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       isActionable: true,
@@ -260,7 +256,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'PASSKEY_NOT_SUPPORTED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       isActionable: false,
@@ -280,7 +275,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'CIRCLE_ENTITY_CONFIG_MISSING',
       title: def.title,
       message: `Modular Wallets Configurator has not been completed for this domain (${origin}) in Circle Console.`,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       isActionable: true,
@@ -303,7 +297,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'CLIENT_KEY_UNAUTHORIZED',
       title: def.title,
       message: `The current domain (${origin}) is not listed under 'Allowed Domains' in Circle Developer Console.`,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       isActionable: true,
@@ -324,7 +317,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'PAYMASTER_SPONSORSHIP_ERROR',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       isActionable: true,
@@ -343,7 +335,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'WEBAUTHN_PROTOCOL_BAD_REQUEST',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       isActionable: true,
@@ -364,7 +355,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       code: 'RPC_LIMIT_EXCEEDED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       isActionable: true,
@@ -379,7 +369,6 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
     code: 'UNKNOWN_PASSKEY_ERROR',
     title: def.title,
     message: rawMsg && rawMsg.length > 5 && rawMsg.length < 240 ? rawMsg : def.message,
-    actionHint: def.actionHint,
     isCanceled: false,
     isRetryable: true,
     isActionable: true,
@@ -395,7 +384,7 @@ export const parsePasskeyError = normalizePasskeyError
 /**
  * Central Normalizer: Converts ANY error into a standardized ArcisAppError object (100% English).
  */
-export function normalizeAppError(err: unknown): ArcisAppError {
+export function normalizeAppError(err: unknown, contextChain?: string): ArcisAppError {
   if (!err) {
     const def = ERROR_DEFINITIONS.UNKNOWN_ERROR
     return {
@@ -403,7 +392,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'UNKNOWN_ERROR',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: def.isRetryable,
       rawMessage: '',
@@ -454,7 +442,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       message: isNetworkSwitch
         ? 'A network switch request is already open in your wallet extension. Please open MetaMask to approve or reject it.'
         : 'A request is already pending in your wallet extension. Please open MetaMask to complete it.',
-      actionHint: 'Click on your wallet extension icon in your browser toolbar to approve or cancel the pending prompt.',
       isCanceled: false,
       isRetryable: true,
       rawMessage,
@@ -480,7 +467,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
         code: 'NETWORK_SWITCH_CANCELED',
         title: def.title,
         message: def.message,
-        actionHint: def.actionHint,
         isCanceled: true,
         isRetryable: true,
         rawMessage,
@@ -493,7 +479,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'USER_CANCELED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: true,
       isRetryable: true,
       rawMessage,
@@ -513,7 +498,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'GAS_PRICE_UNDERPRICED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       rawMessage,
@@ -535,26 +519,31 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: isGasRelated ? 'INSUFFICIENT_USDC_FOR_GAS' : 'INSUFFICIENT_BALANCE',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       rawMessage,
     }
   }
 
-  // 3b. Insufficient Native Gas (ETH) for Circle User-Controlled Wallets / External EVM Chains
+  // 3b. Insufficient Native Gas / Asset for Circle User-Controlled Wallets / External EVM Chains
   if (
     lowMsg.includes('the asset amount owned by the wallet is insufficient') ||
     lowMsg.includes('insufficient native gas') ||
     lowMsg.includes('insufficient eth')
   ) {
-    const def = ERROR_DEFINITIONS.INSUFFICIENT_NATIVE_GAS
+    const isArcChain =
+      Boolean(contextChain && (contextChain.toUpperCase().includes('ARC') || contextChain === '5042002')) ||
+      lowMsg.includes('arc')
+
+    const def = isArcChain
+      ? ERROR_DEFINITIONS.INSUFFICIENT_USDC_FOR_GAS
+      : ERROR_DEFINITIONS.INSUFFICIENT_NATIVE_GAS
+
     return {
       category: def.category,
-      code: 'INSUFFICIENT_NATIVE_GAS',
+      code: isArcChain ? 'INSUFFICIENT_USDC_FOR_GAS' : 'INSUFFICIENT_NATIVE_GAS',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       rawMessage,
@@ -573,7 +562,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'TREASURY_RECIPIENT_MISMATCH',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       rawMessage,
@@ -595,7 +583,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'NO_LIQUIDITY_ROUTE',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: false,
       rawMessage,
@@ -610,7 +597,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'SLIPPAGE_EXCEEDED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       rawMessage,
@@ -630,7 +616,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'WALLET_RPC_DESYNC',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       rawMessage,
@@ -658,7 +643,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'RPC_LIMIT_EXCEEDED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       rawMessage,
@@ -687,7 +671,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
         code: 'RPC_LIMIT_EXCEEDED',
         title: def.title,
         message: def.message,
-        actionHint: def.actionHint,
         isCanceled: false,
         isRetryable: true,
         rawMessage,
@@ -701,7 +684,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
         code: 'CCTP_MIN_FEE_VIOLATION',
         title: def.title,
         message: def.message,
-        actionHint: def.actionHint,
         isCanceled: false,
         isRetryable: false,
         rawMessage,
@@ -715,7 +697,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
         code: 'INSUFFICIENT_ALLOWANCE',
         title: def.title,
         message: def.message,
-        actionHint: def.actionHint,
         isCanceled: false,
         isRetryable: true,
         rawMessage,
@@ -731,7 +712,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'CONTRACT_REVERT',
       title: ERROR_DEFINITIONS.CONTRACT_REVERT.title,
       message,
-      actionHint: ERROR_DEFINITIONS.CONTRACT_REVERT.actionHint,
       isCanceled: false,
       isRetryable: false,
       rawMessage,
@@ -756,7 +736,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'NETWORK_TIMEOUT',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       rawMessage,
@@ -781,7 +760,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
       code: 'RPC_LIMIT_EXCEEDED',
       title: def.title,
       message: def.message,
-      actionHint: def.actionHint,
       isCanceled: false,
       isRetryable: true,
       rawMessage,
@@ -804,7 +782,6 @@ export function normalizeAppError(err: unknown): ArcisAppError {
     code: 'UNKNOWN_ERROR',
     title: ERROR_DEFINITIONS.UNKNOWN_ERROR.title,
     message: fallbackMessage,
-    actionHint: ERROR_DEFINITIONS.UNKNOWN_ERROR.actionHint,
     isCanceled: false,
     isRetryable: true,
     rawMessage,
