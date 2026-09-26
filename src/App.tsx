@@ -21,6 +21,7 @@ import { useArcCopilot } from './hooks/useArcCopilot'
 import { useAutoSwitchArcChain } from './hooks/useAutoSwitchArcChain'
 import { BroadcastProvider } from './components/BroadcastNotification'
 import ArcCopilotDrawer from './components/copilot/ArcCopilotDrawer'
+import PortfolioDrawer from './components/PortfolioDrawer'
 import { prefetchGlobalData, prefetchAllWalletData } from './services/prefetchCoordinator'
 
 function AutoChainSwitchWatcher() {
@@ -83,6 +84,7 @@ export default function App() {
 
   const [isCircleAuthOpen, setIsCircleAuthOpen] = useState<boolean>(false)
   const [isFaucetOpen, setIsFaucetOpen] = useState<boolean>(false)
+  const [isPortfolioOpen, setIsPortfolioOpen] = useState<boolean>(false)
 
   useEffect(() => {
     if (connector) {
@@ -232,6 +234,7 @@ export default function App() {
           }}
           onOpenFaucet={() => setIsFaucetOpen(true)}
           isRestoring={isModularRestoring}
+          onOpenPortfolio={() => setIsPortfolioOpen(true)}
         />
 
         {/* Main Container */}
@@ -279,6 +282,8 @@ export default function App() {
                   walletAddress={walletAddress}
                   walletConnected={walletConnected}
                   provider={connectedProvider}
+                  authSource={activeAuthSource}
+                  executeUcwContract={executeUcwContract}
                 />
               </div>
             )}
@@ -425,6 +430,16 @@ export default function App() {
           onClose={() => setIsFaucetOpen(false)}
           connectedAddress={walletAddress}
           onSuccess={refreshBalances}
+        />
+
+        {/* Circle Multi-Chain Portfolio Side Drawer */}
+        <PortfolioDrawer
+          isOpen={isPortfolioOpen}
+          onClose={() => setIsPortfolioOpen(false)}
+          walletAddress={walletAddress || ucwAddress || ''}
+          authSource={activeAuthSource}
+          onNavigateToTab={(tab) => setActiveTab(tab as any)}
+          onOpenFaucet={() => setIsFaucetOpen(true)}
         />
       </div>
     </BroadcastProvider>

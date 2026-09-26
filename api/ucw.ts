@@ -345,7 +345,7 @@ export async function POST(req: Request) {
       const abiParameters = Array.isArray(body.abiParameters) ? body.abiParameters : undefined;
       const callData = body.callData ? sanitizeString(body.callData, 4096) : undefined;
       const amount = body.amount ? sanitizeString(body.amount, 64) : undefined;
-      const blockchain = body.blockchain ? sanitizeString(body.blockchain, 64) : undefined;
+      const blockchain = body.blockchain ? sanitizeString(body.blockchain, 64) : 'ARC-TESTNET';
 
       if (!userToken || !contractAddress) {
         return apiError("userToken and contractAddress are required.", "MISSING_PARAMETERS", 400);
@@ -441,7 +441,7 @@ export async function POST(req: Request) {
       let walletId = sanitizeString(body.walletId, 128);
       const rawData = body.data;
       const memo = body.memo ? sanitizeString(body.memo, 128) : undefined;
-      const blockchain = body.blockchain ? sanitizeString(body.blockchain, 64) : undefined;
+      const blockchain = body.blockchain ? sanitizeString(body.blockchain, 64) : 'ARC-TESTNET';
 
       if (!userToken || !rawData) {
         return apiError("userToken and data are required.", "MISSING_PARAMETERS", 400);
@@ -526,14 +526,40 @@ export async function POST(req: Request) {
 
       const client = getCircleClient();
 
-      if (!walletId) {
-        const walletsRes = await client.listWallets({ userToken });
-        walletId = walletsRes.data?.wallets?.[0]?.id || "";
+      let targetWalletId = walletId;
+      if (blockchainParam) {
+        try {
+          const walletsRes = await client.listWallets({ userToken });
+          const userWallets = walletsRes.data?.wallets || [];
+          const matchingWallet = userWallets.find(
+            (w: any) => w.blockchain?.toUpperCase() === blockchainParam.toUpperCase()
+          );
+          if (matchingWallet) {
+            targetWalletId = matchingWallet.id;
+          }
+        } catch (wErr) {
+          console.warn("[UCW API] listWallets warning in createTransfer:", wErr);
+        }
+      }
+      if (!targetWalletId) {
+        try {
+          const walletsRes = await client.listWallets({ userToken });
+          targetWalletId = walletsRes.data?.wallets?.[0]?.id || "";
+        } catch (wErr) {
+          console.warn("[UCW API] listWallets fallback warning:", wErr);
+        }
       }
 
-      if (!walletId) {
-        return apiError("No Circle wallet found for this user account.", "NO_WALLET_FOUND", 404);
+      if (!targetWalletId) {
+        return apiError(
+          blockchainParam
+            ? `No ${blockchainParam} wallet exists for this account yet. Create it first (action=createUserWallet) and retry.`
+            : "No Circle wallet found for this user account.",
+          blockchainParam ? "NO_WALLET_FOR_BLOCKCHAIN" : "NO_WALLET_FOUND",
+          blockchainParam ? 409 : 404
+        );
       }
+      walletId = targetWalletId;
 
       let resolvedTokenId = tokenId;
       let resolvedTokenAddress = tokenAddressParam;
