@@ -61,7 +61,7 @@ export async function executeDirectCopilotAction(
     }
   }
 
-  const sessionConfig = getSessionKeyConfig()
+  const sessionConfig = getSessionKeyConfig(activeWallet)
   const isZeroPopupMode =
     sessionConfig.isActive &&
     sessionConfig.autoExecute &&
@@ -77,7 +77,7 @@ export async function executeDirectCopilotAction(
     const slippageTolerance = Number(data.slippage)
 
     // Check session limits
-    const limitCheck = verifySessionLimits('swap', amountIn)
+    const limitCheck = verifySessionLimits('swap', amountIn, activeWallet)
     if (!limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
@@ -236,7 +236,7 @@ export async function executeDirectCopilotAction(
       const durationMs = Date.now() - startTime
 
       // Deduct session spend
-      deductSessionSpend(amountIn)
+      deductSessionSpend(amountIn, activeWallet)
 
       // Add to transaction history
       addTransaction({
@@ -343,7 +343,7 @@ export async function executeDirectCopilotAction(
         const durationMs = Date.now() - startTime
 
         // Deduct session budget
-        deductSessionSpend(amountIn)
+        deductSessionSpend(amountIn, activeWallet)
 
         // Add real transaction to history & broadcast event
         addTransaction({
@@ -476,7 +476,7 @@ export async function executeDirectCopilotAction(
     const apy = data.apy || '8.42%'
 
     // Limit check
-    const limitCheck = verifySessionLimits('deposit', amount)
+    const limitCheck = verifySessionLimits('deposit', amount, activeWallet)
     if (!limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
@@ -655,7 +655,7 @@ export async function executeDirectCopilotAction(
     }
 
     const durationMs = Date.now() - startTime
-    deductSessionSpend(amount)
+    deductSessionSpend(amount, activeWallet)
 
     addTransaction({
       type: 'send',
@@ -706,7 +706,7 @@ export async function executeDirectCopilotAction(
     const fromDisplayName = getChainDisplayName(sourceChainKey)
     const toDisplayName = getChainDisplayName(destChainKey)
 
-    const limitCheck = verifySessionLimits('bridge', amount)
+    const limitCheck = verifySessionLimits('bridge', amount, activeWallet)
     if (!limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
@@ -791,7 +791,7 @@ export async function executeDirectCopilotAction(
       const explorerUrl = getExplorerTxUrl(targetChainForExplorer, realTxHash)
       const durationMs = Date.now() - startTime
 
-      deductSessionSpend(amount)
+      deductSessionSpend(amount, activeWallet)
 
       addTransaction({
         type: 'bridge',
@@ -874,7 +874,7 @@ export async function executeDirectCopilotAction(
       }
     }
 
-    const limitCheck = verifySessionLimits('send', amount)
+    const limitCheck = verifySessionLimits('send', amount, activeWallet)
     if (!limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
@@ -938,7 +938,7 @@ export async function executeDirectCopilotAction(
       }
 
       const durationMs = Date.now() - startTime
-      deductSessionSpend(amount)
+      deductSessionSpend(amount, activeWallet)
 
       addTransaction({
         type: 'send',
@@ -1015,7 +1015,7 @@ export async function executeDirectCopilotAction(
       const realTxHash = (sendRes as any)?.txHash || (sendRes as any)?.transactionHash || `0x${Date.now().toString(16)}`
       const durationMs = Date.now() - startTime
 
-      deductSessionSpend(amount)
+      deductSessionSpend(amount, activeWallet)
 
       addTransaction({
         type: 'send',
