@@ -1,0 +1,113 @@
+// src/config/x402/manifests/gatewayIndexer.ts
+import type { ServiceManifest } from '../../../types/x402'
+import {
+  DEFAULT_X402_DOMAIN,
+  GATEWAY_BATCHED_DOMAIN,
+  GATEWAY_CONTRACTS,
+  CIRCLE_BATCHING_METADATA,
+  X402_NETWORKS,
+  X402_SCHEMES,
+} from '../schemes'
+
+export const gatewayIndexerManifest: ServiceManifest = {
+  id: 'arc-cross-chain-gateway-flow-indexer',
+  version: '1.0.0',
+  name: 'Cross-Chain Gateway Flow Indexer',
+  tagline: 'Real-Time Institutional USDC Liquidity Migration Flowing into Arc L1 from 13+ Chains',
+  category: 'Cross-Chain Gateway',
+  engine: 'native',
+  description: 'Tracks real-time net USDC inflows and outflows between Circle Gateway-supported chains (Ethereum, Base, Arbitrum, Solana) and Arc L1. Delivers early signals on institutional capital movements and whale migrations.',
+  listing: {
+    kind: 'official',
+    ownerAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    createdAt: 1760000000000,
+  },
+  provider: {
+    name: 'Circle Gateway Analytics Collective',
+    address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    isVerified: true,
+    reputationScore: 99,
+  },
+  pricing: {
+    model: 'per_call',
+    priceUsdc: 0.003,
+    maxAmountUsdc: 0.006,
+    protocolFeeBps: 100,
+  },
+  accepts: [
+    {
+      scheme: X402_SCHEMES.EXACT,
+      network: X402_NETWORKS.ARC_TESTNET,
+      asset: 'USDC',
+      payTo: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+      amount: '3000',
+      maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
+      extra: {
+        name: CIRCLE_BATCHING_METADATA.NAME,
+        version: CIRCLE_BATCHING_METADATA.VERSION,
+        verifyingContract: GATEWAY_CONTRACTS.testnet.gatewayWallet,
+      },
+      domain: DEFAULT_X402_DOMAIN,
+    },
+  ],
+  serve: {
+    method: 'GET',
+    path: '/api/x402/arc-cross-chain-gateway-flow-indexer',
+  },
+  requestSchema: {
+    type: 'object',
+    required: ['timeWindow'],
+    properties: {
+      timeWindow: {
+        type: 'string',
+        enum: ['1h', '24h', '7d'],
+      },
+    },
+  },
+  ui: {
+    form: [
+      {
+        name: 'timeWindow',
+        label: 'Time Window',
+        type: 'select',
+        defaultValue: '1h',
+        options: [
+          { label: 'Past 1 Hour', value: '1h' },
+          { label: 'Past 24 Hours', value: '24h' },
+          { label: 'Past 7 Days', value: '7d' },
+        ],
+        description: 'Timeframe window to analyze.',
+        required: true,
+      },
+    ],
+  },
+  examples: {
+    request: {
+      timeWindow: '1h',
+    },
+    response: {
+      status: 'FEED_ACTIVE',
+      timeWindow: '1h',
+      netUsdcInflowToArc: '+4,820,500 USDC',
+      topSourceChains: [
+        { chain: 'Ethereum Mainnet/Sepolia', inflowUsdc: 2450000, sharePct: 50.8 },
+        { chain: 'Base', inflowUsdc: 1320500, sharePct: 27.4 },
+        { chain: 'Arbitrum', inflowUsdc: 850000, sharePct: 17.6 },
+        { chain: 'Solana Devnet', inflowUsdc: 200000, sharePct: 4.2 },
+      ],
+      institutionalWhaleTransfersCount: 14,
+      flowSentiment: 'STRONG_BULLISH_LIQUIDITY_ACCUMULATION',
+    },
+  },
+  sla: {
+    p95LatencyMs: 130,
+    uptimePct: 99.85,
+    successRate: 99.85,
+  },
+  healthcheckUrl: '/api/x402/health/arc-cross-chain-gateway-flow-indexer',
+  agentPrompts: [
+    'Track institutional USDC flows into Arc over the last 24 hours',
+    'Which chain is bridging the most liquidity to Arc right now?',
+  ],
+  tags: ['Gateway', 'Cross-Chain', 'Whale Alert', 'Indexer'],
+}

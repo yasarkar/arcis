@@ -321,8 +321,10 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       USDC: '0x3600000000000000000000000000000000000000',
       EURC: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a',
       cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF',
+      WETH: '0x2c4047028a72803939b6fb674D01bC059B5C4961',
+      USYC: '0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C',
     },
-    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8 },
+    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8, WETH: 18, USYC: 6 },
     gatewayContracts: {
       gatewayWallet: '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
       gatewayMinter: '0x0022222ABE238Cc2C7Bb1f21003F0a260052475B',
@@ -355,8 +357,9 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     tokens: {
       USDC: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
       EURC: '0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4',
+      WETH: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9',
     },
-    tokenDecimals: { USDC: 6, EURC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
     ui: {
       iconId: 'ethereum',
       name: 'Ethereum Sepolia',
@@ -385,8 +388,9 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     tokens: {
       USDC: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
       EURC: '0x808007a79a5b6f3d99d3e8e21adbfcecfec11124',
+      WETH: '0x4200000000000000000000000000000000000006',
     },
-    tokenDecimals: { USDC: 6, EURC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
     ui: {
       iconId: 'base-sepolia',
       name: 'Base Sepolia',
@@ -414,8 +418,9 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     tokens: {
       USDC: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
       EURC: '0xA8C865719483955250774276726980b0D0008d68',
+      WETH: '0x980B62Da83eFf3D4576C647993b0c1D7faf17c73',
     },
-    tokenDecimals: { USDC: 6, EURC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
     ui: {
       iconId: 'arbitrum-sepolia',
       name: 'Arbitrum Sepolia',
@@ -443,8 +448,9 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     tokens: {
       USDC: '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
       EURC: '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8',
+      WETH: '0x4200000000000000000000000000000000000006',
     },
-    tokenDecimals: { USDC: 6, EURC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
     ui: {
       iconId: 'optimism-sepolia',
       name: 'Optimism Sepolia',
@@ -690,8 +696,10 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
       USDC: '0x3600000000000000000000000000000000000000',
       EURC: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a',
       cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF',
+      WETH: '0x128cC466B61f542da60c70e3aA11c10e19B84EDB',
+      USYC: '0x8a5D989Bbb96929F689B0200f435f53dA42bF490',
     },
-    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8 },
+    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8, WETH: 18, USYC: 6 },
     gatewayContracts: {
       gatewayWallet: '0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE',
       gatewayMinter: '0x2222222d7164433c4C09B0b0D809a9b52C04C205',
@@ -720,8 +728,9 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
     tokens: {
       USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
       EURC: '0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c',
+      WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
     },
-    tokenDecimals: { USDC: 6, EURC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
     ui: {
       iconId: 'ethereum',
       name: 'Ethereum',
@@ -746,8 +755,9 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
     tokens: {
       USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
       EURC: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1DD429',
+      WETH: '0x4200000000000000000000000000000000000006',
     },
-    tokenDecimals: { USDC: 6, EURC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
     ui: {
       iconId: 'base-sepolia',
       name: 'Base',
@@ -771,8 +781,9 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'Arbiscan', url: 'https://arbiscan.io' },
     tokens: {
       USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+      WETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
     },
-    tokenDecimals: { USDC: 6 },
+    tokenDecimals: { USDC: 6, WETH: 18 },
     ui: {
       iconId: 'arbitrum-sepolia',
       name: 'Arbitrum One',
@@ -796,8 +807,9 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'Optimism Explorer', url: 'https://optimistic.etherscan.io' },
     tokens: {
       USDC: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+      WETH: '0x4200000000000000000000000000000000000006',
     },
-    tokenDecimals: { USDC: 6 },
+    tokenDecimals: { USDC: 6, WETH: 18 },
     ui: {
       iconId: 'optimism-sepolia',
       name: 'OP Mainnet',
