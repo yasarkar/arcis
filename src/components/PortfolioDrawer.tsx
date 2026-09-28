@@ -11,12 +11,12 @@ import {
   Filter,
   Wallet,
 } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { NetworkIcon, TokenIcon } from '@web3icons/react/dynamic'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 import { getChainDisplayName, getChainIconId } from '../config/chainMeta'
-import { EURC_ADDRESSES, CIRBTC_ADDRESSES } from '../config/gatewayConfig'
-import { UsdcIcon, EurcIcon, CirBtcIcon, CircleIcon } from '../config/tokenIcons'
+import { EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, USYC_ADDRESSES } from '../config/gatewayConfig'
+import { UsdcIcon, EurcIcon, CirBtcIcon, UsycIcon } from '../config/tokenIcons'
 
 interface PortfolioDrawerProps {
   isOpen: boolean
@@ -34,13 +34,26 @@ const ORDERED_CHAIN_KEYS = [
   'Ethereum_Sepolia',
   'Arbitrum_Sepolia',
   'Optimism_Sepolia',
-  'Polygon_Amoy',
+  'Polygon_Amoy_Testnet',
   'Avalanche_Fuji',
   'Sei_Testnet',
   'Sonic_Testnet',
   'Unichain_Sepolia',
   'World_Chain_Sepolia',
 ]
+
+// Helper to look up live or safe fallback price for a chain's native gas currency
+function getNativeGasPrice(symbol?: string, prices?: Record<string, number> | null): number {
+  const s = (symbol || '').toUpperCase().trim()
+  if (s === 'ETH') return prices?.WETH || prices?.ETH || 2500
+  if (s === 'POL' || s === 'MATIC') return prices?.POL || prices?.MATIC || 0.40
+  if (s === 'AVAX') return prices?.AVAX || 26.50
+  if (s === 'SOL') return prices?.SOL || 145.0
+  if (s === 'SEI') return prices?.SEI || 0.35
+  if (s === 'S') return prices?.S || 0.65
+  if (s === 'USDC') return 1.0
+  return prices?.[s] || 0
+}
 
 export default function PortfolioDrawer({
   isOpen,
@@ -91,21 +104,33 @@ export default function PortfolioDrawer({
     let totalUsdc = 0
     let totalEurc = 0
     let totalCirbtc = 0
+    let totalWeth = 0
+    let totalUsyc = 0
+    let totalNativeUsd = 0
     let chainsWithBalance = 0
 
     ORDERED_CHAIN_KEYS.forEach((chainKey) => {
-      const item = walletBalances[chainKey]
+      const item = walletBalances[chainKey] || walletBalances[chainKey.replace('_Testnet', '')]
       if (!item) return
 
+      const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
       const usdcVal = parseFloat(item.usdc || '0')
       const eurcVal = item.eurc ? parseFloat(item.eurc) : 0
       const cirbtcVal = item.cirbtc ? parseFloat(item.cirbtc) : 0
+      const wethVal = item.weth ? parseFloat(item.weth) : 0
+      const usycVal = item.usyc ? parseFloat(item.usyc) : 0
+      const nativeVal = !isArc && item.nativeAmount ? parseFloat(item.nativeAmount) : 0
 
       if (!isNaN(usdcVal)) totalUsdc += usdcVal
       if (!isNaN(eurcVal)) totalEurc += eurcVal
       if (!isNaN(cirbtcVal)) totalCirbtc += cirbtcVal
+      if (!isNaN(wethVal)) totalWeth += wethVal
+      if (!isNaN(usycVal)) totalUsyc += usycVal
+      if (!isNaN(nativeVal) && nativeVal > 0) {
+        totalNativeUsd += nativeVal * getNativeGasPrice(item.nativeSymbol, prices)
+      }
 
-      if (usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0) {
+      if (usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0 || wethVal > 0 || usycVal > 0 || nativeVal > 0) {
         chainsWithBalance++
       }
     })
@@ -113,12 +138,23 @@ export default function PortfolioDrawer({
     // Approximate total USD valuation
     const eurcPrice = prices?.EURC || 1.08
     const btcPrice = prices?.cirBTC || prices?.BTC || 85000
-    const totalUsd = totalUsdc * 1.0 + totalEurc * eurcPrice + totalCirbtc * btcPrice
+    const wethPrice = prices?.WETH || prices?.ETH || 2500
+    const usycPrice = prices?.USYC || 1.05
+    const totalUsd =
+      totalUsdc * 1.0 +
+      totalEurc * eurcPrice +
+      totalCirbtc * btcPrice +
+      totalWeth * wethPrice +
+      totalUsyc * usycPrice +
+      totalNativeUsd
 
     return {
       totalUsdc,
       totalEurc,
       totalCirbtc,
+      totalWeth,
+      totalUsyc,
+      totalNativeUsd,
       totalUsd,
       chainsWithBalance,
     }
@@ -128,15 +164,21 @@ export default function PortfolioDrawer({
   const assetMetrics = useMemo(() => {
     const eurcPrice = prices?.EURC || 1.08
     const btcPrice = prices?.cirBTC || prices?.BTC || 85000
+    const wethPrice = prices?.WETH || prices?.ETH || 2500
+    const usycPrice = prices?.USYC || 1.05
 
     const usdcUsd = portfolioStats.totalUsdc * 1.0
     const eurcUsd = portfolioStats.totalEurc * eurcPrice
     const cirbtcUsd = portfolioStats.totalCirbtc * btcPrice
+    const wethUsd = portfolioStats.totalWeth * wethPrice
+    const usycUsd = portfolioStats.totalUsyc * usycPrice
     const totalUsd = portfolioStats.totalUsd
 
     const usdcPct = totalUsd > 0 ? (usdcUsd / totalUsd) * 100 : 0
     const eurcPct = totalUsd > 0 ? (eurcUsd / totalUsd) * 100 : 0
     const cirbtcPct = totalUsd > 0 ? (cirbtcUsd / totalUsd) * 100 : 0
+    const wethPct = totalUsd > 0 ? (wethUsd / totalUsd) * 100 : 0
+    const usycPct = totalUsd > 0 ? (usycUsd / totalUsd) * 100 : 0
 
     return {
       usdcUsd,
@@ -145,14 +187,51 @@ export default function PortfolioDrawer({
       eurcPct,
       cirbtcUsd,
       cirbtcPct,
+      wethUsd,
+      wethPct,
+      usycUsd,
+      usycPct,
     }
   }, [portfolioStats, prices])
 
-  // All chains strictly from ordered testnet list
+  // Helper to compute a chain's total USD valuation across all supported tokens (USDC, EURC, cirBTC, WETH, USYC, Native Gas)
+  const getChainTotalUsd = (chainKey: string): number => {
+    const item = walletBalances[chainKey] || walletBalances[chainKey.replace('_Testnet', '')]
+    if (!item) return 0
+    const usdcVal = parseFloat(item.usdc || '0')
+    const eurcVal = item.eurc ? parseFloat(item.eurc) : 0
+    const cirbtcVal = item.cirbtc ? parseFloat(item.cirbtc) : 0
+    const wethVal = item.weth ? parseFloat(item.weth) : 0
+    const usycVal = item.usyc ? parseFloat(item.usyc) : 0
+    const eurcPrice = prices?.EURC || 1.08
+    const btcPrice = prices?.cirBTC || prices?.BTC || 85000
+    const wethPrice = prices?.WETH || prices?.ETH || 2500
+    const usycPrice = prices?.USYC || 1.05
+
+    const safeUsdc = isNaN(usdcVal) ? 0 : usdcVal
+    const safeEurc = isNaN(eurcVal) ? 0 : eurcVal
+    const safeBtc = isNaN(cirbtcVal) ? 0 : cirbtcVal
+    const safeWeth = isNaN(wethVal) ? 0 : wethVal
+    const safeUsyc = isNaN(usycVal) ? 0 : usycVal
+
+    // Native gas valuation for non-Arc chains (on Arc, native is USDC - no double count)
+    const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
+    let nativeUsd = 0
+    if (!isArc && item.nativeAmount) {
+      const nativeVal = parseFloat(item.nativeAmount)
+      if (!isNaN(nativeVal) && nativeVal > 0) {
+        nativeUsd = nativeVal * getNativeGasPrice(item.nativeSymbol, prices)
+      }
+    }
+
+    return safeUsdc * 1.0 + safeEurc * eurcPrice + safeBtc * btcPrice + safeWeth * wethPrice + safeUsyc * usycPrice + nativeUsd
+  }
+
+  // All chains filtered and sorted from highest balance to lowest
   const chainList = useMemo(() => {
-    return ORDERED_CHAIN_KEYS.filter((chainKey) => {
+    const filtered = ORDERED_CHAIN_KEYS.filter((chainKey) => {
       if (chainKey === 'Arc') return false
-      const item = walletBalances[chainKey]
+      const item = walletBalances[chainKey] || walletBalances[chainKey.replace('_Testnet', '')]
       const name = item?.chainName || getChainDisplayName(chainKey)
       const matchesSearch =
         !searchQuery.trim() ||
@@ -162,15 +241,39 @@ export default function PortfolioDrawer({
       if (!matchesSearch) return false
 
       if (onlyNonZero) {
+        const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
         const usdcVal = parseFloat(item?.usdc || '0')
         const eurcVal = item?.eurc ? parseFloat(item.eurc) : 0
         const cirbtcVal = item?.cirbtc ? parseFloat(item.cirbtc) : 0
-        return usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0
+        const wethVal = item?.weth ? parseFloat(item.weth) : 0
+        const usycVal = item?.usyc ? parseFloat(item.usyc) : 0
+        const nativeVal = !isArc && item?.nativeAmount ? parseFloat(item.nativeAmount) : 0
+        return usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0 || wethVal > 0 || usycVal > 0 || nativeVal > 0
       }
 
       return true
     })
-  }, [walletBalances, searchQuery, onlyNonZero])
+
+    return [...filtered].sort((a, b) => {
+      const totalA = getChainTotalUsd(a)
+      const totalB = getChainTotalUsd(b)
+
+      // 1. Sort by total chain valuation descending (en yüksek bakiye en üstte)
+      if (Math.abs(totalB - totalA) > 0.000001) {
+        return totalB - totalA
+      }
+
+      // 2. Secondary sort: USDC balance descending
+      const usdcA = parseFloat(walletBalances[a]?.usdc || '0') || 0
+      const usdcB = parseFloat(walletBalances[b]?.usdc || '0') || 0
+      if (Math.abs(usdcB - usdcA) > 0.000001) {
+        return usdcB - usdcA
+      }
+
+      // 3. Fallback to default priority order
+      return ORDERED_CHAIN_KEYS.indexOf(a) - ORDERED_CHAIN_KEYS.indexOf(b)
+    })
+  }, [walletBalances, searchQuery, onlyNonZero, prices])
 
   if (!isOpen) return null
 
@@ -229,7 +332,7 @@ export default function PortfolioDrawer({
         </div>
 
         {/* ── Scrollable Body ── */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5 space-y-5">
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-4 space-y-5">
           {/* ── Total Portfolio Value Card ── */}
           <div
             className="relative p-5 rounded-3xl overflow-hidden"
@@ -240,7 +343,7 @@ export default function PortfolioDrawer({
             }}
           >
             <div className="flex items-center justify-between">
-              <span className="text-s font-medium text-slate-300 flex items-center gap-1.5">
+              <span className="text-s font-medium text-slate-300 flex items-center gap-2">
                 Total Estimated Portfolio Value
               </span>
             </div>
@@ -249,7 +352,7 @@ export default function PortfolioDrawer({
               <span className="text-3xl font-extrabold tracking-tight text-white font-mono">
                 ${portfolioStats.totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
-              <span className="text-xs font-semibold text-indigo-300">USD</span>
+              <span className="text-[15px] font-semibold text-indigo-300">USD</span>
             </div>
 
             {/* Asset Allocation Breakdown */}
@@ -278,7 +381,7 @@ export default function PortfolioDrawer({
               </div>
 
               {/* EURC */}
-              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-cyan-500/30 transition-all flex items-center justify-between group">
+              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
                     <img src={EurcIcon} alt="EURC" className="w-full h-full object-contain" />
@@ -301,7 +404,7 @@ export default function PortfolioDrawer({
               </div>
 
               {/* cirBTC */}
-              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-amber-500/30 transition-all flex items-center justify-between group">
+              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
                     <img src={CirBtcIcon} alt="cirBTC" className="w-full h-full object-contain" />
@@ -322,26 +425,72 @@ export default function PortfolioDrawer({
                   </div>
                 </div>
               </div>
+
+              {/* WETH */}
+              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <TokenIcon symbol="eth" variant="branded" size={26} className="w-full h-full object-contain" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-s font-bold text-white tracking-wide">WETH</span>
+                    </div>
+                    <div className="text-[13px] text-slate-400 font-mono mt-0.5">
+                      ≈ ${assetMetrics.wethUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0 pl-3">
+                  <div className="font-mono text-s font-bold text-white tracking-tight">
+                    {portfolioStats.totalWeth.toFixed(4)}
+                  </div>
+                </div>
+              </div>
+
+              {/* USYC */}
+              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <img src={UsycIcon} alt="USYC" className="w-full h-full object-contain" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-s font-bold text-white tracking-wide">USYC</span>
+                    </div>
+                    <div className="text-[13px] text-slate-400 font-mono mt-0.5">
+                      ≈ ${assetMetrics.usycUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0 pl-3">
+                  <div className="font-mono text-s font-bold text-white tracking-tight">
+                    {portfolioStats.totalUsyc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* ── Search & Filter Controls ── */}
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
                 placeholder="Search Networks..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-colors"
+                className="w-full pl-9 pr-3 py-3 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500/50 transition-colors"
               />
             </div>
 
             <button
               type="button"
               onClick={() => setOnlyNonZero((prev) => !prev)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer ${onlyNonZero
+              className={`flex items-center gap-1.5 px-3 py-3 rounded-xl text-xs font-medium border transition-all cursor-pointer ${onlyNonZero
                 ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-300'
                 : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-white'
                 }`}
@@ -364,11 +513,15 @@ export default function PortfolioDrawer({
               </div>
             ) : (
               chainList.map((chainKey) => {
-                const chainData = walletBalances[chainKey]
+                const chainData = walletBalances[chainKey] || walletBalances[chainKey.replace('_Testnet', '')]
                 const chainName = chainData?.chainName || getChainDisplayName(chainKey)
                 const iconId = getChainIconId(chainKey)
+                const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
+
                 const hasEurc = Boolean(EURC_ADDRESSES[chainKey])
                 const hasCirbtc = Boolean(CIRBTC_ADDRESSES[chainKey])
+                const hasWeth = Boolean(WETH_ADDRESSES[chainKey])
+                const hasUsyc = Boolean(USYC_ADDRESSES[chainKey])
 
                 const isHovered = hoveredChainKey === chainKey
                 const isExpanded = expandedChainKey === chainKey || isHovered
@@ -376,6 +529,11 @@ export default function PortfolioDrawer({
                 const usdcAmount = chainData?.usdc || '0.00'
                 const eurcAmount = chainData?.eurc || (hasEurc ? '0.00' : undefined)
                 const cirbtcAmount = chainData?.cirbtc || (hasCirbtc ? '0.00000' : undefined)
+                const wethAmount = chainData?.weth || (hasWeth ? '0.0000' : undefined)
+                const usycAmount = chainData?.usyc || (hasUsyc ? '0.00' : undefined)
+                const nativeAmount = chainData?.nativeAmount || '0.0000'
+                const nativeSymbol = chainData?.nativeSymbol || (isArc ? 'USDC' : 'ETH')
+                const chainTotalUsd = getChainTotalUsd(chainKey)
 
                 return (
                   <div
@@ -414,14 +572,14 @@ export default function PortfolioDrawer({
                         </div>
                       </div>
 
-                      {/* Right: USDC Balance */}
+                      {/* Right: Total Chain USD Value */}
                       <div className="flex items-center gap-2.5 shrink-0 text-right">
                         <div>
                           <div className="flex items-baseline justify-end gap-1">
-                            <span className="font-mono text-sm font-bold text-white tracking-tight">
-                              {usdcAmount}
+                            <span className="font-mono text-[18px] font-bold text-white tracking-tight">
+                              ${chainTotalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
-                            <span className="text-[11px] font-bold text-white">USDC</span>
+                            <span className="text-[12px] font-bold text-white">USD</span>
                           </div>
                         </div>
 
@@ -436,18 +594,53 @@ export default function PortfolioDrawer({
                     {/* ── Sub-Tokens Accordion (Revealed on Hover / Click) ── */}
                     <div
                       className={`transition-all duration-300 ease-out border-t border-white/[0.06] bg-[#070912]/80 backdrop-blur-md px-3.5 overflow-hidden ${isExpanded
-                        ? 'max-h-[420px] py-3 opacity-100'
+                        ? 'max-h-[760px] py-3 opacity-100'
                         : 'max-h-0 py-0 opacity-0 pointer-events-none'
                         }`}
                     >
                       <div className="space-y-2">
+                        {/* Native Gas Token Row (for Non-Arc Chains with distinct native token like ETH, POL, AVAX, S, SEI) */}
+                        {!isArc && (
+                          <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+                                {nativeSymbol.toLowerCase() === 's' || iconId === 'sonic' ? (
+                                  <NetworkIcon name="sonic" variant="background" size={36} className="rounded-full overflow-hidden" />
+                                ) : (
+                                  <TokenIcon
+                                    symbol={nativeSymbol.toLowerCase() === 'pol' ? 'pol' : nativeSymbol.toLowerCase()}
+                                    variant="branded"
+                                    size={24}
+                                    className="w-full h-full object-contain"
+                                  />
+                                )}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-s font-semibold text-slate-200">{nativeSymbol}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-mono text-s font-bold text-white">
+                                {nativeAmount} {nativeSymbol}
+                              </div>
+                              <div className="text-[12px] text-slate-400 font-mono">
+                                {formatFiatEstimate(nativeAmount, nativeSymbol, prices) || `≈ $${(parseFloat(nativeAmount || '0') * getNativeGasPrice(nativeSymbol, prices)).toFixed(2)} USD`}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {/* USDC Token Row */}
                         <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <img src={UsdcIcon} alt="USDC" className="w-8 h-8 object-contain" />
                             <div>
-                              <div className="text-xs font-semibold text-slate-200">USDC</div>
-                              <div className="text-[12px] text-slate-400">USD Coin</div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-s font-semibold text-slate-200">USDC</span>
+                              </div>
                             </div>
                           </div>
 
@@ -456,66 +649,98 @@ export default function PortfolioDrawer({
                               {usdcAmount} USDC
                             </div>
                             <div className="text-[12px] text-slate-400 font-mono">
-                              ≈ ${parseFloat(usdcAmount || '0').toFixed(2)} USD
+                              {formatFiatEstimate(usdcAmount, 'USDC', prices) || `≈ $${parseFloat(usdcAmount || '0').toFixed(2)} USD`}
                             </div>
                           </div>
                         </div>
 
                         {/* EURC Token Row */}
-                        <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <img src={EurcIcon} alt="EURC" className="w-8 h-8 object-contain" />
-                            <div>
-                              <div className="text-s font-semibold text-slate-200">EURC</div>
-                              <div className="text-[12px] text-slate-400">Circle Euro Coin</div>
+                        {hasEurc && (
+                          <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <img src={EurcIcon} alt="EURC" className="w-8 h-8 object-contain" />
+                              <div>
+                                <div className="text-s font-semibold text-slate-200">EURC</div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-mono text-s font-bold text-slate-200">
+                                {eurcAmount} EURC
+                              </div>
+                              <div className="text-[12px] text-slate-400 font-mono">
+                                {formatFiatEstimate(eurcAmount, 'EURC', prices) || `≈ ${(parseFloat(eurcAmount || '0') * (prices?.EURC || 1.08)).toFixed(2)} USD`}
+                              </div>
                             </div>
                           </div>
-
-                          <div className="text-right">
-                            {hasEurc ? (
-                              <>
-                                <div className="font-mono text-xs font-bold text-slate-200">
-                                  {eurcAmount} EURC
-                                </div>
-                                <div className="text-[12px] text-slate-400 font-mono">
-                                  ≈ ${(parseFloat(eurcAmount || '0') * (prices?.EURC || 1.08)).toFixed(2)} USD
-                                </div>
-                              </>
-                            ) : (
-                              <span className="text-[12px] text-slate-500 italic">
-                                Bu ağda tanımlı değil
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        )}
 
                         {/* cirBTC Token Row */}
-                        <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <img src={CirBtcIcon} alt="cirBTC" className="w-8 h-8 object-contain" />
-                            <div>
-                              <div className="text-s font-semibold text-slate-200">cirBTC</div>
-                              <div className="text-[12px] text-slate-400">Circle Wrapped Bitcoin</div>
+                        {hasCirbtc && (
+                          <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <img src={CirBtcIcon} alt="cirBTC" className="w-8 h-8 object-contain" />
+                              <div>
+                                <div className="text-s font-semibold text-slate-200">cirBTC</div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-mono text-s font-bold text-white">
+                                {cirbtcAmount} cirBTC
+                              </div>
+                              <div className="text-[12px] text-slate-400 font-mono">
+                                {formatFiatEstimate(cirbtcAmount, 'cirBTC', prices) || `≈ ${(parseFloat(cirbtcAmount || '0') * (prices?.cirBTC || prices?.BTC || 85000)).toFixed(2)} USD`}
+                              </div>
                             </div>
                           </div>
+                        )}
 
-                          <div className="text-right">
-                            {hasCirbtc ? (
-                              <>
-                                <div className="font-mono text-xs font-bold text-white">
-                                  {cirbtcAmount} cirBTC
-                                </div>
-                                <div className="text-[12px] text-slate-400 font-mono">
-                                  {formatFiatEstimate(cirbtcAmount, 'cirBTC', prices) || 'AMM Live Price'}
-                                </div>
-                              </>
-                            ) : (
-                              <span className="text-[12px] text-slate-500 italic">
-                                Bu ağda tanımlı değil
-                              </span>
-                            )}
+                        {/* WETH Token Row */}
+                        {hasWeth && (
+                          <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm">
+                                <TokenIcon symbol="eth" variant="branded" size={20} className="w-8 h-8 object-contain" />
+                              </div>
+                              <div>
+                                <div className="text-s font-semibold text-slate-200">WETH</div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-mono text-s font-bold text-white">
+                                {wethAmount} WETH
+                              </div>
+                              <div className="text-[12px] text-slate-400 font-mono">
+                                {formatFiatEstimate(wethAmount, 'WETH', prices) || `≈ ${(parseFloat(wethAmount || '0') * (prices?.WETH || prices?.ETH || 2500)).toFixed(2)} USD`}
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        )}
+
+                        {/* USYC Token Row */}
+                        {hasUsyc && (
+                          <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+                                <img src={UsycIcon} alt="USYC" className="w-8 h-8 object-contain" />
+                              </div>
+                              <div>
+                                <div className="text-s font-semibold text-slate-200">USYC</div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="font-mono text-s font-bold text-white">
+                                {usycAmount} USYC
+                              </div>
+                              <div className="text-[12px] text-slate-400 font-mono">
+                                {formatFiatEstimate(usycAmount, 'USYC', prices) || `≈ ${(parseFloat(usycAmount || '0') * (prices?.USYC || 1.05)).toFixed(2)} USD`}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Quick Action Shortcuts */}

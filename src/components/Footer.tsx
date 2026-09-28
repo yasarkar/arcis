@@ -72,7 +72,6 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
               type="button"
               onClick={() => handleNav('home')}
               className="flex items-center gap-3 w-fit cursor-pointer group focus:outline-none"
-              title="Arcis Protocol"
             >
               <img
                 src={customLogo}

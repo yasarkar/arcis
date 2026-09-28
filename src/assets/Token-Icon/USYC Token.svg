@@ -1,0 +1,20 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="usyc-grad" x1="0" y1="0" x2="96" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Circle -->
+  <path d="M48 96C74.5097 96 96 74.5097 96 48C96 21.4903 74.5097 0 48 0C21.4903 0 0 21.4903 0 48C0 74.5097 21.4903 96 48 96Z" fill="url(#usyc-grad)"/>
+  
+  <!-- Left Circle Bracket -->
+  <path d="M18 48.0003C18 34.4103 27.03 22.9503 39.36 19.2303V13.0503C23.64 16.8903 12 31.0803 12 48.0003C12 64.9203 23.64 79.1103 39.36 82.9503V76.7703C27.03 73.0803 18 61.5903 18 48.0003Z" fill="white"/>
+  
+  <!-- Right Circle Bracket -->
+  <path d="M56.64 13.0503V19.2303C68.97 22.9503 78 34.4103 78 48.0003C78 61.5903 68.97 73.0503 56.64 76.7703V82.9503C72.36 79.1103 84 64.9203 84 48.0003C84 31.0803 72.36 16.8903 56.64 13.0503Z" fill="white"/>
+  
+  <!-- Center Emblem: Stylized Yield 'Y' with Treasury Horizon Bar -->
+  <path d="M37 32H42.5L48 44.5L53.5 32H59L50.8 49.5V64H45.2V49.5L37 32Z" fill="white"/>
+  <rect x="42.5" y="44" width="11" height="3" rx="1.5" fill="white"/>
+</svg>

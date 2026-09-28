@@ -1346,7 +1346,6 @@ export default function BridgeModal({
           }
         }}
         getChainIconId={(c) => CHAIN_META[c]?.iconId || 'ethereum'}
-        title="Select Source Network"
       />
 
       {/* Destination Network Selector Modal */}

@@ -478,7 +478,6 @@ export default function Header({
                   background: 'rgba(255, 255, 255, 0.04)',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
-                title="Circle & Passkey (Restoring session...)"
               >
                 <div className="w-3.5 h-3.5 rounded-full bg-slate-600 animate-pulse" />
                 {!isEvmWalletConnected && <div className="hidden sm:block w-20 h-3 rounded bg-slate-700 animate-pulse" />}
@@ -489,7 +488,6 @@ export default function Header({
                 type="button"
                 className="ub-action-btn flex items-center justify-center gap-1.5 transition-all duration-200"
                 style={{ padding: isEvmWalletConnected ? '6px 10px' : '6px 13px' }}
-                title="Circle & Passkey"
                 aria-label="Circle & Passkey"
               >
                 <img src={circleTokenIcon} alt="Circle & Passkey" className="w-4 h-4 object-contain transition-transform hover:scale-110" />
@@ -630,7 +628,6 @@ export default function Header({
                             padding: isUcwConnected || isPasskeyConnected ? '6px 10px' : '6px 16px',
                           }}
                           aria-label="Connect Wallet"
-                          title="Connect Wallet"
                         >
                           <Wallet className={isUcwConnected || isPasskeyConnected ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
                           {!(isUcwConnected || isPasskeyConnected) && <span>Connect Wallet</span>}
