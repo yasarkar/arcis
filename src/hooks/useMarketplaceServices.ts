@@ -102,6 +102,15 @@ export function useMarketplaceServices(walletAddress?: string, provider?: any) {
     saveCustomServices(updated)
     setServices([newService, ...services])
     ecosystemStatsService.incrementServiceCount()
+
+    // Sync with server-side tollgate catalog
+    try {
+      fetch('/api/x402/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newService),
+      }).catch(() => {})
+    } catch {}
   }
 
   // Filtered services
@@ -117,7 +126,7 @@ export function useMarketplaceServices(walletAddress?: string, provider?: any) {
       const matchesCommunity =
         filterCommunity === 'all' ||
         (filterCommunity === 'verified' && s.provider.isVerified) ||
-        (filterCommunity === 'community' && s.isCommunity)
+        (filterCommunity === 'community' && s.listing.kind === 'community')
       return matchesCategory && matchesSearch && matchesCommunity
     })
   }, [services, selectedCategory, searchQuery, filterCommunity])
@@ -133,7 +142,7 @@ export function useMarketplaceServices(walletAddress?: string, provider?: any) {
 
       // Increment stats dynamically and persist across sessions
       if (result.success) {
-        ecosystemStatsService.recordExecution(service.priceUsdc)
+        ecosystemStatsService.recordExecution(service.pricing.priceUsdc)
       }
       return result
     } catch (err: any) {

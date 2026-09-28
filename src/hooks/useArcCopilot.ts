@@ -14,6 +14,7 @@ import {
   revokeSessionKey as revokeSessionKeyService,
   toggleSessionAutoExecute as toggleAutoExecuteService,
   verifySessionLimits,
+  setActiveWalletForSession,
   SESSION_KEY_UPDATED_EVENT,
 } from '../services/sessionKeyService'
 import { executeDirectCopilotAction } from '../services/copilotExecutionService'
@@ -303,7 +304,7 @@ export const QUICK_PROMPTS = [
 export const createArcisWelcomeMessage = (): CopilotMessage => ({
   id: 'welcome-' + Date.now(),
   role: 'assistant',
-  content: "Hey! I'm Arcis 👋 Ask me anything about Arcis, DEX arbitrage opportunities, pool liquidity depth, slippage optimization, cross-chain Gateway flows, and more.",
+  content: "Hey! I'm Arco 👋 Ask me anything about Arcis, DEX arbitrage opportunities, pool liquidity depth, slippage optimization, cross-chain Gateway flows, and more.",
   timestamp: Date.now(),
 })
 
@@ -498,16 +499,19 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false)
   const [currentSteps, setCurrentSteps] = useState<CopilotStepLog[]>([])
   const [messages, setMessages] = useState<CopilotMessage[]>([createArcisWelcomeMessage()])
-  const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(getSessionKeyConfig())
+  const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress))
 
   useEffect(() => {
-    setSessionConfig(getSessionKeyConfig())
+    setActiveWalletForSession(walletAddress)
+    setSessionConfig(getSessionKeyConfig(walletAddress))
 
     const handleSessionUpdate = (e: any) => {
       if (e?.detail) {
-        setSessionConfig(e.detail)
+        if (!e.detail.walletAddress || !walletAddress || e.detail.walletAddress.toLowerCase() === walletAddress.toLowerCase()) {
+          setSessionConfig(e.detail)
+        }
       } else {
-        setSessionConfig(getSessionKeyConfig())
+        setSessionConfig(getSessionKeyConfig(walletAddress))
       }
     }
 
@@ -517,7 +521,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
         window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
       }
     }
-  }, [isOpen])
+  }, [isOpen, walletAddress])
 
   const toggleOpen = useCallback(() => {
     setIsOpen((prev) => !prev)
@@ -603,20 +607,24 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
     maxPerTxUsdc?: number
     autoExecute?: boolean
     allowedActions?: SessionActionType[]
+    walletAddress?: string
   }) => {
-    const updated = await activateSessionKeyService(params)
+    const updated = await activateSessionKeyService({
+      ...params,
+      walletAddress: params.walletAddress || walletAddress,
+    })
     setSessionConfig(updated)
     return updated
   }
 
   const revokeSession = () => {
-    const updated = revokeSessionKeyService()
+    const updated = revokeSessionKeyService(walletAddress)
     setSessionConfig(updated)
     return updated
   }
 
   const toggleAutoExecute = (enabled: boolean) => {
-    const updated = toggleAutoExecuteService(enabled)
+    const updated = toggleAutoExecuteService(enabled, walletAddress)
     setSessionConfig(updated)
     return updated
   }
@@ -699,11 +707,11 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
       const assistantMsgId = 'assistant-' + Date.now()
       const action = llmResult.actionPayload
 
-      const liveConfig = getSessionKeyConfig()
+      const liveConfig = getSessionKeyConfig(walletAddress)
       if (action && liveConfig.isActive) {
         const actionType = normalizeActionType(action.type)
         const amount = Number(action.data?.amount) || 0
-        const check = verifySessionLimits(actionType, amount)
+        const check = verifySessionLimits(actionType, amount, walletAddress)
 
         if (!check.allowed) {
           const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)
@@ -714,7 +722,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
           const assistantMsg: CopilotMessage = {
             id: assistantMsgId,
             role: 'assistant',
-            content: `⚠️ <strong>Session Restriction:</strong> ${reasonMsg}`,
+            content: `⚠️ ${reasonMsg}`,
             timestamp: Date.now(),
             actionPayload: {
               type: 'configure_session',
@@ -761,7 +769,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
                   : msg
               )
             )
-            setSessionConfig(getSessionKeyConfig())
+            setSessionConfig(getSessionKeyConfig(walletAddress))
           })
         } else {
           // Manual 1-click mode with active session limits
@@ -1305,14 +1313,14 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
         serviceId: s1.id,
         serviceName: s1.name,
         status: 'executing',
-        costUsdc: s1.priceUsdc,
+        costUsdc: s1.pricing.priceUsdc,
         durationMs: 0,
         detail: 'Scanning ArcSwap V3 and Aerodrome liquidity depth...',
       })
       setCurrentSteps([...steps])
 
       const r1 = await executeX402Call(s1, { fromToken: 'USDC', toToken: 'WETH', amount: 25000 }, walletAddress)
-      totalCost += s1.priceUsdc
+      totalCost += s1.pricing.priceUsdc
       steps[0].status = 'completed'
       steps[0].durationMs = r1.executionTimeMs
       steps[0].resultSummary = 'Pool depth $14.2M, base slippage 0.042%.'
@@ -1325,17 +1333,18 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
         serviceId: s2.id,
         serviceName: s2.name,
         status: 'executing',
-        costUsdc: s2.priceUsdc,
+        costUsdc: s2.pricing.priceUsdc,
         durationMs: 0,
         detail: 'Calculating cross-pool price spread and net yield...',
       })
       setCurrentSteps([...steps])
 
       const r2 = await executeX402Call(s2, { pair: 'USDC/WETH', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress)
-      totalCost += s2.priceUsdc
+      totalCost += s2.pricing.priceUsdc
+      const r2Data = r2.data as any
       steps[1].status = 'completed'
       steps[1].durationMs = r2.executionTimeMs
-      steps[1].resultSummary = `Net Profit: ${r2.data?.bestRoute?.netProfitUsdc} USDC (${r2.data?.bestRoute?.netProfitPct}%)`
+      steps[1].resultSummary = `Net Profit: ${r2Data?.bestRoute?.netProfitUsdc} USDC (${r2Data?.bestRoute?.netProfitPct}%)`
       setCurrentSteps([...steps])
 
       // Step 3: MEV Risk Check
@@ -1345,14 +1354,14 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
         serviceId: s3.id,
         serviceName: s3.name,
         status: 'executing',
-        costUsdc: s3.priceUsdc,
+        costUsdc: s3.pricing.priceUsdc,
         durationMs: 0,
         detail: 'Inspecting mempool sandwich risks and private relayer tunnel...',
       })
       setCurrentSteps([...steps])
 
       const r3 = await executeX402Call(s3, { targetTxAmountUsdc: 25000, slippageTolerancePct: 0.2 }, walletAddress)
-      totalCost += s3.priceUsdc
+      totalCost += s3.pricing.priceUsdc
       steps[2].status = 'completed'
       steps[2].durationMs = r3.executionTimeMs
       steps[2].resultSummary = 'MEV risk low, private relayer armed.'
@@ -1365,11 +1374,11 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
 
 An optimal cross-DEX cycle on Arc L1 has been detected for a 25,000 USDC trade:
 
-• <strong>Buy Pool:</strong> ${r2.data?.bestRoute?.buyDex} @ ${r2.data?.bestRoute?.buyPriceUsdc}
-• <strong>Sell Pool:</strong> ${r2.data?.bestRoute?.sellDex} @ ${r2.data?.bestRoute?.sellPriceUsdc}
-• <strong>Gross Spread:</strong> ${r2.data?.bestRoute?.grossSpreadPct}%
-• <strong>Arc L1 Gas Cost:</strong> ${r2.data?.bestRoute?.estimatedGasCostUsdc} USDC
-• <strong>Estimated Net Profit:</strong> +${r2.data?.bestRoute?.netProfitUsdc} USDC (${r2.data?.bestRoute?.netProfitPct}%)
+• <strong>Buy Pool:</strong> ${r2Data?.bestRoute?.buyDex} @ ${r2Data?.bestRoute?.buyPriceUsdc}
+• <strong>Sell Pool:</strong> ${r2Data?.bestRoute?.sellDex} @ ${r2Data?.bestRoute?.sellPriceUsdc}
+• <strong>Gross Spread:</strong> ${r2Data?.bestRoute?.grossSpreadPct}%
+• <strong>Arc L1 Gas Cost:</strong> ${r2Data?.bestRoute?.estimatedGasCostUsdc} USDC
+• <strong>Estimated Net Profit:</strong> +${r2Data?.bestRoute?.netProfitUsdc} USDC (${r2Data?.bestRoute?.netProfitPct}%)
 
 <strong>MEV Shielding:</strong>
 Execution is secured via private Arcis relayer tunnels to ensure zero sandwich exploitation.`,
@@ -1379,7 +1388,7 @@ Execution is secured via private Arcis relayer tunnels to ensure zero sandwich e
         actionPayload: {
           type: 'trade',
           title: '⚡ Simulate Arbitrage Execution',
-          data: r2.data?.bestRoute,
+          data: r2Data?.bestRoute,
         },
       }
       addMessage(assistantMsg)
@@ -1587,17 +1596,18 @@ Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very 
         serviceId: s.id,
         serviceName: s.name,
         status: 'executing',
-        costUsdc: s.priceUsdc,
+        costUsdc: s.pricing.priceUsdc,
         durationMs: 0,
         detail: 'Querying Circle Gateway deposit attestations across 13+ chains...',
       })
       setCurrentSteps([...steps])
 
       const r = await executeX402Call(s, { timeWindow: '1h' }, walletAddress)
-      totalCost += s.priceUsdc
+      totalCost += s.pricing.priceUsdc
+      const rData = r.data as any
       steps[0].status = 'completed'
       steps[0].durationMs = r.executionTimeMs
-      steps[0].resultSummary = `Net Inflow: ${r.data?.netUsdcInflowToArc}`
+      steps[0].resultSummary = `Net Inflow: ${rData?.netUsdcInflowToArc}`
       setCurrentSteps([...steps])
 
       const assistantMsg: CopilotMessage = {
@@ -1605,7 +1615,7 @@ Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very 
         role: 'assistant',
         content: `Circle Gateway Liquidity Migration Report (Last 1 Hour):
 
-• <strong>Net USDC Inflow to Arc L1:</strong> ${r.data?.netUsdcInflowToArc}
+• <strong>Net USDC Inflow to Arc L1:</strong> ${rData?.netUsdcInflowToArc}
 
 <strong>Top Source Blockchains:</strong>
 1. <strong>Ethereum Sepolia/Mainnet:</strong> $2.45M (50.8%)

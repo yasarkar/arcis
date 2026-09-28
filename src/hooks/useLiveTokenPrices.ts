@@ -82,7 +82,14 @@ export function formatFiatEstimate(
     norm === 'WBTC' ||
     norm === 'EURC' ||
     norm === 'WETH' ||
-    norm === 'ETH'
+    norm === 'ETH' ||
+    norm === 'POL' ||
+    norm === 'MATIC' ||
+    norm === 'AVAX' ||
+    norm === 'SOL' ||
+    norm === 'SEI' ||
+    norm === 'S' ||
+    norm === 'USYC'
 
   if (isCounterToken && poolExchangeRate && poolExchangeRate > 0) {
     unitPrice = poolExchangeRate

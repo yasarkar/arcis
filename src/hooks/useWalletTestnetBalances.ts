@@ -5,7 +5,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { erc20Abi, formatUnits, type Chain } from 'viem'
-import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig'
+import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, USYC_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig'
 import { TESTNET_NETWORKS } from '../config/networks/networkRegistry'
 import { getResilientPublicClient, resilientReadContract } from '../services/rpc'
 
@@ -15,12 +15,26 @@ export const TESTNET_CHAINS: Record<string, Chain> = Object.fromEntries(
     .map(([key, net]) => [key, net.viemChain])
 )
 
+export interface WalletNativeBalance {
+  symbol: string
+  name: string
+  amount: string
+  decimals: number
+  isArcGas: boolean
+}
+
 export interface WalletChainBalance {
   chainKey: string
   chainName: string
   usdc: string
   eurc?: string
   cirbtc?: string
+  weth?: string
+  usyc?: string
+  nativeAmount: string
+  nativeSymbol: string
+  nativeName: string
+  nativeToken?: WalletNativeBalance
   loading: boolean
   error?: string
 }
@@ -30,12 +44,28 @@ export type WalletBalancesRecord = Record<string, WalletChainBalance>
 function createInitialBalancesRecord(): WalletBalancesRecord {
   const initialMap: WalletBalancesRecord = {}
   Object.keys(TESTNET_CHAINS).forEach(chainKey => {
+    const net = TESTNET_NETWORKS[chainKey]
+    const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
+    const symbol = isArc ? 'USDC' : (net?.nativeCurrency?.symbol || 'ETH')
+    const name = isArc ? 'USDC (Native Gas)' : (net?.nativeCurrency?.name || 'Native Currency')
     initialMap[chainKey] = {
       chainKey,
       chainName: GATEWAY_CHAIN_NAMES[chainKey] || chainKey,
       usdc: '0.00',
       eurc: EURC_ADDRESSES[chainKey] ? '0.00' : undefined,
       cirbtc: CIRBTC_ADDRESSES[chainKey] ? '0.00000' : undefined,
+      weth: WETH_ADDRESSES[chainKey] ? '0.0000' : undefined,
+      usyc: USYC_ADDRESSES[chainKey] ? '0.00' : undefined,
+      nativeAmount: '0.0000',
+      nativeSymbol: symbol,
+      nativeName: name,
+      nativeToken: {
+        symbol,
+        name,
+        amount: '0.0000',
+        decimals: net?.nativeCurrency?.decimals ?? 18,
+        isArcGas: isArc,
+      },
       loading: false,
     }
   })
@@ -58,6 +88,8 @@ export async function fetchWalletTestnetBalancesData(
       const usdcAddress = USDC_ADDRESSES[chainKey]
       const eurcAddress = EURC_ADDRESSES[chainKey]
       const cirbtcAddress = CIRBTC_ADDRESSES[chainKey]
+      const wethAddress = WETH_ADDRESSES[chainKey]
+      const usycAddress = USYC_ADDRESSES[chainKey]
 
       if (!usdcAddress) {
         throw new Error(`USDC address missing for ${chainKey}`)
@@ -109,11 +141,82 @@ export async function fetchWalletTestnetBalancesData(
         }
       }
 
+      // Fetch WETH balance if defined (18 decimals)
+      let wethFormatted: string | undefined = undefined
+      if (wethAddress) {
+        try {
+          const wethRaw = await resilientReadContract(client, {
+            address: wethAddress,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [walletAddress as `0x${string}`],
+          })
+          const rawUnits = parseFloat(formatUnits(wethRaw, 18))
+          wethFormatted = rawUnits.toFixed(4)
+        } catch (err) {
+          console.warn(`[useWalletTestnetBalances] Failed to fetch WETH balance on ${chainKey}:`, err)
+          wethFormatted = '0.0000'
+        }
+      }
+
+      // Fetch USYC balance if defined (6 decimals)
+      let usycFormatted: string | undefined = undefined
+      if (usycAddress) {
+        try {
+          const usycRaw = await resilientReadContract(client, {
+            address: usycAddress,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [walletAddress as `0x${string}`],
+          })
+          const rawUnits = parseFloat(formatUnits(usycRaw, 6))
+          usycFormatted = rawUnits.toFixed(2)
+        } catch (err) {
+          console.warn(`[useWalletTestnetBalances] Failed to fetch USYC balance on ${chainKey}:`, err)
+          usycFormatted = '0.00'
+        }
+      }
+
+      // Fetch Native Gas Currency balance
+      const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
+      const netConfig = TESTNET_NETWORKS[chainKey]
+      const nativeSymbol = isArc ? 'USDC' : (netConfig?.nativeCurrency?.symbol || 'ETH')
+      const nativeName = isArc ? 'USDC (Native Gas)' : (netConfig?.nativeCurrency?.name || 'Native Gas')
+      const nativeDecimals = netConfig?.nativeCurrency?.decimals ?? 18
+      let nativeFormatted = '0.0000'
+
+      if (isArc) {
+        // On Arc, the native gas IS USDC (unified 1-to-1 balance pool).
+        // To avoid double-counting and follow Arc guidelines, native gas amount is the USDC amount.
+        nativeFormatted = usdcFormatted
+      } else {
+        try {
+          const nativeBal = await client.getBalance({ address: walletAddress as `0x${string}` })
+          const rawUnits = parseFloat(formatUnits(nativeBal, nativeDecimals))
+          nativeFormatted = rawUnits < 0.0001 && rawUnits > 0 ? rawUnits.toFixed(5) : rawUnits.toFixed(4)
+        } catch (err) {
+          console.warn(`[useWalletTestnetBalances] Failed to fetch native balance on ${chainKey}:`, err)
+          nativeFormatted = '0.0000'
+        }
+      }
+
       return {
         chainKey,
         usdc: usdcFormatted,
         eurc: eurcFormatted,
         cirbtc: cirbtcFormatted,
+        weth: wethFormatted,
+        usyc: usycFormatted,
+        nativeAmount: nativeFormatted,
+        nativeSymbol,
+        nativeName,
+        nativeToken: {
+          symbol: nativeSymbol,
+          name: nativeName,
+          amount: nativeFormatted,
+          decimals: nativeDecimals,
+          isArcGas: isArc,
+        },
       }
     })
   )
@@ -121,6 +224,11 @@ export async function fetchWalletTestnetBalancesData(
   const record: WalletBalancesRecord = {}
   results.forEach((res, index) => {
     const chainKey = chainKeys[index]
+    const netConfig = TESTNET_NETWORKS[chainKey]
+    const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
+    const defaultSymbol = isArc ? 'USDC' : (netConfig?.nativeCurrency?.symbol || 'ETH')
+    const defaultName = isArc ? 'USDC (Native Gas)' : (netConfig?.nativeCurrency?.name || 'Native Currency')
+
     if (res.status === 'fulfilled') {
       record[chainKey] = {
         chainKey,
@@ -128,6 +236,12 @@ export async function fetchWalletTestnetBalancesData(
         usdc: res.value.usdc,
         eurc: res.value.eurc,
         cirbtc: res.value.cirbtc,
+        weth: res.value.weth,
+        usyc: res.value.usyc,
+        nativeAmount: res.value.nativeAmount,
+        nativeSymbol: res.value.nativeSymbol,
+        nativeName: res.value.nativeName,
+        nativeToken: res.value.nativeToken,
         loading: false,
       }
     } else {
@@ -137,6 +251,18 @@ export async function fetchWalletTestnetBalancesData(
         usdc: '0.00',
         eurc: EURC_ADDRESSES[chainKey] ? '0.00' : undefined,
         cirbtc: CIRBTC_ADDRESSES[chainKey] ? '0.00000' : undefined,
+        weth: WETH_ADDRESSES[chainKey] ? '0.0000' : undefined,
+        usyc: USYC_ADDRESSES[chainKey] ? '0.00' : undefined,
+        nativeAmount: '0.0000',
+        nativeSymbol: defaultSymbol,
+        nativeName: defaultName,
+        nativeToken: {
+          symbol: defaultSymbol,
+          name: defaultName,
+          amount: '0.0000',
+          decimals: netConfig?.nativeCurrency?.decimals ?? 18,
+          isArcGas: isArc,
+        },
         loading: false,
         error: res.reason?.message || 'RPC Query Failed',
       }

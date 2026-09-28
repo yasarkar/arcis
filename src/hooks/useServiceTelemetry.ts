@@ -48,8 +48,8 @@ export function useServiceTelemetry(services: x402Service[] = []) {
       }
       return serviceTelemetryService.getOrCreateServiceTelemetry(
         service.id,
-        service.latencyMs,
-        service.successRate
+        service.sla.p95LatencyMs,
+        service.sla.successRate
       )
     },
     [telemetryMap]
