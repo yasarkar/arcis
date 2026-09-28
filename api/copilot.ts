@@ -59,9 +59,9 @@ export async function POST(req: Request) {
     // Format portfolio summary for prompt
     const portfolioText = formatPortfolioForPrompt(portfolio)
 
-    const systemPrompt = `You are Arcis, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
+    const systemPrompt = `You are Arco, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
 Arcis features:
-- Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~$0.0084 USDC per tx)
+- Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~$0.00053 USDC per tx)
 - Speed: <500ms deterministic sub-second finality
 - Supported Tokens: USDC, EURC, WETH, WBTC, af-USDC
 - Real-Yield Vault (af-USDC): 8.42% APY compound real yield
@@ -84,6 +84,11 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
 - FORMATTING RULES:
   - Never use markdown bold asterisks (do not use **).
   - Use <strong> tags for bold headings and key bullet points.
+  - When presenting transfer details for sends, always follow this exact structure:
+    • <strong>Recipient:</strong> <recipient address>
+    • <strong>Amount:</strong> <amount> <token>
+    • <strong>Fee:</strong> ~0.00053 USDC (Native Gas)
+    • <strong>Network:</strong> 🌐 Arc Testnet
   - Leave generous blank lines between paragraphs.
   - Keep tone professional, welcoming, and high-tech.`
 
@@ -262,7 +267,8 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         }
 
         if (!outputMessage) {
-          outputMessage = `I have prepared your instant token swap on Arc Testnet:\n\n⚡ <strong>DEX Swap Overview:</strong>\n• <strong>Pay Amount:</strong> ${amount} ${fromTok}\n• <strong>Est. Receive:</strong> ~${estimatedOut} ${toTok}\n• <strong>Slippage:</strong> ${slippage}%\n• <strong>Network:</strong> Arc Testnet (USDC Native Gas: ~$0.0084)\n\nClick below to confirm and execute the trade.`
+          const dynamicGas = await getEstimatedArcGasUsdc()
+          outputMessage = `I have prepared your instant token swap on Arc Testnet:\n\n⚡ <strong>DEX Swap Overview:</strong>\n• <strong>Pay Amount:</strong> ${amount} ${fromTok}\n• <strong>Est. Receive:</strong> ~${estimatedOut} ${toTok}\n• <strong>Fee:</strong> ~${dynamicGas} USDC (Native Gas)\n• <strong>Network:</strong> 🌐 Arc Testnet\n• <strong>Slippage:</strong> ${slippage}%\n\nClick below to confirm and execute the trade.`
         }
       } else if (funcName === 'execute_deposit_yield') {
         const amount = Number(args.amount) || 50
@@ -311,9 +317,8 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
           title: `📤 Send ${amount} ${token} to ${shortRec}`,
           data: { recipient, amount, tokenSymbol: token, memo },
         }
-        if (!outputMessage) {
-          outputMessage = `I have prepared your transfer on Arc Testnet:\n\n📤 <strong>Transfer Details:</strong>\n• <strong>Recipient:</strong> ${recipient || 'Not specified'}\n• <strong>Amount:</strong> ${amount} ${token}\n${memo ? `• <strong>Memo / Note:</strong> ${memo}\n` : ''}• <strong>Network:</strong> Arc Testnet (USDC Gas: ~$0.0084)\n\nClick below to sign and broadcast the transfer.`
-        }
+        const dynamicGas = await getEstimatedArcGasUsdc()
+        outputMessage = `I have prepared your transfer on Arc Testnet:\n\n📤 <strong>Transfer Details:</strong>\n• <strong>Recipient:</strong> <code>${recipient || 'Not specified'}</code>\n• <strong>Amount:</strong> ${amount} ${token}\n• <strong>Fee:</strong> ~${dynamicGas} USDC (Native Gas)\n• <strong>Network:</strong> 🌐 Arc Testnet\n${memo ? `• <strong>Memo / Note:</strong> ${memo}\n` : ''}\nClick below to sign and broadcast the transfer.`
       }
     }
 
@@ -356,3 +361,33 @@ function formatPortfolioForPrompt(port: any): string {
 - Cross-Chain USDC on Circle Gateway: ${gatewayUsdc.toFixed(2)} USDC
 - Total Net Worth Across Ecosystem: ${totalUsdc.toFixed(2)} USD`
 }
+
+async function getEstimatedArcGasUsdc(): Promise<string> {
+  try {
+    const res = await fetch('https://rpc.testnet.arc.network', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getBlockByNumber',
+        params: ['latest', false],
+      }),
+      signal: AbortSignal.timeout(1500),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      const rawBaseFee = data.result?.baseFeePerGas ? BigInt(data.result.baseFeePerGas) : 20000000000n
+      const baseFee = rawBaseFee < 20000000000n ? 20000000000n : rawBaseFee
+      const maxFeePerGas = (baseFee * 130n) / 100n + 2000000000n
+      const gasLimit = 21000n
+      const totalWei = gasLimit * maxFeePerGas
+      const cost = Number(totalWei) / 1e18
+      return cost < 0.00001 ? '0.00053' : cost.toFixed(5)
+    }
+  } catch {
+    // network timeout or offline fallback
+  }
+  return '0.00053'
+}
+

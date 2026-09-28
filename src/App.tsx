@@ -383,6 +383,7 @@ export default function App() {
           currentSteps={copilot.currentSteps}
           isAnalyzing={copilot.isAnalyzing}
           sessionConfig={copilot.sessionConfig}
+          walletAddress={walletAddress || ucwAddress}
           onSendMessage={copilot.executeQuery}
           onClearChat={copilot.clearChat}
           onActivateSession={copilot.activateSession}
