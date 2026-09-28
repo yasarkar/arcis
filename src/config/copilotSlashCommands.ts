@@ -9,7 +9,7 @@ export interface SlashCommandItem {
   icon: string
   templatePrompt?: string
   isDirectAction?: boolean
-  directActionKey?: 'clear' | 'session' | 'faucet' | 'apiKey'
+  directActionKey?: 'clear' | 'session' | 'faucet'
 }
 
 export const COPILOT_SLASH_COMMANDS: SlashCommandItem[] = [
