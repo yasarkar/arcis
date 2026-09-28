@@ -3,7 +3,7 @@
 // Manages zero-popup session keys, Arc Testnet micro-USDC settlement,
 // 1% YieldVault protocol fee diversion, and global transaction logging.
 
-import { keccak256, stringToBytes, parseUnits, type Hex, type Address } from 'viem'
+import { keccak256, stringToBytes, parseUnits, type Hex, type Address, createWalletClient, custom } from 'viem'
 import type { x402Service, x402PaymentChallenge } from '../types/marketplace'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { POOL_CONTRACTS, ERC20_ABI } from '../config/poolsConfig'
@@ -98,6 +98,92 @@ export function claimProviderEarnings(providerAddress: string): number {
 }
 
 /**
+ * Fetches canonical provider ledger from the server/Gateway API (ADR-005)
+ * LocalStorage acts as an ephemeral UI cache only; server/Gateway is authoritative.
+ */
+export async function fetchCanonicalProviderLedger(providerAddress: string): Promise<any> {
+  try {
+    const res = await fetch(`/api/x402/provider/${providerAddress.toLowerCase()}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.ledger) {
+        // Sync local cache for fast offline rendering
+        const earnings = getStoredProviderEarnings()
+        const lower = providerAddress.toLowerCase()
+        earnings[lower] = {
+          totalCallsServed: data.ledger.services.reduce((acc: number, s: any) => acc + s.callsServed, 0),
+          totalUsdcEarned: data.ledger.services.reduce((acc: number, s: any) => acc + s.grossUsdc, 0),
+          unclaimedEarningsUsdc: data.ledger.availableUsdc,
+        }
+        saveStoredProviderEarnings(earnings)
+        return data.ledger
+      }
+    }
+  } catch (err) {
+    console.warn('[x402PaymentEngine] Canonical ledger fetch fallback to local cache:', err)
+  }
+  return null
+}
+
+/**
+ * Non-custodial cryptographic withdrawal of provider earnings via /api/x402/withdraw (ADR-005)
+ */
+export async function withdrawProviderEarningsApi(
+  providerAddress: string,
+  amountUsdc: number,
+  signerProvider?: any
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  try {
+    const nonce = Date.now().toString()
+    const authMsg = `Authorize withdrawal of ${amountUsdc} USDC to ${providerAddress} (nonce: ${nonce})`
+    let signature: Hex | undefined
+
+    if (signerProvider || (typeof window !== 'undefined' && (window as any).ethereum)) {
+      const effective = signerProvider || (window as any).ethereum
+      const walletClient = createWalletClient({
+        account: providerAddress as `0x${string}`,
+        chain: arcTestnet,
+        transport: custom(effective),
+      })
+      signature = await walletClient.signMessage({
+        account: providerAddress as `0x${string}`,
+        message: authMsg,
+      })
+    }
+
+    const res = await fetch('/api/x402/withdraw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        providerAddress,
+        amountUsdc,
+        signature,
+        nonce,
+      }),
+    })
+
+    const data = await res.json()
+    if (res.ok && data.success) {
+      // Synchronize local cache
+      const earnings = getStoredProviderEarnings()
+      const lower = providerAddress.toLowerCase()
+      if (earnings[lower]) {
+        earnings[lower].unclaimedEarningsUsdc = Math.max(
+          0,
+          Number((earnings[lower].unclaimedEarningsUsdc - amountUsdc).toFixed(6))
+        )
+        saveStoredProviderEarnings(earnings)
+      }
+      return { success: true, txHash: data.txHash }
+    } else {
+      return { success: false, error: data.error || 'Withdrawal rejected by server' }
+    }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Withdrawal request failed' }
+  }
+}
+
+/**
  * Retrieves total protocol fees diverted to YieldVault
  */
 export function getAccumulatedYieldVaultFees(): number {
@@ -127,6 +213,8 @@ export function incrementYieldVaultFees(feeUsdc: number): number {
 /**
  * Main settlement routine for an x402 service execution
  */
+import { calculateFeeSplit } from '../config/x402/pricing'
+
 export async function settleX402Payment(
   service: x402Service,
   payerAddress?: string,
@@ -134,18 +222,18 @@ export async function settleX402Payment(
 ): Promise<{
   success: boolean
   error?: string
-  txHash?: string
-  blockNumber?: number
-  explorerUrl?: string
   costUsdc: number
   protocolFeeUsdc: number
   providerEarnedUsdc: number
+  txHash?: string
+  blockNumber?: number
+  explorerUrl?: string
+  challenge: x402PaymentChallenge
   authProof?: {
     signature: string
     payerAddress: string
     timestamp: number
   }
-  challenge: x402PaymentChallenge
   executionMode?: 'onchain_verified' | 'session_autonomous'
   gasSponsored?: boolean
 }> {
@@ -153,8 +241,10 @@ export async function settleX402Payment(
   const activePayer = payerAddress || mscaAddress
   const sessionConfig = getSessionKeyConfig()
 
-  const protocolFeeUsdc = Number((service.priceUsdc * 0.01).toFixed(6))
-  const providerEarnedUsdc = Number((service.priceUsdc * 0.99).toFixed(6))
+  const price = service.pricing.priceUsdc
+  const feeSplit = calculateFeeSplit(price, service.pricing.protocolFeeBps || 100)
+  const protocolFeeUsdc = feeSplit.protocolFeeUsdc
+  const providerEarnedUsdc = feeSplit.providerEarnedUsdc
 
   const nonce = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
   const challenge: x402PaymentChallenge = {
@@ -162,9 +252,9 @@ export async function settleX402Payment(
     paymentRequired: true,
     token: 'USDC',
     recipient: service.provider.address,
-    amountUsdc: service.priceUsdc,
-    amountUnits: (service.priceUsdc * 1e6).toString(),
-    scheme: service.paymentScheme,
+    amountUsdc: price,
+    amountUnits: (price * 1e6).toString(),
+    scheme: service.accepts[0]?.scheme || 'exact',
     chainId: arcTestnet.id,
     nonce,
     validUntil: Date.now() + 60000,
@@ -184,7 +274,7 @@ export async function settleX402Payment(
 
   // 1. Check autonomous session key limits
   if (sessionConfig.isActive) {
-    const limitCheck = verifySessionLimits('ai_service', service.priceUsdc)
+    const limitCheck = verifySessionLimits('ai_service', price)
     if (!limitCheck.allowed) {
       return {
         success: false,
@@ -199,7 +289,7 @@ export async function settleX402Payment(
 
   // 2. Cryptographic authorization proof
   const timestamp = Date.now()
-  const proofMessage = `x402-Payment-Auth:chainId=${arcTestnet.id}:payer=${activePayer || '0x0000000000000000000000000000000000000000'}:recipient=${service.provider.address}:vault=${POOL_CONTRACTS.YIELD_VAULT}:amount=${service.priceUsdc}:nonce=${nonce}:time=${timestamp}`
+  const proofMessage = `x402-Payment-Auth:chainId=${arcTestnet.id}:payer=${activePayer || '0x0000000000000000000000000000000000000000'}:recipient=${service.provider.address}:vault=${POOL_CONTRACTS.YIELD_VAULT}:amount=${price}:nonce=${nonce}:time=${timestamp}`
   const signature = keccak256(stringToBytes(proofMessage))
 
   let realTxHash = ''
@@ -208,7 +298,7 @@ export async function settleX402Payment(
   let realBlockNumber: number | undefined
   let paymentError = ''
 
-  const totalAmountUnits = parseUnits(service.priceUsdc.toFixed(6), 6)
+  const totalAmountUnits = parseUnits(price.toFixed(6), 6)
 
   // 3. On-Chain Settlement Attempt
   // Path A: Circle Modular Smart Account (MSCA) via Passkey + Circle Paymaster (Gasless)
@@ -343,7 +433,7 @@ export async function settleX402Payment(
 
   // 6. Deduct from active session key if active
   if (sessionConfig.isActive) {
-    deductSessionSpend(service.priceUsdc)
+    deductSessionSpend(price)
   }
 
   // 7. Divert 1% to YieldVault and credit 99% to provider (ONLY on verified real tx)
@@ -355,7 +445,7 @@ export async function settleX402Payment(
     addTransaction({
       type: 'ai_service',
       txHash: realTxHash,
-      amount: service.priceUsdc.toFixed(4),
+      amount: price.toFixed(4),
       tokenSymbol: 'USDC',
       sourceChain: 'Arc Testnet',
       userAddress: activePayer,
@@ -374,7 +464,7 @@ export async function settleX402Payment(
     txHash: realTxHash,
     blockNumber: realBlockNumber,
     explorerUrl,
-    costUsdc: service.priceUsdc,
+    costUsdc: price,
     protocolFeeUsdc,
     providerEarnedUsdc,
     challenge,

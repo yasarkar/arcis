@@ -20,6 +20,7 @@ export interface ServiceTelemetryData {
   lastProbeTime: number
   status: 'online' | 'degraded' | 'offline'
   isProbing: boolean
+  probeTarget?: 'endpoint' | 'rpc'
   history: ServiceTelemetryRecord[]
 }
 
@@ -137,10 +138,15 @@ class ServiceTelemetryService {
    * Performs a physical network probe to measure real latency to the service endpoint or Arc RPC
    */
   public async probeService(service: x402Service): Promise<ServiceTelemetryData> {
+    const defaultLatency = service.sla.p95LatencyMs
+    const defaultSuccess = service.sla.successRate
+    const endpoint = service.upstream?.url || service.serve.path
+    const isCommunity = service.listing.kind === 'community'
+
     const entry = this.getOrCreateServiceTelemetry(
       service.id,
-      service.latencyMs,
-      service.successRate
+      defaultLatency,
+      defaultSuccess
     )
 
     entry.isProbing = true
@@ -148,35 +154,63 @@ class ServiceTelemetryService {
 
     const startTime = performance.now()
     let probeSuccess = true
-    let measuredLatency = service.latencyMs
+    let measuredLatency = defaultLatency
+
+    let probeTarget: 'endpoint' | 'rpc' = 'endpoint'
 
     try {
       const primaryRpc = ACTIVE_ARC_RPCS[0] || 'https://rpc.testnet.arc.network'
 
-      // Case 1: Custom community service with external HTTP URL
-      if (service.isCommunity && service.endpointUrl.startsWith('http')) {
+      // Case 1: Internal Tollgate route (e.g. /api/x402/:id)
+      if (endpoint.startsWith('/')) {
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+          const probeStart = performance.now()
+          const res = await fetch(endpoint, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+          })
+          clearTimeout(timer)
+          if (res.status === 402 || res.ok) {
+            measuredLatency = Math.round(performance.now() - probeStart)
+            probeSuccess = true
+            probeTarget = 'endpoint'
+          } else {
+            throw new Error(`Endpoint returned HTTP ${res.status}`)
+          }
+        } catch {
+          const rpcStart = performance.now()
+          await this.pingArcRpc(primaryRpc)
+          measuredLatency = Math.round(performance.now() - rpcStart)
+          probeTarget = 'rpc'
+        }
+      } else if (isCommunity && endpoint.startsWith('http')) {
+        // Case 2: Custom community service with external HTTP URL
         try {
           const controller = new AbortController()
           const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
 
-          // Lightweight probe
-          await fetch(service.endpointUrl, {
+          await fetch(endpoint, {
             method: 'HEAD',
             mode: 'no-cors',
             signal: controller.signal,
           })
           clearTimeout(timer)
           measuredLatency = Math.round(performance.now() - startTime)
+          probeTarget = 'endpoint'
         } catch {
-          // If direct HTTP probe fails or CORS rejects, measure Arc Testnet settlement layer RTT
           const rpcStart = performance.now()
           await this.pingArcRpc(primaryRpc)
           measuredLatency = Math.round(performance.now() - rpcStart)
+          probeTarget = 'rpc'
         }
       } else {
-        // Case 2: Arc-native on-chain AI Agent — measure true physical RPC RTT to Arc Testnet
+        // Case 3: Arc-native on-chain AI Agent — measure true physical RPC RTT to Arc Testnet
         const rpcRtt = await this.pingArcRpc(primaryRpc)
         measuredLatency = Math.round(rpcRtt)
+        probeTarget = 'rpc'
       }
     } catch (err) {
       console.warn(`[TelemetryService] Probe failed for ${service.id}:`, err)
@@ -186,6 +220,7 @@ class ServiceTelemetryService {
 
     entry.isProbing = false
     entry.lastProbeTime = Date.now()
+    entry.probeTarget = probeTarget
 
     // Add to history
     entry.history.push({

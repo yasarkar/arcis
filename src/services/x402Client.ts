@@ -58,13 +58,13 @@ export function resetSessionBudget(newMax = 1.00): void {
   saveSessionBudget(state)
 }
 
-import { settleX402Payment } from './x402PaymentEngine'
-import { generateLiveServiceData } from './aiServicesDataProvider'
+export { executePaidCall } from './x402/paymentOrchestrator'
+import { executePaidCall } from './x402/paymentOrchestrator'
 
 /**
- * Execute an x402 call for a given service and input payload
- * Combines Arc Testnet cryptographic payment settlement, session key budget,
- * live on-chain data intelligence, and actionable execution payloads.
+ * Execute an x402 call for a given service and input payload.
+ * Unified entry point orchestrating EIP-3009 payment authorization,
+ * Invariant I1-I4 guards, live intelligence engine, and fee routing.
  */
 export async function executeX402Call(
   service: x402Service,
@@ -73,25 +73,27 @@ export async function executeX402Call(
   provider?: any
 ): Promise<x402ExecutionResult> {
   const startTime = performance.now()
-  const activePayer = payerAddress
 
-  // 1. Check local session budget guard
+  // 1. Check local session budget guard for backward compatibility
   const budget = getSessionBudget()
-  if (budget.enabled && budget.spentUsdc + service.priceUsdc > budget.maxBudgetUsdc) {
+  const price = service.pricing.priceUsdc
+  if (budget.enabled && budget.spentUsdc + price > budget.maxBudgetUsdc) {
+    const failDuration = Math.round(performance.now() - startTime)
+    serviceTelemetryService.recordExecution(service.id, failDuration, false)
     return {
       statusCode: 402,
       success: false,
       error: `Session budget limit reached! Spent: $${budget.spentUsdc.toFixed(4)} / Max: $${budget.maxBudgetUsdc.toFixed(2)} USDC.`,
-      executionTimeMs: Math.round(performance.now() - startTime),
+      executionTimeMs: failDuration,
       costUsdc: 0,
       challenge: {
         statusCode: 402,
         paymentRequired: true,
         token: 'USDC',
         recipient: service.provider.address,
-        amountUsdc: service.priceUsdc,
-        amountUnits: (service.priceUsdc * 1e6).toString(),
-        scheme: service.paymentScheme,
+        amountUsdc: price,
+        amountUnits: (price * 1e6).toString(),
+        scheme: service.accepts[0]?.scheme || 'exact',
         chainId: arcTestnet.id,
         nonce: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
         validUntil: Date.now() + 60000,
@@ -99,46 +101,46 @@ export async function executeX402Call(
     }
   }
 
-  // 2. Perform Real Micropayment Settlement & Fee Routing
-  const settlement = await settleX402Payment(service, activePayer, provider)
-  if (!settlement.success) {
-    const failDuration = Math.round(performance.now() - startTime)
-    serviceTelemetryService.recordExecution(service.id, failDuration, false)
-    return {
-      statusCode: 402,
-      success: false,
-      error: settlement.error || 'x402 Payment Settlement Failed',
-      executionTimeMs: failDuration,
-      costUsdc: 0,
-      challenge: settlement.challenge,
-    }
-  }
+  // 2. Delegate to F1 Payment Orchestrator (EIP-3009 Zero-Popup Session EOA & Two-Phase Settlement)
+  const res = await executePaidCall({
+    manifest: service,
+    payload: inputPayload,
+    walletAddress: payerAddress as `0x${string}`,
+    provider,
+  })
 
   // Deduct from local legacy budget for UI sync
-  deductSessionBudget(service.priceUsdc)
+  if (res.success && res.costUsdc > 0) {
+    deductSessionBudget(res.costUsdc)
+  }
 
-  // 3. Generate Live On-Chain Intelligence & Actionable Triggers
-  const { data, actionablePayload } = await generateLiveServiceData(service, inputPayload)
-  const duration = Math.round(performance.now() - startTime)
+  // Record live telemetry for execution
+  serviceTelemetryService.recordExecution(service.id, res.executionTimeMs, res.success)
 
-  // Record live telemetry for actual execution
-  serviceTelemetryService.recordExecution(service.id, duration, true)
+  const challenge: x402PaymentChallenge | undefined = res.requirements ? {
+    statusCode: 402,
+    paymentRequired: true,
+    token: 'USDC',
+    recipient: service.provider.address,
+    amountUsdc: price,
+    amountUnits: (price * 1e6).toString(),
+    scheme: service.accepts[0]?.scheme || 'exact',
+    chainId: arcTestnet.id,
+    nonce: res.payment?.idempotencyKey ? res.payment.idempotencyKey.split(':').pop() || '' : '',
+    validUntil: Date.now() + 60000,
+  } : undefined
 
   return {
-    statusCode: 200,
-    success: true,
-    data,
-    executionTimeMs: duration,
-    costUsdc: settlement.costUsdc,
-    protocolFeeUsdc: settlement.protocolFeeUsdc,
-    providerEarnedUsdc: settlement.providerEarnedUsdc,
-    txHash: settlement.txHash,
-    blockNumber: settlement.blockNumber,
-    explorerUrl: settlement.explorerUrl,
-    actionablePayload,
-    challenge: settlement.challenge,
-    authProof: settlement.authProof,
-    executionMode: settlement.executionMode,
-    gasSponsored: settlement.gasSponsored,
+    ...res,
+    txHash: res.txHash || res.payment?.batchTxHash,
+    blockNumber: res.payment?.settlementRef ? parseInt(res.payment.settlementRef) : undefined,
+    challenge,
+    authProof: res.authProof ? {
+      signature: res.authProof.signature,
+      payerAddress: res.authProof.payerAddress,
+      timestamp: res.authProof.timestamp || Date.now(),
+    } : undefined,
+    executionMode: res.engineMode === 'gateway_batched' ? 'session_autonomous' : 'onchain_verified',
   }
 }
+

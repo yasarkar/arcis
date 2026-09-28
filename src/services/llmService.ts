@@ -211,7 +211,7 @@ export async function queryArcisLLM(
       headers['Authorization'] = `Bearer ${customApiKey}`
     }
 
-    const res = await fetch('/api/copilot', {
+    let res = await fetch('/api/copilot', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -222,6 +222,21 @@ export async function queryArcisLLM(
         portfolio,
       }),
     })
+
+    // If request failed with custom key, automatically retry without it to use the system server key
+    if (!res.ok && customApiKey) {
+      res = await fetch('/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPrompt,
+          walletAddress,
+          livePrices,
+          chatHistory,
+          portfolio,
+        }),
+      })
+    }
 
     if (res.ok) {
       const data = await res.json()
@@ -279,7 +294,7 @@ async function callGPT4oMini(
   const port = portfolio || (await getLivePortfolioSnapshot(walletAddress))
   const portfolioText = formatPortfolioForPrompt(port)
 
-  const systemPrompt = `You are Arcis, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
+  const systemPrompt = `You are Arco, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
 Arcis features:
 - Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~${SPEED_TIERS.fast.arcGas.estimatedCostUsdc} USDC per tx)
 - Speed: <500ms deterministic sub-second finality
@@ -545,12 +560,12 @@ Click below to verify and deposit into Circle Gateway.`,
       return {
         message: `I have prepared your transfer on Arc Testnet:
 
-⚡ <strong>Send Payment Overview:</strong>
-• <strong>Network:</strong> Arc Testnet
+📤 <strong>Transfer Details:</strong>
 • <strong>Recipient:</strong> <code>${recipient}</code>
 • <strong>Amount:</strong> ${amount} ${token}
-${memo ? `• <strong>Memo:</strong> ${memo}\n` : ''}• <strong>Gas Fee:</strong> ~$0.00042 USDC (Native Gas)
-
+• <strong>Fee:</strong> ~${SPEED_TIERS.fast.arcGas.estimatedCostUsdc} USDC (Native Gas)
+• <strong>Network:</strong> 🌐 Arc Testnet
+${memo ? `• <strong>Memo / Note:</strong> ${memo}\n` : ''}
 Click below to confirm and broadcast this transaction on-chain.`,
         actionPayload: {
           type: 'interactive_send',
@@ -749,8 +764,9 @@ Click below to verify and deposit into Circle Gateway.`,
 📤 <strong>Updated Transfer Details:</strong>
 • <strong>Recipient:</strong> <code>${recipient || 'Please specify recipient address (0x...)'}</code>
 • <strong>Amount:</strong> ${newAmount} ${tokenSymbol}
-${memo ? `• <strong>Memo:</strong> ${memo}\n` : ''}• <strong>Gas Fee:</strong> ~$0.00042 USDC (Native Gas)
-
+• <strong>Fee:</strong> ~${SPEED_TIERS.fast.arcGas.estimatedCostUsdc} USDC (Native Gas)
+• <strong>Network:</strong> 🌐 Arc Testnet
+${memo ? `• <strong>Memo / Note:</strong> ${memo}\n` : ''}
 Click below to verify and broadcast this transfer.`,
         actionPayload: {
           type: 'interactive_send',
@@ -1110,14 +1126,14 @@ Click below to open Gateway transfer and confirm.`,
     const shortRecipient = recipient ? (recipient.length >= 10 ? `${recipient.slice(0, 6)}...${recipient.slice(-4)}` : recipient) : 'Recipient'
 
     return {
-      message: `I have prepared your payment on Arc Testnet:
+      message: `I have prepared your transfer on Arc Testnet:
 
-⚡ <strong>Send Payment Overview:</strong>
-• <strong>Network:</strong> Arc Testnet
+📤 <strong>Transfer Details:</strong>
 • <strong>Recipient:</strong> <code>${recipient || 'Please specify recipient address (0x...)'}</code>
 • <strong>Amount:</strong> ${parsedAmount} ${tokenSymbol}
-${memo ? `• <strong>Memo:</strong> ${memo}\n` : ''}• <strong>Gas Fee:</strong> ~$0.00042 USDC (Native Gas)
-
+• <strong>Fee:</strong> ~${SPEED_TIERS.fast.arcGas.estimatedCostUsdc} USDC (Native Gas)
+• <strong>Network:</strong> 🌐 Arc Testnet
+${memo ? `• <strong>Memo / Note:</strong> ${memo}\n` : ''}
 ${recipient ? 'Click below to review and send.' : 'Please provide a valid recipient address (0x...) to execute.'}`,
       actionPayload: {
         type: 'interactive_send',

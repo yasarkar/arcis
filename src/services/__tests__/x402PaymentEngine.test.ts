@@ -40,27 +40,46 @@ vi.mock('../../utils/history', () => ({
 
 const mockService: x402Service = {
   id: 'test-arb-service',
+  version: '1.0.0',
   name: 'Test DEX Arbitrage Service',
   tagline: 'Test Tagline',
   category: 'Arbitrage',
+  engine: 'native',
   description: 'Test Description',
-  priceUsdc: 0.005,
-  latencyMs: 120,
-  successRate: 99.9,
-  endpointUrl: 'https://api.arcis.finance/test',
-  method: 'POST',
-  tags: ['Arbitrage', 'DEX'],
+  listing: {
+    kind: 'official',
+    ownerAddress: '0x1111111111111111111111111111111111111111',
+    createdAt: 1760000000000,
+  },
   provider: {
     name: 'Arc Quantitative Test Labs',
     address: '0x1111111111111111111111111111111111111111',
     isVerified: true,
     reputationScore: 98,
   },
-  inputParameters: [],
-  sampleRequestPayload: {},
-  sampleResponseData: {},
-  supportedChains: ['Arc Testnet'],
-  paymentScheme: 'GatewayWalletBatched',
+  pricing: {
+    model: 'per_call',
+    priceUsdc: 0.005,
+    maxAmountUsdc: 0.01,
+    protocolFeeBps: 100,
+  },
+  accepts: [
+    {
+      scheme: 'exact',
+      network: 'arcTestnet',
+      asset: 'USDC',
+      payTo: '0x1111111111111111111111111111111111111111',
+    },
+  ],
+  serve: {
+    method: 'POST',
+    path: '/api/x402/test-arb-service',
+  },
+  requestSchema: { type: 'object' },
+  ui: { form: [] },
+  examples: { request: {}, response: {} },
+  sla: { p95LatencyMs: 120, uptimePct: 99.9, successRate: 99.9 },
+  tags: ['Arbitrage', 'DEX'],
 }
 
 describe('x402PaymentEngine & x402Client Unit Tests', () => {
@@ -169,12 +188,15 @@ describe('x402PaymentEngine & x402Client Unit Tests', () => {
       expect(result.explorerUrl).toContain('testnet.arcscan.app')
     })
 
-    it('rejects executeX402Call when settlement fails on-chain', async () => {
-      mockUserOpSuccess = false
+    it('rejects executeX402Call when settlement fails or signature is rejected', async () => {
+      const rejectingProvider = {
+        request: vi.fn().mockRejectedValue(new Error('User rejected authorization request')),
+      }
       const result = await executeX402Call(
         mockService,
         { pair: 'USDC/EURC', tradeSizeUsdc: 10000 },
-        '0x9999999999999999999999999999999999999999'
+        '0x9999999999999999999999999999999999999999',
+        rejectingProvider
       )
 
       expect(result.statusCode).toBe(402)

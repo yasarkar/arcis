@@ -78,7 +78,7 @@ export async function getLivePortfolioSnapshot(
   // 2. Fetch Live Prices and Session Config concurrently
   const [tokenPrices, sessionConfig] = await Promise.all([
     getLiveTokenPrices(),
-    Promise.resolve(getSessionKeyConfig()),
+    Promise.resolve(getSessionKeyConfig(activeAddr)),
   ])
 
   // 3. Query Arc Testnet Balances & Vault Staked Position

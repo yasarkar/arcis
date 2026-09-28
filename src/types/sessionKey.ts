@@ -7,6 +7,7 @@ export interface SessionKeyConfig {
   sessionId: string
   sessionPublicKey: string
   ephemeralPrivateKey?: string
+  walletAddress?: string // The owner wallet address this session is bound to
   mscaAddress?: string // Linked Circle Modular Smart Account address if connected
   delegationType?: 'msca' | 'eoa' | 'headless'
   expiresAt: number // Timestamp in ms

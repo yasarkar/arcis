@@ -1,11 +1,30 @@
 // Data structures for x402 AI Services Marketplace & Arcis AI Copilot
-export type ServiceCategory = 
-  | 'All'
-  | 'Arbitrage'
-  | 'Liquidity & Routing'
-  | 'Yield & Flash-Loan'
-  | 'MEV & Security'
-  | 'Cross-Chain Gateway'
+import type {
+  ServiceCategory,
+  ServiceManifest,
+  PricingModel,
+  X402PaymentRequirements,
+  X402PaymentSignaturePayload,
+  PaymentReceipt,
+  ProviderLedger,
+  ServiceHealth,
+  X402ExecutionReceipt,
+} from './x402'
+
+export type {
+  ServiceCategory,
+  ServiceManifest,
+  PricingModel,
+  X402PaymentRequirements,
+  X402PaymentSignaturePayload,
+  PaymentReceipt,
+  ProviderLedger,
+  ServiceHealth,
+  X402ExecutionReceipt,
+}
+
+// Backward compatibility alias: legacy code referring to x402Service now refers to ServiceManifest
+export type x402Service = ServiceManifest
 
 export interface ServiceInputParameter {
   name: string
@@ -17,36 +36,7 @@ export interface ServiceInputParameter {
   required?: boolean
 }
 
-export interface x402Service {
-  id: string
-  name: string
-  tagline: string
-  category: Exclude<ServiceCategory, 'All'>
-  description: string
-  priceUsdc: number // Price in USDC, e.g. 0.005
-  latencyMs: number // Expected average response latency in ms
-  successRate: number // e.g. 99.8%
-  endpointUrl: string
-  method: 'GET' | 'POST'
-  tags: string[]
-  provider: {
-    name: string
-    address: string
-    isVerified: boolean
-    reputationScore: number
-  }
-  inputParameters: ServiceInputParameter[]
-  sampleRequestPayload: Record<string, any>
-  sampleResponseData: Record<string, any>
-  supportedChains: string[]
-  paymentScheme: 'GatewayWalletBatched' | 'x402-exact'
-  totalEarnedUsdc?: number
-  callCount?: number
-  isCommunity?: boolean
-  createdAt?: number
-  creatorAddress?: string
-}
-
+/** @deprecated Use X402PaymentRequirements instead */
 export interface x402PaymentChallenge {
   statusCode: 402
   paymentRequired: true
@@ -54,7 +44,7 @@ export interface x402PaymentChallenge {
   recipient: string
   amountUsdc: number
   amountUnits: string // in 6 decimals wei string
-  scheme: 'GatewayWalletBatched' | 'x402-exact'
+  scheme: string
   chainId: number
   nonce: string
   validUntil: number
@@ -79,19 +69,10 @@ export interface ActionableSignalPayload {
   }
 }
 
-export interface x402ExecutionResult {
-  statusCode: number
-  success: boolean
-  data?: any
-  error?: string
-  executionTimeMs: number
-  costUsdc: number
-  protocolFeeUsdc?: number
-  providerEarnedUsdc?: number
+// Backward compatibility alias: legacy code referring to x402ExecutionResult
+export type x402ExecutionResult = X402ExecutionReceipt & {
   txHash?: string
   blockNumber?: number
-  explorerUrl?: string
-  actionablePayload?: ActionableSignalPayload
   challenge?: x402PaymentChallenge
   authProof?: {
     signature: string
@@ -99,8 +80,8 @@ export interface x402ExecutionResult {
     timestamp: number
   }
   executionMode?: 'onchain_verified' | 'session_autonomous'
-  gasSponsored?: boolean
 }
+
 
 export interface ProviderStats {
   totalCallsServed: number
