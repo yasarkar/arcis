@@ -66,20 +66,20 @@ export function CopilotNetworkBadge({ chainName, className = '', iconOnly = fals
       return <img src={ArcLogo} alt="Arc" className="w-4 h-4 object-contain inline-block" />
     }
     return (
-      <div className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900">
+      <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900">
         <NetworkIcon id={iconId} className="w-5 h-5" />
-      </div>
+      </span>
     )
   }
 
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900/90 text-xs font-semibold text-slate-200 select-text ${className}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900/90 text-xs font-semibold text-slate-200 select-text ${className}`}>
       {isArc ? (
         <img src={ArcLogo} alt="Arc" className="w-3.5 h-3.5 object-contain" />
       ) : (
         <NetworkIcon id={iconId} className="w-3.5 h-3.5" />
       )}
       <span className="select-text">{chainName}</span>
-    </div>
+    </span>
   )
 }

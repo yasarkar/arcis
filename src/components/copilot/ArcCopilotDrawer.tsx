@@ -13,7 +13,6 @@ import {
   Activity,
   RotateCcw,
   MoveDiagonal2,
-  Key,
   Zap,
   Check,
   Copy,
@@ -24,9 +23,10 @@ import {
 import { EXPLORE_TOPIC_CATEGORIES } from '../../hooks/useArcCopilot'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload } from '../../types/marketplace'
 import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey'
-import { getOpenAIApiKey, setOpenAIApiKey } from '../../services/llmService'
 import { getSessionTimeRemaining } from '../../services/sessionKeyService'
 import { playSound, soundService } from '../../services/soundService'
+import { sanitizeCopilotHtml, stripCopilotHtml } from '../../utils/sanitizeCopilotHtml'
+import CopilotMessageContent from './CopilotMessageContent'
 import SessionKeyModal from './SessionKeyModal'
 import InlineActionCard from './InlineActionCard'
 import { CopilotSlashMenu } from './CopilotSlashMenu'
@@ -39,20 +39,23 @@ interface ArcCopilotDrawerProps {
   currentSteps: CopilotStepLog[]
   isAnalyzing: boolean
   sessionConfig: SessionKeyConfig
+  walletAddress?: string
   onSendMessage: (query: string) => Promise<void>
   onClearChat: () => void
   onActivateSession: (params: {
+    /** Explicit user consent for this session. */
+    userApproved: boolean
     maxSpendUsdc?: number
     durationHours?: number
     maxPerTxUsdc?: number
     autoExecute?: boolean
     allowedActions?: SessionActionType[]
+    walletAddress?: string
   }) => Promise<SessionKeyConfig>
   onRevokeSession: () => void
   onToggleAutoExecute: (enabled: boolean) => void
   onExecuteInline: (messageId: string, actionPayload: CopilotActionPayload) => Promise<void>
   onNavigateToTab?: (tab: string) => void
-  onOpenFaucet?: () => void
 }
 
 const DEFAULT_WIDTH = 720
@@ -67,6 +70,7 @@ export default function ArcCopilotDrawer({
   currentSteps,
   isAnalyzing,
   sessionConfig,
+  walletAddress,
   onSendMessage,
   onClearChat,
   onActivateSession,
@@ -74,7 +78,6 @@ export default function ArcCopilotDrawer({
   onToggleAutoExecute,
   onExecuteInline,
   onNavigateToTab,
-  onOpenFaucet,
 }: ArcCopilotDrawerProps) {
   const [inputText, setInputText] = useState<string>('')
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null)
@@ -96,12 +99,12 @@ export default function ArcCopilotDrawer({
   const slashQuery = isSlashMode ? inputText.slice(1).toLowerCase().trim() : ''
   const filteredSlashCommands = isSlashMode
     ? COPILOT_SLASH_COMMANDS.filter(
-        (c) =>
-          c.command.toLowerCase().includes(slashQuery) ||
-          c.title.toLowerCase().includes(slashQuery) ||
-          c.category.toLowerCase().includes(slashQuery) ||
-          c.description.toLowerCase().includes(slashQuery)
-      )
+      (c) =>
+        c.command.toLowerCase().includes(slashQuery) ||
+        c.title.toLowerCase().includes(slashQuery) ||
+        c.category.toLowerCase().includes(slashQuery) ||
+        c.description.toLowerCase().includes(slashQuery)
+    )
     : []
   const isSlashMenuOpen = isSlashMode && filteredSlashCommands.length > 0
 
@@ -128,16 +131,6 @@ export default function ArcCopilotDrawer({
       setInputText('')
       return
     }
-    if (cmd.directActionKey === 'faucet') {
-      setInputText('')
-      await onSendMessage('Claim 1,000 testnet USDC from faucet')
-      return
-    }
-    if (cmd.directActionKey === 'apiKey') {
-      setIsApiKeyModalOpen(true)
-      setInputText('')
-      return
-    }
 
     if (cmd.command === '/swap' || cmd.command === '/vault' || cmd.command === '/bridge' || cmd.command === '/send') {
       if (inputText.trim() === cmd.command || inputText.trim() === '/') {
@@ -160,7 +153,7 @@ export default function ArcCopilotDrawer({
   const handleCopyMessage = async (msgId: string, text: string) => {
     try {
       playSound('pop')
-      const cleanText = text.replace(/<[^>]*>?/gm, '')
+      const cleanText = stripCopilotHtml(text)
       await navigator.clipboard.writeText(cleanText)
       setCopiedMsgId(msgId)
       setTimeout(() => setCopiedMsgId(null), 1800)
@@ -170,7 +163,7 @@ export default function ArcCopilotDrawer({
   }
 
   const handleStartEdit = (msgId: string, content: string) => {
-    const cleanText = content.replace(/<[^>]*>?/gm, '')
+    const cleanText = stripCopilotHtml(content)
     setEditingMsgId(msgId)
     setEditingText(cleanText)
   }
@@ -188,19 +181,6 @@ export default function ArcCopilotDrawer({
     await onSendMessage(textToSend)
   }
 
-  // API Key Settings State
-  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false)
-  const [apiKeyInput, setApiKeyInput] = useState<string>(getOpenAIApiKey())
-  const [apiKeySavedNotice, setApiKeySavedNotice] = useState<boolean>(false)
-
-  const handleSaveApiKey = () => {
-    setOpenAIApiKey(apiKeyInput)
-    setApiKeySavedNotice(true)
-    setTimeout(() => {
-      setApiKeySavedNotice(false)
-      setIsApiKeyModalOpen(false)
-    }, 900)
-  }
 
   // Resizable window state (width and height)
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>(() => {
@@ -312,7 +292,7 @@ export default function ArcCopilotDrawer({
 
   return createPortal(
     <div
-      className="fixed z-50 select-text flex flex-col rounded-3xl overflow-hidden border border-cyan-500/30 shadow-2xl transition-shadow selection:bg-cyan-500/30 selection:text-white"
+      className="fixed select-text flex flex-col rounded-3xl overflow-hidden border border-cyan-500/30 shadow-2xl transition-shadow selection:bg-cyan-500/30 selection:text-white"
       style={{
         position: 'fixed',
         bottom: '84px',
@@ -357,18 +337,17 @@ export default function ArcCopilotDrawer({
 
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-extrabold text-white tracking-wide">Ask Arcis</h3>
+              <h3 className="text-[14px] font-extrabold text-white tracking-wide">Ask Arco</h3>
             </div>
-            <p className="text-[10px] text-slate-400">Arcis Assistant</p>
+            <p className="text-[12px] text-slate-400">Arcis AI Agent</p>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Autonomous Session Key Trigger Button */}
+          {/* Session Settings */}
           <button
             onClick={() => setIsSessionKeyModalOpen(true)}
-            title={sessionConfig.isActive ? "Autonomous Session Key (Active)" : "Configure Autonomous Session Key"}
-            className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
               sessionConfig.isActive
                 ? 'bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 border-cyan-500/40 shadow-cyan-500/10'
                 : 'bg-slate-850 hover:bg-slate-800 text-slate-400 border-slate-700'
@@ -376,34 +355,18 @@ export default function ArcCopilotDrawer({
           >
             <Zap className={`w-3.5 h-3.5 ${sessionConfig.isActive ? 'text-cyan-400 animate-pulse' : 'text-slate-400'}`} />
             <span className="hidden sm:inline">
-              {sessionConfig.isActive ? '0 Pop-up Mode' : 'Session Key'}
+              Session Settings
             </span>
-          </button>
-
-          <button
-            onClick={() => setIsApiKeyModalOpen(true)}
-            title={getOpenAIApiKey() ? "OpenAI API Key (Aktif)" : "OpenAI API Key Ayarları"}
-            className={`p-1.5 rounded-lg transition cursor-pointer relative ${
-              getOpenAIApiKey()
-                ? 'text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/30'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
-            }`}
-          >
-            <Key className="w-4 h-4" />
-            {getOpenAIApiKey() && (
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            )}
           </button>
 
           {/* Sound FX Mute/Unmute Toggle */}
           <button
             onClick={handleToggleSound}
             title={isSoundEnabled ? 'Sesli Geri Bildirim: Açık (Kapatmak için tıklayın)' : 'Sesli Geri Bildirim: Sessiz (Açmak için tıklayın)'}
-            className={`p-1.5 rounded-lg transition cursor-pointer ${
-              isSoundEnabled
+            className={`p-1.5 rounded-lg transition cursor-pointer ${isSoundEnabled
                 ? 'text-cyan-300 hover:text-cyan-200 bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30'
                 : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/80'
-            }`}
+              }`}
           >
             {isSoundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
@@ -429,21 +392,23 @@ export default function ArcCopilotDrawer({
         </div>
       </div>
 
-      {/* ── SESSION KEY & BUDGET BAR ── */}
-      <div className="px-5 py-2 bg-slate-950/85 border-b border-cyan-500/20 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2 text-slate-300">
-          <div className={`w-2 h-2 rounded-full ${sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
-          <span className="font-medium flex items-center gap-1.5">
-            <span>Session:</span>
-          </span>
-          <span className="font-mono text-cyan-300 font-bold">
-            {Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc).toFixed(2)} USDC left
-          </span>
-          <span className="text-[12px] text-slate-400 font-mono hidden sm:inline">
-            ({getSessionTimeRemaining(sessionConfig.expiresAt).formatted})
-          </span>
+      {/* ── SESSION BUDGET BAR (Only shown when an active session is configured) ── */}
+      {sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt && (
+        <div className="px-5 py-2 bg-slate-950/85 border-b border-cyan-500/20 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 text-slate-300">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-medium flex items-center gap-1.5">
+              <span>Session Budget:</span>
+            </span>
+            <span className="font-mono text-cyan-300 font-bold">
+              {Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc).toFixed(2)} USDC
+            </span>
+            <span className="text-[12px] text-slate-400 font-mono hidden sm:inline">
+              ({getSessionTimeRemaining(sessionConfig.expiresAt).formatted})
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── CHAT MESSAGES STREAM ── */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 font-sans text-xs select-text selection:bg-cyan-500/30 selection:text-white">
@@ -504,7 +469,7 @@ export default function ArcCopilotDrawer({
                     <div className="rounded-2xl p-3.5 leading-relaxed bg-gradient-to-r from-teal-700 to-cyan-700 text-white rounded-br-none shadow-md select-text cursor-text">
                       <div
                         className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-cyan-400/30 selection:text-white"
-                        dangerouslySetInnerHTML={{ __html: msg.content }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeCopilotHtml(msg.content) }}
                       />
                     </div>
 
@@ -538,16 +503,19 @@ export default function ArcCopilotDrawer({
                 )
               ) : (
                 /* Assistant Bubble */
-                <div className="rounded-2xl p-3.5 leading-relaxed max-w-[85%] shadow-md select-text cursor-text bg-slate-900/90 text-slate-200 border border-slate-800 rounded-tl-none">
-                  <div className="relative">
-                    <span
-                      className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-cyan-400/30 selection:text-white"
-                      dangerouslySetInnerHTML={{ __html: msg.content }}
-                    />
-                    {msg.isStreaming && (
-                      <span className="inline-block w-2 h-3.5 ml-1 bg-cyan-400 animate-pulse align-middle rounded-sm shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
-                    )}
-                  </div>
+                <div className={`rounded-2xl leading-relaxed max-w-[60%] shadow-md select-text cursor-text bg-slate-900/90 text-slate-200 border border-slate-800 rounded-tl-none ${msg.receipt ? 'p-2 sm:p-2.5' : 'p-3.5'}`}>
+                  {/* Fişlerin üstündeki hazırlık mesajı işlem sonuçlandığında (başarılı/başarısız fiş durumunda) gösterilmez */}
+                  {!msg.receipt && (
+                    <div className="relative">
+                      <CopilotMessageContent
+                        content={msg.content}
+                        className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-cyan-400/30 selection:text-white"
+                      />
+                      {msg.isStreaming && (
+                        <span className="inline-block w-2 h-3.5 ml-1 bg-cyan-400 animate-pulse align-middle rounded-sm shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+                      )}
+                    </div>
+                  )}
 
                   {/* Step Logs Accordion */}
                   {msg.steps && msg.steps.length > 0 && (
@@ -602,7 +570,6 @@ export default function ArcCopilotDrawer({
                       message={msg}
                       onExecuteInline={onExecuteInline}
                       onNavigateToTab={onNavigateToTab}
-                      onOpenFaucet={onOpenFaucet}
                       onOpenSessionSettings={() => setIsSessionKeyModalOpen(true)}
                       onCloseDrawer={onClose}
                     />
@@ -628,11 +595,10 @@ export default function ArcCopilotDrawer({
                         onClick={() =>
                           setSelectedTopicId((prev) => (prev === topic.id ? null : topic.id))
                         }
-                        className={`px-3.5 py-1.5 rounded-full text-[11px] font-medium transition cursor-pointer shadow-sm active:scale-95 border ${
-                          isSelected
+                        className={`px-3.5 py-1.5 rounded-full text-[11px] font-medium transition cursor-pointer shadow-sm active:scale-95 border ${isSelected
                             ? 'bg-teal-300 text-slate-950 font-bold border-teal-300 shadow-teal-300/20'
                             : 'bg-slate-900/90 text-slate-300 hover:text-white border-slate-700/80 hover:border-slate-500'
-                        }`}
+                          }`}
                       >
                         {topic.label}
                       </button>
@@ -724,7 +690,7 @@ export default function ArcCopilotDrawer({
 
         <form onSubmit={handleSend} className="relative flex items-center gap-2">
           <div className="relative flex-1 flex items-center">
-            <Sparkles className="w-4 h-4 text-slate-500 absolute left-3.5 pointer-events-none" />
+            <Sparkles className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
             <input
               ref={inputRef}
               type="text"
@@ -765,7 +731,7 @@ export default function ArcCopilotDrawer({
               }}
               placeholder="Type a command or open the quick menu with /"
               disabled={isAnalyzing}
-              className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition disabled:opacity-50"
+              className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition disabled:opacity-50"
             />
           </div>
 
@@ -778,87 +744,13 @@ export default function ArcCopilotDrawer({
           </button>
         </form>
       </div>
-      {/* ── OPENAI API KEY SETTINGS MODAL ── */}
-      {isApiKeyModalOpen && (
-        <div className="absolute inset-0 z-50 bg-slate-950/85 backdrop-blur-md p-6 flex flex-col justify-center animate-fade-in">
-          <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-5 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-center">
-                  <Key className="w-4 h-4 text-cyan-300" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">GPT-4o-mini Settings</h4>
-                  <p className="text-[10px] text-slate-400">OpenAI Natural Language Engine</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsApiKeyModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Enter your OpenAI API key to enable GPT-4o-mini structured intent execution. If empty, Arcis automatically runs on our built-in zero-latency local NLP engine.
-            </p>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                OpenAI API Key
-              </label>
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder="sk-proj-..."
-                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={() => {
-                  setApiKeyInput('')
-                  setOpenAIApiKey('')
-                }}
-                className="text-xs text-slate-400 hover:text-rose-400 transition cursor-pointer underline"
-              >
-                Clear Key
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsApiKeyModalOpen(false)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveApiKey}
-                  className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 hover:brightness-110 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md"
-                >
-                  {apiKeySavedNotice ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-white" />
-                      <span>Saved!</span>
-                    </>
-                  ) : (
-                    <span>Save Key</span>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── AUTONOMOUS SESSION KEY SETTINGS MODAL ── */}
       <SessionKeyModal
         isOpen={isSessionKeyModalOpen}
         onClose={() => setIsSessionKeyModalOpen(false)}
         sessionConfig={sessionConfig}
+        walletAddress={walletAddress}
         onActivateSession={onActivateSession}
         onRevokeSession={onRevokeSession}
         onToggleAutoExecute={onToggleAutoExecute}

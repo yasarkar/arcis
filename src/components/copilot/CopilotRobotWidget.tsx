@@ -40,11 +40,11 @@ export default function CopilotRobotWidget({
       >    
       </div>
 
-      {/* "Ask Arcis" Capsule Pill Button */}
+      {/* "Ask Arco" Capsule Pill Button */}
       <button
         onClick={onClick}
         type="button"
-        aria-label="Toggle Arcis AI Copilot"
+        aria-label="Toggle Arco AI Copilot"
         className={`relative group p-0.5 rounded-full transition-all duration-300 cursor-pointer focus:outline-none ${
           isOpen ? 'scale-95' : 'hover:scale-105 active:scale-95'
         }`}
@@ -77,10 +77,10 @@ export default function CopilotRobotWidget({
             />
           </div>
 
-          {/* Right: "Ask Arcis" Text & AI Badge */}
+          {/* Right: "Ask Arco" Text & AI Badge */}
           <div className="flex items-center gap-2">
             <span className="text-xs md:text-sm font-extrabold text-white tracking-wide group-hover:text-cyan-200 transition font-sans">
-              Ask Arcis
+              Ask Arco
             </span>
           </div>
         </div>
