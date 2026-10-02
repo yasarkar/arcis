@@ -94,10 +94,10 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   // 7. CCTP Min Fee Violation
   CCTP_MIN_FEE_VIOLATION: {
     category: 'VALIDATION',
-    title: 'Transfer Amount Below CCTP Minimum',
-    message: 'Bridge amount must exceed the CCTP relayer fee. Please enter at least 0.10 USDC.',
+    title: 'Bridge Amount Below CCTP Fee',
+    message: 'The bridge amount must be greater than the CCTP forwarder fee. Please increase the transfer amount (recommended: at least 2 USDC).',
     isCanceled: false,
-    isRetryable: false,
+    isRetryable: true,
   },
 
   // 8. ERC-20 Allowance Needed

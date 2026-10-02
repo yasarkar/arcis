@@ -91,4 +91,15 @@ describe('errorNormalizer', () => {
     expect(normalized.message).toContain('Insufficient USDC for Arc gas fees')
     expect(normalized.message).not.toContain('ETH')
   })
+
+  it('correctly normalizes CCTP Max fee must be less than amount simulation error to CCTP_MIN_FEE_VIOLATION', () => {
+    const simulationErr = new Error('Simulation failed on Arc Testnet: Max fee must be less than amount')
+
+    const normalized = normalizeAppError(simulationErr)
+    expect(normalized.code).toBe('CCTP_MIN_FEE_VIOLATION')
+    expect(normalized.category).toBe('VALIDATION')
+    expect(normalized.title).toBe('Bridge Amount Below CCTP Fee')
+    expect(normalized.message).toContain('must be greater than the CCTP forwarder fee')
+    expect(normalized.actionHint).toContain('at least 2 USDC')
+  })
 })

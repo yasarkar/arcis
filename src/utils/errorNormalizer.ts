@@ -568,6 +568,26 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
     }
   }
 
+  // 4b. CCTP Min Fee Violation (Max fee must be less than amount)
+  if (
+    lowMsg.includes('max fee must be less than amount') ||
+    lowMsg.includes('maxfee must be less than amount') ||
+    lowMsg.includes('fee exceeds the transaction amount')
+  ) {
+    const def = ERROR_DEFINITIONS.CCTP_MIN_FEE_VIOLATION
+    return {
+      category: def.category,
+      code: 'CCTP_MIN_FEE_VIOLATION',
+      title: def.title,
+      message: def.message,
+      isCanceled: false,
+      isRetryable: true,
+      isActionable: true,
+      actionHint: 'Increase the bridge amount to at least 2 USDC to cover CCTP forwarder fees.',
+      rawMessage,
+    }
+  }
+
   // 5. Liquidity Route Not Found
   if (
     lowMsg.includes('no route') ||
