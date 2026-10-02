@@ -33,6 +33,7 @@ export type ExecutionProgressState =
   | 'routing'
   | 'signing'
   | 'broadcasting'
+  | 'pending'
   | 'confirmed'
   | 'failed'
 
@@ -40,9 +41,16 @@ export interface InlineExecutionReceipt {
   id: string
   actionType: 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet' | 'ai_service'
   title: string
-  status: 'SUCCESS' | 'FAILED' | 'CANCELED'
+  subtitle?: string
+  status: 'SUCCESS' | 'PENDING' | 'FAILED' | 'CANCELED'
   txHash: string
+  /** Bundler operation identifier when an ERC-4337 operation is still awaiting inclusion. */
+  userOpHash?: string
   explorerUrl?: string
+  /** Source-chain transaction for cross-chain bridge receipts. */
+  sourceTxHash?: string
+  /** Destination-chain settlement transaction for cross-chain bridge receipts. */
+  destTxHash?: string
   fromToken?: string
   toToken?: string
   amountIn?: number
@@ -54,6 +62,12 @@ export interface InlineExecutionReceipt {
   recipient?: string
   memo?: string
   gasUsdc: number
+  /** Actual Arc receipt gas cost in USDC; null/undefined when it could not be verified. */
+  actualGasUsdc?: number | null
+  /** Exact Base-fee component of actualGasUsdc (gasUsed × block baseFeePerGas) — ArcScan's split. */
+  baseFeeUsdc?: string | null
+  /** Exact Priority-tip component of actualGasUsdc (total − base) — ArcScan's split. */
+  priorityFeeUsdc?: string | null
   settlementLatencyMs: number
   timestamp: number
   errorMessage?: string

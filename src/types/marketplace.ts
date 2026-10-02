@@ -79,7 +79,7 @@ export type x402ExecutionResult = X402ExecutionReceipt & {
     payerAddress: string
     timestamp: number
   }
-  executionMode?: 'onchain_verified' | 'session_autonomous'
+  executionMode?: 'onchain_verified' | 'session_autonomous' | 'gateway_batched'
 }
 
 
@@ -134,7 +134,6 @@ export interface CopilotActionPayload {
     toChain?: string
     apy?: string
     estimatedYieldUsdcYearly?: number
-    recipients?: Array<{ address: string; amount: number }>
     [key: string]: any
   }
 }
