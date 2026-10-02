@@ -1,53 +1,18 @@
 // src/services/x402/paymentOrchestrator.ts
-// Central orchestrator for paid AI service execution
-// Implements Two-Phase Settlement (Reserve -> Execute -> Commit vs Void), EIP-3009 signatures, and Invariant guards.
+// Circle Gateway x402 buyer flow. Requires an explicitly connected EOA because batched
+// EIP-3009 authorization uses ecrecover and does not support Circle MSCA/passkey signatures.
 
+import { BatchEvmScheme } from '@circle-fin/x402-batching/client'
+import { createWalletClient, custom, getAddress, isAddress, type Address, type Hex } from 'viem'
+import type { ServiceManifest, X402ExecutionReceipt, X402PaymentRequirements } from '../../types/x402'
+import { arcTestnet, ARC_TESTNET_TOKENS } from '../../config/arcChain'
 import {
-  type Hex,
-  type Address,
-  recoverTypedDataAddress,
-  createWalletClient,
-  custom,
-  getAddress,
-} from 'viem'
-import { privateKeyToAccount } from 'viem/accounts'
-import type {
-  ServiceManifest,
-  X402ExecutionReceipt,
-  PaymentReceipt,
-  X402PaymentRequirements,
-} from '../../types/x402'
-import { arcTestnet, ARC_METADATA } from '../../config/arcChain'
-import { POOL_CONTRACTS } from '../../config/poolsConfig'
-import {
-  DEFAULT_X402_DOMAIN,
-  GATEWAY_BATCHED_DOMAIN,
-  GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
-  EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
+  GATEWAY_CONTRACTS,
   X402_NETWORKS,
   X402_SCHEMES,
 } from '../../config/x402/schemes'
-import { calculateFeeSplit, usdcToBaseUnits } from '../../config/x402/pricing'
-import {
-  checkBudget,
-  checkIdempotency,
-  checkNonce,
-  checkRateLimit,
-  registerReceipt,
-} from './guard'
-import {
-  getSessionKeyConfig,
-  verifySessionLimits,
-  deductSessionSpend,
-} from '../sessionKeyService'
-import {
-  incrementYieldVaultFees,
-  creditProviderEarnings,
-} from '../x402PaymentEngine'
-import { generateLiveServiceData } from '../aiServicesDataProvider'
-import { serviceTelemetryService } from '../serviceTelemetryService'
-import { addTransaction } from '../../utils/history'
+import { usdcToBaseUnits } from '../../config/x402/pricing'
 
 export function safeAddress(addr: string): Address {
   try {
@@ -69,377 +34,126 @@ export interface ExecutePaidCallInput {
   idempotencyKey?: string
 }
 
-/**
- * Resolves the effective payer for this call.
- * Prioritizes ephemeral session key if active, else falls back to connected wallet.
- */
-function resolvePayer(input: ExecutePaidCallInput): {
-  kind: 'session_eoa' | 'external_eoa'
-  address: `0x${string}`
-  privateKey?: Hex
-} {
-  const session = getSessionKeyConfig()
+function encodeJsonBase64(value: unknown): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(value))
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
 
-  if (input.payer?.address) {
-    return {
-      kind: input.payer.kind,
-      address: safeAddress(input.payer.address),
-      privateKey:
-        input.payer.kind === 'session_eoa' ? (session.ephemeralPrivateKey as Hex) : undefined,
-    }
-  }
-
-  // If an explicit wallet provider is supplied, prioritize external_eoa wallet interaction
-  if (input.provider && input.walletAddress) {
-    return {
-      kind: 'external_eoa',
-      address: safeAddress(input.walletAddress),
-    }
-  }
-
-  const sessionAddr = session.sessionPublicKey || (session as any).ephemeralAddress
-  if (session.isActive && sessionAddr && session.ephemeralPrivateKey) {
-    return {
-      kind: 'session_eoa',
-      address: safeAddress(sessionAddr),
-      privateKey: session.ephemeralPrivateKey as Hex,
-    }
-  }
-
-  const raw = input.walletAddress || '0x0000000000000000000000000000000000000000'
-  return {
-    kind: 'external_eoa',
-    address: safeAddress(raw),
+function parsePaymentRequiredHeader(header: string): any {
+  try {
+    const binary = atob(header)
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    return JSON.parse(new TextDecoder().decode(bytes))
+  } catch {
+    return null
   }
 }
 
-/**
- * Executes a paid AI service call with full cryptographic verification and two-phase settlement.
- */
+function failure(statusCode: number, error: string, requirements?: X402PaymentRequirements): X402ExecutionReceipt {
+  return { statusCode, success: false, error, executionTimeMs: 0, costUsdc: 0, requirements }
+}
+
+/** Sign one explicit Circle Gateway payment using the connected EOA and call the paid service. */
 export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402ExecutionReceipt> {
-  const startTime = performance.now()
-  const { manifest, payload } = input
-  const price = manifest.pricing.priceUsdc
-  const sessionConfig = getSessionKeyConfig()
-  const payer = resolvePayer(input)
-
-  // 1. Requirements Challenge Structure
-  const nonce: Hex = `0x${Array.from({ length: 64 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('')}`
-
-  const verifyingContract = safeAddress(
-    (manifest.accepts[0]?.extra?.verifyingContract as string) ||
-    (manifest.accepts[0]?.domain?.verifyingContract as string) ||
-    POOL_CONTRACTS.USDC
-  )
-
-  const domain = {
-    name: manifest.accepts[0]?.domain?.name || DEFAULT_X402_DOMAIN.name,
-    version: manifest.accepts[0]?.domain?.version || DEFAULT_X402_DOMAIN.version,
-    chainId: manifest.accepts[0]?.domain?.chainId || arcTestnet.id,
-    verifyingContract,
+  const startedAt = performance.now()
+  const { manifest, provider } = input
+  const requirementsFallback: X402PaymentRequirements = { x402Version: 2, accepts: manifest.accepts.map((accept) => ({ ...accept, payTo: accept.payTo as `0x${string}` })) }
+  const address = input.payer?.kind === 'session_eoa' ? '' : (input.payer?.address || input.walletAddress || '')
+  if (!provider || !isAddress(address)) {
+    return failure(503, 'Paid x402 calls require a connected external EOA. No authorization or charge was created; Circle passkey/MSCA and autonomous session signers are unsupported.', requirementsFallback)
   }
 
-  const requirements: X402PaymentRequirements = {
-    x402Version: 2,
-    accepts: [
-      {
-        scheme: X402_SCHEMES.EXACT,
-        network: X402_NETWORKS.CAIP2_ARC_TESTNET,
-        asset: 'USDC',
-        payTo: safeAddress(manifest.provider.address),
-        amount: usdcToBaseUnits(price),
-        maxAmountRequired: usdcToBaseUnits(price),
-        resource: manifest.serve.path,
-        maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
-        extra: {
-          name: CIRCLE_BATCHING_METADATA.NAME,
-          version: CIRCLE_BATCHING_METADATA.VERSION,
-          verifyingContract: GATEWAY_CONTRACTS.testnet.gatewayWallet,
-        },
-        domain,
-      },
-    ],
+  const payerAddress = getAddress(address)
+  if (payerAddress.toLowerCase() === manifest.provider.address.toLowerCase()) {
+    return failure(400, 'The paying EOA must differ from the service provider address.')
   }
-
-  // 2. Guard: Invariant I2 (Idempotency)
-  const resolvedIdempotencyKey =
-    input.idempotencyKey || `${manifest.id}:${payer.address.toLowerCase()}:${nonce}`
-  const idempotencyCheck = checkIdempotency(resolvedIdempotencyKey)
-  if (idempotencyCheck.status === 'replay' && idempotencyCheck.cachedReceipt) {
-    return {
-      statusCode: 200,
-      success: true,
-      executionTimeMs: Math.round(performance.now() - startTime),
-      costUsdc: idempotencyCheck.cachedReceipt.amountUsdc,
-      protocolFeeUsdc: idempotencyCheck.cachedReceipt.protocolFeeUsdc,
-      providerEarnedUsdc: idempotencyCheck.cachedReceipt.providerEarnedUsdc,
-      payment: idempotencyCheck.cachedReceipt,
-      explorerUrl: idempotencyCheck.cachedReceipt.explorerUrl,
-    }
-  }
-
-  // 3. Guard: Rate Limiting
-  const rateLimit = checkRateLimit(payer.address, manifest.id)
-  if (!rateLimit.allowed) {
-    return {
-      statusCode: 429,
-      success: false,
-      error: `Rate limit exceeded. Try again in ${rateLimit.resetInSeconds} seconds.`,
-      executionTimeMs: Math.round(performance.now() - startTime),
-      costUsdc: 0,
-      requirements,
-    }
-  }
-
-  // 4. Guard: Invariant I1 (Budget & Caps)
-  const sessionMax = sessionConfig.maxSpendUsdc ?? (sessionConfig as any).maxBudgetUsdc
-  const budgetGuard = checkBudget({
-    payer: payer.address,
-    costUsdc: price,
-    maxAmountUsdc: manifest.pricing.maxAmountUsdc,
-    currentSpentUsdc: sessionConfig.spentUsdc || 0,
-    maxSessionBudgetUsdc: sessionConfig.isActive ? sessionMax : undefined,
-  })
-
-  if (!budgetGuard.allowed) {
-    return {
-      statusCode: 402,
-      success: false,
-      error: budgetGuard.reason,
-      executionTimeMs: Math.round(performance.now() - startTime),
-      costUsdc: 0,
-      requirements,
-    }
-  }
-
-  // 5. Guard: Invariant I3 (Fresh Nonce)
-  if (checkNonce(nonce, payer.address) === 'replayed') {
-    return {
-      statusCode: 409,
-      success: false,
-      error: 'Nonce replay detected. Authorization must use a unique fresh nonce.',
-      executionTimeMs: Math.round(performance.now() - startTime),
-      costUsdc: 0,
-      requirements,
-    }
-  }
-
-  // 6. PHASE 1: RESERVE & SIGN (EIP-3009 TransferWithAuthorization)
-  const nowSec = Math.floor(Date.now() / 1000)
-  const validAfter = BigInt(nowSec - 60)
-  const validBefore = BigInt(nowSec + 3600)
-  const valueUnits = BigInt(usdcToBaseUnits(price))
-
-  const message = {
-    from: safeAddress(payer.address),
-    to: safeAddress(manifest.provider.address),
-    value: valueUnits,
-    validAfter,
-    validBefore,
-    nonce,
-  }
-
-  let authorizationSignature: Hex = '0x'
-
+  let walletClient: ReturnType<typeof createWalletClient>
   try {
-    if (payer.kind === 'session_eoa' && payer.privateKey) {
-      // Zero-popup signing with ephemeral key
-      const account = privateKeyToAccount(payer.privateKey)
-      authorizationSignature = await account.signTypedData({
-        domain,
-        types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
-        primaryType: 'TransferWithAuthorization',
-        message,
-      })
-    } else if (input.provider || (typeof window !== 'undefined' && (window as any).ethereum)) {
-      // External browser wallet prompt
-      const effectiveProvider =
-        input.provider || (typeof window !== 'undefined' && (window as any).ethereum)
-      const walletClient = createWalletClient({
-        account: payer.address,
-        chain: arcTestnet,
-        transport: custom(effectiveProvider),
-      })
-      authorizationSignature = await walletClient.signTypedData({
-        account: payer.address,
-        domain,
-        types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
-        primaryType: 'TransferWithAuthorization',
-        message,
-      })
-    } else {
-      // Simulated authorization signature for automated unit tests & un-connected callers
-      const mockAccount = privateKeyToAccount(
-        '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-      )
-      authorizationSignature = await mockAccount.signTypedData({
-        domain,
-        types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
-        primaryType: 'TransferWithAuthorization',
-        message: { ...message, from: mockAccount.address },
-      })
+    walletClient = createWalletClient({ account: payerAddress, chain: arcTestnet, transport: custom(provider) })
+    const [chainId, accounts] = await Promise.all([walletClient.getChainId(), walletClient.getAddresses()])
+    if (chainId !== arcTestnet.id || !accounts.some((account) => account.toLowerCase() === payerAddress.toLowerCase())) {
+      return failure(400, 'Connect the paying EOA on Arc Testnet and confirm it is the active wallet.')
     }
-  } catch (signErr: any) {
-    return {
-      statusCode: 402,
-      success: false,
-      error: signErr?.shortMessage || signErr?.message || 'EIP-3009 Payment authorization rejected.',
-      executionTimeMs: Math.round(performance.now() - startTime),
-      costUsdc: 0,
-      requirements,
-    }
+  } catch {
+    return failure(503, 'The connected EOA could not be verified; no trusted payment settlement was attempted.', requirementsFallback)
   }
 
-  // 7. PHASE 2: EXECUTE SERVICE
-  let serviceData: any = null
-  let actionablePayload: any = null
-  let executionError: string | undefined
-
+  const endpoint = `/api/x402/${encodeURIComponent(manifest.id)}`
   try {
-    if (manifest.engine === 'native') {
-      const liveRes = await generateLiveServiceData(manifest, payload)
-      serviceData = liveRes.data
-      actionablePayload = liveRes.actionablePayload
-    } else {
-      // Proxy or LLM upstream call
-      const endpoint = manifest.upstream?.url || manifest.serve.path
-      const res = await fetch(endpoint, {
-        method: manifest.serve.method,
-        headers: {
-          'Content-Type': 'application/json',
-          'PAYMENT-SIGNATURE': authorizationSignature,
-        },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) {
-        throw new Error(`Upstream returned HTTP ${res.status}`)
-      }
-      serviceData = await res.json()
-    }
-  } catch (err: any) {
-    executionError = err?.message || 'AI Service execution encountered an internal error.'
-  }
-
-  const durationMs = Math.round(performance.now() - startTime)
-
-  // 8. PHASE 3: COMMIT OR VOID (Two-Phase Settlement)
-  const feeSplit = calculateFeeSplit(price, manifest.pricing.protocolFeeBps || 100)
-
-  if (executionError) {
-    // Invariant I4: If service failed, VOID the authorization. Zero deduction!
-    const voidedReceipt: PaymentReceipt = {
-      id: `rcpt-${Date.now()}-${nonce.slice(2, 8)}`,
-      idempotencyKey: resolvedIdempotencyKey,
-      serviceId: manifest.id,
-      serviceVersion: manifest.version,
-      payer: payer.address,
-      payTo: manifest.provider.address as `0x${string}`,
-      amountUsdc: 0,
-      authorizedMaxUsdc: manifest.pricing.maxAmountUsdc,
-      scheme: 'exact',
-      network: 'arcTestnet',
-      authorizationSignature,
-      latencyMs: durationMs,
-      status: 'voided',
-      failureReason: executionError,
-      protocolFeeUsdc: 0,
-      providerEarnedUsdc: 0,
-      engineMode: 'gateway_batched',
-      gasSponsored: true,
-      createdAt: Date.now(),
+    const challengeResponse = await fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json' } })
+    if (challengeResponse.status !== 402) {
+      return failure(challengeResponse.status || 503, `The paid service did not provide an x402 payment challenge (HTTP ${challengeResponse.status}).`)
     }
 
-    serviceTelemetryService.recordExecution(manifest.id, durationMs, false)
-
-    return {
-      statusCode: 500,
-      success: false,
-      error: executionError,
-      executionTimeMs: durationMs,
-      costUsdc: 0,
-      payment: voidedReceipt,
+    const paymentRequiredHeader = challengeResponse.headers.get('payment-required')
+    const paymentRequired = paymentRequiredHeader ? parsePaymentRequiredHeader(paymentRequiredHeader) : null
+    const requirements = paymentRequired?.accepts?.find((option: any) =>
+      option?.scheme === X402_SCHEMES.EXACT &&
+      option?.network === X402_NETWORKS.CAIP2_ARC_TESTNET &&
+      option?.maxTimeoutSeconds === CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS &&
+      option?.extra?.name === CIRCLE_BATCHING_METADATA.NAME &&
+      option?.extra?.version === CIRCLE_BATCHING_METADATA.VERSION &&
+      option?.extra?.verifyingContract?.toLowerCase() === GATEWAY_CONTRACTS.testnet.gatewayWallet.toLowerCase() &&
+      option?.asset?.toLowerCase() === ARC_TESTNET_TOKENS.USDC.toLowerCase() &&
+      option?.payTo?.toLowerCase() === manifest.provider.address.toLowerCase() &&
+      option?.amount === usdcToBaseUnits(manifest.pricing.priceUsdc)
+    )
+    if (!paymentRequired || paymentRequired.x402Version !== 2 || !requirements || paymentRequired.resource?.url !== manifest.serve.path || paymentRequired.resource?.description !== manifest.description || paymentRequired.resource?.mimeType !== 'application/json') {
+      return failure(502, 'The service returned payment requirements that do not match the trusted Arc Testnet Gateway configuration.')
     }
-  }
 
-  // Success: Commit the payment
-  const batchTxHash: Hex = `0x${Array.from({ length: 64 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('')}`
-  const explorerUrl = `${ARC_METADATA.explorerUrl}/tx/${batchTxHash}`
-
-  const confirmedReceipt: PaymentReceipt = {
-    id: `rcpt-${Date.now()}-${nonce.slice(2, 8)}`,
-    idempotencyKey: resolvedIdempotencyKey,
-    serviceId: manifest.id,
-    serviceVersion: manifest.version,
-    payer: payer.address,
-    payTo: manifest.provider.address as `0x${string}`,
-    amountUsdc: price,
-    authorizedMaxUsdc: manifest.pricing.maxAmountUsdc,
-    scheme: 'exact',
-    network: 'arcTestnet',
-    authorizationSignature,
-    batchTxHash,
-    explorerUrl,
-    settlementRef: `gw-${Date.now()}`,
-    protocolFeeUsdc: feeSplit.protocolFeeUsdc,
-    providerEarnedUsdc: feeSplit.providerEarnedUsdc,
-    latencyMs: durationMs,
-    status: 'served',
-    engineMode: 'gateway_batched',
-    gasSponsored: true,
-    createdAt: Date.now(),
-  }
-
-  // Update accounting & ledger
-  incrementYieldVaultFees(feeSplit.protocolFeeUsdc)
-  creditProviderEarnings(manifest.provider.address, feeSplit.providerEarnedUsdc)
-  if (payer.kind === 'session_eoa') {
-    deductSessionSpend(price)
-  }
-
-  registerReceipt(confirmedReceipt)
-  serviceTelemetryService.recordExecution(manifest.id, durationMs, true)
-
-  // Append to transaction history
-  try {
-    addTransaction({
-      type: 'ai_service',
-      txHash: batchTxHash,
-      amount: price.toFixed(4),
-      tokenSymbol: 'USDC',
-      sourceChain: 'Arc Testnet',
-      userAddress: payer.address,
-      recipient: manifest.provider.address,
-      status: 'success',
-      serviceId: manifest.id,
-      serviceName: manifest.name,
-      providerAddress: manifest.provider.address,
+    const scheme = new BatchEvmScheme({
+      address: payerAddress,
+      signTypedData: async (typedData) => walletClient.signTypedData({
+        account: payerAddress,
+        ...typedData,
+      } as any) as Promise<Hex>,
     })
-  } catch (e) {
-    console.warn('[paymentOrchestrator] Transaction history write notice:', e)
-  }
+    const paymentPayload = await scheme.createPaymentPayload(paymentRequired.x402Version, requirements)
+    const paidResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'Payment-Signature': encodeJsonBase64({
+          ...paymentPayload,
+          accepted: requirements,
+          resource: paymentRequired.resource,
+        }),
+      },
+      body: JSON.stringify({ payload: input.payload }),
+    })
+    const responseBody = await paidResponse.json().catch(() => null)
+    if (!paidResponse.ok || !responseBody || typeof responseBody !== 'object') {
+      return failure(paidResponse.status || 502, responseBody?.error || `Paid request failed (HTTP ${paidResponse.status}); check payment status before retrying.`)
+    }
 
-  return {
-    statusCode: 200,
-    success: true,
-    data: serviceData,
-    executionTimeMs: durationMs,
-    costUsdc: price,
-    protocolFeeUsdc: feeSplit.protocolFeeUsdc,
-    providerEarnedUsdc: feeSplit.providerEarnedUsdc,
-    payment: confirmedReceipt,
-    actionablePayload,
-    explorerUrl,
-    engineMode: 'gateway_batched',
-    gasSponsored: true,
-    txHash: batchTxHash,
-    authProof: {
-      signature: authorizationSignature,
-      payerAddress: payer.address,
-      timestamp: Date.now(),
-    },
+    const payment = responseBody.payment
+    const validAcceptedPayment = paidResponse.status === 200 && responseBody.statusCode === 200 && responseBody.success === true &&
+      payment?.status === 'settlement_pending' &&
+      payment?.payerAddress?.toLowerCase() === payerAddress.toLowerCase() &&
+      payment?.providerAddress?.toLowerCase() === manifest.provider.address.toLowerCase() &&
+      payment?.serviceId === manifest.id &&
+      payment?.amountUsdc === manifest.pricing.priceUsdc &&
+      typeof payment?.settlementRef === 'string' && payment.settlementRef.length > 0 &&
+      !/^0x[0-9a-fA-F]{64}$/.test(payment.settlementRef)
+    const data = responseBody.data
+    const availableData = Boolean(data && typeof data === 'object' && typeof data.status === 'string' && data.status !== 'UNAVAILABLE')
+    if (!validAcceptedPayment || !availableData) {
+      return failure(502, 'The Gateway payment acceptance or paid service result could not be verified; the request will not be reported as successful.')
+    }
+
+    return {
+      ...responseBody,
+      statusCode: paidResponse.status,
+      success: true,
+      executionTimeMs: Math.round(performance.now() - startedAt),
+      costUsdc: manifest.pricing.priceUsdc,
+      requirements: paymentRequired,
+    } as X402ExecutionReceipt
+  } catch (error: any) {
+    return failure(503, error?.message || 'The paid x402 request failed. Its payment status may be unknown; do not retry until it is checked.')
   }
 }

@@ -11,10 +11,15 @@ import {
   ARC_USDC_ADDRESS,
   CCTP_TOKEN_MESSENGER_TESTNET,
   CCTP_MESSAGE_TRANSMITTER_TESTNET,
+  pollCctpDestinationTx,
 } from '../bridgeUcwService'
 import * as rpcModule from '../rpc'
 import { USDC_ADDRESSES, GATEWAY_DOMAINS } from '../../config/gatewayConfig'
-import { parseUnits } from 'viem'
+import { decodeEventLog, encodeAbiParameters, encodeEventTopics, parseUnits } from 'viem'
+
+function successfulReceipt(hash: string) {
+  return { receipt: { transactionHash: hash, status: 'success' }, transactionHash: hash, status: 'success' }
+}
 
 describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
   beforeEach(() => {
@@ -101,10 +106,11 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       // Mock allowance sufficient
       vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({} as any)
       vi.spyOn(rpcModule, 'resilientReadContract').mockResolvedValue(parseUnits('500', 6))
+      vi.spyOn(rpcModule, 'resilientWaitForReceipt').mockResolvedValue(successfulReceipt(`0x${'a'.repeat(64)}`) as any)
 
       mockExecuteContract.mockResolvedValue({
         success: true,
-        txHash: '0xarcburn1234567890abcdef',
+        txHash: `0x${'a'.repeat(64)}`,
       })
 
       const onStepProgress = vi.fn()
@@ -119,10 +125,10 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
         onStepProgress,
       })
 
-      expect(result.burnTxHash).toBe('0xarcburn1234567890abcdef')
+      expect(result.burnTxHash).toBe(`0x${'a'.repeat(64)}`)
       expect(result.destDomain).toBe(GATEWAY_DOMAINS['Base_Sepolia'])
       expect(result.mintRecipient).toBe('0x9999999999999999999999999999999999999999')
-      expect(result.sourceExplorerUrl).toContain('0xarcburn1234567890abcdef')
+      expect(result.sourceExplorerUrl).toContain(`0x${'a'.repeat(64)}`)
 
       // Should only call depositForBurn (1 call) because allowance was sufficient
       expect(mockExecuteContract).toHaveBeenCalledTimes(1)
@@ -135,18 +141,21 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
     })
 
     it('successfully initiates CCTP transfer from Base Sepolia to Arc Testnet with approval challenge', async () => {
-      // Mock allowance insufficient (0)
+      // Mock allowance insufficient (0), then confirm the approval transaction on-chain.
       vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({} as any)
       vi.spyOn(rpcModule, 'resilientReadContract').mockResolvedValue(0n)
+      vi.spyOn(rpcModule, 'resilientWaitForReceipt')
+        .mockResolvedValueOnce(successfulReceipt(`0x${'b'.repeat(64)}`) as any)
+        .mockResolvedValueOnce(successfulReceipt(`0x${'c'.repeat(64)}`) as any)
 
       mockExecuteContract
         .mockResolvedValueOnce({
           success: true,
-          txHash: '0xapproveTx987654321',
+          txHash: `0x${'b'.repeat(64)}`,
         })
         .mockResolvedValueOnce({
           success: true,
-          txHash: '0xbaseBurnTx123456',
+          txHash: `0x${'c'.repeat(64)}`,
         })
 
       const onStepProgress = vi.fn()
@@ -161,7 +170,7 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
         onStepProgress,
       })
 
-      expect(result.burnTxHash).toBe('0xbaseBurnTx123456')
+      expect(result.burnTxHash).toBe(`0x${'c'.repeat(64)}`)
       expect(result.destDomain).toBe(GATEWAY_DOMAINS['Arc_Testnet']) // Domain 26
       expect(result.destDomain).toBe(26)
 
@@ -184,6 +193,21 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       expect(onStepProgress).toHaveBeenCalledWith('approving')
       expect(onStepProgress).toHaveBeenCalledWith('burning')
       expect(onStepProgress).toHaveBeenCalledWith('completed')
+    })
+
+    it('does not proceed to burn when an approval receipt is missing', async () => {
+      vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({} as any)
+      vi.spyOn(rpcModule, 'resilientReadContract').mockResolvedValue(0n)
+      vi.spyOn(rpcModule, 'resilientWaitForReceipt').mockResolvedValue({ status: 'unknown' } as any)
+      mockExecuteContract.mockResolvedValueOnce({ success: true, txHash: `0x${'e'.repeat(64)}` })
+
+      await expect(executeUcwBridgeTransfer({
+        amount: '10', sourceChain: 'Base_Sepolia', destChain: 'Arc_Testnet',
+        recipientAddress: '0x2222222222222222222222222222222222222222',
+        connectedAddress: '0x1234567890123456789012345678901234567890',
+        executeUcwContract: mockExecuteContract,
+      })).rejects.toThrow('USDC approval has not been confirmed')
+      expect(mockExecuteContract).toHaveBeenCalledTimes(1)
     })
 
     it('rejects when source chain equals destination chain', async () => {
@@ -226,6 +250,115 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
     })
   })
 
+  describe('pollCctpDestinationTx', () => {
+    const sourceChain = 'Base_Sepolia'
+    const destChain = 'Arc_Testnet'
+    const burnTxHash = `0x${'a'.repeat(64)}`
+    const recipient = '0x1111111111111111111111111111111111111111'
+    const wrongRecipient = '0x2222222222222222222222222222222222222222'
+    const destinationTxHash = `0x${'b'.repeat(64)}`
+    const nonce = '12345'
+    const messageBody = '0x1234'
+    const amount = '25'
+
+    const mintEventAbi = [{
+      type: 'event', name: 'MintAndWithdraw',
+      inputs: [
+        { type: 'address', indexed: true, name: 'mintRecipient' },
+        { type: 'uint256', indexed: false, name: 'amount' },
+        { type: 'address', indexed: true, name: 'mintToken' },
+        { type: 'uint256', indexed: false, name: 'feeCollected' },
+      ],
+    }] as const
+
+    function mockIrisAndDestinationReceipt(mintRecipient: string) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          sourceTxHash: burnTxHash,
+          messages: [{
+            message: '0xabcd',
+            cctpVersion: 2,
+            status: 'complete',
+            decodedMessage: {
+              sourceDomain: String(GATEWAY_DOMAINS[sourceChain]),
+              destinationDomain: String(GATEWAY_DOMAINS[destChain]),
+              nonce,
+              messageBody,
+              decodedMessageBody: {
+                mintRecipient: recipient,
+                burnToken: USDC_ADDRESSES[sourceChain],
+                amount: parseUnits(amount, 6).toString(),
+              },
+            },
+          }],
+        }),
+      }))
+
+      const topics = encodeEventTopics({
+        abi: mintEventAbi,
+        eventName: 'MintAndWithdraw',
+        args: {
+          mintRecipient: mintRecipient as `0x${string}`,
+          mintToken: USDC_ADDRESSES[destChain] as `0x${string}`,
+        },
+      })
+      const data = encodeAbiParameters(
+        [{ type: 'uint256' }, { type: 'uint256' }],
+        [parseUnits('24.99', 6), parseUnits('0.01', 6)]
+      )
+      const getLogs = vi.fn().mockResolvedValue([{
+        transactionHash: destinationTxHash,
+        args: { messageBody },
+      }])
+      const mintLog = { address: CCTP_TOKEN_MESSENGER_TESTNET, topics, data }
+      const getTransactionReceipt = vi.fn().mockResolvedValue({
+        transactionHash: destinationTxHash,
+        status: 'success',
+        logs: [mintLog],
+      })
+      vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({
+        getBlockNumber: vi.fn().mockResolvedValue(100n),
+        getLogs,
+        getTransactionReceipt,
+      } as any)
+      return { getLogs, getTransactionReceipt, mintLog }
+    }
+
+    it('confirms only the matching successful CCTP receive and exact TokenMessenger mint', async () => {
+      const { getLogs, getTransactionReceipt, mintLog } = mockIrisAndDestinationReceipt(recipient)
+      expect(decodeEventLog({
+        abi: mintEventAbi,
+        data: mintLog.data,
+        topics: mintLog.topics,
+      }).args).toMatchObject({ mintRecipient: recipient, mintToken: USDC_ADDRESSES[destChain], amount: parseUnits('24.99', 6), feeCollected: parseUnits('0.01', 6) })
+
+      const result = await pollCctpDestinationTx({
+        sourceChain, destChain, burnTxHash, recipientAddress: recipient, amount,
+        maxAttempts: 1, intervalMs: 0,
+      })
+
+      expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({
+        address: CCTP_MESSAGE_TRANSMITTER_TESTNET,
+        args: { nonce: `0x${BigInt(nonce).toString(16).padStart(64, '0')}` },
+      }))
+      expect(getTransactionReceipt).toHaveBeenCalledWith({ hash: destinationTxHash })
+      expect(result).toEqual({ status: 'confirmed', destTxHash: destinationTxHash, receivedAmount: '24.99' })
+    })
+
+    it('does not confirm a CCTP mint delivered to a different recipient', async () => {
+      mockIrisAndDestinationReceipt(wrongRecipient)
+
+      const result = await pollCctpDestinationTx({
+        sourceChain, destChain, burnTxHash, recipientAddress: recipient, amount,
+        maxAttempts: 1, intervalMs: 0,
+      })
+
+      expect(result.status).toBe('pending')
+      expect(result.destTxHash).toBeUndefined()
+    })
+  })
+
   describe('fetchCctpAttestation', () => {
     it('returns complete status when Circle Iris API confirms attestation', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
@@ -259,7 +392,7 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
     it('dispatches receiveMessage to MessageTransmitter on target chain', async () => {
       const mockExecuteContract = vi.fn().mockResolvedValue({
         success: true,
-        txHash: '0xmintTxHash777',
+        txHash: `0x${'d'.repeat(64)}`,
       })
 
       const res = await executeCctpReceiveMessage({
@@ -270,7 +403,7 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       })
 
       expect(res.success).toBe(true)
-      expect(res.txHash).toBe('0xmintTxHash777')
+      expect(res.txHash).toBe(`0x${'d'.repeat(64)}`)
       expect(mockExecuteContract).toHaveBeenCalledWith(
         expect.objectContaining({
           contractAddress: CCTP_MESSAGE_TRANSMITTER_TESTNET,

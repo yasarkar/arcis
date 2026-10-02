@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   getResilientPublicClient,
   getArcPublicClient,
+  resilientWaitForReceipt,
   resilientReadContract,
   resilientGetBalance,
   resilientMulticall,
@@ -222,6 +223,48 @@ describe('resilientRpcService Unit & Integration Tests', () => {
 
       expect(tx).toBe('0xTxHash123')
       expect(getFromMicroCache('read:balance')).toBeUndefined()
+    })
+  })
+
+  describe('Receipt fallback verification', () => {
+    const hash = `0x${'a'.repeat(64)}` as `0x${string}`
+
+    it('returns unknown when a mined transaction has no retrievable receipt', async () => {
+      const mockClient: any = {
+        waitForTransactionReceipt: vi.fn().mockRejectedValue(new Error('poll timeout')),
+        getTransaction: vi.fn().mockResolvedValue({ blockNumber: 10n }),
+        getTransactionReceipt: vi.fn().mockRejectedValue(new Error('receipt unavailable')),
+      }
+
+      const result = await resilientWaitForReceipt(mockClient, hash)
+      expect(result.status).toBe('unknown')
+      expect(result.receipt).toBeUndefined()
+    })
+
+    it('returns success only from a matching successful fallback receipt', async () => {
+      const receipt = { transactionHash: hash, status: 'success', blockNumber: 10n }
+      const mockClient: any = {
+        waitForTransactionReceipt: vi.fn().mockRejectedValue(new Error('poll timeout')),
+        getTransaction: vi.fn().mockResolvedValue({ blockNumber: 10n }),
+        getTransactionReceipt: vi.fn().mockResolvedValue(receipt),
+      }
+
+      const result = await resilientWaitForReceipt(mockClient, hash)
+      expect(result.status).toBe('success')
+      expect(result.receipt).toBe(receipt)
+    })
+
+    it('returns reverted when a matching fallback receipt is reverted', async () => {
+      const receipt = { transactionHash: hash, status: 'reverted', blockNumber: 10n }
+      const mockClient: any = {
+        waitForTransactionReceipt: vi.fn().mockRejectedValue(new Error('poll timeout')),
+        getTransaction: vi.fn().mockResolvedValue({ blockNumber: 10n }),
+        getTransactionReceipt: vi.fn().mockResolvedValue(receipt),
+      }
+
+      const result = await resilientWaitForReceipt(mockClient, hash)
+      expect(result.status).toBe('reverted')
+      expect(result.receipt).toBe(receipt)
     })
   })
 })

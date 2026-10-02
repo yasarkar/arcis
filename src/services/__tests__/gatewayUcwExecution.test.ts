@@ -4,14 +4,48 @@ import {
   mapChainKeyToCircleBlockchain,
 } from '../gatewayUcwService'
 import * as gatewayServiceModule from '../gatewayService'
+import * as rpcModule from '../rpc'
+import { encodeAbiParameters, encodeEventTopics, parseUnits, zeroAddress } from 'viem'
+import { GATEWAY_DOMAINS, USDC_ADDRESSES } from '../../config/gatewayConfig'
 
-vi.mock('../gatewayService', () => ({
+vi.mock('../gatewayService', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../gatewayService')>(),
   getGatewayBalances: vi.fn(),
 }))
+vi.mock('../rpc', () => ({
+  getResilientPublicClient: vi.fn(),
+}))
+
+const TRANSFER_ABI = [{
+  type: 'event', name: 'Transfer',
+  inputs: [
+    { type: 'address', indexed: true, name: 'from' },
+    { type: 'address', indexed: true, name: 'to' },
+    { type: 'uint256', indexed: false, name: 'value' },
+  ],
+}] as const
+
+function mockDestinationMintReceipt(chainKey: string, recipient: string, amount: string, txHash: string) {
+  const getTransactionReceipt = vi.fn()
+  const topics = encodeEventTopics({
+    abi: TRANSFER_ABI,
+    eventName: 'Transfer',
+    args: { from: zeroAddress, to: recipient as `0x${string}` },
+  })
+  const data = encodeAbiParameters([{ type: 'uint256' }], [parseUnits(amount, 6)])
+  vi.mocked(rpcModule.getResilientPublicClient).mockReturnValue({
+    getTransactionReceipt: getTransactionReceipt.mockResolvedValue({
+      transactionHash: txHash,
+      status: 'success',
+      logs: [{ address: USDC_ADDRESSES[chainKey], data, topics }],
+    }),
+  } as any)
+  return getTransactionReceipt
+}
 
 describe('Gateway UCW Execution & Multi-Chain Tests', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     global.fetch = vi.fn()
   })
 
@@ -76,6 +110,10 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           { domain: 26, depositor: userAddress, balance: '0.5' }, // less than 1.0 USDC buffer
         ],
       })
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ([{ burnIntent: { maxBlockHeight: '65324520', maxFee: '3850' } }]),
+      })
 
       await expect(
         executeUcwGatewayTransfer({
@@ -99,7 +137,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       })
       const mockExecute = vi.fn().mockResolvedValueOnce({
         success: true,
-        txHash: '0xmock_mint_tx_hash',
+        txHash: `0x${'b'.repeat(64)}`,
       })
 
       vi.mocked(gatewayServiceModule.getGatewayBalances).mockResolvedValueOnce({
@@ -124,6 +162,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           }),
         })
       global.fetch = mockFetch
+      const destinationReceipt = mockDestinationMintReceipt('Base_Sepolia', '0x2222222222222222222222222222222222222222', '10', `0x${'b'.repeat(64)}`)
 
       const onStepProgress = vi.fn()
 
@@ -139,6 +178,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
         onStepProgress,
       })
 
+      expect(destinationReceipt).toHaveBeenCalledWith({ hash: `0x${'b'.repeat(64)}` })
       // /estimate must be consulted before signing, /transfer after
       expect(mockFetch).toHaveBeenCalledTimes(2)
       expect(String(mockFetch.mock.calls[0][0])).toContain('/estimate')
@@ -159,6 +199,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       expect(transferBody[0].burnIntent.spec.value).toBe('10000000')
       expect(transferBody[0].signature).toBe('0xmock_eip712_signature')
 
+      // A transaction hash is not enough: a successful matching mint receipt is required.
       // Destination mint still runs through UCW contract execution
       expect(mockExecute).toHaveBeenCalledTimes(1)
       const execArgs = mockExecute.mock.calls[0][0]
@@ -167,11 +208,11 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       expect(execArgs.blockchain).toBe('BASE-SEPOLIA')
 
       // Result reports the FULL requested amount (never silently reduced)
-      expect(result.mintTxHash).toBe('0xmock_mint_tx_hash')
+      expect(result.mintTxHash).toBe(`0x${'b'.repeat(64)}`)
       expect(result.sourceChain).toBe('Arc_Testnet')
       expect(result.destChain).toBe('Base_Sepolia')
       expect(result.amount).toBe('10')
-      expect(result.destExplorerUrl).toContain('0xmock_mint_tx_hash')
+      expect(result.destExplorerUrl).toContain(`0x${'b'.repeat(64)}`)
       expect(onStepProgress).toHaveBeenCalledWith('completed')
     })
 
@@ -204,10 +245,11 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           ok: true,
           json: async () => ({
             status: 'confirmed',
-            forwardingDetails: { transactionHash: '0xforwardedmint' },
+            forwardingDetails: { transactionHash: `0x${'c'.repeat(64)}` },
           }),
         })
       global.fetch = mockFetch
+      const destinationReceipt = mockDestinationMintReceipt('Base_Sepolia', userAddress, '10', `0x${'c'.repeat(64)}`)
 
       const onStepProgress = vi.fn()
 
@@ -234,9 +276,10 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       expect(result.forwarded).toBe(true)
       expect(result.transferId).toBe('gw-transfer-123')
       expect(result.status).toBe('confirmed')
-      expect(result.mintTxHash).toBe('0xforwardedmint')
-      expect(result.destExplorerUrl).toContain('0xforwardedmint')
+      expect(result.mintTxHash).toBe(`0x${'c'.repeat(64)}`)
+      expect(result.destExplorerUrl).toContain(`0x${'c'.repeat(64)}`)
       expect(onStepProgress).toHaveBeenCalledWith('forwarding')
+      expect(destinationReceipt).toHaveBeenCalledWith({ hash: `0x${'c'.repeat(64)}` })
       expect(onStepProgress).toHaveBeenCalledWith('completed')
     })
 
@@ -321,14 +364,14 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       expect(mockExecute).not.toHaveBeenCalled()
     })
 
-    it('falls back to the local fee formula (0.05 USDC gas + 0.005%) when /estimate is unavailable', async () => {
+    it('fails closed without signing when /estimate is unavailable', async () => {
       const mockSign = vi.fn().mockResolvedValueOnce({
         success: true,
         signature: '0xmock_eip712_signature',
       })
       const mockExecute = vi.fn().mockResolvedValueOnce({
         success: true,
-        txHash: '0xmock_mint_tx_hash',
+        txHash: `0x${'b'.repeat(64)}`,
       })
 
       vi.mocked(gatewayServiceModule.getGatewayBalances).mockResolvedValueOnce({
@@ -338,19 +381,10 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
         ],
       })
 
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce({ ok: false, status: 503 })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({
-            attestation: '0xmock_attestation',
-            signature: '0xmock_mint_signature',
-          }),
-        })
+      const mockFetch = vi.fn().mockResolvedValueOnce({ ok: false, status: 503 })
       global.fetch = mockFetch
 
-      await executeUcwGatewayTransfer({
+      await expect(executeUcwGatewayTransfer({
         amount: '10',
         sourceChain: 'Arc_Testnet',
         destChain: 'Base_Sepolia',
@@ -358,13 +392,9 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
         useForwarder: false,
         signTypedData: mockSign,
         executeUcwContract: mockExecute,
-      })
-
-      // 10 USDC * 0.005% = 500 units + 50,000 units gas buffer
-      const signArgs = mockSign.mock.calls[0][0]
-      expect(signArgs.data.message.maxFee).toBe('50500')
-      // Reference behaviour: unbounded maxBlockHeight when the fee oracle is silent
-      expect(signArgs.data.message.maxBlockHeight).toBe((2n ** 256n - 1n).toString())
+      })).rejects.toThrow('Circle Gateway fee estimate is unavailable')
+      expect(mockSign).not.toHaveBeenCalled()
+      expect(mockExecute).not.toHaveBeenCalled()
     })
 
     it('rejects when user cancels or denies EIP-712 signature challenge', async () => {
@@ -379,6 +409,10 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
         balances: [
           { domain: 26, depositor: userAddress, balance: '25.00' },
         ],
+      })
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ([{ burnIntent: { maxBlockHeight: '65324520', maxFee: '3850' } }]),
       })
 
       await expect(
@@ -405,7 +439,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       vi.mocked(gatewayServiceModule.getGatewayBalances).mockResolvedValueOnce({
         token: 'USDC',
         balances: [
-          { domain: 6, depositor: userAddress, balance: '50.00' }, // Domain 6 = Base Sepolia
+          { domain: GATEWAY_DOMAINS.Base_Sepolia, depositor: userAddress, balance: '50.00' }, // Base Sepolia source domain
         ],
       })
 
@@ -423,10 +457,11 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           ok: true,
           json: async () => ({
             status: 'confirmed',
-            forwardingDetails: { transactionHash: '0xarcminttxhash' },
+            forwardingDetails: { transactionHash: `0x${'d'.repeat(64)}` },
           }),
         })
       global.fetch = mockFetch
+      const destinationReceipt = mockDestinationMintReceipt('Arc_Testnet', userAddress, '15', `0x${'d'.repeat(64)}`)
 
       const onStepProgress = vi.fn()
 
@@ -449,8 +484,9 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       expect(result.forwarded).toBe(true)
       expect(result.sourceChain).toBe('Base_Sepolia')
       expect(result.destChain).toBe('Arc_Testnet')
-      expect(result.mintTxHash).toBe('0xarcminttxhash')
+      expect(result.mintTxHash).toBe(`0x${'d'.repeat(64)}`)
       expect(result.status).toBe('confirmed')
+      expect(destinationReceipt).toHaveBeenCalledWith({ hash: `0x${'d'.repeat(64)}` })
     })
   })
 })

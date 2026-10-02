@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   settleX402Payment,
   getAccumulatedYieldVaultFees,
@@ -11,12 +11,17 @@ import type { x402Service } from '../../types/marketplace'
 // Mock RPC & modular wallet on-chain services
 vi.mock('../rpc', () => ({
   getArcPublicClient: () => ({
-    waitForTransactionReceipt: async () => ({ blockNumber: 5042123n }),
+    waitForTransactionReceipt: async ({ hash }: { hash: `0x${string}` }) => ({
+      blockNumber: 5042123n,
+      transactionHash: hash,
+      status: mockReceiptStatus,
+    }),
     getBlockNumber: async () => 5042123n,
   }),
 }))
 
 let mockUserOpSuccess = true
+let mockReceiptStatus: 'success' | 'reverted' = 'success'
 
 vi.mock('../modularWalletService', () => ({
   getStoredMscaAddress: () => '0x9999999999999999999999999999999999999999',
@@ -88,6 +93,7 @@ describe('x402PaymentEngine & x402Client Unit Tests', () => {
   beforeEach(() => {
     store = {}
     mockUserOpSuccess = true
+    mockReceiptStatus = 'success'
     const localStorageMock = {
       getItem: (key: string) => store[key] || null,
       setItem: (key: string, value: string) => {
@@ -102,7 +108,12 @@ describe('x402PaymentEngine & x402Client Unit Tests', () => {
     }
     vi.stubGlobal('localStorage', localStorageMock)
     vi.stubGlobal('sessionStorage', localStorageMock)
+    vi.stubEnv('ENABLE_GATEWAY_SETTLE', 'false')
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   describe('Realistic 0-Baseline & YieldVault Share', () => {
@@ -131,48 +142,49 @@ describe('x402PaymentEngine & x402Client Unit Tests', () => {
     })
   })
 
-  describe('Verified On-Chain Fee Routing & Provider Accounting', () => {
-    it('accurately splits 1% to YieldVault and 99% to provider upon verified on-chain confirmation', async () => {
+  describe('Legacy direct transfer is not an x402 ledger settlement', () => {
+    it('fails closed without signing or sending any direct transfer when no facilitator is configured', async () => {
       mockUserOpSuccess = true
       const initialVaultFees = getAccumulatedYieldVaultFees()
       const result = await settleX402Payment(mockService, '0x9999999999999999999999999999999999999999')
 
-      expect(result.success).toBe(true)
-      expect(result.costUsdc).toBe(0.005)
-      expect(result.protocolFeeUsdc).toBe(0.00005) // 1%
-      expect(result.providerEarnedUsdc).toBe(0.00495) // 99%
-      expect(result.executionMode).toBe('session_autonomous')
-
-      // Verify YieldVault accumulation
-      const updatedVaultFees = getAccumulatedYieldVaultFees()
-      expect(updatedVaultFees).toBeCloseTo(initialVaultFees + 0.00005, 5)
-
-      // Verify Provider earnings
-      const earnings = getStoredProviderEarnings()
-      const providerRecord = earnings[mockService.provider.address.toLowerCase()]
-      expect(providerRecord).toBeDefined()
-      expect(providerRecord.totalCallsServed).toBe(1)
-      expect(providerRecord.unclaimedEarningsUsdc).toBeCloseTo(0.00495, 5)
+      expect(result.success).toBe(false)
+      expect(result.costUsdc).toBe(0)
+      expect(result.protocolFeeUsdc).toBe(0)
+      expect(result.providerEarnedUsdc).toBe(0)
+      expect(result.authProof).toBeUndefined()
+      expect(result.executionMode).toBeUndefined()
+      expect(result.error).toMatch(/no trusted payment settlement/i)
+      expect(getAccumulatedYieldVaultFees()).toBe(initialVaultFees)
+      expect(getStoredProviderEarnings()[mockService.provider.address.toLowerCase()]).toBeUndefined()
     })
 
-    it('produces valid cryptographic authorization proof and real ArcScan tx receipt link', async () => {
+    it('does not prompt a connected wallet when no trusted settlement is available', async () => {
+      const provider = { request: vi.fn() }
+      const result = await settleX402Payment(mockService, '0x9999999999999999999999999999999999999999', provider)
+
+      expect(result.success).toBe(false)
+      expect(provider.request).not.toHaveBeenCalled()
+    })
+
+    it('does not credit or report success even when a direct-transfer receipt could succeed', async () => {
       mockUserOpSuccess = true
-      const payer = '0x9999999999999999999999999999999999999999'
-      const result = await settleX402Payment(mockService, payer)
+      const initialVaultFees = getAccumulatedYieldVaultFees()
+      const initialProviderRecord = getStoredProviderEarnings()[mockService.provider.address.toLowerCase()]
+      const result = await settleX402Payment(mockService, '0x9999999999999999999999999999999999999999')
 
-      expect(result.authProof).toBeDefined()
-      expect(result.authProof?.payerAddress.toLowerCase()).toBe(payer.toLowerCase())
-      expect(result.authProof?.signature).toMatch(/^0x[a-f0-9]{64}$/)
-
-      // Verify Explorer URL points to real transaction on ArcScan testnet
-      expect(result.explorerUrl).toBeDefined()
-      expect(result.explorerUrl).toContain('testnet.arcscan.app/tx/0x4444444444444444444444444444444444444444444444444444444444444444')
-      expect(result.executionMode).toBe('session_autonomous')
+      expect(result.success).toBe(false)
+      expect(result.costUsdc).toBe(0)
+      expect(result.error).toMatch(/no trusted payment settlement/i)
+      expect(result.txHash).toBeUndefined()
+      expect(result.explorerUrl).toBeUndefined()
+      expect(getAccumulatedYieldVaultFees()).toBe(initialVaultFees)
+      expect(getStoredProviderEarnings()[mockService.provider.address.toLowerCase()]).toEqual(initialProviderRecord)
     })
   })
 
   describe('executeX402Call End-to-End Orchestration', () => {
-    it('executes full x402 handshake and returns live data with actionable payload on successful on-chain settlement', async () => {
+    it('fails closed without a trusted facilitator settlement result', async () => {
       mockUserOpSuccess = true
       const result = await executeX402Call(
         mockService,
@@ -180,15 +192,17 @@ describe('x402PaymentEngine & x402Client Unit Tests', () => {
         '0x9999999999999999999999999999999999999999'
       )
 
-      expect(result.statusCode).toBe(200)
-      expect(result.success).toBe(true)
-      expect(result.costUsdc).toBe(0.005)
-      expect(result.executionTimeMs).toBeGreaterThanOrEqual(0)
-      expect(result.data).toBeDefined()
-      expect(result.explorerUrl).toContain('testnet.arcscan.app')
+      expect(result.statusCode).toBe(503)
+      expect(result.success).toBe(false)
+      expect(result.costUsdc).toBe(0)
+      expect(result.executionTimeMs).toBe(0)
+      expect(result.data).toBeUndefined()
+      expect(result.explorerUrl).toBeUndefined()
+      expect(result.txHash).toBeUndefined()
+      expect(result.payment).toBeUndefined()
     })
 
-    it('rejects executeX402Call when settlement fails or signature is rejected', async () => {
+    it('fails closed without prompting the wallet when a trusted settlement path is unavailable', async () => {
       const rejectingProvider = {
         request: vi.fn().mockRejectedValue(new Error('User rejected authorization request')),
       }
@@ -199,10 +213,12 @@ describe('x402PaymentEngine & x402Client Unit Tests', () => {
         rejectingProvider
       )
 
-      expect(result.statusCode).toBe(402)
+      expect(result.statusCode).toBe(503)
       expect(result.success).toBe(false)
       expect(result.costUsdc).toBe(0)
-      expect(result.error).toBeDefined()
+      expect(result.error).toMatch(/no trusted payment settlement/i)
+      expect(rejectingProvider.request.mock.calls.map(([request]) => request.method)).not.toContain('eth_signTypedData_v4')
+      expect(rejectingProvider.request.mock.calls.map(([request]) => request.method)).not.toContain('eth_sendTransaction')
     })
   })
 })

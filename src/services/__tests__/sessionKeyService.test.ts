@@ -59,9 +59,10 @@ describe('Wallet-Scoped Session Key Isolation', () => {
     expect(normalizeWalletAddress(undefined)).toBe('default')
   })
 
-  it('maintains completely isolated configs and budgets for distinct wallets', async () => {
+  it('maintains isolated local caps without provisioning executable session keys', async () => {
     // 1. Activate session for Wallet A with $250 cap
     const configA = await activateSessionKey({
+      userApproved: true,
       walletAddress: WALLET_A,
       maxSpendUsdc: 250,
       maxPerTxUsdc: 75,
@@ -70,6 +71,7 @@ describe('Wallet-Scoped Session Key Isolation', () => {
 
     // 2. Activate session for Wallet B with $50 cap
     const configB = await activateSessionKey({
+      userApproved: true,
       walletAddress: WALLET_B,
       maxSpendUsdc: 50,
       maxPerTxUsdc: 20,
@@ -78,7 +80,11 @@ describe('Wallet-Scoped Session Key Isolation', () => {
 
     expect(configA.maxSpendUsdc).toBe(250)
     expect(configB.maxSpendUsdc).toBe(50)
-    expect(configA.sessionPublicKey).not.toBe(configB.sessionPublicKey)
+    expect(configA.sessionPublicKey).toBe('')
+    expect(configB.sessionPublicKey).toBe('')
+    expect(configA.ephemeralPrivateKey).toBeUndefined()
+    expect(configB.ephemeralPrivateKey).toBeUndefined()
+    expect(Object.keys(mockSessionStorage)).toHaveLength(0)
 
     // Verify stored retrieval
     const loadedA = getSessionKeyConfig(WALLET_A)
@@ -90,11 +96,13 @@ describe('Wallet-Scoped Session Key Isolation', () => {
 
   it('deducts spend from the targeted wallet only without affecting others', async () => {
     await activateSessionKey({
+      userApproved: true,
       walletAddress: WALLET_A,
       maxSpendUsdc: 100,
     })
 
     await activateSessionKey({
+      userApproved: true,
       walletAddress: WALLET_B,
       maxSpendUsdc: 100,
     })
@@ -115,10 +123,12 @@ describe('Wallet-Scoped Session Key Isolation', () => {
 
   it('revoking one wallet does not deactivate other wallets', async () => {
     await activateSessionKey({
+      userApproved: true,
       walletAddress: WALLET_A,
       maxSpendUsdc: 100,
     })
     await activateSessionKey({
+      userApproved: true,
       walletAddress: WALLET_B,
       maxSpendUsdc: 100,
     })
@@ -130,5 +140,78 @@ describe('Wallet-Scoped Session Key Isolation', () => {
 
     expect(stateA.isActive).toBe(false)
     expect(stateB.isActive).toBe(true)
+  })
+
+  it('migrates legacy session metadata without hydrating keys', () => {
+    const storageKey = `arcis_session_meta_v3_${WALLET_A}`
+    mockLocalStorage[storageKey] = JSON.stringify({
+      sessionId: 'legacy-session', sessionPublicKey: '0x3333333333333333333333333333333333333333',
+      walletAddress: WALLET_A, expiresAt: Date.now() + 60_000, maxSpendUsdc: 100,
+      spentUsdc: 0, maxPerTxUsdc: 50, allowedActions: ['send'], isActive: true,
+      autoExecute: false, createdAt: Date.now(),
+    })
+    mockSessionStorage[`arcis_session_priv_key_v3_${WALLET_A}`] = '0xlegacy-private-key'
+
+    const migrated = getSessionKeyConfig(WALLET_A)
+    expect(migrated.ephemeralPrivateKey).toBeUndefined()
+    expect(mockSessionStorage[`arcis_session_priv_key_v3_${WALLET_A}`]).toBe('0xlegacy-private-key')
+  })
+
+  it('never activates a session without explicit user approval', async () => {
+    const refused = await activateSessionKey({
+      userApproved: false,
+      walletAddress: WALLET_A,
+      maxSpendUsdc: 100,
+    })
+
+    expect(refused.isActive).toBe(false)
+    expect(refused.autoExecute).toBe(false)
+    expect(verifySessionLimits('send', 1, WALLET_A).allowed).toBe(false)
+
+    // A freshly provisioned config must also be unconfigured (no phantom session in storage).
+    const fresh = getSessionKeyConfig(WALLET_B)
+    expect(fresh.isActive).toBe(false)
+    expect(fresh.autoExecute).toBe(false)
+    expect(fresh.maxSpendUsdc).toBe(0)
+    expect(mockLocalStorage[`arcis_session_meta_v3_${WALLET_B}`]).toBeUndefined()
+  })
+
+  it('activates local session with user approval and enforces limits without creating a signing key', async () => {
+    const approved = await activateSessionKey({
+      userApproved: true,
+      walletAddress: WALLET_A,
+      maxSpendUsdc: 100,
+      maxPerTxUsdc: 50,
+      autoExecute: true,
+    })
+
+    expect(approved.isActive).toBe(true)
+    expect(approved.autoExecute).toBe(true)
+    expect(approved.sessionPublicKey).toBe('')
+    expect(approved.ephemeralPrivateKey).toBeUndefined()
+    expect(Object.keys(mockSessionStorage)).toHaveLength(0)
+    expect(verifySessionLimits('send', 1, WALLET_A).allowed).toBe(true)
+  })
+
+  it('does not persist phantom sessions to storage on read', () => {
+    const fresh = getSessionKeyConfig(WALLET_A)
+    expect(fresh.isActive).toBe(false)
+    expect(fresh.maxSpendUsdc).toBe(0)
+    expect(mockLocalStorage[`arcis_session_meta_v3_${WALLET_A}`]).toBeUndefined()
+  })
+
+  it('completely removes session from storage on revocation', async () => {
+    await activateSessionKey({
+      userApproved: true,
+      walletAddress: WALLET_A,
+      maxSpendUsdc: 100,
+    })
+    expect(mockLocalStorage[`arcis_session_meta_v3_${WALLET_A}`]).toBeDefined()
+
+    revokeSessionKey(WALLET_A)
+    expect(mockLocalStorage[`arcis_session_meta_v3_${WALLET_A}`]).toBeUndefined()
+    const current = getSessionKeyConfig(WALLET_A)
+    expect(current.isActive).toBe(false)
+    expect(current.maxSpendUsdc).toBe(0)
   })
 })

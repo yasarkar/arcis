@@ -1,20 +1,17 @@
-// src/components/copilot/SessionKeyModal.tsx
-// Circle Modular Wallets & Autonomous Session Key Configuration Modal
-// Features: Granular action scopes, live budget progress bar, countdown timer & zero-popup execution
+// Session Key Configuration Modal
+// These browser-side controls do not register on-chain SessionKeyModule delegations.
 
 import React, { useState, useEffect } from 'react'
 import {
   X,
-  Shield,
   Zap,
   Key,
   CheckCircle2,
   Trash2,
   Lock,
-  Fingerprint,
   Clock,
   Check,
-  Sparkles,
+  AlertTriangle,
 } from 'lucide-react'
 import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey'
 import { getSessionKeyConfig, getSessionTimeRemaining } from '../../services/sessionKeyService'
@@ -23,12 +20,16 @@ interface SessionKeyModalProps {
   isOpen: boolean
   onClose: () => void
   sessionConfig: SessionKeyConfig
+  walletAddress?: string
   onActivateSession: (params: {
+    /** Explicit user consent for this session. */
+    userApproved: boolean
     maxSpendUsdc?: number
     durationHours?: number
     maxPerTxUsdc?: number
     autoExecute?: boolean
     allowedActions?: SessionActionType[]
+    walletAddress?: string
   }) => Promise<SessionKeyConfig>
   onRevokeSession: () => void
   onToggleAutoExecute: (enabled: boolean) => void
@@ -38,14 +39,14 @@ const ACTION_OPTIONS: { id: SessionActionType; label: string; description: strin
   { id: 'swap', label: 'Swap', description: 'Instant token swaps' },
   { id: 'deposit', label: 'Vault Deposit', description: 'Real-yield pools' },
   { id: 'bridge', label: 'Bridge', description: 'Cross-chain transfers' },
-  { id: 'send', label: 'Send', description: 'Transfers & batch sends' },
-  { id: 'faucet', label: 'Faucet', description: 'Testnet faucet funding' },
+  { id: 'send', label: 'Send', description: 'Transfers to any recipient' },
 ]
 
 export default function SessionKeyModal({
   isOpen,
   onClose,
   sessionConfig,
+  walletAddress,
   onActivateSession,
   onRevokeSession,
   onToggleAutoExecute,
@@ -53,42 +54,59 @@ export default function SessionKeyModal({
   const [budgetUsdc, setBudgetUsdc] = useState<number>(sessionConfig.maxSpendUsdc || 100)
   const [durationHours, setDurationHours] = useState<number>(24)
   const [maxPerTx, setMaxPerTx] = useState<number>(sessionConfig.maxPerTxUsdc || 50)
-  const [autoExec, setAutoExec] = useState<boolean>(sessionConfig.autoExecute ?? true)
   const [allowedActions, setAllowedActions] = useState<SessionActionType[]>(
     sessionConfig.allowedActions && sessionConfig.allowedActions.length > 0
       ? sessionConfig.allowedActions
-      : ['swap', 'deposit', 'bridge', 'send', 'faucet']
+      : ['swap', 'deposit', 'bridge', 'send']
   )
   const [isCustomBudget, setIsCustomBudget] = useState<boolean>(false)
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
   const [timeRemainingText, setTimeRemainingText] = useState<string>('')
+  // Yes/No safety bubble shown before replacing an already-running session
+  const [isConfirmOpen, setIsConfirmOpen] = useState<boolean>(false)
 
-  // Sync state when sessionConfig or isOpen changes
+  // Sync state when sessionConfig or isOpen or walletAddress changes
   useEffect(() => {
     if (isOpen) {
-      const fresh = getSessionKeyConfig()
+      const fresh = getSessionKeyConfig(walletAddress)
       setBudgetUsdc(fresh.maxSpendUsdc || 100)
       setMaxPerTx(fresh.maxPerTxUsdc || 50)
-      setAutoExec(fresh.autoExecute ?? true)
       if (fresh.allowedActions && fresh.allowedActions.length > 0) {
         setAllowedActions(fresh.allowedActions)
       }
+      setIsConfirmOpen(false)
     }
-  }, [isOpen])
+  }, [isOpen, walletAddress])
+
+  // Dismiss the safety bubble whenever the user tweaks a setting,
+  // so the confirmation always refers to the visible configuration.
+  useEffect(() => {
+    setIsConfirmOpen(false)
+  }, [budgetUsdc, durationHours, maxPerTx, allowedActions, isCustomBudget])
+
+  // Escape key dismisses the safety bubble without touching the modal
+  useEffect(() => {
+    if (!isOpen || !isConfirmOpen) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsConfirmOpen(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isConfirmOpen])
 
   // Live countdown timer ticker
   useEffect(() => {
     if (!isOpen) return
     const updateCountdown = () => {
-      const fresh = getSessionKeyConfig()
+      const fresh = getSessionKeyConfig(walletAddress)
       const stats = getSessionTimeRemaining(fresh.expiresAt)
       setTimeRemainingText(stats.formatted)
     }
     updateCountdown()
     const interval = setInterval(updateCountdown, 1000)
     return () => clearInterval(interval)
-  }, [isOpen])
+  }, [isOpen, walletAddress])
 
   if (!isOpen) return null
 
@@ -101,15 +119,24 @@ export default function SessionKeyModal({
     }
   }
 
-  const handleSave = async () => {
+  /** True when this wallet already has a live, non-expired autonomous session. */
+  const hasOngoingSession = (): boolean => {
+    const fresh = getSessionKeyConfig(walletAddress)
+    return fresh.isActive && Date.now() < fresh.expiresAt
+  }
+
+  const performSave = async () => {
     setIsSaving(true)
     try {
       await onActivateSession({
+        userApproved: true,
         maxSpendUsdc: Number(budgetUsdc),
         durationHours: Number(durationHours),
         maxPerTxUsdc: Math.min(Number(maxPerTx), Number(budgetUsdc)),
-        autoExecute: autoExec,
+        // Do not force zero-popup on: preserve the user's existing auto-execution choice.
+        autoExecute: false,
         allowedActions,
+        walletAddress,
       })
       setSavedSuccess(true)
       setTimeout(() => {
@@ -119,6 +146,22 @@ export default function SessionKeyModal({
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleSaveClick = () => {
+    if (isSaving) return
+    // Guard rail: replacing a running session resets its budget, so require
+    // an explicit yes/no before we overwrite it.
+    if (hasOngoingSession()) {
+      setIsConfirmOpen(true)
+      return
+    }
+    void performSave()
+  }
+
+  const handleConfirmSave = () => {
+    setIsConfirmOpen(false)
+    void performSave()
   }
 
   const remainingBudget = Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc)
@@ -146,9 +189,9 @@ export default function SessionKeyModal({
             </div>
             <div>
               <h3 className="text-base font-extrabold text-white flex items-center gap-2">
-                <span>Autonomous Session Keys</span>
+                <span>Session Settings</span>
               </h3>
-              <p className="text-xs text-slate-400">DeFi transactions with Arcis in a single click</p>
+              <p className="text-xs text-slate-400">Browser-held key and client-side execution limits only</p>
             </div>
           </div>
           <button
@@ -186,45 +229,21 @@ export default function SessionKeyModal({
             </div>
           </div>
 
-          {/* Live Glowing Budget Progress Bar */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-400 font-sans">Budget Usage:</span>
-              <span className="font-mono text-slate-300">
-                <span className="text-emerald-400 font-bold">${remainingBudget.toFixed(2)}</span> / ${sessionConfig.maxSpendUsdc.toFixed(2)} USDC Available
-              </span>
-            </div>
-            <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
-              <div
-                className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400"
-                style={{ width: `${100 - spentPercent}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Account Delegation Details */}
-          {sessionConfig.mscaAddress ? (
-            <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Fingerprint className="w-4 h-4 text-cyan-400" />
-                <div>
-                  <span className="text-[10px] text-cyan-300 font-bold uppercase block">Circle Smart Account (MSCA)</span>
-                  <span className="text-xs font-mono text-white">{sessionConfig.mscaAddress.slice(0, 8)}...{sessionConfig.mscaAddress.slice(-6)}</span>
-                </div>
+          {/* Live Glowing Budget Progress Bar (Only rendered when session is active with a real cap) */}
+          {sessionConfig.isActive && !isExpired && sessionConfig.maxSpendUsdc > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-slate-400 font-sans">Spend Cap Usage:</span>
+                <span className="font-mono text-slate-300">
+                  <span className="text-emerald-400 font-bold">{remainingBudget.toFixed(2)}</span> / {sessionConfig.maxSpendUsdc.toFixed(2)} USDC
+                </span>
               </div>
-              <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
-                Delegation Active
-              </span>
-            </div>
-          ) : (
-            <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-slate-400" />
-                <span className="text-[11px] text-slate-300">Arc L1 Ephemeral Delegated Signer</span>
+              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
+                <div
+                  className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400"
+                  style={{ width: `${100 - spentPercent}%` }}
+                />
               </div>
-              <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-cyan-950/50 text-cyan-300 border border-cyan-500/20 uppercase">
-                Arc Testnet
-              </span>
             </div>
           )}
         </div>
@@ -234,7 +253,7 @@ export default function SessionKeyModal({
           {/* 1. Budget Presets & Custom Input */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300">Session Budget (USDC):</label>
+              <label className="text-xs font-semibold text-slate-300">Spend Cap:</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -243,7 +262,7 @@ export default function SessionKeyModal({
                 >
                   {isCustomBudget ? 'Choose Preset' : 'Custom'}
                 </button>
-                <span className="text-cyan-400 font-mono font-bold">${budgetUsdc} USDC</span>
+                <span className="text-cyan-400 font-mono font-bold">{budgetUsdc} USDC</span>
               </div>
             </div>
 
@@ -316,9 +335,8 @@ export default function SessionKeyModal({
 
           {/* 3. Single-Tx Cap */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-              <span>Max. Spend Per Transaction:</span>
-              <span className="text-cyan-400 font-mono">${maxPerTx} USDC</span>
+            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">                <span>Per Transaction Cap:</span>
+              <span className="text-cyan-400 font-mono">{maxPerTx} USDC</span>
             </label>
             <input
               type="range"
@@ -334,7 +352,7 @@ export default function SessionKeyModal({
           {/* 4. Granular Action Scopes */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-              <span>Allowed Actions:</span>
+              <span>Action Filters:</span>
             </label>
             <div className="flex flex-wrap gap-1.5">
               {ACTION_OPTIONS.map((act) => {
@@ -364,32 +382,6 @@ export default function SessionKeyModal({
               })}
             </div>
           </div>
-
-          {/* 5. Auto-Execute Toggle */}
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/70 border border-slate-800">
-            <div className="space-y-0.5 pr-2">
-              <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Zero-Popup Auto-Execution</span>
-              </span>
-              <p className="text-[10px] text-slate-400">
-                Execute matching Ask Arcis commands directly in chat without confirmation popups
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setAutoExec(!autoExec)}
-              className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer flex-shrink-0 ${
-                autoExec ? 'bg-cyan-500' : 'bg-slate-700'
-              }`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                  autoExec ? 'translate-x-6' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
         </div>
 
         {/* Modal Actions */}
@@ -400,20 +392,13 @@ export default function SessionKeyModal({
             className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3 py-2 rounded-xl hover:bg-rose-950/30"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Revoke Session</span>
+            <span>Clear Session</span>
           </button>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
+              onClick={handleSaveClick}
               disabled={isSaving}
               className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:brightness-110 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
             >
@@ -425,12 +410,59 @@ export default function SessionKeyModal({
               ) : (
                 <>
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Start Session</span>
+                  <span>Save</span>
                 </>
               )}
             </button>
           </div>
         </div>
+
+        {/* ── YES/NO SAFETY BUBBLE ── */}
+        {isConfirmOpen && (
+          <>
+            {/* Click-away layer: dims the form and dismisses the bubble */}
+            <div
+              className="absolute inset-0 z-20 bg-slate-950/30"
+              onClick={() => setIsConfirmOpen(false)}
+            />
+            <div
+              role="alertdialog"
+              aria-label="Confirm updating the active session"
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 w-[21rem] rounded-2xl border border-amber-500/50 bg-slate-950 p-3.5 space-y-3 shadow-2xl shadow-amber-500/10 animate-fade-in select-text"
+            >
+              <div className="flex items-start gap-2">
+                <div className="w-7 h-7 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[13px] font-bold text-white">Are you sure?</span>
+                </div>
+              </div>
+              <p className="text-[12px] text-slate-400 leading-snug mb-5">
+                An active session is running{' '}
+                <strong>{timeRemainingText ? ` (${timeRemainingText})` : ''}</strong>. Saving will
+                replace it and reset the remaining budget.
+              </p>
+              <div className="flex items-center justify-between gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmOpen(false)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 text-[11px] font-bold transition cursor-pointer"
+                >
+                  No
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSave}
+                  disabled={isSaving}
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-slate-950 text-[11px] font-bold transition cursor-pointer shadow-md shadow-amber-500/20 disabled:opacity-50"
+                >
+                  Yes, replace
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

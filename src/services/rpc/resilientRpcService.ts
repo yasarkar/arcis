@@ -572,18 +572,23 @@ export async function resilientWaitForReceipt(
   } catch (receiptErr: any) {
     console.warn(`[ResilientRpc] ${description} receipt polling fallback check for ${hash}:`, receiptErr)
 
-    // Fallback: verify if transaction was already confirmed in a mined block
+    // A mined transaction object is not proof of execution success. Only a receipt status
+    // can distinguish success from revert; a receipt-less fallback must remain unknown.
     try {
       const tx = await client.getTransaction({ hash })
-      if (tx && tx.blockNumber) {
-        return {
-          transactionHash: hash,
-          status: 'success',
-          blockNumber: tx.blockNumber,
+      if (tx?.blockNumber && typeof client.getTransactionReceipt === 'function') {
+        const fallbackReceipt = await client.getTransactionReceipt({ hash })
+        if (fallbackReceipt.transactionHash.toLowerCase() === hash.toLowerCase()) {
+          return {
+            receipt: fallbackReceipt,
+            transactionHash: hash,
+            status: fallbackReceipt.status === 'success' ? 'success' : 'reverted',
+            blockNumber: fallbackReceipt.blockNumber,
+          }
         }
       }
     } catch (txErr) {
-      console.warn(`[ResilientRpc] getTransaction secondary check note:`, txErr)
+      console.warn(`[ResilientRpc] getTransaction/receipt secondary check note:`, txErr)
     }
 
     return {

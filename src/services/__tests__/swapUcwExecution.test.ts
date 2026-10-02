@@ -5,8 +5,12 @@ import { POOL_CONTRACTS } from '../../config/poolsConfig'
 // Mock resilient RPC calls
 vi.mock('../rpc', () => ({
   getArcPublicClient: vi.fn(() => ({})),
+  getResilientPublicClient: vi.fn(() => ({})),
   resilientReadContract: vi.fn(),
-  resilientWaitForReceipt: vi.fn().mockResolvedValue({ status: 'success' }),
+  resilientWaitForReceipt: vi.fn().mockImplementation(async (_client: unknown, hash: string) => ({
+    status: 'success',
+    receipt: { transactionHash: hash, status: 'success' },
+  })),
 }))
 
 // Mock modular wallet to return null so it doesn't take MSCA path
@@ -54,9 +58,13 @@ describe('Swap UCW Execution Tests', () => {
 
     const mockExecuteUcw = vi.fn()
       // approve challenge success
-      .mockResolvedValueOnce({ success: true, txHash: '0xapprove_hash' })
+      .mockResolvedValueOnce({ success: true, txHash: `0x${'a'.repeat(64)}` })
       // swap challenge success
-      .mockResolvedValueOnce({ success: true, txHash: '0xswap_hash' })
+      .mockResolvedValueOnce({ success: true, txHash: `0x${'b'.repeat(64)}` })
+    const receiptWait = vi.spyOn(await import('../rpc'), 'resilientWaitForReceipt')
+    receiptWait.mockImplementation(async (_client: unknown, hash: string) => ({
+      status: 'success', receipt: { transactionHash: hash, status: 'success' },
+    }) as any)
 
     const result = await executeSwap({
       fromChain: 'Arc_Testnet',
@@ -73,7 +81,7 @@ describe('Swap UCW Execution Tests', () => {
     })
 
     expect(result.status).toBe('DONE')
-    expect(result.sourceTxHash).toBe('0xswap_hash')
+    expect(result.sourceTxHash).toBe(`0x${'b'.repeat(64)}`)
     expect(mockExecuteUcw).toHaveBeenCalledTimes(2)
 
     // Check approval challenge call
@@ -100,8 +108,12 @@ describe('Swap UCW Execution Tests', () => {
 
     const mockExecuteUcw = vi.fn().mockResolvedValueOnce({
       success: true,
-      txHash: '0xinstant_swap_hash',
+      txHash: `0x${'c'.repeat(64)}`,
     })
+    const receiptWait = vi.spyOn(await import('../rpc'), 'resilientWaitForReceipt')
+    receiptWait.mockImplementation(async (_client: unknown, hash: string) => ({
+      status: 'success', receipt: { transactionHash: hash, status: 'success' },
+    }) as any)
 
     const result = await executeSwap({
       fromChain: 'Arc_Testnet',
@@ -114,7 +126,7 @@ describe('Swap UCW Execution Tests', () => {
     })
 
     expect(result.status).toBe('DONE')
-    expect(result.sourceTxHash).toBe('0xinstant_swap_hash')
+    expect(result.sourceTxHash).toBe(`0x${'c'.repeat(64)}`)
     // Only 1 call because approve was skipped!
     expect(mockExecuteUcw).toHaveBeenCalledTimes(1)
     expect(mockExecuteUcw).toHaveBeenCalledWith(expect.objectContaining({
