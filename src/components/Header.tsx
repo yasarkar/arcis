@@ -104,6 +104,9 @@ export default function Header({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  const isAnyMenuOpen = isCircleMenuOpen || isPasskeyMenuOpen || isEvmMenuOpen
+
   const tabs = [
     { id: 'home' as const, label: 'Overview', icon: Sparkles },
     { id: 'unified' as const, label: 'Unified Balance', icon: Coins },
@@ -116,7 +119,14 @@ export default function Header({
   ]
 
   return (
-    <header className="sticky top-3 z-50 px-3 sm:px-6 md:px-8 lg:px-10 xl:px-12 w-full max-w-[1920px] 2xl:max-w-full mx-auto transition-all duration-300">
+    <header
+      className={`sticky top-3 ${
+        isAnyMenuOpen ? 'z-[10002]' : 'z-50'
+      } px-3 sm:px-6 md:px-8 lg:px-10 xl:px-12 w-full max-w-[1920px] 2xl:max-w-full mx-auto transition-all duration-300`}
+      style={{
+        zIndex: isAnyMenuOpen ? 10002 : undefined,
+      }}
+    >
       {/* ── FLOATING GLASS CAPSULE ISLAND (AAVE LUXURY NAV - EXPANDED WIDTH) ── */}
       <div
         className="w-full flex items-center justify-between px-4 py-2.5 md:px-8 md:py-3.5 rounded-full transition-all duration-300"
@@ -240,7 +250,7 @@ export default function Header({
 
           {/* 1. Circle Modular Passkey MSCA Connected State */}
           {isPasskeyConnected && mscaAddress && (
-            <div className="relative" ref={passkeyMenuRef}>
+            <div className={`relative ${isPasskeyMenuOpen ? 'z-[10005]' : ''}`} ref={passkeyMenuRef}>
               <button
                 type="button"
                 onClick={() => {
@@ -266,11 +276,12 @@ export default function Header({
               {/* Passkey Dropdown Menu */}
               {isPasskeyMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
                   style={{
                     background: 'rgba(13, 17, 28, 0.96)',
                     border: '1px solid rgba(6, 182, 212, 0.25)',
                     boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(6, 182, 212, 0.15)',
+                    zIndex: 10005,
                   }}
                 >
                   <div className="px-3 py-2 border-b border-white/[0.08] flex items-center justify-between">
@@ -365,14 +376,14 @@ export default function Header({
 
           {/* 2. Circle UCW Connected State */}
           {isUcwConnected && ucwAddress && (
-            <div className="relative" ref={circleMenuRef}>
+            <div className={`relative ${isCircleMenuOpen ? 'z-[10005]' : ''}`} ref={circleMenuRef}>
               <button
                 type="button"
                 onClick={() => {
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('ucw')
                   setIsCircleMenuOpen((prev) => !prev)
                 }}
-                className="ub-action-btn ub-action-btn-primary"
+                className="ub-action-btn ub-action-btn-primary w-40"
               >
                 <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
                   <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
@@ -390,11 +401,12 @@ export default function Header({
               {/* Circle UCW Dropdown Menu */}
               {isCircleMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                  className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
                   style={{
                     background: 'rgba(13, 17, 28, 0.96)',
                     border: '1px solid rgba(59, 130, 246, 0.25)',
                     boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(59, 130, 246, 0.15)',
+                    zIndex: 10005,
                   }}
                 >
                   {/* Portfolio Option */}
@@ -655,7 +667,7 @@ export default function Header({
                     }
 
                     return (
-                      <div className="relative" ref={evmMenuRef}>
+                      <div className={`relative ${isEvmMenuOpen ? 'z-[10005]' : ''}`} ref={evmMenuRef}>
                         <button
                           type="button"
                           onClick={() => {
@@ -678,11 +690,12 @@ export default function Header({
                         {/* EVM Custom Dropdown Menu */}
                         {isEvmMenuOpen && (
                           <div
-                            className="absolute right-0 top-full mt-2 w-40 rounded-2xl p-1.5 z-50 transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                            className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
                             style={{
                               background: 'rgba(13, 17, 28, 0.96)',
                               border: '1px solid rgba(99, 102, 241, 0.25)',
                               boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(99, 102, 241, 0.15)',
+                              zIndex: 10005,
                             }}
                           >
                             {/* Portfolio Option */}

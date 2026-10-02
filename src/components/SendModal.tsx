@@ -43,15 +43,11 @@ import { Tooltip } from './common/Tooltip'
 import {
   SPEED_TIERS,
   getDynamicArcGasOptions,
+  arcTransferFeeFallbackUsdc,
+  resolveArcActualFeeUsdc,
   ARC_GAS_LIMITS,
   type SpeedTier,
 } from '../config/feeTiers'
-import {
-  getGaslessQuota,
-  sendGaslessUsdcTransfer,
-  type GaslessQuota,
-} from '../services/gaslessService'
-import { GaslessIconButton } from './common/GaslessIconButton'
 import {
   FintechCard,
   AssetInputPanel,
@@ -72,6 +68,22 @@ const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
   EURC: EurcIcon,
   cirBTC: CircleIcon,
+}
+
+/**
+ * Formats the exact base + priority fee split of a resolved actual fee — the same
+ * breakdown ArcScan displays under "Transaction fee". Returns '' when the split
+ * could not be resolved so the receipt stays honest.
+ */
+function formatFeeSplit(fee: {
+  baseFeeUsdcExact?: string | null
+  priorityFeeUsdcExact?: string | null
+}): string {
+  if (!fee?.baseFeeUsdcExact || !fee?.priorityFeeUsdcExact) return ''
+  const base = Number(fee.baseFeeUsdcExact)
+  const priority = Number(fee.priorityFeeUsdcExact)
+  if (!Number.isFinite(base) || !Number.isFinite(priority)) return ''
+  return ` (Base: ${base.toFixed(5)} + Priority: ${priority.toFixed(5)})`
 }
 
 /** Helper to map app chain names to Circle UCW TokenBlockchain enum */
@@ -219,19 +231,14 @@ export default function SendModal({
   const [customTokenResult, setCustomTokenResult] = useState<any | null>(null)
   const [customTokenError, setCustomTokenError] = useState<string | null>(null)
   const [isInspectingCustomToken, setIsInspectingCustomToken] = useState(false)
-
   const [isSending, setIsSending] = useState(false)
+
   const [successReceipt, setSuccessReceipt] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [isCanceledError, setIsCanceledError] = useState(false)
 
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null)
   const [nativeBalance, setNativeBalance] = useState('0.00')
-
-  // EIP-3009 Gasless Quick-Start State
-  const [isGaslessMode, setIsGaslessMode] = useState<boolean>(true)
-  const [gaslessQuota, setGaslessQuota] = useState<GaslessQuota | null>(null)
-  const [gaslessStage, setGaslessStage] = useState<'idle' | 'signing' | 'relaying' | 'finalizing'>('idle')
 
   // Arc Transaction Memo State
   const [showMemoPanel, setShowMemoPanel] = useState(false)
@@ -263,20 +270,6 @@ export default function SendModal({
       resetFormInputs()
     }
   }, [connectedAddress, resetFormInputs])
-
-  // Load gasless quota when wallet is connected
-  useEffect(() => {
-    if (!connectedAddress || !isOpen) return
-    let isMounted = true
-    getGaslessQuota(connectedAddress)
-      .then((q) => {
-        if (isMounted) setGaslessQuota(q)
-      })
-      .catch(console.error)
-    return () => {
-      isMounted = false
-    }
-  }, [connectedAddress, isOpen])
 
   const handleSelectMemoPreset = (preset: MemoPreset) => {
     setSelectedPresetId(preset.id)
@@ -336,17 +329,13 @@ export default function SendModal({
       ? customTokenResult?.symbol || 'Custom Token'
       : getDisplayTokenSymbol(selectedChain, token)
 
-  // EIP-3009 Gasless Eligibility
-  const isArcUsdc =
-    selectedChain === 'Arc_Testnet' && (isCustom ? false : token === 'USDC') && sendMode === 'direct'
-  const isGaslessActive = isArcUsdc && isGaslessMode && (gaslessQuota ? gaslessQuota.remainingQuota > 0 : true)
-
   // Balance sufficiency check (Direct transfer has 0 platform fee; L1 gas is paid separately via native USDC gas)
   const isInsufficient = amount ? parseFloat(amount) > parseFloat(activeBalance) : false
 
   // Fetch native token balance from RPC when "NATIVE" is selected in Direct mode
   useEffect(() => {
     if (!connectedAddress || !isOpen) return
+
     if (sendMode !== 'direct' || token !== 'NATIVE' || isCustom) return
 
     let isMounted = true
@@ -449,18 +438,42 @@ export default function SendModal({
         setEstimatedFee('0.00')
         return
       }
-      if (isGaslessActive) {
-        setEstimatedFee('0.00')
-        return
-      }
-
       try {
         if (selectedChain === 'Arc_Testnet') {
-          const isMemo = token === 'USDC' && memoText.trim().length > 0
-          const gasLimit = isMemo ? ARC_GAS_LIMITS.memoTransfer : ARC_GAS_LIMITS.erc20Transfer
-          const gasRes = await getDynamicArcGasOptions(undefined, speedTier, gasLimit)
+          const isMemo = memoText.trim().length > 0
+          const isNativeUsdc = token === 'USDC'
+          const gasLimit = isMemo
+            ? ARC_GAS_LIMITS.memoTransfer
+            : isNativeUsdc
+              ? ARC_GAS_LIMITS.nativeTransfer
+              : ARC_GAS_LIMITS.erc20Transfer
+
+          // 1. Highest-fidelity source: the same execution engine that will broadcast the tx
+          //    (Circle AppKit estimateSend) — its pricing matches what the signer applies.
+          // 2. Live Arc dynamic base fee (EIP-1559 heuristic) as second preference.
+          // 3. Static tier fallback only when no live source is reachable.
+          let quoted: string | null = null
+          if (provider && recipientIsValid) {
+            try {
+              const engineQuote = await estimateGas(
+                provider,
+                selectedChain,
+                isCustom ? customTokenAddress : token,
+                recipient,
+                amount || '1'
+              )
+              const feeNum = engineQuote?.fee ? parseFloat(formatUnits(BigInt(engineQuote.fee), 18)) : 0
+              if (feeNum > 0) quoted = feeNum.toFixed(5)
+            } catch {
+              // Engine quote unavailable — fall through to the dynamic base-fee estimate.
+            }
+          }
+          if (!quoted) {
+            const gasRes = await getDynamicArcGasOptions(undefined, speedTier, gasLimit)
+            quoted = gasRes.estimatedCostUsdc
+          }
           if (isMounted) {
-            setEstimatedFee(gasRes.estimatedCostUsdc)
+            setEstimatedFee(quoted)
           }
         } else if (provider) {
           const gasRes = await estimateGas(
@@ -475,11 +488,11 @@ export default function SendModal({
             const decimals = nativeInfo?.decimals ?? 18
             const formatted = formatUnits(BigInt(gasRes.fee), decimals)
             const feeNum = parseFloat(formatted)
-            setEstimatedFee(feeNum > 0 ? feeNum.toFixed(5) : '0.00042')
+            setEstimatedFee(feeNum > 0 ? feeNum.toFixed(5) : arcTransferFeeFallbackUsdc())
           }
         }
       } catch (err) {
-        if (isMounted) setEstimatedFee('0.0015')
+        if (isMounted) setEstimatedFee(arcTransferFeeFallbackUsdc(token))
       }
     }
 
@@ -491,7 +504,6 @@ export default function SendModal({
     isOpen,
     amount,
     sendMode,
-    isGaslessActive,
     selectedChain,
     provider,
     token,
@@ -507,7 +519,6 @@ export default function SendModal({
   useEffect(() => {
     if (isOpen) {
       setIsSending(false)
-      setGaslessStage('idle')
       setSuccessReceipt(null)
       setError(null)
       setIsCanceledError(false)
@@ -575,7 +586,6 @@ export default function SendModal({
         recipient,
         network: selectedChain,
         memo: selectedChain === 'Arc_Testnet' && memoText.trim() ? memoText.trim() : undefined,
-        isGasless: isGaslessActive,
       },
     })
 
@@ -626,16 +636,18 @@ export default function SendModal({
         if (!ucwResult.success) {
           throw new Error(ucwResult.error || 'Transfer authorization was canceled or failed.')
         }
-
         const txHash = ucwResult.txHash || ''
         setIsSending(false)
 
         const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
+        const actualFee = await resolveArcActualFeeUsdc(txHash)
 
         setSuccessReceipt({
           txHash,
           explorerUrl,
-          gasFee: estimatedFee ? `${estimatedFee} USDC` : '0.00052 USDC',
+          gasFee: actualFee.feeUsdcExact
+            ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee)}`
+            : `~${arcTransferFeeFallbackUsdc('USDC')} USDC (estimate, receipt unavailable)`,
           blockNumber: 'Circle MPC Confirmed',
         })
 
@@ -808,11 +820,16 @@ export default function SendModal({
             setIsSending(false)
 
             const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
+            const actualFee = await resolveArcActualFeeUsdc(txHash)
 
             setSuccessReceipt({
               txHash,
               explorerUrl,
-              gasFee: memoResult.gasFeeUsdc ? `${memoResult.gasFeeUsdc} USDC` : `${estimatedFee || '0.00053'} USDC`,
+              gasFee: actualFee.feeUsdcExact
+                ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee)}`
+                : memoResult.gasFeeUsdc
+                  ? `${memoResult.gasFeeUsdc} USDC`
+                  : `~${arcTransferFeeFallbackUsdc('USDC', true)} USDC (estimate, receipt unavailable)`,
               blockNumber: memoResult.blockNumber.toString(),
               memoText: memoResult.memoText,
               memoId: memoResult.memoId,
@@ -850,67 +867,6 @@ export default function SendModal({
               memoId: memoResult.memoId,
             })
             onSuccess?.(amount, txHash)
-          } else if (isGaslessActive) {
-            // EIP-3009 Gasless Transfer
-            setGaslessStage('signing')
-            const gaslessPromise = sendGaslessUsdcTransfer({
-              provider,
-              from: connectedAddress,
-              to: recipient,
-              amount,
-            })
-
-            setTimeout(() => {
-              setGaslessStage((prev) => (prev === 'signing' ? 'relaying' : prev))
-            }, 1200)
-
-            const gaslessResult = await gaslessPromise
-            setGaslessStage('finalizing')
-            await new Promise((r) => setTimeout(r, 400))
-
-            const txHash = gaslessResult.txHash
-            setIsSending(false)
-            setGaslessStage('idle')
-
-            const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
-
-            setSuccessReceipt({
-              txHash,
-              explorerUrl,
-              gasFee: '0.00 USDC (Arcis Sponsored)',
-              blockNumber: 'Gasless BFT Finalized',
-            })
-
-            updateBroadcast(broadcastId, {
-              type: 'send',
-              title: `${displayToken} Transferred Successfully`,
-              status: 'success',
-              badgeText: 'Confirmed',
-              details: {
-                amount,
-                tokenSymbol: 'USDC',
-                tokenIcon: TOKEN_ICONS.USDC,
-                recipient,
-                network: selectedChain,
-                txHash,
-              },
-            })
-
-            setGaslessQuota((prev) => (prev ? { ...prev, remainingQuota: gaslessResult.remainingQuota } : null))
-            refetchWalletBalances()
-            refreshGatewayBalances()
-            addTransaction({
-              type: 'send',
-              txHash,
-              amount,
-              tokenSymbol: 'USDC',
-              sourceChain: selectedChain,
-              recipient,
-              userAddress: connectedAddress,
-              status: 'success',
-              isPrivate: isPrivateSend,
-            })
-            onSuccess?.(amount, txHash)
           } else {
             await new Promise((r) => setTimeout(r, 1000))
 
@@ -919,11 +875,16 @@ export default function SendModal({
             setIsSending(false)
 
             const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
+            const actualFee = selectedChain === 'Arc_Testnet'
+              ? await resolveArcActualFeeUsdc(txHash)
+              : { feeUsdcExact: null }
 
             setSuccessReceipt({
               txHash,
               explorerUrl,
-              gasFee: estimatedFee ? `${estimatedFee} USDC` : '0.00135 equivalent',
+              gasFee: actualFee.feeUsdcExact
+                ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee as any)}`
+                : `${estimatedFee ? `~${estimatedFee}` : arcTransferFeeFallbackUsdc(activeToken)} USDC (estimate, receipt unavailable)`,
               blockNumber: 'Instant BFT Finalized',
             })
 
@@ -966,7 +927,6 @@ export default function SendModal({
 
         setError(errMsg)
         setIsSending(false)
-        setGaslessStage('idle')
         setIsCanceledError(isCanceled)
 
         const status = isCanceled ? 'canceled' : 'failed'
@@ -988,7 +948,6 @@ export default function SendModal({
             recipient,
             network: selectedChain,
             memo: selectedChain === 'Arc_Testnet' && memoText.trim() ? memoText.trim() : undefined,
-            isGasless: isGaslessActive,
           },
         })
       }
@@ -1086,14 +1045,12 @@ export default function SendModal({
       {
         label: 'Network Fee',
         tooltip: 'Blockchain transaction gas fee paid in USDC on Arc or native gas on destination.',
-        value: isGaslessActive ? (
-          '0.00 USDC (Arcis Sponsored)'
-        ) : sendMode === 'gateway' ? (
+        value: sendMode === 'gateway' ? (
           'Free (Gateway Unified)'
         ) : estimatedFee ? (
           `${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
         ) : selectedChain === 'Arc_Testnet' ? (
-          `~${SPEED_TIERS[speedTier]?.arcGas?.estimatedCostUsdc || '0.000021'} USDC`
+          `~${estimatedFee || arcTransferFeeFallbackUsdc(token, false, speedTier)} USDC`
         ) : (
           `<0.001 ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
         ),
@@ -1109,8 +1066,6 @@ export default function SendModal({
         value:
           sendMode === 'gateway'
             ? '< 1 sec'
-            : isGaslessActive
-            ? '1-2 sec'
             : SPEED_TIERS[speedTier]?.timeEstimate?.arcL1 || '< 5 sec',
       },
       {
@@ -1118,13 +1073,13 @@ export default function SendModal({
         tooltip: 'The total amount that will be deducted from your wallet balance including fees.',
         value: (() => {
           if (!amount || amtNum <= 0) return `0.00 ${tokenSymbol}`
-          if (isGaslessActive || sendMode === 'gateway') {
+          if (sendMode === 'gateway') {
             return `${amount} ${tokenSymbol}`
           }
           const gasCost = estimatedFee
             ? parseFloat(estimatedFee)
             : selectedChain === 'Arc_Testnet'
-            ? parseFloat(SPEED_TIERS[speedTier]?.arcGas?.estimatedCostUsdc || '0.000021')
+            ? parseFloat(arcTransferFeeFallbackUsdc(token, false, speedTier))
             : 0.0005
           if (tokenSymbol === 'USDC' && (selectedChain === 'Arc_Testnet' || !CHAIN_NATIVE_MAP[selectedChain] || CHAIN_NATIVE_MAP[selectedChain]?.symbol === 'USDC')) {
             return `${(amtNum + gasCost).toFixed(selectedChain === 'Arc_Testnet' ? 6 : 4)} USDC`
@@ -1135,7 +1090,7 @@ export default function SendModal({
     ]
 
     return items
-  }, [sendMode, isGaslessActive, estimatedFee, speedTier, selectedChain, amount, tokenSymbol])
+  }, [sendMode, estimatedFee, speedTier, selectedChain, amount, tokenSymbol])
 
   // Dynamic Button State
   const ctaButtonState = useMemo(() => {
@@ -1201,18 +1156,6 @@ export default function SendModal({
         <span className="truncate max-w-[100px]">{selectedChain.replace(/_/g, ' ')}</span>
         <ChevronDown className="w-3 h-3 text-slate-400" />
       </button>
-
-      {/* Gasless Icon Button (if Arc USDC and not UCW) */}
-      {isArcUsdc && authSource !== 'ucw' && (
-        <GaslessIconButton
-          isActive={isGaslessActive}
-          onToggle={() => setIsGaslessMode((prev) => !prev)}
-          remainingQuota={gaslessQuota?.remainingQuota}
-          dailyLimit={gaslessQuota?.dailyLimit || 5}
-          disabled={isSending || !!successReceipt}
-          size="md"
-        />
-      )}
 
       {/* Privacy Lock Toggle */}
       <PrivacyLockButton
@@ -1477,7 +1420,6 @@ export default function SendModal({
               defaultOpen={false}
               context="send"
               showItemIcons={false}
-              isGaslessSponsored={isGaslessActive}
               isGatewayMode={sendMode === 'gateway'}
               className="animate-fade-in"
             />

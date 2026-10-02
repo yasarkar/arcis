@@ -15,7 +15,7 @@ import { NetworkIcon } from '@web3icons/react/dynamic'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
-import { transferFromGateway, estimateGatewayTransfer, ensureChain } from '../services/gatewayService'
+import { transferFromGateway, estimateGatewayTransfer, ensureChain, verifyDestinationUsdcMint } from '../services/gatewayService'
 import { executeBridge, estimateBridgeCost } from '../services/bridgeService'
 import { executeUcwBridgeTransfer, pollCctpDestinationTx } from '../services/bridgeUcwService'
 import {
@@ -174,6 +174,7 @@ export default function BridgeModal({
   // Transfer execution states
   const [isTransferring, setIsTransferring] = useState(false)
   const [successReceipt, setSuccessReceipt] = useState<any>(null)
+  const [isBridgePending, setIsBridgePending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isCanceledError, setIsCanceledError] = useState(false)
 
@@ -188,6 +189,7 @@ export default function BridgeModal({
     setRecipientError(null)
     setIsTransferring(false)
     setSuccessReceipt(null)
+    setIsBridgePending(false)
     setError(null)
     setIsCanceledError(false)
     setEstimatedFee(null)
@@ -206,6 +208,7 @@ export default function BridgeModal({
     if (isOpen) {
       setIsTransferring(false)
       setSuccessReceipt(null)
+      setIsBridgePending(false)
       setError(null)
       setIsCanceledError(false)
       setEstimatedFee(null)
@@ -416,6 +419,7 @@ export default function BridgeModal({
       let sourceExplorerUrl: string | undefined = undefined
       let ucwChallengeId: string | undefined = undefined
       let gatewayTransferId: string | undefined = undefined
+      let confirmedCctpReceivedAmount: string | undefined = undefined
 
       if (authSource === 'ucw') {
         if (bridgeMode === 'gateway') {
@@ -560,13 +564,9 @@ export default function BridgeModal({
         const mintStep = result?.steps?.find((s: any) => s.name === 'mint')
         const burnStep = result?.steps?.find((s: any) => s.name === 'burn')
 
-        mintTxHash =
-          result?.mintTxHash ||
-          mintStep?.txHash ||
-          result?.txHash ||
-          burnStep?.txHash ||
-          ''
-        burnTxHash = burnStep?.txHash || result?.burnTxHash || ''
+        // `result.txHash` and the burn step are source-chain transactions; they are never a mint.
+        mintTxHash = result?.mintTxHash || mintStep?.txHash || ''
+        burnTxHash = burnStep?.txHash || result?.burnTxHash || result?.txHash || ''
 
         destExplorerUrl =
           mintStep?.explorerUrl ||
@@ -598,47 +598,46 @@ export default function BridgeModal({
       setIsTransferring(false)
       setError(null)
 
+      const isGateway = bridgeMode === 'gateway'
+      let destinationConfirmed = Boolean(
+        isGateway && mintTxHash && /^0x[0-9a-fA-F]{64}$/.test(mintTxHash) &&
+        await verifyDestinationUsdcMint(destChain, mintTxHash, targetRecipient, amount)
+      )
+      if (!isGateway && mintTxHash && /^0x[0-9a-fA-F]{64}$/.test(mintTxHash)) {
+        const cctpDestination = await pollCctpDestinationTx({
+          sourceChain, destChain, burnTxHash, recipientAddress: targetRecipient, amount,
+          maxAttempts: 1, intervalMs: 0,
+        })
+        destinationConfirmed = cctpDestination.status === 'confirmed' && cctpDestination.destTxHash?.toLowerCase() === mintTxHash.toLowerCase()
+        confirmedCctpReceivedAmount = destinationConfirmed ? cctpDestination.receivedAmount : undefined
+      }
+      if (!destinationConfirmed) mintTxHash = ''
+      setIsBridgePending(!destinationConfirmed)
       const computedFee =
         estimatedFee ||
         (bridgeMode === 'gateway'
           ? (parseFloat(amount) * 0.00005).toFixed(6)
           : '0.0001')
-      const netAmount = Math.max(0, parseFloat(amount) - parseFloat(computedFee)).toFixed(6)
-
-      const isGateway = bridgeMode === 'gateway'
-      const primaryTxHash =
-        isGateway
-          ? (mintTxHash && mintTxHash.startsWith('0x') ? mintTxHash : '')
-          : (burnTxHash && burnTxHash.startsWith('0x'))
-            ? burnTxHash
-            : (mintTxHash && mintTxHash.startsWith('0x'))
-              ? mintTxHash
-              : (burnTxHash || mintTxHash || '')
-
-      const explorerUrl = destExplorerUrl || (mintTxHash && mintTxHash.startsWith('0x') ? getExplorerTxUrl(destChain, mintTxHash) : undefined)
-
-      const primaryExplorerUrl =
-        isGateway
-          ? (destExplorerUrl || explorerUrl)
-          : (burnTxHash && burnTxHash.startsWith('0x') && sourceExplorerUrl)
-            ? sourceExplorerUrl
-            : (destExplorerUrl || explorerUrl)
-
-      const broadcastNetwork = isGateway
-        ? destChain
-        : (burnTxHash && burnTxHash.startsWith('0x'))
-          ? sourceChain
-          : destChain
-
-      const hasRealDestTx = Boolean(mintTxHash && mintTxHash.startsWith('0x'))
+      const netAmount = destinationConfirmed
+        ? (confirmedCctpReceivedAmount ?? Math.max(0, parseFloat(amount) - parseFloat(computedFee)).toFixed(6))
+        : undefined
+      const primaryTxHash = isGateway ? mintTxHash : (burnTxHash || mintTxHash || '')
+      const explorerUrl = destinationConfirmed && mintTxHash
+        ? getExplorerTxUrl(destChain, mintTxHash)
+        : undefined
+      const primaryExplorerUrl = isGateway
+        ? explorerUrl
+        : (burnTxHash && sourceExplorerUrl ? sourceExplorerUrl : explorerUrl)
+      const broadcastNetwork = isGateway ? destChain : sourceChain
+      const hasRealDestTx = destinationConfirmed && Boolean(mintTxHash)
 
       setSuccessReceipt({
-        txHash: isGateway ? (hasRealDestTx ? mintTxHash : undefined) : burnTxHash,
+        txHash: destinationConfirmed ? (isGateway ? mintTxHash : burnTxHash) : undefined,
         sourceTxHash: isGateway ? undefined : burnTxHash,
         destTxHash: hasRealDestTx ? mintTxHash : undefined,
         explorerUrl: primaryExplorerUrl,
-        sourceExplorerUrl: isGateway ? undefined : sourceExplorerUrl,
-        destExplorerUrl: hasRealDestTx ? (destExplorerUrl || explorerUrl) : undefined,
+        sourceExplorerUrl: isGateway || !burnTxHash ? undefined : sourceExplorerUrl,
+        destExplorerUrl: hasRealDestTx ? explorerUrl : undefined,
         amount,
         sourceChain,
         destChain,
@@ -649,9 +648,9 @@ export default function BridgeModal({
 
       updateBroadcast(broadcastId, {
         type: 'bridge',
-        title: 'Bridge Completed Successfully',
-        status: 'success',
-        badgeText: hasRealDestTx ? 'Confirmed' : 'Pending',
+        title: destinationConfirmed ? 'Bridge Completed Successfully' : 'Bridge Awaiting Destination Confirmation',
+        status: destinationConfirmed ? 'success' : 'pending',
+        badgeText: destinationConfirmed ? 'Confirmed' : 'Pending',
         details: {
           amount,
           tokenSymbol: 'USDC',
@@ -660,45 +659,51 @@ export default function BridgeModal({
           destChain,
           bridgeMode,
           network: broadcastNetwork,
-          txHash: primaryTxHash,
+          txHash: destinationConfirmed ? primaryTxHash : undefined,
           sourceTxHash: isGateway ? undefined : burnTxHash,
           destTxHash: hasRealDestTx ? mintTxHash : undefined,
-          explorerUrl: primaryExplorerUrl,
-          sourceExplorerUrl: isGateway ? undefined : sourceExplorerUrl,
-          destExplorerUrl: hasRealDestTx ? (destExplorerUrl || explorerUrl) : undefined,
+          explorerUrl: destinationConfirmed ? primaryExplorerUrl : undefined,
+          sourceExplorerUrl: isGateway || !burnTxHash ? undefined : sourceExplorerUrl,
+          destExplorerUrl: hasRealDestTx ? explorerUrl : undefined,
         },
       })
 
       refetchWalletBalances()
       refreshGatewayBalances()
 
-      addTransaction({
-        type: 'bridge',
-        txHash: primaryTxHash || mintTxHash || `bridge-${Date.now()}`,
-        amount,
-        tokenSymbol: 'USDC',
-        sourceChain,
-        destChain,
-        recipient: targetRecipient,
-        userAddress: connectedAddress,
-        status: 'success',
-        isPrivate: isPrivateBridge,
-      })
+      if (destinationConfirmed) {
+        addTransaction({
+          type: 'bridge',
+          txHash: mintTxHash,
+          amount,
+          tokenSymbol: 'USDC',
+          sourceChain,
+          destChain,
+          recipient: targetRecipient,
+          userAddress: connectedAddress,
+          status: 'success',
+          isPrivate: isPrivateBridge,
+        })
+        onSuccess(amount, mintTxHash)
+      } else if (burnTxHash && /^0x[0-9a-fA-F]{64}$/.test(burnTxHash)) {
+        addTransaction({
+          type: 'bridge', txHash: burnTxHash, amount, tokenSymbol: 'USDC', sourceChain, destChain,
+          recipient: targetRecipient, userAddress: connectedAddress, status: 'pending', isPrivate: isPrivateBridge,
+        })
+      }
 
-      onSuccess(amount, mintTxHash)
-
-      // Background Resolution for Real Destination On-Chain Transaction
-      if (authSource === 'ucw' && !hasRealDestTx) {
+      // Background Resolution for a destination mint correlated to the submitted source burn.
+      if (!destinationConfirmed) {
         ;(async () => {
           try {
             let resolvedDestTx: string | undefined = undefined
 
             if (isGateway && gatewayTransferId) {
               console.log('[BridgeModal] Polling Circle Gateway Forwarding for real destination tx:', gatewayTransferId)
-              const forwarded = await pollForwardedGatewayTransfer(gatewayTransferId, { maxAttempts: 30, intervalMs: 2500 })
-              if (forwarded.txHash && forwarded.txHash.startsWith('0x')) {
-                resolvedDestTx = forwarded.txHash
-              }
+              const forwarded = await pollForwardedGatewayTransfer(gatewayTransferId, {
+                maxAttempts: 30, intervalMs: 2500, destChain, recipient: targetRecipient, amount,
+              })
+              if ((forwarded.status === 'confirmed' || forwarded.status === 'finalized') && forwarded.txHash) resolvedDestTx = forwarded.txHash
             } else if (!isGateway && burnTxHash && burnTxHash.startsWith('0x')) {
               console.log('[BridgeModal] Polling Circle CCTP destination mint for real destination tx:', burnTxHash)
               const cctpDest = await pollCctpDestinationTx({
@@ -710,11 +715,15 @@ export default function BridgeModal({
                 maxAttempts: 40,
                 intervalMs: 3000,
               })
-              if (cctpDest.destTxHash && cctpDest.destTxHash.startsWith('0x')) {
+              if (cctpDest.status === 'confirmed' && cctpDest.destTxHash && /^0x[0-9a-fA-F]{64}$/.test(cctpDest.destTxHash)) {
                 resolvedDestTx = cctpDest.destTxHash
+                confirmedCctpReceivedAmount = cctpDest.receivedAmount
               }
             }
 
+            if (resolvedDestTx && isGateway && !await verifyDestinationUsdcMint(destChain, resolvedDestTx, targetRecipient, amount)) {
+              resolvedDestTx = undefined
+            }
             if (resolvedDestTx) {
               console.log('[BridgeModal] Real destination tx confirmed on-chain:', resolvedDestTx)
               const resolvedExplorerUrl = getExplorerTxUrl(destChain, resolvedDestTx)
@@ -728,12 +737,21 @@ export default function BridgeModal({
                       destTxHash: resolvedDestTx,
                       explorerUrl: isGateway ? resolvedExplorerUrl : prev.explorerUrl,
                       destExplorerUrl: resolvedExplorerUrl,
+                      netReceived: isGateway ? prev.netReceived : confirmedCctpReceivedAmount,
                     }
                   : prev
               )
+              setIsBridgePending(false)
+              addTransaction({
+                type: 'bridge', txHash: resolvedDestTx, amount, tokenSymbol: 'USDC', sourceChain, destChain,
+                recipient: targetRecipient, userAddress: connectedAddress, status: 'success', isPrivate: isPrivateBridge,
+              })
+              onSuccess(amount, resolvedDestTx)
 
               // Update Floating Broadcast Notification in real-time
               updateBroadcast(broadcastId, {
+                title: 'Bridge Completed Successfully',
+                status: 'success',
                 badgeText: 'Confirmed',
                 details: {
                   amount,
@@ -1093,6 +1111,7 @@ export default function BridgeModal({
           destIconId={CHAIN_META[successReceipt.destChain]?.iconId || 'ethereum'}
           recipient={recipient || connectedAddress}
           mode={successReceipt.mode}
+          pending={isBridgePending}
           txHash={successReceipt.txHash}
           sourceTxHash={successReceipt.sourceTxHash}
           destTxHash={successReceipt.destTxHash}
@@ -1104,6 +1123,7 @@ export default function BridgeModal({
           isInline={isInline}
           onBridgeAgain={() => {
             setSuccessReceipt(null)
+            setIsBridgePending(false)
             setIsTransferring(false)
             setAmount('')
             setError(null)

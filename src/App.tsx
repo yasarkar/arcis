@@ -199,7 +199,13 @@ export default function App() {
   }
 
   // Arcis AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
-  const copilot = useArcCopilot(walletAddress, connectedProvider)
+  // Circle UCW signs via user challenges, so the copilot needs the UCW executors to route
+  // send/swap/deposit/bridge through the active UCW wallet instead of a session key or EOA.
+  const copilot = useArcCopilot(walletAddress, connectedProvider, {
+    authSource: activeAuthSource,
+    executeUcwTransfer,
+    executeUcwContract,
+  })
 
   return (
     <BroadcastProvider>
@@ -295,6 +301,7 @@ export default function App() {
                   walletAddress={walletAddress}
                   walletConnected={walletConnected}
                   provider={connectedProvider}
+                  authSource={activeAuthSource}
                   onNavigate={(tab) => setActiveTab(tab as any)}
                 />
               </div>
