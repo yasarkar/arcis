@@ -11,7 +11,6 @@ import { ecosystemStatsService } from '../services/ecosystemStatsService'
 import {
   executeX402Call,
   getSessionBudget,
-  saveSessionBudget,
   resetSessionBudget,
   type SessionBudgetState,
 } from '../services/x402Client'
@@ -42,7 +41,11 @@ function saveCustomServices(list: x402Service[]) {
   }
 }
 
-export function useMarketplaceServices(walletAddress?: string, provider?: any) {
+export function useMarketplaceServices(
+  walletAddress?: string,
+  provider?: any,
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
+) {
   const [customServices, setCustomServices] = useState<x402Service[]>(loadCustomServices)
   const [services, setServices] = useState<x402Service[]>([
     ...ARC_SERVICES_REGISTRY,
@@ -96,21 +99,25 @@ export function useMarketplaceServices(walletAddress?: string, provider?: any) {
     refreshSessionBudget()
   }, [refreshSessionBudget])
 
-  const registerService = (newService: x402Service) => {
-    const updated = [newService, ...customServices]
+  const registerService = async (
+    newService: x402Service,
+    proof: { owner: string; nonce: `0x${string}`; deadline: number; signature: `0x${string}` }
+  ) => {
+    const response = await fetch('/api/x402/services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest: newService, ...proof }),
+    })
+    const result = await response.json()
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Service registration failed')
+    }
+
+    const updated = [newService, ...customServices.filter((service) => service.id !== newService.id)]
     setCustomServices(updated)
     saveCustomServices(updated)
-    setServices([newService, ...services])
+    setServices((current) => [newService, ...current.filter((service) => service.id !== newService.id)])
     ecosystemStatsService.incrementServiceCount()
-
-    // Sync with server-side tollgate catalog
-    try {
-      fetch('/api/x402/services', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newService),
-      }).catch(() => {})
-    } catch {}
   }
 
   // Filtered services
@@ -136,7 +143,18 @@ export function useMarketplaceServices(walletAddress?: string, provider?: any) {
     setIsExecuting(true)
     setExecutionResult(null)
     try {
-      const result = await executeX402Call(service, payload, walletAddress, provider)
+      if (authSource !== 'evm') {
+        const result: x402ExecutionResult = {
+          statusCode: 503,
+          success: false,
+          error: 'Circle Gateway paid calls require an explicitly selected connected external EOA. Passkey/MSCA and Circle UCW signers are unsupported.',
+          executionTimeMs: 0,
+          costUsdc: 0,
+        }
+        setExecutionResult(result)
+        return result
+      }
+      const result = await executeX402Call(service, payload, walletAddress, provider, 'external_eoa')
       setExecutionResult(result)
       refreshSessionBudget()
 
@@ -175,12 +193,6 @@ export function useMarketplaceServices(walletAddress?: string, provider?: any) {
     refreshSessionBudget()
   }
 
-  const toggleAutoApprove = (val: boolean) => {
-    const updated = { ...sessionBudget, autoApprove: val }
-    saveSessionBudget(updated)
-    setSessionBudget(updated)
-  }
-
   return {
     services,
     filteredServices,
@@ -200,7 +212,6 @@ export function useMarketplaceServices(walletAddress?: string, provider?: any) {
     closePlayground,
     runService,
     handleResetBudget,
-    toggleAutoApprove,
     refreshSessionBudget,
     isProviderHubOpen,
     setIsProviderHubOpen,

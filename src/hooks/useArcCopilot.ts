@@ -1,10 +1,8 @@
-// src/hooks/useArcCopilot.ts
 // Hook for managing Arcis AI Copilot (Autonomous Agent Orchestrator & Knowledge Hub)
-
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { ARC_SERVICES_REGISTRY } from '../config/servicesRegistry'
-import { executeX402Call } from '../services/x402Client'
+import { executeX402Call, hasVerifiedX402Settlement, isServiceDataAvailable, isSuccessfulX402ServiceResult } from '../services/x402Client'
 import { queryArcisLLM } from '../services/llmService'
 import { getLivePortfolioSnapshot } from '../services/portfolioContextService'
 import {
@@ -17,18 +15,39 @@ import {
   setActiveWalletForSession,
   SESSION_KEY_UPDATED_EVENT,
 } from '../services/sessionKeyService'
-import { executeDirectCopilotAction } from '../services/copilotExecutionService'
+import { executeDirectCopilotAction, type CopilotUcwHandlers } from '../services/copilotExecutionService'
+import { tokenAmountToUsd } from '../services/tokenPriceService'
+import {
+  formatGatewayFlowReport,
+  formatUsdcOrUnavailable,
+  GATEWAY_FLOW_SOURCE,
+} from '../services/gatewayFlowIndexer'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload, CopilotActionType } from '../types/marketplace'
 import type { SessionKeyConfig, SessionActionType } from '../types/sessionKey'
-import { formatCopilotError } from '../utils/errorUtils'
+import { formatCopilotError, canceledActionTitle } from '../utils/errorUtils'
 
 function normalizeActionType(type?: CopilotActionType | string): SessionActionType {
   if (!type) return 'send'
   if (type === 'trade' || type.includes('swap')) return 'swap'
   if (type === 'zap' || type.includes('deposit')) return 'deposit'
   if (type.includes('bridge')) return 'bridge'
-  if (type === 'faucet') return 'faucet'
   return 'send'
+}
+
+export function isTransactionalAction(type?: CopilotActionType | string): boolean {
+  if (!type) return false
+  const t = type.toLowerCase()
+  return (
+    t === 'trade' ||
+    t === 'zap' ||
+    t === 'bridge' ||
+    t === 'send' ||
+    t.startsWith('interactive_') ||
+    t.includes('swap') ||
+    t.includes('deposit') ||
+    t.includes('bridge') ||
+    t.includes('send')
+  )
 }
 
 export interface TopicQuestion {
@@ -311,12 +330,31 @@ export const createArcisWelcomeMessage = (): CopilotMessage => ({
 export const createArcoWelcomeMessage = createArcisWelcomeMessage
 
 /**
+ * True for queries that must be answered by the paid Circle Gateway flow report,
+ * which reads the real AttestationUsed / GatewayBurned logs on Arc L1.
+ * Kept next to the router so the action-intent shortcuts can never shadow it.
+ */
+export function isGatewayFlowReportQuery(query: string): boolean {
+  if (!query) return false
+  const p = query.toLowerCase()
+  return (
+    p.includes('inflows to arc l1') ||
+    p.includes('inflows into arc l1') ||
+    p.includes('cross-chain usdc flow') ||
+    p.includes('usdc flow report')
+  )
+}
+
+/**
  * Detects if a user query is an action, transaction command, portfolio strategy request,
  * multi-turn correction, or parameterized input that must be handled by LLM / Local NLP
  * rather than being intercepted by static educational FAQ substring matches.
  */
 export function isActionOrStrategyIntent(query: string): boolean {
   if (!query) return false
+
+  // Analytics report queries are answered by the Gateway flow service, not an action intent.
+  if (isGatewayFlowReportQuery(query)) return false
   const p = query.toLowerCase().trim()
 
   // 1. Slash commands always route to intent/action handling
@@ -455,24 +493,7 @@ export function isActionOrStrategyIntent(query: string): boolean {
     return true
   }
 
-  // 9. Faucet, claim intents
-  const hasFaucetVerb =
-    p.includes('faucet') ||
-    p.includes('musluk') ||
-    p.includes('claim') ||
-    p.includes('talep') ||
-    p.includes('free usdc') ||
-    p.includes('testnet usdc') ||
-    p.includes('bakiye al')
-
-  const isPureFaucetFaq =
-    p.includes('how do i get testnet usdc & start without')
-
-  if (hasFaucetVerb && !isPureFaucetFaq) {
-    return true
-  }
-
-  // 10. Send / Transfer / Payment intent
+  // 9. Send / Transfer / Payment intent
   const hasSendVerb =
     p.includes('send') ||
     p.includes('gönder') ||
@@ -494,34 +515,17 @@ export function isActionOrStrategyIntent(query: string): boolean {
   return false
 }
 
-export function useArcCopilot(walletAddress?: string, provider?: any) {
+export function useArcCopilot(
+  walletAddress?: string,
+  provider?: any,
+  ucwHandlers?: CopilotUcwHandlers
+) {
   const [isOpen, setIsOpen] = useState<boolean>(false)
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false)
   const [currentSteps, setCurrentSteps] = useState<CopilotStepLog[]>([])
   const [messages, setMessages] = useState<CopilotMessage[]>([createArcisWelcomeMessage()])
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress))
-
-  useEffect(() => {
-    setActiveWalletForSession(walletAddress)
-    setSessionConfig(getSessionKeyConfig(walletAddress))
-
-    const handleSessionUpdate = (e: any) => {
-      if (e?.detail) {
-        if (!e.detail.walletAddress || !walletAddress || e.detail.walletAddress.toLowerCase() === walletAddress.toLowerCase()) {
-          setSessionConfig(e.detail)
-        }
-      } else {
-        setSessionConfig(getSessionKeyConfig(walletAddress))
-      }
-    }
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
-      return () => {
-        window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
-      }
-    }
-  }, [isOpen, walletAddress])
+  const pendingActionRef = useRef<CopilotActionPayload | null>(null)
 
   const toggleOpen = useCallback(() => {
     setIsOpen((prev) => !prev)
@@ -601,7 +605,59 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
     }
   }
 
+  const triggerResumeIfPending = useCallback((activeConfig: SessionKeyConfig) => {
+    if (activeConfig.isActive && Date.now() <= activeConfig.expiresAt && pendingActionRef.current) {
+      const pending = pendingActionRef.current
+      pendingActionRef.current = null
+      const pendingName =
+        pending.type.includes('swap') || pending.type === 'trade'
+          ? 'Swap'
+          : pending.type.includes('deposit') || pending.type === 'zap'
+            ? 'Vault Deposit'
+            : pending.type.includes('bridge')
+              ? 'Bridge'
+              : 'Send'
+
+      const resumeMsg: CopilotMessage = {
+        id: 'assistant-resume-' + Date.now(),
+        role: 'assistant',
+        content: `✅ **Session Settings** are now active! Ready to proceed with your **${pendingName}** transaction:`,
+        timestamp: Date.now(),
+        actionPayload: pending,
+      }
+      addMessage(resumeMsg)
+    }
+  }, [])
+
+  useEffect(() => {
+    setActiveWalletForSession(walletAddress)
+    const fresh = getSessionKeyConfig(walletAddress)
+    setSessionConfig(fresh)
+
+    const handleSessionUpdate = (e: any) => {
+      if (e?.detail) {
+        if (!e.detail.walletAddress || !walletAddress || e.detail.walletAddress.toLowerCase() === walletAddress.toLowerCase()) {
+          setSessionConfig(e.detail)
+          triggerResumeIfPending(e.detail)
+        }
+      } else {
+        const updatedFresh = getSessionKeyConfig(walletAddress)
+        setSessionConfig(updatedFresh)
+        triggerResumeIfPending(updatedFresh)
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
+      return () => {
+        window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
+      }
+    }
+  }, [isOpen, walletAddress, triggerResumeIfPending])
+
   const activateSession = async (params: {
+    /** Explicit user consent for this session; without it the session stays inactive. */
+    userApproved: boolean
     maxSpendUsdc?: number
     durationHours?: number
     maxPerTxUsdc?: number
@@ -614,6 +670,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
       walletAddress: params.walletAddress || walletAddress,
     })
     setSessionConfig(updated)
+    triggerResumeIfPending(updated)
     return updated
   }
 
@@ -630,7 +687,37 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
   }
 
   // Execute an action directly inside the chat window
+  // Tracks inline actions currently being broadcast, so a double-click can never send twice.
+  const inFlightExecutionsRef = useRef<Set<string>>(new Set())
+
   const executeInlineAction = async (msgId: string, actionPayload: CopilotActionPayload) => {
+    if (inFlightExecutionsRef.current.has(msgId)) return
+
+    const liveConfig = getSessionKeyConfig(walletAddress)
+    const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
+
+    if (isTransactionalAction(actionPayload?.type) && !isSessionActive) {
+      pendingActionRef.current = actionPayload
+      const blockedMsg: CopilotMessage = {
+        id: 'assistant-session-req-' + Date.now(),
+        role: 'assistant',
+        content: `⚠️ Active session required to execute this transaction. Please set up your Session Settings first.`,
+        timestamp: Date.now(),
+        actionPayload: {
+          type: 'configure_session',
+          title: 'Set Up Session Settings',
+          data: {
+            pendingAction: actionPayload,
+            reason: 'Active session required',
+          },
+        },
+      }
+      addMessage(blockedMsg)
+      return
+    }
+
+    inFlightExecutionsRef.current.add(msgId)
+
     setMessages((prev) =>
       prev.map((msg) =>
         msg.id === msgId
@@ -652,7 +739,8 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
                 : msg
             )
           )
-        }
+        },
+        ucwHandlers
       )
 
       setMessages((prev) =>
@@ -661,7 +749,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
             ? {
                 ...msg,
                 isExecutingInline: false,
-                executionState: receipt.status === 'SUCCESS' ? 'confirmed' : 'failed',
+                executionState: receipt.status === 'SUCCESS' ? 'confirmed' : receipt.status === 'PENDING' ? 'pending' : 'failed',
                 receipt,
               }
             : msg
@@ -682,7 +770,7 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
                 receipt: {
                   id: `rcpt_err_${Date.now()}`,
                   actionType: dynamicActionType,
-                  title: cleanErr.isCanceled ? 'Operation Canceled' : cleanErr.title,
+                  title: cleanErr.isCanceled ? canceledActionTitle(dynamicActionType) : cleanErr.title,
                   status: cleanErr.isCanceled ? 'CANCELED' : 'FAILED',
                   txHash: '',
                   gasUsdc: 0,
@@ -690,10 +778,11 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
                   timestamp: Date.now(),
                   errorMessage: cleanErr.message,
                 },
-              }
-            : msg
+              }              : msg
         )
       )
+    } finally {
+      inFlightExecutionsRef.current.delete(msgId)
     }
   }
 
@@ -708,16 +797,56 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
       const action = llmResult.actionPayload
 
       const liveConfig = getSessionKeyConfig(walletAddress)
-      if (action && liveConfig.isActive) {
+      const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
+
+      if (action && isTransactionalAction(action.type)) {
+        if (!isSessionActive) {
+          pendingActionRef.current = action
+          const actionName =
+            action.type.includes('swap') || action.type === 'trade'
+              ? 'Swap'
+              : action.type.includes('deposit') || action.type === 'zap'
+                ? 'Vault Deposit'
+                : action.type.includes('bridge')
+                  ? 'Bridge'
+                  : 'Send'
+
+          const assistantMsg: CopilotMessage = {
+            id: assistantMsgId,
+            role: 'assistant',
+            content: `⚠️ Please set up your Session Settings before executing ${actionName} and other on-chain transactions. Once configured with your spend limits and duration, Arco can process your transactions safely.`,
+            timestamp: Date.now(),
+            actionPayload: {
+              type: 'configure_session',
+              title: 'Set Up Session Settings',
+              data: {
+                pendingAction: action,
+                reason: 'Active session required',
+                actionType: normalizeActionType(action.type),
+              },
+            },
+          }
+          addMessage(assistantMsg)
+          return
+        }
+
         const actionType = normalizeActionType(action.type)
         const amount = Number(action.data?.amount) || 0
-        const check = verifySessionLimits(actionType, amount, walletAddress)
+        // Session limits are denominated in USD: value the input token (e.g. cirBTC) instead of
+        // counting its raw units 1:1 against the ceiling.
+        const tokenForLimit =
+          actionType === 'swap'
+            ? String(action.data?.fromToken || 'USDC')
+            : actionType === 'send'
+              ? String(action.data?.tokenSymbol || action.data?.token || 'USDC')
+              : 'USDC'
+        const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
 
         if (!check.allowed) {
           const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)
           const reasonMsg = check.reason?.includes('not authorized')
             ? `The "${actionName}" operation is not allowed for this active session. Please check your session settings to grant permission for ${actionName}s.`
-            : `${check.reason} Please adjust your session budget or limits in the Session Key settings.`
+            : `${check.reason} Please adjust your session budget or limits in the Session Settings.`
 
           const assistantMsg: CopilotMessage = {
             id: assistantMsgId,
@@ -756,15 +885,44 @@ export function useArcCopilot(walletAddress?: string, provider?: any) {
                 msg.id === assistantMsgId ? { ...msg, executionState: pState } : msg
               )
             )
-          }).then((receipt) => {
+          }, ucwHandlers).then((receipt) => {
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMsgId
                   ? {
                       ...msg,
                       isExecutingInline: false,
-                      executionState: receipt.status === 'SUCCESS' ? 'confirmed' : 'failed',
+                      executionState: receipt.status === 'SUCCESS' ? 'confirmed' : receipt.status === 'PENDING' ? 'pending' : 'failed',
                       receipt,
+                    }
+                  : msg
+              )
+            )
+            setSessionConfig(getSessionKeyConfig(walletAddress))
+          }).catch((err: any) => {
+            // Autonomous execution can reject before producing a receipt (e.g. the user dismisses
+            // the signature). Classify it so a deliberate cancellation is shown with the amber
+            // "canceled" theme rather than the red error theme.
+            console.error('[useArcCopilot] Auto-execution failed:', err)
+            const cleanErr = formatCopilotError(err)
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      isExecutingInline: false,
+                      executionState: cleanErr.isCanceled ? 'idle' : 'failed',
+                      receipt: {
+                        id: `rcpt_err_${Date.now()}`,
+                        actionType,
+                        title: cleanErr.isCanceled ? canceledActionTitle(actionType) : cleanErr.title,
+                        status: cleanErr.isCanceled ? 'CANCELED' : 'FAILED',
+                        txHash: '',
+                        gasUsdc: 0,
+                        settlementLatencyMs: 0,
+                        timestamp: Date.now(),
+                        errorMessage: cleanErr.message,
+                      },
                     }
                   : msg
               )
@@ -864,8 +1022,8 @@ Transactions settle and finalize in under 500 milliseconds, eliminating executio
 • <strong>Circle Gateway Liquidity:</strong>
 Access your unified USDC balance across 13+ blockchains with instant spendability and zero bridge waiting periods.
 
-• <strong>x402 AI Agent Marketplace:</strong>
-On-demand algorithmic intelligence with sub-cent micro-payments ($0.002 to $0.008 USDC) that execute arbitrage and optimal routing in real time.
+• <strong>x402 AI Services Catalog:</strong>
+The catalog lists analytical services at configured rates. Paid client calls are currently disabled and fail closed until trusted settlement is configured.
 
 • <strong>Real-Yield Vault (af-USDC):</strong>
 Earn sustainable 8.42% APY compound real-yield powered by institutional borrowing interest and protocol fee sharing.`,
@@ -890,17 +1048,12 @@ Click the Connect Wallet button at the top right. Supported wallets include Meta
 2. <strong>Switch Network to Arc Testnet:</strong>
 Your wallet will automatically prompt you to connect to ${arcTestnet.name} (Chain ID: ${arcTestnet.id}, RPC: ${ARC_METADATA.rpcHttpUrl}).
 
-3. <strong>Claim Testnet USDC:</strong>
-Navigate to the Faucet tab or click the button below to receive 1,000 free testnet USDC immediately.
+3. <strong>Fund Your Wallet:</strong>
+Transfer or bridge USDC to your connected wallet address on Arc Testnet to get started with zero native gas requirements.
 
 4. <strong>Start Trading and Earning:</strong>
 Your testnet USDC serves as both your trading balance and your gas fee token for all transactions.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'faucet',
-          title: '💧 Open Faucet Page',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     } else if (
@@ -921,8 +1074,8 @@ Gas prices remain constant in dollar terms regardless of crypto market volatilit
 2. <strong>Single-Token Simplicity:</strong>
 Users and autonomous agents never have to maintain dual balances (one for gas and one for trading). A single USDC balance powers all swaps, liquidity provision, and gas payments.
 
-3. <strong>Optimized for Autonomous AI Micro-Payments:</strong>
-x402 AI agents can execute thousands of rapid micro-transactions without risk of volatile gas spikes draining their execution budget.`,
+3. <strong>Predictable Native Gas Currency:</strong>
+Arc uses USDC as its native gas currency; this does not enable the currently disabled x402 client settlement flow.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -944,14 +1097,11 @@ Execute large trades with multi-hop split routing across ArcSwap V3 and Aerodrom
 2. <strong>Real-Yield Vaults (Pools & af-USDC):</strong>
 Deposit USDC into single-sided tokenized vaults earning 8.42% APY with continuous streaming yield.
 
-3. <strong>x402 AI Micro-Services Marketplace:</strong>
-Trigger on-demand algorithms including Arbitrage Sentinel, Liquidity Depth Predictor, Flash-Loan Radar, and Mempool MEV Shield.
+3. <strong>x402 AI Services Catalog:</strong>
+Browse the listed analytical services; paid execution is currently disabled pending trusted settlement configuration.
 
 4. <strong>Circle Gateway Liquidity Sweeper:</strong>
-Instantly consolidate and spend USDC balances located on Ethereum, Base, Arbitrum, Polygon, and Solana.
-
-5. <strong>Enterprise Batch Payments (Multicall3From):</strong>
-Distribute payroll, contributor rewards, or multi-address transfers in a single atomic transaction.`,
+Instantly consolidate and spend USDC balances located on Ethereum, Base, Arbitrum, Polygon, and Solana.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1033,8 +1183,8 @@ All network fees (~$0.005 USDC) are paid directly in USDC with no need to mainta
 • <strong>Arc L1 Gas Fee:</strong>
 A flat fee of approximately $0.005 USDC per transaction, deducted directly from your USDC balance.
 
-• <strong>Protocol Fee Sharing:</strong>
-1% of all micro-fees from x402 AI queries is continuously diverted to the af-USDC YieldVault to benefit liquidity providers.
+• <strong>x402 Fee Sharing:</strong>
+No x402 client calls are currently settled by this build, so no x402 query fee share is being generated here.
 
 • <strong>Zero Hidden Spreads:</strong>
 No opaque relayer markups or predatory MEV slippage tolerances are applied.`,
@@ -1111,18 +1261,7 @@ Arcis Real-Yield Vault interest-bearing share token earning 8.42% APY.`,
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `EIP-3009 (TransferWithAuthorization) allows you to trade on Arcis even if you have zero native gas balance in your wallet.
-
-<strong>How Gasless Swaps Work:</strong>
-
-1. <strong>Cryptographic Signature:</strong>
-You sign an EIP-712 structured authorization message in your wallet. This step does not execute an on-chain transaction or consume any gas.
-
-2. <strong>Relayer Broadcast:</strong>
-The Arcis relayer picks up your signed payload and submits it to the Arc L1 consensus engine.
-
-3. <strong>Automatic Gas Settlement:</strong>
-The tiny $0.005 USDC gas fee is paid by the relayer and automatically reconciled from the output swap amount upon execution.`,
+        content: `EIP-3009 is a USDC authorization standard that can support relayed transfers when a compatible, configured relayer path is available. This FAQ does not verify that a gasless swap/relayer deployment is currently active. Check the transaction form and wallet confirmation for the actual route and fee; do not assume a sponsor, zero gas, or output-deducted fee.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1286,18 +1425,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `The x402 Protocol standardizes HTTP 402 Payment Required for autonomous AI agents:
-
-<strong>Three-Step Execution Lifecycle:</strong>
-
-1. <strong>Initial Query Probe:</strong>
-An AI agent requests data from an analytical endpoint. The server returns HTTP 402 with price ($0.005 USDC) and recipient details.
-
-2. <strong>Gasless Micro-Settlement (<150ms):</strong>
-The agent wallet signs an off-chain EIP-712 authorization from its pre-funded session budget without requiring manual gas popups.
-
-3. <strong>Instant Verified Payload (HTTP 200 OK):</strong>
-The payment is verified on Arc L1 and algorithmic market alpha is returned in under 150 milliseconds.`,
+        content: `x402 is an HTTP payment protocol that can return payment requirements (HTTP 402) before a paid service response. Circle Gateway nanopayments require a connected external EOA and pre-funded Gateway USDC; this app does not deposit or withdraw funds automatically. Supported testnet calls require an explicit wallet signature. Circle accepts each call for later batch settlement, so provider accounting remains pending until nonce-based reconciliation reports confirmed. Passkey/MSCA and autonomous session payments remain unsupported.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1313,17 +1441,52 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
         serviceId: s1.id,
         serviceName: s1.name,
         status: 'executing',
-        costUsdc: s1.pricing.priceUsdc,
+        costUsdc: 0,
         durationMs: 0,
         detail: 'Scanning ArcSwap V3 and Aerodrome liquidity depth...',
       })
       setCurrentSteps([...steps])
 
-      const r1 = await executeX402Call(s1, { fromToken: 'USDC', toToken: 'WETH', amount: 25000 }, walletAddress)
-      totalCost += s1.pricing.priceUsdc
+      const eoaOnlyPaidCall = () => ucwHandlers?.authSource === 'evm'
+        ? executeX402Call(s1, { fromToken: 'USDC', toToken: 'WETH', amount: 25000 }, walletAddress, provider, 'external_eoa')
+        : Promise.resolve({ statusCode: 503, success: false, error: 'Circle Gateway payments are available only through an explicitly selected external EOA; passkey/MSCA, UCW and autonomous session signers are unsupported.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>)
+      const r1 = await eoaOnlyPaidCall()
+      const finishFailedStep = (
+        step: CopilotStepLog,
+        result: Awaited<ReturnType<typeof executeX402Call>>
+      ) => {
+        const verifiedSettlement = hasVerifiedX402Settlement(result)
+        const acceptedPayment = result.payment?.status === 'settlement_pending' && result.success
+        step.status = 'failed'
+        step.costUsdc = acceptedPayment || verifiedSettlement ? result.costUsdc : 0
+        step.durationMs = result.executionTimeMs
+        step.resultSummary = acceptedPayment
+          ? `Gateway accepted ${result.costUsdc} USDC; provider settlement remains pending reconciliation. Later analysis step failed.`
+          : isServiceDataAvailable(result)
+            ? `No verified settlement: ${result.error || 'paid service response could not be verified'}`
+            : `Service data unavailable: ${result.error || 'no usable service result was returned'}`
+        if (verifiedSettlement || acceptedPayment) totalCost += result.costUsdc
+        setCurrentSteps([...steps])
+        addMessage({
+          id: 'assistant-' + Date.now(),
+          role: 'assistant',
+          content: `Arbitrage scan could not be completed. ${result.error || 'A usable service response and Gateway payment acceptance were not both confirmed.'} No trade action was created.`,
+          timestamp: Date.now(),
+          steps: [...steps],
+          ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+        })
+        setIsAnalyzing(false)
+        setCurrentSteps([])
+      }
+      if (!isSuccessfulX402ServiceResult(r1)) {
+        finishFailedStep(steps[0], r1)
+        return
+      }
+      totalCost += r1.costUsdc
+      steps[0].costUsdc = r1.costUsdc
       steps[0].status = 'completed'
       steps[0].durationMs = r1.executionTimeMs
-      steps[0].resultSummary = 'Pool depth $14.2M, base slippage 0.042%.'
+      steps[0].resultSummary = r1.payment?.status === 'settlement_pending' ? 'Gateway accepted payment; provider settlement remains pending reconciliation.' : 'Settlement receipt verified; paid service data returned.'
       setCurrentSteps([...steps])
 
       // Step 2: Arbitrage Sentinel
@@ -1333,18 +1496,25 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
         serviceId: s2.id,
         serviceName: s2.name,
         status: 'executing',
-        costUsdc: s2.pricing.priceUsdc,
+        costUsdc: 0,
         durationMs: 0,
         detail: 'Calculating cross-pool price spread and net yield...',
       })
       setCurrentSteps([...steps])
 
-      const r2 = await executeX402Call(s2, { pair: 'USDC/WETH', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress)
-      totalCost += s2.pricing.priceUsdc
+      const r2 = ucwHandlers?.authSource === 'evm'
+        ? await executeX402Call(s2, { pair: 'USDC/WETH', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, 'external_eoa')
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an explicitly selected external EOA.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      if (!isSuccessfulX402ServiceResult(r2)) {
+        finishFailedStep(steps[1], r2)
+        return
+      }
+      totalCost += r2.costUsdc
+      steps[1].costUsdc = r2.costUsdc
       const r2Data = r2.data as any
       steps[1].status = 'completed'
       steps[1].durationMs = r2.executionTimeMs
-      steps[1].resultSummary = `Net Profit: ${r2Data?.bestRoute?.netProfitUsdc} USDC (${r2Data?.bestRoute?.netProfitPct}%)`
+      steps[1].resultSummary = r2.payment?.status === 'settlement_pending' ? `Gateway accepted payment; provider settlement pending. Result: ${r2Data?.status || 'analysis returned'}.` : `Verified paid response: ${r2Data?.status || 'analysis returned'}.`
       setCurrentSteps([...steps])
 
       // Step 3: MEV Risk Check
@@ -1354,42 +1524,44 @@ The payment is verified on Arc L1 and algorithmic market alpha is returned in un
         serviceId: s3.id,
         serviceName: s3.name,
         status: 'executing',
-        costUsdc: s3.pricing.priceUsdc,
+        costUsdc: 0,
         durationMs: 0,
         detail: 'Inspecting mempool sandwich risks and private relayer tunnel...',
       })
       setCurrentSteps([...steps])
 
-      const r3 = await executeX402Call(s3, { targetTxAmountUsdc: 25000, slippageTolerancePct: 0.2 }, walletAddress)
-      totalCost += s3.pricing.priceUsdc
+      const r3 = ucwHandlers?.authSource === 'evm'
+        ? await executeX402Call(s3, { targetTxAmountUsdc: 25000, slippageTolerancePct: 0.2 }, walletAddress, provider, 'external_eoa')
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an explicitly selected external EOA.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      if (!isSuccessfulX402ServiceResult(r3)) {
+        finishFailedStep(steps[2], r3)
+        return
+      }
+      totalCost += r3.costUsdc
+      steps[2].costUsdc = r3.costUsdc
+      const r3Data = r3.data as any
       steps[2].status = 'completed'
       steps[2].durationMs = r3.executionTimeMs
-      steps[2].resultSummary = 'MEV risk low, private relayer armed.'
+      steps[2].resultSummary = r3.payment?.status === 'settlement_pending' ? `Gateway accepted payment; provider settlement pending. ${r3Data?.status || 'Risk analysis returned'}; analysis only, not transaction protection.` : `Verified paid response: ${r3Data?.status || 'risk analysis returned'}; this is analysis only, not transaction protection.`
       setCurrentSteps([...steps])
 
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Arbitrage Scan Completed!
+        content: r2Data?.status === 'OPPORTUNITY_DETECTED'
+          ? `Arbitrage analysis completed (estimates only; no trade was executed):
 
-An optimal cross-DEX cycle on Arc L1 has been detected for a 25,000 USDC trade:
+• <strong>Buy venue / quoted price:</strong> ${r2Data?.bestRoute?.buyDex ?? 'Unavailable'} @ ${r2Data?.bestRoute?.buyPriceUsdc ?? 'Unavailable'}
+• <strong>Sell venue / quoted price:</strong> ${r2Data?.bestRoute?.sellDex ?? 'Unavailable'} @ ${r2Data?.bestRoute?.sellPriceUsdc ?? 'Unavailable'}
+• <strong>Estimated gross spread:</strong> ${r2Data?.bestRoute?.grossSpreadPct ?? 'Unavailable'}%
+• <strong>Estimated gas:</strong> ${r2Data?.bestRoute?.estimatedGasCostUsdc ?? 'Unavailable'} USDC
+• <strong>Estimated net result:</strong> ${r2Data?.bestRoute?.netProfitUsdc ?? 'Unavailable'} USDC (${r2Data?.bestRoute?.netProfitPct ?? 'Unavailable'}%)
 
-• <strong>Buy Pool:</strong> ${r2Data?.bestRoute?.buyDex} @ ${r2Data?.bestRoute?.buyPriceUsdc}
-• <strong>Sell Pool:</strong> ${r2Data?.bestRoute?.sellDex} @ ${r2Data?.bestRoute?.sellPriceUsdc}
-• <strong>Gross Spread:</strong> ${r2Data?.bestRoute?.grossSpreadPct}%
-• <strong>Arc L1 Gas Cost:</strong> ${r2Data?.bestRoute?.estimatedGasCostUsdc} USDC
-• <strong>Estimated Net Profit:</strong> +${r2Data?.bestRoute?.netProfitUsdc} USDC (${r2Data?.bestRoute?.netProfitPct}%)
-
-<strong>MEV Shielding:</strong>
-Execution is secured via private Arcis relayer tunnels to ensure zero sandwich exploitation.`,
+The separate MEV service returned analysis only. No relayer protection or trade execution is implied.`
+          : `No arbitrage opportunity above the requested threshold was reported. The services returned analysis only; no trade or relayer protection was executed.`,
         timestamp: Date.now(),
         steps: [...steps],
         totalCostUsdc: totalCost,
-        actionPayload: {
-          type: 'trade',
-          title: '⚡ Simulate Arbitrage Execution',
-          data: r2Data?.bestRoute,
-        },
       }
       addMessage(assistantMsg)
     } else if (
@@ -1399,29 +1571,31 @@ Execution is secured via private Arcis relayer tunnels to ensure zero sandwich e
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `x402 AI Services Pricing Directory:
+        content: `x402 AI Services Catalog Pricing (configured rates; paid execution is currently unavailable in this client):
 
-<strong>Available Micro-Services:</strong>
+<strong>Listed Services:</strong>
 
 1. <strong>Arc Cross-DEX Arbitrage Sentinel:</strong>
-Price: $0.005 USDC per query
-Output: Real-time price spread, optimal route, net profit estimation.
+Listed rate: $0.005 USDC per query
+Intended output: spread and route estimates when the service is enabled and its data sources are available.
 
 2. <strong>Deep Liquidity Depth & Slippage Predictor:</strong>
-Price: $0.002 USDC per query
-Output: Orderbook depth, concentrated tick map, multi-hop split ratios.
+Listed rate: $0.002 USDC per query
+Intended output: route depth and slippage estimates when the service is enabled and its data sources are available.
 
 3. <strong>Flash-Loan Yield & Liquidation Radar:</strong>
-Price: $0.008 USDC per query
-Output: Unhealthy loan positions, liquidation premiums, flash liquidity availability.
+Listed rate: $0.008 USDC per query
+Intended output: liquidation analysis only if a valid opportunity feed is connected.
 
 4. <strong>Arc Mempool & MEV Shield Simulator:</strong>
-Price: $0.004 USDC per query
-Output: Front-running risk score, private relayer validation.
+Listed rate: $0.004 USDC per query
+Intended output: risk analysis only; this is not transaction protection.
 
 5. <strong>Cross-Chain Gateway Flow Indexer:</strong>
-Price: $0.003 USDC per query
-Output: Institutional USDC migration metrics across 13+ chains.`,
+Listed rate: $0.003 USDC per query
+Intended output: Gateway flow data only when a successful paid service response is available.
+
+These are catalog rates, not successful calls. Paid calls require a selected external EOA, Arc Testnet and a previously funded Circle Gateway balance. Circle facilitator acceptance serves the result, but provider earnings remain pending until Circle reports a matching confirmed transfer. Passkey/MSCA, UCW and autonomous session payments are unsupported; this app never deposits automatically.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1433,18 +1607,9 @@ Output: Institutional USDC migration metrics across 13+ chains.`,
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Monetizing Developer AI Services via x402:
+        content: `x402 Developer Integration (design overview, not a live payout promise):
 
-<strong>Developer Onboarding Steps:</strong>
-
-1. <strong>Integrate x402 Middleware:</strong>
-Wrap any Python (FastAPI/LangChain) or Node.js service with Circle x402 HTTP validation headers.
-
-2. <strong>Register in Service Registry:</strong>
-Publish your endpoint schema, query parameters, and per-call USDC price to the Arcis registry contract.
-
-3. <strong>Receive Instant Streaming Revenue:</strong>
-Every AI agent or user query triggers an automated on-chain USDC payment directly into your developer wallet.`,
+A provider can integrate an HTTP 402 payment challenge and register a service manifest. Paid testnet calls are limited to an explicitly selected external EOA and Circle Gateway; each requires a signature and an already-funded Gateway balance. Facilitator acceptance is not final settlement and provider accounting stays pending until nonce reconciliation. Withdrawals only adjust the internal ledger; no USDC payout is sent.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1455,24 +1620,15 @@ Every AI agent or user query triggers an automated on-chain USDC payment directl
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `Choosing the Right x402 AI Service:
+          content: `Choosing an x402 AI service (catalog rates; paid testnet calls require a selected external EOA):
 
-• <strong>Live arbitrage across DEX pools?</strong>
-Use the Arc Cross-DEX Arbitrage Sentinel ($0.005/query) to scan spreads and net profit across Arc L1.
+• <strong>Arbitrage research:</strong> the Arc Cross-DEX Arbitrage Sentinel is listed at $0.005/query.
+• <strong>Route/slippage estimates:</strong> the Deep Liquidity Slippage Predictor is listed at $0.002/query.
+• <strong>Liquidation research:</strong> the Yield & Liquidation Radar is listed at $0.008/query; its opportunity feed is unavailable until connected.
+• <strong>MEV risk analysis:</strong> the Mempool & MEV Shield is listed at $0.004/query and does not itself protect or execute a transaction.
+• <strong>Gateway flow reporting:</strong> the Flow Indexer is listed at $0.003/query when a successful service response is available.
 
-• <strong>Worried about slippage before a big swap?</strong>
-The Deep Liquidity Slippage Predictor ($0.002/query) estimates optimal routing and price impact.
-
-• <strong>Hunting liquidation or flash-loan yield?</strong>
-The Flash-Loan Yield & Liquidation Radar ($0.008/query) surfaces top lending opportunities.
-
-• <strong>Protecting a trade from MEV and front-running?</strong>
-The Mempool & MEV Shield Simulator ($0.004/query) predicts sandwich and front-run risk.
-
-• <strong>Tracking capital moving into Arc?</strong>
-The Cross-Chain Gateway Flow Indexer ($0.003/query) reports USDC inflows across 13+ chains.
-
-Open the AI Services tab to run any of these services live.`,
+These are catalog entries. Paid testnet calls require external EOA selection and Circle Gateway configuration; a successful facilitator acceptance is still pending provider reconciliation, not a chain receipt. Open the AI Services tab to inspect the catalog.`,
           timestamp: Date.now(),
           actionPayload: {
             type: 'ai-services',
@@ -1536,15 +1692,15 @@ All network gas is paid directly in USDC — no ETH wallet balance is ever requi
           content: `Gasless Sending on Arc:
 
 • <strong>EIP-3009 TransferWithAuthorization:</strong>
-Arcis signs a gasless USDC authorization off-chain so a relayer can execute the transfer on your behalf.
+This standard can authorize a relayed USDC transfer when an active, funded relayer is configured. This app cannot guarantee that the relayer is available or sponsored in a given environment.
 
-• <strong>Zero Native Balance Needed:</strong>
-You can send USDC without holding ETH or any helper gas token — the sponsored relayer covers the network fee.
+• <strong>Fee confirmation:</strong>
+Do not assume zero gas or sponsorship based on the quota display. Confirm the current Send flow and review the wallet prompt/receipt before relying on it.
 
-• <strong>Daily Sponsored Quota:</strong>
-Each wallet receives a gasless quota; once exhausted, fall back to paying the tiny ~$0.0005 USDC gas directly.
+• <strong>Relayer availability:</strong>
+Sponsorship depends on server configuration and a valid confirmed transaction; a quota display alone does not guarantee it.
 
-Open the Send tab and toggle Gasless to send with 0 gas in your wallet.`,
+Check whether the Send form explicitly enables a relayer path before signing. Otherwise use a standard wallet transfer and review its fee.`,
           timestamp: Date.now(),
           actionPayload: {
             type: 'send',
@@ -1586,45 +1742,54 @@ Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very 
         },
       }
       addMessage(assistantMsg)
-    } else if (
-      q.includes('report of usdc inflows to arc l1') ||
-      q.includes('usdc inflows to arc l1')
-    ) {
+    } else if (isGatewayFlowReportQuery(q)) {
       const s = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-cross-chain-gateway-flow-indexer')!
       steps.push({
         stepNumber: 1,
         serviceId: s.id,
         serviceName: s.name,
         status: 'executing',
-        costUsdc: s.pricing.priceUsdc,
+        costUsdc: 0,
         durationMs: 0,
-        detail: 'Querying Circle Gateway deposit attestations across 13+ chains...',
+        detail: 'Reading Circle Gateway AttestationUsed / GatewayBurned logs on Arc L1...',
       })
       setCurrentSteps([...steps])
 
-      const r = await executeX402Call(s, { timeWindow: '1h' }, walletAddress)
-      totalCost += s.pricing.priceUsdc
-      const rData = r.data as any
-      steps[0].status = 'completed'
+      const r = ucwHandlers?.authSource === 'evm'
+        ? await executeX402Call(s, { timeWindow: '1h' }, walletAddress, provider, 'external_eoa')
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an explicitly selected external EOA.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      const settlementVerified = hasVerifiedX402Settlement(r)
+      const paymentAccepted = r.payment?.status === 'settlement_pending' && r.success
+      const serviceAvailable = isSuccessfulX402ServiceResult(r)
+      const rData = serviceAvailable ? (r.data as any) : null
+      if (settlementVerified || paymentAccepted) {
+        totalCost += r.costUsdc
+        steps[0].costUsdc = r.costUsdc
+      }
+
+      // The report is rendered only from a usable result accompanied by verified settlement.
+      // Otherwise state that it is unavailable; never present unverified data or catalog pricing.
+      const flowReport = serviceAvailable
+        ? `${paymentAccepted ? 'Circle Gateway accepted this testnet payment; provider settlement is pending reconciliation.\n\n' : ''}${formatGatewayFlowReport(rData)}`
+        : formatGatewayFlowReport({
+            status: 'UNAVAILABLE',
+            timeWindow: '1h',
+            readAt: new Date().toISOString(),
+            source: GATEWAY_FLOW_SOURCE,
+            error: r.error || 'paid service data or trusted settlement could not be verified',
+          })
+
+      steps[0].status = serviceAvailable ? 'completed' : 'failed'
       steps[0].durationMs = r.executionTimeMs
-      steps[0].resultSummary = `Net Inflow: ${rData?.netUsdcInflowToArc}`
+      steps[0].resultSummary = serviceAvailable
+        ? `${paymentAccepted ? 'Gateway accepted; settlement pending. ' : ''}Gateway net flow: ${formatUsdcOrUnavailable(rData?.netUsdcInflowUsdc)}`
+        : `Unavailable: ${r.error || 'paid service data or trusted settlement could not be verified'}`
       setCurrentSteps([...steps])
 
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Circle Gateway Liquidity Migration Report (Last 1 Hour):
-
-• <strong>Net USDC Inflow to Arc L1:</strong> ${rData?.netUsdcInflowToArc}
-
-<strong>Top Source Blockchains:</strong>
-1. <strong>Ethereum Sepolia/Mainnet:</strong> $2.45M (50.8%)
-2. <strong>Base:</strong> $1.32M (27.4%)
-3. <strong>Arbitrum:</strong> $850K (17.6%)
-
-• <strong>Institutional Whale Transfers:</strong> 14 large transactions (> $100K USDC each)
-
-• <strong>Market Signal:</strong> Bullish Institutional Inflow into Arc L1`,
+        content: flowReport,
         timestamp: Date.now(),
         steps: [...steps],
         totalCostUsdc: totalCost,
@@ -1739,8 +1904,8 @@ You maintain 100% control of your private keys and assets at all times. Neither 
 • <strong>Audited ERC Standards:</strong>
 Vaults comply strictly with ERC-4626 tokenized vault standards with built-in emergency recovery logic.
 
-• <strong>Bounded Copilot Budgets:</strong>
-x402 AI queries are strictly bounded by hard user-configured spending allowances ($0.50 USDC default), preventing unauthorized balance deductions.`,
+• <strong>Local Session Metadata:</strong>
+The displayed session budget is local UI metadata, not an on-chain spending limit. Automated sessions and paid x402 calls are disabled; no x402 charge is made by this client.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1771,43 +1936,14 @@ x402 AI queries are strictly bounded by hard user-configured spending allowances
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Session Budget & Safety Limits:
+        content: `Session Settings and Paid AI Calls:
 
-<strong>Budget Protection:</strong>
-
-• <strong>Default Session Allowance:</strong> $0.50 USDC
-• <strong>Cost Per AI Query:</strong> $0.002 to $0.008 USDC
-• <strong>Live Spend Bar:</strong> Monitored in real time in the budget bar at the top of the chat window.
-• <strong>Automatic Auto-Stop:</strong> Once the budget limit is reached, all AI queries pause automatically until renewed by the user.`,
+• The session budget shown in this UI is local metadata, not an on-chain spending cap.
+• Automated signing/delegation is disabled because SessionKeyModule is not integrated with this frontend.
+• Paid x402 testnet calls require an explicitly selected external EOA and pre-funded Circle Gateway USDC; this app never auto-deposits. Passkey/MSCA, UCW and autonomous session payments are unsupported.
+• Facilitator acceptance is not final settlement; provider earnings remain pending until nonce reconciliation reports a matching Circle transfer.
+• Catalog prices are not evidence that a paid call can currently be completed.`,
         timestamp: Date.now(),
-      }
-      addMessage(assistantMsg)
-    } else if (
-      q.includes('automated batch payouts work via multicall3from') ||
-      q.includes('batch payouts') ||
-      q.includes('multicall3from')
-    ) {
-      const assistantMsg: CopilotMessage = {
-        id: 'assistant-' + Date.now(),
-        role: 'assistant',
-        content: `Automated Batch Payouts via Multicall3From:
-
-<strong>Key Capabilities:</strong>
-
-• <strong>Single Atomic Transaction:</strong>
-Disburse USDC salaries, contributor grants, or vendor payments to up to 100 recipients in a single click.
-
-• <strong>Preserved msg.sender Identity:</strong>
-Unlike traditional forwarder proxies, Multicall3From preserves the true caller identity for downstream contracts.
-
-• <strong>78% Gas Savings:</strong>
-Reduces cumulative transaction fees by up to 78% compared to executing individual single transfers.`,
-        timestamp: Date.now(),
-        actionPayload: {
-          type: 'send',
-          title: '📤 Open Mass Payouts / Send Tab',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     }
@@ -1873,6 +2009,7 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
   }
 
   const clearChat = () => {
+    pendingActionRef.current = null
     setMessages([createArcisWelcomeMessage()])
   }
 
