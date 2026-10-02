@@ -10,6 +10,7 @@
     "serve": "tsx server.ts",
     "preview": "vite preview",
     "test": "vitest run",
+    "preflight:x402": "node scripts/x402-staging-preflight.mjs",
     "check:circle": "node scripts/verify-circle-email-auth.mjs"
   },
   "dependencies": {

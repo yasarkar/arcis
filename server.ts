@@ -32,15 +32,27 @@ const PORT = process.env.PORT || 3000
 // ─────────────────────────────────────────────────────────────
 // 1. GLOBAL MIDDLEWARE
 // ─────────────────────────────────────────────────────────────
+// The API authenticates with request-body credentials (Circle userToken, wallet addresses) and
+// never with cookies, so credentialed CORS is unnecessary and stays disabled. Allowed origins come
+// from an explicit comma-separated CORS_ORIGIN allowlist; with none configured, only same-origin
+// requests (which send no Origin header) are served cross-origin-wise.
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true)
+    return callback(null, allowedOrigins.includes(origin))
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Payer-Address'],
-  credentials: true,
+  credentials: false,
 }))
 
-app.use(express.json({ limit: '5mb' }))
-app.use(express.urlencoded({ extended: true, limit: '5mb' }))
+app.use(express.json({ limit: '256kb' }))
+app.use(express.urlencoded({ extended: true, limit: '256kb' }))
 
 // Security Headers Middleware
 app.use((_req, res, next) => {

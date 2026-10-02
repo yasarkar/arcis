@@ -3,20 +3,70 @@
 // Interacts with OpenAI / OpenRouter GPT-4o-mini without exposing API keys to the client browser.
 
 import { arcTestnet } from '../src/config/arcChain'
+import { ARC_GAS_LIMITS } from '../src/config/feeTiers'
+import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from '../src/services/arcGasService'
+import { getSwapEstimate } from '../src/services/swapService'
 import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
+import { checkRateLimit } from './_utils/rateLimiter'
+// Single owner of the portfolio → prompt contract, shared with the browser so field names cannot drift.
+import { formatPortfolioForPrompt, availableTokenBalance } from '../src/utils/portfolioPrompt'
+import {
+  canonicalCopilotTokenSymbol,
+  isUnsupportedCopilotToken,
+  validateSendAmount,
+  isValidEvmAddress,
+  isZeroAddress,
+  validateSendAmount,
+  WBTC_UNSUPPORTED_MESSAGE,
+} from '../src/config/copilotTokens'
+
+// ─────────────────────────────────────────────────────────────
+// IP RESOLUTION HELPER
+// ─────────────────────────────────────────────────────────────
+function getClientIp(req: Request): string {
+  const headers = req.headers
+  const forwarded = headers.get('x-forwarded-for')
+  if (forwarded) {
+    return forwarded.split(',')[0].trim()
+  }
+  return (
+    headers.get('cf-connecting-ip') ||
+    headers.get('x-real-ip') ||
+    headers.get('true-client-ip') ||
+    '127.0.0.1'
+  )
+}
+
+// A BYOK credential is honored only when it is unmistakably an OpenAI / OpenRouter key.
+// Any other Authorization value is ignored, so an arbitrary header can never be forwarded
+// upstream as the provider key. Keys are never logged.
+const BYOK_KEY_PATTERN = /^sk-(or-)?[A-Za-z0-9_-]{16,}$/
 
 export async function POST(req: Request) {
   try {
+    const clientIp = getClientIp(req)
+
+    // Distributed rate limit: 20 requests / 60s per IP. Protect the shared server key from
+    // anonymous flooding and cost amplification.
+    const rateCheck = await checkRateLimit(`copilot:${clientIp}`, 20, 60_000)
+    if (!rateCheck.allowed) {
+      return apiError(
+        'Rate limit exceeded for Copilot requests. Please wait before trying again.',
+        'RATE_LIMIT_EXCEEDED',
+        429,
+        null,
+        { retryAfter: rateCheck.retryAfterSeconds, fallbackToLocal: true }
+      )
+    }
+
     const authHeader = req.headers.get('authorization')
     const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
-    let apiKey = (authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : '') ||
-      globalEnv.OPENAI_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      globalEnv.OPENROUTER_API_KEY ||
-      process.env.OPENROUTER_API_KEY ||
-      ''
+    const clientKey = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : ''
+    const serverKey = globalEnv.OPENAI_API_KEY || globalEnv.OPENROUTER_API_KEY || ''
+    // Server key is the default; a client key is used only when it is a well-formed BYOK key.
+    const apiKey = BYOK_KEY_PATTERN.test(clientKey) ? clientKey : serverKey
 
-    if (!apiKey || apiKey.trim() === '') {
+    if (!apiKey) {
       return apiError(
         'No OpenAI / OpenRouter API key configured on server or in request.',
         'MISSING_AI_KEY',
@@ -43,7 +93,7 @@ export async function POST(req: Request) {
       walletAddress,
       livePrices = {},
       chatHistory = [],
-      portfolio = {},
+      portfolio = null,
     } = body
 
     if (!userPrompt || typeof userPrompt !== 'string') {
@@ -56,18 +106,17 @@ export async function POST(req: Request) {
       )
     }
 
-    // Format portfolio summary for prompt
+    // Serialize the client snapshot through the shared contract (see src/utils/portfolioPrompt.ts).
     const portfolioText = formatPortfolioForPrompt(portfolio)
 
     const systemPrompt = `You are Arco, the ultra-smart autonomous AI Copilot & Chief DeFi Strategist of Arcis Protocol on Arc Testnet blockchain (Chain ID: ${arcTestnet.id}).
 Arcis features:
-- Native Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed for gas; gas is ~$0.00053 USDC per tx)
+- Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed; network fees are paid in USDC at the live Arc base fee)
 - Speed: <500ms deterministic sub-second finality
-- Supported Tokens: USDC, EURC, WETH, WBTC, af-USDC
+- Supported Tokens: USDC, EURC, WETH, cirBTC, af-USDC (there is NO WBTC on Arc Testnet — never use WBTC; the Bitcoin asset is cirBTC)
 - Real-Yield Vault (af-USDC): 8.42% APY compound real yield
 - Circle Gateway: Instant cross-chain unified balance across Ethereum, Base, Arbitrum, Solana, Polygon
-- Enterprise Send: Multicall3From batch payments with preserved msg.sender identity
-- Live Real-Time Market Prices: 1 EURC ≈ ${livePrices.EURC || 1.08} USDC, 1 WETH ≈ ${livePrices.WETH || 2650} USDC, 1 WBTC ≈ ${livePrices.WBTC || 63000} USDC
+- Live Real-Time Market Prices: 1 EURC ≈ ${livePrices.EURC || 1.08} USDC, 1 WETH ≈ ${livePrices.WETH || 2650} USDC, 1 cirBTC ≈ ${livePrices.CIRBTC || livePrices.WBTC || 63000} USDC
 
 ${portfolioText}
 
@@ -84,11 +133,10 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
 - FORMATTING RULES:
   - Never use markdown bold asterisks (do not use **).
   - Use <strong> tags for bold headings and key bullet points.
-  - When presenting transfer details for sends, always follow this exact structure:
-    • <strong>Recipient:</strong> <recipient address>
-    • <strong>Amount:</strong> <amount> <token>
-    • <strong>Fee:</strong> ~0.00053 USDC (Native Gas)
-    • <strong>Network:</strong> 🌐 Arc Testnet
+  - NEVER repeat transaction parameters (amount, tokens, recipient, fee, network, slippage) as
+    bullet lists in your message. The interactive action card and the transaction receipt already
+    render every detail — your message is only a short professional lead-in sentence (one or two
+    sentences) that introduces the card below it.
   - Leave generous blank lines between paragraphs.
   - Keep tone professional, welcoming, and high-tech.`
 
@@ -101,8 +149,8 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
           parameters: {
             type: 'object',
             properties: {
-              fromToken: { type: 'string', description: 'Token symbol to swap from (e.g. USDC, EURC)' },
-              toToken: { type: 'string', description: 'Token symbol to swap to (e.g. USDC, EURC)' },
+              fromToken: { type: 'string', description: 'Token symbol to swap from (e.g. USDC, EURC, cirBTC)' },
+              toToken: { type: 'string', description: 'Token symbol to swap to (e.g. USDC, EURC, cirBTC)' },
               amount: { type: 'number', description: 'Amount of tokens to swap' },
               slippage: { type: 'number', description: 'Slippage percentage e.g. 0.1' },
             },
@@ -155,13 +203,13 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         type: 'function',
         function: {
           name: 'execute_send',
-          description: 'Send or transfer USDC/EURC/WETH/WBTC to a recipient address on Arc Testnet with optional memo',
+          description: 'Send or transfer USDC/EURC/WETH/cirBTC to a recipient address on Arc Testnet with optional memo. WBTC is NOT supported on Arc.',
           parameters: {
             type: 'object',
             properties: {
               recipient: { type: 'string', description: 'Recipient EVM address (0x...) or domain' },
               amount: { type: 'number', description: 'Amount of tokens to transfer' },
-              token: { type: 'string', description: 'Token symbol e.g. USDC, EURC, WETH, WBTC (default: USDC)' },
+              token: { type: 'string', description: 'Token symbol e.g. USDC, EURC, WETH, cirBTC (default: USDC). Never WBTC — Arc has no WBTC.' },
               memo: { type: 'string', description: 'Optional transaction memo, category, or note' },
             },
             required: ['recipient', 'amount'],
@@ -190,7 +238,9 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       .slice(-6)
       .filter((m: any) => m.content && m.content.trim() !== '')
       .map((m: any) => ({
-        role: m.sender === 'user' ? 'user' : 'assistant',
+        // CopilotMessage carries `role`, not `sender`. Client-supplied history may only be a user
+        // or assistant turn — never `system`, which would hand it instruction-level authority.
+        role: m.role === 'user' ? 'user' : 'assistant',
         content: m.content,
       }))
 
@@ -244,34 +294,64 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       }
 
       if (funcName === 'execute_swap') {
-        const fromTok = (args.fromToken || 'USDC').toUpperCase()
-        const toTok = (args.toToken || 'EURC').toUpperCase()
-        const amount = Number(args.amount) || 10
+        // Preserve display casing (cirBTC, af-USDC) while looking prices up by upper-case key.
+        const fromTok = args.fromToken ? canonicalCopilotTokenSymbol(args.fromToken) : 'USDC'
+        const toTok = args.toToken ? canonicalCopilotTokenSymbol(args.toToken) : 'EURC'
+        if (fromTok === 'WBTC' || toTok === 'WBTC') {
+          return apiSuccess({
+            message: WBTC_UNSUPPORTED_MESSAGE,
+            source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini',
+          })
+        }
+        const amountCheck = validateSendAmount(args.amount, fromTok)
+        if (!amountCheck.ok || amountCheck.normalized == null) {
+          return apiSuccess({ message: `Invalid swap amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini' })
+        }
+        const amount = amountCheck.normalized
         const slippage = Number(args.slippage) || 0.1
-        const pIn = livePrices[fromTok] || (fromTok === 'USDC' ? 1 : fromTok === 'EURC' ? 1.08 : 2650)
-        const pOut = livePrices[toTok] || (toTok === 'USDC' ? 1 : toTok === 'EURC' ? 1.08 : 2650)
-        const rate = pOut > 0 ? pIn / pOut : 1
-        const estimatedOut = Number((amount * rate * (1 - slippage / 100)).toFixed(4))
+        let quote: Awaited<ReturnType<typeof getSwapEstimate>> | undefined
+        try {
+          quote = await getSwapEstimate({
+            fromChain: 'Arc_Testnet',
+            tokenIn: fromTok,
+            tokenOut: toTok,
+            amountIn: String(amount),
+            slippageTolerance: slippage / 100,
+          })
+          if (!Number.isFinite(Number(quote.estimatedOutput)) || Number(quote.estimatedOutput) <= 0) quote = undefined
+        } catch (error) {
+          console.warn('[copilot] Live Arc swap quote unavailable:', error)
+        }
+        const estimatedOut = quote ? Number(Number(quote.estimatedOutput).toFixed(8)) : undefined
+        const minReceived = quote ? Number(Number(quote.stopLimit).toFixed(8)) : undefined
+        const rate = quote ? Number(quote.rate) : undefined
+        const networkFee = await getEstimatedArcGasUsdc(ARC_GAS_LIMITS.contractInteraction)
 
         actionPayload = {
           type: 'interactive_swap',
-          title: `🔄 Confirm Swap: ${amount} ${fromTok} ➔ ${estimatedOut} ${toTok}`,
+          title: `🔄 Confirm Swap: ${amount} ${fromTok}${estimatedOut === undefined ? '' : ` ➔ ${estimatedOut} ${toTok}`}`,
           data: {
             fromToken: fromTok,
             toToken: toTok,
             amount,
             slippage,
             estimatedOut,
+            minReceived,
             rate,
+            estimatedFeeUsdc: networkFee.amount,
+            feeEstimateSource: networkFee.source,
           },
         }
 
         if (!outputMessage) {
-          const dynamicGas = await getEstimatedArcGasUsdc()
-          outputMessage = `I have prepared your instant token swap on Arc Testnet:\n\n⚡ <strong>DEX Swap Overview:</strong>\n• <strong>Pay Amount:</strong> ${amount} ${fromTok}\n• <strong>Est. Receive:</strong> ~${estimatedOut} ${toTok}\n• <strong>Fee:</strong> ~${dynamicGas} USDC (Native Gas)\n• <strong>Network:</strong> 🌐 Arc Testnet\n• <strong>Slippage:</strong> ${slippage}%\n\nClick below to confirm and execute the trade.`
+          outputMessage = `I have prepared your instant token swap on Arc Testnet. Click below to confirm and execute the trade.`
         }
       } else if (funcName === 'execute_deposit_yield') {
-        const amount = Number(args.amount) || 50
+        const amountCheck = validateSendAmount(args.amount, 'USDC')
+        if (!amountCheck.ok || amountCheck.normalized == null) {
+          return apiSuccess({ message: `Invalid deposit amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini' })
+        }
+        const amount = amountCheck.normalized
         const yearlyReturn = Number((amount * 0.0842).toFixed(2))
         actionPayload = {
           type: 'interactive_deposit',
@@ -283,19 +363,23 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
           },
         }
         if (!outputMessage) {
-          outputMessage = `I have prepared your Real-Yield Vault allocation:\n\n🏦 <strong>Vault Deposit Overview:</strong>\n• <strong>Deposit Amount:</strong> ${amount} USDC\n• <strong>Annual Yield (APY):</strong> 8.42% (Compound Real Yield)\n• <strong>Est. 1-Year Gain:</strong> +${yearlyReturn} USDC\n• <strong>Lockup:</strong> None (Withdraw anytime)\n\nClick below to lock in your vault deposit.`
+          outputMessage = `I have prepared your Real-Yield Vault allocation. Click below to lock in your vault deposit.`
         }
       } else if (funcName === 'execute_bridge') {
         const fromChain = args.fromChain || 'Ethereum Sepolia'
         const toChain = args.toChain || 'Arc Testnet'
-        const amount = Number(args.amount) || 25
+        const amountCheck = validateSendAmount(args.amount, 'USDC')
+        if (!amountCheck.ok || amountCheck.normalized == null) {
+          return apiSuccess({ message: `Invalid bridge amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini' })
+        }
+        const amount = amountCheck.normalized
         actionPayload = {
           type: 'interactive_bridge',
           title: `🌉 Bridge ${amount} USDC (${fromChain} ➔ ${toChain})`,
           data: { fromChain, toChain, amount },
         }
         if (!outputMessage) {
-          outputMessage = `I prepared the Circle Gateway bridge transfer:\n\n🌉 <strong>Bridge Information:</strong>\n• <strong>Source Network:</strong> ${fromChain}\n• <strong>Destination Network:</strong> ${toChain}\n• <strong>Amount:</strong> ${amount} USDC\n• <strong>Finality Speed:</strong> <500ms (Gateway Instant Pool)\n\nYou can confirm the transfer by clicking the card below.`
+          outputMessage = `I prepared the Circle Gateway bridge transfer. You can confirm the transfer by clicking the card below.`
         }
       } else if (funcName === 'execute_faucet') {
         actionPayload = {
@@ -308,17 +392,60 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         }
       } else if (funcName === 'execute_send') {
         const recipient = args.recipient || ''
-        const amount = Number(args.amount) || 1
-        const token = (args.token || 'USDC').toUpperCase()
+        const source = isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini'
+        // Canonical casing matters: 'cirBTC' is a real Arc ERC-20 (8 decimals), 'CIRBTC' would not
+        // resolve in the App Kit / Circle transfer APIs and 'WBTC' does not exist on Arc at all.
+        const token = canonicalCopilotTokenSymbol(args.token)
+        if (isUnsupportedCopilotToken(token)) {
+          return apiSuccess({ message: WBTC_UNSUPPORTED_MESSAGE, source })
+        }
+        if (!isValidEvmAddress(recipient)) {
+          return apiSuccess({
+            message: 'Please provide a valid Arc (EVM) wallet address (0x...) to send funds.',
+            source,
+          })
+        }
+        if (isZeroAddress(recipient)) {
+          return apiSuccess({
+            message: 'The zero address (0x000…000) is a burn target; refusing to send there.',
+            source,
+          })
+        }
+        // No silent `|| 1` fallback: an unspecified or zero amount must be corrected by the user.
+        const amountCheck = validateSendAmount(args.amount, token)
+        if (!amountCheck.ok) {
+          return apiSuccess({ message: `Invalid transfer amount. ${amountCheck.error}`, source })
+        }
+        const amount = amountCheck.normalized!
+        const available = availableTokenBalance(portfolio, token)
+        if (available !== null && amount > available) {
+          return apiSuccess({
+            message: `Insufficient balance. You have ${available} ${token} available on Arc Testnet, but this transfer is ${amount} ${token}.`,
+            source,
+          })
+        }
         const memo = args.memo || ''
         const shortRec = recipient ? `${recipient.slice(0, 6)}...${recipient.slice(-4)}` : 'Recipient'
+        const isNativeUsdc = token.toUpperCase() === 'USDC'
+        const sendGasLimit = memo.trim().length > 0
+          ? ARC_GAS_LIMITS.memoTransfer
+          : isNativeUsdc
+            ? ARC_GAS_LIMITS.nativeTransfer
+            : ARC_GAS_LIMITS.erc20Transfer
+        const dynamicGas = await getEstimatedArcGasUsdc(sendGasLimit)
         actionPayload = {
           type: 'interactive_send',
           title: `📤 Send ${amount} ${token} to ${shortRec}`,
-          data: { recipient, amount, tokenSymbol: token, memo },
+          data: {
+            recipient,
+            amount,
+            tokenSymbol: token,
+            memo,
+            estimatedFeeUsdc: dynamicGas.amount,
+            feeEstimateSource: dynamicGas.source,
+          },
         }
-        const dynamicGas = await getEstimatedArcGasUsdc()
-        outputMessage = `I have prepared your transfer on Arc Testnet:\n\n📤 <strong>Transfer Details:</strong>\n• <strong>Recipient:</strong> <code>${recipient || 'Not specified'}</code>\n• <strong>Amount:</strong> ${amount} ${token}\n• <strong>Fee:</strong> ~${dynamicGas} USDC (Native Gas)\n• <strong>Network:</strong> 🌐 Arc Testnet\n${memo ? `• <strong>Memo / Note:</strong> ${memo}\n` : ''}\nClick below to sign and broadcast the transfer.`
+        outputMessage = `I have prepared your transfer on Arc Testnet.${memo ? ` Memo: ${memo}.` : ''} Click below to sign and broadcast the transfer.`
       }
     }
 
@@ -339,55 +466,25 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
   }
 }
 
-function formatPortfolioForPrompt(port: any): string {
-  if (!port || typeof port !== 'object') {
-    return 'USER LIVE PORTFOLIO SNAPSHOT: (Wallet not connected)'
-  }
-
-  const arcUsdc = Number(port.liquidArcUsdc || 0)
-  const arcEurc = Number(port.liquidArcEurc || 0)
-  const arcWeth = Number(port.liquidArcWeth || 0)
-  const arcWbtc = Number(port.liquidArcWbtc || 0)
-  const vaultUsdc = Number(port.vaultSharesUsdc || 0)
-  const gatewayUsdc = Number(port.gatewayTotalUsdc || 0)
-  const totalUsdc = Number(port.totalNetWorthUsdc || 0)
-
-  return `USER LIVE PORTFOLIO SNAPSHOT (Real-Time Chain State):
-- Liquid Arc Testnet USDC: ${arcUsdc.toFixed(2)} USDC (Available for gas & swaps)
-- Liquid Arc Testnet EURC: ${arcEurc.toFixed(2)} EURC
-- Liquid Arc Testnet WETH: ${arcWeth.toFixed(4)} WETH
-- Liquid Arc Testnet WBTC: ${arcWbtc.toFixed(6)} WBTC
-- Staked in Real-Yield Vault (af-USDC @ 8.42% APY): ${vaultUsdc.toFixed(2)} USDC
-- Cross-Chain USDC on Circle Gateway: ${gatewayUsdc.toFixed(2)} USDC
-- Total Net Worth Across Ecosystem: ${totalUsdc.toFixed(2)} USD`
-}
-
-async function getEstimatedArcGasUsdc(): Promise<string> {
+/**
+ * Live Arc L1 network fee estimate in USDC for a specific operation.
+ *
+ * Reads the current base fee from the Arc RPC and applies the fast-tier multiplier with the
+ * operation's real gas limit, so the quoted fee tracks the network instead of a fixed constant.
+ * Falls back to the static fast-tier config only when the RPC is unreachable.
+ */
+async function getEstimatedArcGasUsdc(
+  gasLimit: bigint = ARC_GAS_LIMITS.erc20Transfer
+): Promise<{ amount?: string; source: string }> {
   try {
-    const res = await fetch('https://rpc.testnet.arc.network', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_getBlockByNumber',
-        params: ['latest', false],
-      }),
-      signal: AbortSignal.timeout(1500),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      const rawBaseFee = data.result?.baseFeePerGas ? BigInt(data.result.baseFeePerGas) : 20000000000n
-      const baseFee = rawBaseFee < 20000000000n ? 20000000000n : rawBaseFee
-      const maxFeePerGas = (baseFee * 130n) / 100n + 2000000000n
-      const gasLimit = 21000n
-      const totalWei = gasLimit * maxFeePerGas
-      const cost = Number(totalWei) / 1e18
-      return cost < 0.00001 ? '0.00053' : cost.toFixed(5)
+    const gas = await getDynamicArcGasOptions(undefined, 'fast', gasLimit)
+    return {
+      amount: calculateArcGasCostFromFee(gasLimit, gas.maxFeePerGas),
+      source: gas.source,
     }
-  } catch {
-    // network timeout or offline fallback
+  } catch (error) {
+    console.warn('[copilot] Live Arc network fee unavailable:', error)
+    return { source: 'unavailable' }
   }
-  return '0.00053'
 }
 
