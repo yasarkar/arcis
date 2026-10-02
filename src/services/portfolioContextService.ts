@@ -3,8 +3,8 @@
 // Gathers real-time multi-chain balances, Vault positions, Gateway liquidity, and Session limits
 
 import { erc20Abi, formatUnits, type Hex } from 'viem'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
-import { POOL_CONTRACTS } from '../config/poolsConfig'
+import { arcTestnet, ARC_METADATA, ARC_TOKENS } from '../config/arcChain'
+import { POOL_CONTRACTS, YIELD_VAULT_ABI } from '../config/poolsConfig'
 import { getArcPublicClient, resilientGetBalance, resilientReadContract } from './rpc'
 import { getGatewayBalances } from './gatewayService'
 import { getSessionKeyConfig } from './sessionKeyService'
@@ -24,7 +24,7 @@ export interface PortfolioSnapshot {
   liquidUsdc: number
   liquidEurc: number
   liquidWeth: number
-  liquidWbtc: number
+  liquidCirBtc: number
   vaultStakedUsdc: number
   vaultApy: number // 8.42
   estimatedYearlyYieldUsdc: number
@@ -85,13 +85,13 @@ export async function getLivePortfolioSnapshot(
   let liquidUsdc = 0
   let liquidEurc = 0
   let liquidWeth = 0
-  let liquidWbtc = 0
+  let liquidCirBtc = 0
   let vaultStakedUsdc = 0
 
   const target = activeAddr as Hex
 
   try {
-    const [nativeBal, erc20UsdcBal, eurcBal, vaultBal] = await Promise.all([
+    const [nativeBal, erc20UsdcBal, eurcBal, wethBal, cirBtcBal, vaultShares] = await Promise.all([
       resilientGetBalance(publicClient, { address: target }).catch(() => BigInt(0)),
       resilientReadContract(publicClient, {
         address: POOL_CONTRACTS.USDC,
@@ -101,6 +101,18 @@ export async function getLivePortfolioSnapshot(
       }).catch(() => BigInt(0)),
       resilientReadContract(publicClient, {
         address: POOL_CONTRACTS.EURC,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [target],
+      }).catch(() => BigInt(0)),
+      resilientReadContract(publicClient, {
+        address: ARC_TOKENS.WETH,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [target],
+      }).catch(() => BigInt(0)),
+      resilientReadContract(publicClient, {
+        address: POOL_CONTRACTS.cirBTC,
         abi: erc20Abi,
         functionName: 'balanceOf',
         args: [target],
@@ -121,10 +133,21 @@ export async function getLivePortfolioSnapshot(
     const erc20Formatted = parseFloat(formatUnits(erc20UsdcBal, 6))
     liquidUsdc = Number(Math.max(nativeFormatted, erc20Formatted).toFixed(2))
     liquidEurc = Number(parseFloat(formatUnits(eurcBal, 6)).toFixed(2))
+    liquidWeth = Number(parseFloat(formatUnits(wethBal, 18)).toFixed(4))
+    liquidCirBtc = Number(parseFloat(formatUnits(cirBtcBal, 8)).toFixed(6))
 
-    // Vault af-USDC share value (1 af-USDC ≈ 1.0842 USDC asset value)
-    const rawVaultShares = parseFloat(formatUnits(vaultBal, 6))
-    vaultStakedUsdc = Number((rawVaultShares * 1.0842).toFixed(2))
+    // The vault position is valued by the contract itself (ERC-4626 previewRedeem) rather than a
+    // hard-coded share ratio. A failed read yields 0 instead of a fabricated estimate.
+    const vaultAssets =
+      vaultShares > BigInt(0)
+        ? await resilientReadContract(publicClient, {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: 'previewRedeem',
+            args: [vaultShares],
+          }).catch(() => BigInt(0))
+        : BigInt(0)
+    vaultStakedUsdc = Number(parseFloat(formatUnits(vaultAssets, 6)).toFixed(2))
   } catch (err) {
     console.warn('[portfolioContextService] Error reading Arc Testnet balances:', err)
   }
@@ -153,10 +176,17 @@ export async function getLivePortfolioSnapshot(
     console.warn('[portfolioContextService] Error reading Gateway balances:', err)
   }
 
-  // 5. Total Net Worth & Yield Analytics
+  // 5. Total Net Worth & Yield Analytics — every held asset is priced into the total, so the
+  // reported net worth stays consistent with the balances listed above it.
   const eurcUsdPrice = tokenPrices.EURC || 1.08
+  const wethUsdPrice = tokenPrices.WETH || 0
+  const cirBtcUsdPrice = tokenPrices.CIRBTC || tokenPrices.WBTC || 0
   const eurcValUsd = liquidEurc * eurcUsdPrice
-  const totalNetWorthUsd = Number((liquidUsdc + eurcValUsd + vaultStakedUsdc + gatewayTotalUsdc).toFixed(2))
+  const wethValUsd = liquidWeth * wethUsdPrice
+  const cirBtcValUsd = liquidCirBtc * cirBtcUsdPrice
+  const totalNetWorthUsd = Number(
+    (liquidUsdc + eurcValUsd + wethValUsd + cirBtcValUsd + vaultStakedUsdc + gatewayTotalUsdc).toFixed(2)
+  )
   const estimatedYearlyYieldUsdc = Number((vaultStakedUsdc * 0.0842).toFixed(2))
   const idleCapitalUsdc = liquidUsdc
 
@@ -184,7 +214,7 @@ export async function getLivePortfolioSnapshot(
     liquidUsdc,
     liquidEurc,
     liquidWeth,
-    liquidWbtc,
+    liquidCirBtc,
     vaultStakedUsdc,
     vaultApy: 8.42,
     estimatedYearlyYieldUsdc,
@@ -209,7 +239,7 @@ function createEmptyPortfolioSnapshot(addr: string): PortfolioSnapshot {
     liquidUsdc: 0,
     liquidEurc: 0,
     liquidWeth: 0,
-    liquidWbtc: 0,
+    liquidCirBtc: 0,
     vaultStakedUsdc: 0,
     vaultApy: 8.42,
     estimatedYearlyYieldUsdc: 0,
@@ -226,21 +256,12 @@ function createEmptyPortfolioSnapshot(addr: string): PortfolioSnapshot {
 }
 
 /**
- * Formats a PortfolioSnapshot into a structured prompt block for LLM System Prompt injection
+ * The portfolio → LLM prompt contract has exactly one owner: src/utils/portfolioPrompt.ts.
+ * Re-exported here so existing importers keep using this service as their entry point while both
+ * the browser and api/copilot.ts serialize through the same implementation.
  */
-export function formatPortfolioForPrompt(p: PortfolioSnapshot): string {
-  const gatewayInfo = p.gatewayTotalUsdc > 0
-    ? `${p.gatewayTotalUsdc.toFixed(2)} USDC (${p.gatewayBreakdown.map((g) => `${g.chainName}: ${g.balanceUsdc}`).join(', ')})`
-    : '0.00 USDC'
-
-  return `LIVE USER ON-CHAIN PORTFOLIO SNAPSHOT:
-- Connected Address: ${p.walletAddress}
-- Liquid USDC (Arc Testnet): ${p.liquidUsdc.toFixed(2)} USDC (0% idle yield)
-- Liquid EURC (Arc Testnet): ${p.liquidEurc.toFixed(2)} EURC
-- Real-Yield Vault (af-USDC): ${p.vaultStakedUsdc.toFixed(2)} USDC allocated (Earning 8.42% APY = +${p.estimatedYearlyYieldUsdc.toFixed(2)}/year passive yield)
-- Circle Gateway Omnichain USDC: ${gatewayInfo}
-- Total Net Worth: ${p.totalNetWorthUsd.toFixed(2)} USD
-- Portfolio DeFi Health Score: ${p.healthScore}/100
-- Recommended Vault Allocation: ${p.recommendedVaultDeposit.toFixed(2)} USDC
-- Autonomous Session Budget Remaining: ${p.sessionBudgetLeftUsdc.toFixed(2)} USDC (Session ${p.hasActiveSession ? 'Active' : 'Inactive'})`
-}
+export {
+  formatPortfolioForPrompt,
+  EMPTY_PORTFOLIO_PROMPT,
+  type PortfolioPromptInput,
+} from '../utils/portfolioPrompt'

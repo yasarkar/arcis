@@ -4,6 +4,7 @@
 import {
   createWalletClient,
   custom,
+  decodeEventLog,
   erc20Abi,
   getContract,
   maxUint256,
@@ -29,6 +30,7 @@ import {
   EURC_ADDRESSES,
 } from '../config/gatewayConfig'
 import { IS_TESTNET } from '../config/arcChain'
+import { getNetwork } from '../config/networks/networkRegistry'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,6 +84,48 @@ function toBytes32(address: `0x${string}`): `0x${string}` {
 function randomHex32(): `0x${string}` {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}` as const
+}
+
+const ERC20_TRANSFER_EVENT_ABI = [{
+  type: 'event', name: 'Transfer',
+  inputs: [
+    { type: 'address', indexed: true, name: 'from' },
+    { type: 'address', indexed: true, name: 'to' },
+    { type: 'uint256', indexed: false, name: 'value' },
+  ],
+}] as const
+
+/** Verify a destination-chain receipt contains the exact native USDC mint/transfer. */
+export async function verifyDestinationUsdcMint(
+  chainKey: string,
+  txHash: string,
+  recipient: string,
+  amount: string
+): Promise<boolean> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash) || !/^0x[0-9a-fA-F]{40}$/.test(recipient) || !/^\d+(?:\.\d{1,6})?$/.test(amount)) return false
+  const network = getNetwork(chainKey)
+  const tokenAddress = USDC_ADDRESSES[chainKey]
+  if (!network?.viemChain || !tokenAddress) return false
+
+  try {
+    const publicClient = getResilientPublicClient(network.viemChain)
+    const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` })
+    if (receipt.status !== 'success' || receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) return false
+    const expectedAmount = parseUnits(amount, 6)
+    return receipt.logs.some((log) => {
+      if (log.address.toLowerCase() !== tokenAddress.toLowerCase()) return false
+      try {
+        const decoded = decodeEventLog({ abi: ERC20_TRANSFER_EVENT_ABI, data: log.data, topics: log.topics })
+        return String((decoded.args as any).from).toLowerCase() === '0x0000000000000000000000000000000000000000' &&
+          String((decoded.args as any).to).toLowerCase() === recipient.toLowerCase() &&
+          BigInt((decoded.args as any).value) === expectedAmount
+      } catch {
+        return false
+      }
+    })
+  } catch {
+    return false
+  }
 }
 
 import { assertNetwork } from './chainSwitchService'
@@ -202,6 +246,9 @@ export async function depositToGateway(
   }
 
   const gatewayWallet = GATEWAY_CONTRACTS.testnet.gatewayWallet
+  if (!/^\d+(?:\.\d{1,6})?$/.test(amount) || parseUnits(amount, 6) <= 0n) {
+    throw new Error('Gateway deposit amount must be greater than zero and have at most 6 decimal places.')
+  }
   const amountBaseUnits = parseUnits(amount, 6)
 
   // Pre-flight Step 0: Check token balance and enforce Arc Testnet native gas reserve
@@ -231,10 +278,8 @@ export async function depositToGateway(
       }
     }
   } catch (balanceErr: any) {
-    if (balanceErr.message?.includes('Insufficient')) {
-      throw balanceErr
-    }
-    console.warn(`[Gateway Deposit] Balance pre-check skipped:`, balanceErr)
+    if (balanceErr.message?.includes('Insufficient')) throw balanceErr
+    throw new Error(`Could not verify ${tokenSymbol} balance before Gateway deposit; refusing to approve or submit: ${balanceErr?.message || 'balance read failed'}`)
   }
 
   // Step 1 (Circle Official Spec): Check allowance and approve Gateway Wallet if needed
@@ -293,8 +338,8 @@ export async function depositToGateway(
         'Gateway Deposit Approve',
         120_000
       )
-      if (approveRes.status === 'reverted') {
-        throw new Error('Token approval reverted on-chain.')
+      if (approveRes.status !== 'success' || !approveRes.receipt || approveRes.receipt.transactionHash.toLowerCase() !== approveTxHash.toLowerCase()) {
+        throw new Error(approveRes.status === 'reverted' ? 'Token approval reverted on-chain.' : 'Token approval receipt is not confirmed; deposit was not submitted.')
       }
       setSpendingCeiling(address, tokenSymbol, ceilingStatus.suggestedCeiling, approveTxHash)
       console.log(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}, ceiling recorded: ${ceilingStatus.suggestedCeiling} ${tokenSymbol}`)
@@ -344,8 +389,8 @@ export async function depositToGateway(
     'Gateway Deposit',
     120_000
   )
-  if (depositRes.status === 'reverted') {
-    throw new Error('Gateway deposit transaction reverted on-chain.')
+  if (depositRes.status !== 'success' || !depositRes.receipt || depositRes.receipt.transactionHash.toLowerCase() !== depositTxHash.toLowerCase()) {
+    throw new Error(depositRes.status === 'reverted' ? 'Gateway deposit transaction reverted on-chain.' : 'Gateway deposit receipt is not confirmed; balance remains pending.')
   }
   console.log(`[Gateway Deposit] Deposit confirmed in block ${depositRes.blockNumber}`)
   console.log(`[Gateway Deposit] Deposit tx: ${depositTxHash}`)
@@ -394,6 +439,9 @@ export async function transferFromGateway(
   const account = accounts[0] as `0x${string}`
   const destRecipient = (recipient || account) as `0x${string}`
 
+  if (!/^\d+(?:\.\d{1,6})?$/.test(amount) || parseUnits(amount, 6) <= 0n) {
+    throw new Error('Gateway transfer amount must be greater than zero and have at most 6 decimal places.')
+  }
   const sourceDomain = GATEWAY_DOMAINS[sourceChain]
   const destinationDomain = GATEWAY_DOMAINS[destinationChain]
   if (sourceDomain === undefined || destinationDomain === undefined) {
@@ -435,7 +483,10 @@ export async function transferFromGateway(
   try {
     const balancesResp = await getGatewayBalances(account, IS_TESTNET ? 'testnet' : 'mainnet')
     const sourceItem = balancesResp.balances?.find((b) => b.domain === sourceDomain)
-    if (sourceItem) {
+    if (!sourceItem) {
+      throw new Error(`No confirmed Gateway balance was found for ${sourceChain}; transfer was not signed.`)
+    }
+    {
       const sourceBalanceUnits = parseUnits(sourceItem.balance || '0', 6)
       if (sourceBalanceUnits < maxFee) {
         throw new Error(
@@ -443,20 +494,17 @@ export async function transferFromGateway(
           `Available: ${sourceItem.balance} USDC, which is less than the required Gateway routing fee buffer (${(Number(maxFee) / 1e6).toFixed(2)} USDC).`
         )
       }
-      // If user requested their full balance or amount + maxFee > balance, auto-adjust burnValue
       if (burnValue + maxFee > sourceBalanceUnits) {
-        const safeBurnValue = sourceBalanceUnits - maxFee
-        console.log(
-          `[transferFromGateway] Auto-adjusted withdrawal value from ${(Number(burnValue) / 1e6).toFixed(2)} to ${(Number(safeBurnValue) / 1e6).toFixed(2)} USDC to cover ${(Number(maxFee) / 1e6).toFixed(2)} USDC Gateway routing fee.`
+        throw new Error(
+          `Insufficient Gateway balance on ${sourceChain}. Requested ${amount} USDC plus up to ${(Number(maxFee) / 1e6).toFixed(6)} USDC fee exceeds available ${sourceItem.balance} USDC. Reduce the transfer amount explicitly before retrying.`
         )
-        burnValue = safeBurnValue
       }
     }
   } catch (checkErr: any) {
     if (checkErr.message?.includes('Insufficient Gateway balance')) {
       throw checkErr
     }
-    console.warn('[transferFromGateway] Pre-flight balance check warning:', checkErr)
+    throw new Error(`Could not verify Gateway balance before transfer: ${checkErr?.message || 'balance service unavailable'}`)
   }
 
   const burnIntent = {
@@ -559,8 +607,11 @@ export async function transferFromGateway(
     { account, gas: mintGasLimit }
   )
   const mintRes = await resilientWaitForReceipt(destinationPublicClient, mintTxHash as `0x${string}`, 'Gateway Mint')
-  if (mintRes.status === 'reverted') {
-    throw new Error('Gateway mint transaction reverted on-chain.')
+  if (mintRes.status !== 'success' || !mintRes.receipt || mintRes.receipt.transactionHash.toLowerCase() !== mintTxHash.toLowerCase()) {
+    throw new Error(mintRes.status === 'reverted' ? 'Gateway mint transaction reverted on-chain.' : 'Gateway mint receipt is not confirmed; destination delivery remains pending.')
+  }
+  if (!await verifyDestinationUsdcMint(destinationChain, mintTxHash, destRecipient, formatUnits(burnValue, 6))) {
+    throw new Error('Gateway mint receipt did not prove the exact USDC delivery to the requested recipient.')
   }
 
   return {

@@ -1,4 +1,6 @@
 import {
+  decodeEventLog,
+  formatUnits,
   parseUnits,
   pad,
   erc20Abi,
@@ -6,12 +8,12 @@ import {
   type Address,
   type Hex,
 } from 'viem'
-import { arcTestnet } from '../config/arcChain'
+import { IS_TESTNET } from '../config/networks/networkRegistry'
+import { getNetwork } from '../config/networks/networkRegistry'
 import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import { GATEWAY_DOMAINS, USDC_ADDRESSES } from '../config/gatewayConfig'
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { mapChainKeyToCircleBlockchain } from './gatewayUcwService'
-import { IS_TESTNET } from '../config/networks/networkRegistry'
 
 // ── Deterministic CCTP V2 Contract Addresses ─────────────────────────────────
 // Circle deploys TokenMessengerV2 and MessageTransmitterV2 at deterministic addresses
@@ -31,18 +33,46 @@ export const CCTP_MESSAGE_TRANSMITTER_TESTNET: Address =
 export const CCTP_MESSAGE_TRANSMITTER_MAINNET: Address =
   '0x818fca6485888d447a16E6a26cfB4f61f744e27f'
 
+export const CCTP_MESSAGE_RECEIVED_ABI = [
+  {
+    type: 'event', name: 'MessageReceived',
+    inputs: [
+      { type: 'address', indexed: true, name: 'caller' },
+      { type: 'uint32', indexed: false, name: 'sourceDomain' },
+      { type: 'bytes32', indexed: true, name: 'nonce' },
+      { type: 'bytes32', indexed: false, name: 'sender' },
+      { type: 'uint32', indexed: true, name: 'finalityThresholdExecuted' },
+      { type: 'bytes', indexed: false, name: 'messageBody' },
+    ],
+  },
+] as const
+
+const CCTP_BURN_RECEIVED_ABI = [{
+  type: 'event', name: 'MintAndWithdraw',
+  inputs: [
+    { type: 'address', indexed: true, name: 'mintRecipient' },
+    { type: 'uint256', indexed: false, name: 'amount' },
+    { type: 'address', indexed: true, name: 'mintToken' },
+    { type: 'uint256', indexed: false, name: 'feeCollected' },
+  ],
+}] as const
+
 /**
  * Resolves the official CCTP TokenMessengerV2 contract address.
  */
-export function getCctpTokenMessenger(_chainKey?: string): Address {
-  return IS_TESTNET ? CCTP_TOKEN_MESSENGER_TESTNET : CCTP_TOKEN_MESSENGER_MAINNET
+export function getCctpTokenMessenger(chainKey?: string): Address {
+  const network = chainKey ? getNetwork(chainKey) : undefined
+  const isTestnet = network ? network.testnet : IS_TESTNET
+  return isTestnet ? CCTP_TOKEN_MESSENGER_TESTNET : CCTP_TOKEN_MESSENGER_MAINNET
 }
 
 /**
  * Resolves the official CCTP MessageTransmitterV2 contract address.
  */
-export function getCctpMessageTransmitter(_chainKey?: string): Address {
-  return IS_TESTNET ? CCTP_MESSAGE_TRANSMITTER_TESTNET : CCTP_MESSAGE_TRANSMITTER_MAINNET
+export function getCctpMessageTransmitter(chainKey?: string): Address {
+  const network = chainKey ? getNetwork(chainKey) : undefined
+  const isTestnet = network ? network.testnet : IS_TESTNET
+  return isTestnet ? CCTP_MESSAGE_TRANSMITTER_TESTNET : CCTP_MESSAGE_TRANSMITTER_MAINNET
 }
 
 /**
@@ -201,16 +231,12 @@ export async function executeUcwBridgeTransfer(
 
   // Format recipient to bytes32 (CCTP specification: left-padded with zeros)
   let mintRecipientBytes32: `0x${string}`
-  if (trimmedRecipient.startsWith('0x') && trimmedRecipient.length === 42) {
-    mintRecipientBytes32 = pad(trimmedRecipient.toLowerCase() as Address, {
-      size: 32,
-    })
-  } else {
-    mintRecipientBytes32 = (trimmedRecipient.startsWith('0x')
-      ? trimmedRecipient
-      : `0x${trimmedRecipient}`) as `0x${string}`
+  if (!/^0x[0-9a-fA-F]{40}$/.test(trimmedRecipient)) {
+    throw new Error('A valid 20-byte EVM recipient address is required for this CCTP bridge.')
   }
+  mintRecipientBytes32 = pad(trimmedRecipient.toLowerCase() as Address, { size: 32 })
 
+  if (!/^\d+(?:\.\d{1,6})?$/.test(amount)) throw new Error('Please enter a valid USDC amount (up to 6 decimals).')
   const amountUnits = parseUnits(amount, 6)
   if (amountUnits <= 0n) {
     throw new Error('Please enter a valid USDC amount.')
@@ -254,30 +280,36 @@ export async function executeUcwBridgeTransfer(
     // 1) The wallet's transaction nonce is incremented and fully synchronized on the RPC node.
     // 2) The TokenMessenger contract allowance is confirmed on-chain before attempting depositForBurn.
     // This prevents Error -32603 (Internal transaction queue out of sync / nonce collision).
-    if (approveRes.txHash && approveRes.txHash.startsWith('0x')) {
-      try {
-        const publicClient = getResilientPublicClient(sourceChain)
-        await resilientWaitForReceipt(publicClient, approveRes.txHash as Hex, 'USDC spending approval')
-        console.log(`[bridgeUcwService] On-chain receipt confirmed for approval on ${sourceChain}`)
-      } catch (receiptErr) {
-        console.warn(`[bridgeUcwService] Approval receipt wait warning:`, receiptErr)
+    if (approveRes.txHash && /^0x[0-9a-fA-F]{64}$/.test(approveRes.txHash)) {
+      const publicClient = getResilientPublicClient(sourceChain)
+      const approvalReceipt = await resilientWaitForReceipt(publicClient, approveRes.txHash as Hex, 'USDC spending approval')
+      if (
+        approvalReceipt.status !== 'success' ||
+        !approvalReceipt.receipt ||
+        approvalReceipt.receipt.transactionHash.toLowerCase() !== approveRes.txHash.toLowerCase()
+      ) {
+        throw new Error('USDC approval has not been confirmed with a matching on-chain receipt; bridge burn was not submitted.')
       }
+      console.log(`[bridgeUcwService] On-chain receipt confirmed for approval on ${sourceChain}`)
     } else {
-      // If txHash was not immediately returned, poll allowance briefly to confirm on-chain propagation
+      // A challenge success without a valid transaction hash is not confirmation. Verify the
+      // actual allowance after polling; never proceed to burn on a timeout or RPC error.
+      let allowanceConfirmed = false
       for (let attempt = 0; attempt < 6; attempt++) {
         await new Promise((r) => setTimeout(r, 1500))
-        const hasAllowance = await checkUcwAllowanceSufficient(
+        allowanceConfirmed = await checkUcwAllowanceSufficient(
           connectedAddress,
           amountUnits,
           sourceChain,
           tokenMessenger,
           sourceUsdc
         )
-        if (hasAllowance) {
+        if (allowanceConfirmed) {
           console.log(`[bridgeUcwService] Allowance detected on-chain on attempt ${attempt + 1}`)
           break
         }
       }
+      if (!allowanceConfirmed) throw new Error('USDC approval has not been confirmed on-chain; bridge burn was not submitted.')
     }
   } else {
     console.log(`[bridgeUcwService] Existing allowance is sufficient on ${sourceChain}. Skipping approve step.`)
@@ -338,11 +370,24 @@ export async function executeUcwBridgeTransfer(
     }
   }
 
-  if (!burnTxHash || !burnTxHash.startsWith('0x')) {
-    burnTxHash = `ucw-burn-${Date.now()}`
+  if (!burnTxHash || !/^0x[0-9a-fA-F]{64}$/.test(burnTxHash)) {
+    return {
+      burnTxHash: '',
+      sourceExplorerUrl: '',
+      destExplorerUrl: undefined,
+      destDomain,
+      amount,
+      mintRecipient: trimmedRecipient,
+      challengeId,
+    }
   }
 
-  console.log('[bridgeUcwService] CCTP burn transaction successful:', burnTxHash)
+  console.log('[bridgeUcwService] CCTP burn transaction submitted:', burnTxHash)
+  const sourceClient = getResilientPublicClient(sourceChain)
+  const burnReceipt = await resilientWaitForReceipt(sourceClient, burnTxHash as Hex, 'CCTP source burn')
+  if (burnReceipt.status !== 'success' || !burnReceipt.receipt || burnReceipt.receipt.transactionHash.toLowerCase() !== burnTxHash.toLowerCase()) {
+    throw new Error(burnReceipt.status === 'reverted' ? 'CCTP source burn reverted.' : 'CCTP source burn is not confirmed yet; destination settlement remains pending.')
+  }
   onStepProgress?.('completed')
 
   const sourceExplorerUrl = getExplorerTxUrl(sourceChain, burnTxHash)
@@ -377,7 +422,7 @@ export interface PollCctpDestinationParams {
  */
 export async function pollCctpDestinationTx(
   params: PollCctpDestinationParams
-): Promise<{ status: string; destTxHash?: string }> {
+): Promise<{ status: string; destTxHash?: string; receivedAmount?: string }> {
   const {
     sourceChain,
     destChain,
@@ -388,13 +433,18 @@ export async function pollCctpDestinationTx(
     intervalMs = 3000,
   } = params
 
-  if (!burnTxHash || !burnTxHash.startsWith('0x')) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(burnTxHash)) {
     return { status: 'invalid_burn_hash' }
+  }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(recipientAddress)) {
+    return { status: 'invalid_recipient' }
   }
 
   const sourceDomain = GATEWAY_DOMAINS[sourceChain]
+  const destDomain = GATEWAY_DOMAINS[destChain]
+  const sourceUsdc = USDC_ADDRESSES[sourceChain]
   const destUsdc = USDC_ADDRESSES[destChain]
-  if (sourceDomain === undefined || !destUsdc) {
+  if (sourceDomain === undefined || destDomain === undefined || !sourceUsdc || !destUsdc) {
     return { status: 'unsupported_chain' }
   }
 
@@ -402,11 +452,10 @@ export async function pollCctpDestinationTx(
     ? 'https://iris-api-sandbox.circle.com/v2/messages'
     : 'https://iris-api.circle.com/v2/messages'
 
-  const cleanRecipient = (
-    recipientAddress.startsWith('0x') ? recipientAddress.toLowerCase() : `0x${recipientAddress.toLowerCase()}`
-  ) as Address
-
-  const amountUnits = amount ? parseUnits(amount, 6) : undefined
+  const cleanRecipient = recipientAddress.toLowerCase() as Address
+  if (!amount || !/^\d+(?:\.\d{1,6})?$/.test(amount)) return { status: 'invalid_amount' }
+  const amountUnits = parseUnits(amount, 6)
+  if (amountUnits <= 0n) return { status: 'invalid_amount' }
 
   let destPublicClient: any = null
   try {
@@ -415,67 +464,90 @@ export async function pollCctpDestinationTx(
     console.warn(`[pollCctpDestinationTx] Could not initialize publicClient for ${destChain}:`, err)
   }
 
-  // Record initial start block height on destination chain if available
-  let startBlock: bigint = 0n
-  if (destPublicClient) {
-    try {
-      const cur = await destPublicClient.getBlockNumber()
-      startBlock = cur > 100n ? cur - 100n : 0n
-    } catch {
-      // ignore
-    }
-  }
-
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       // Step A: Check Circle Iris API for message status
       const irisUrl = `${irisBase}/${sourceDomain}?transactionHash=${burnTxHash}`
       const irisRes = await fetch(irisUrl)
-      if (irisRes.ok) {
-        const data = await irisRes.json()
-        const msg = data?.messages?.[0]
-        if (msg) {
-          console.log(`[pollCctpDestinationTx] Iris status=${msg.status} (attempt ${attempt}/${maxAttempts})`)
-        }
+      let correlatedMessage: any = null
+      if (!irisRes.ok) {
+        await new Promise((r) => setTimeout(r, intervalMs))
+        continue
       }
+      const data = await irisRes.json()
+      const messages = Array.isArray(data?.messages) ? data.messages : []
+      correlatedMessage = messages.find((candidate: any) => {
+        if (typeof candidate?.message !== 'string' || !/^0x[0-9a-fA-F]+$/.test(candidate.message)) return false
+        const decoded = candidate.decodedMessage
+        const body = decoded?.decodedMessageBody
+        return data?.sourceTxHash?.toLowerCase() === burnTxHash.toLowerCase() &&
+          candidate.cctpVersion === 2 && candidate.status === 'complete' &&
+          decoded?.sourceDomain === String(sourceDomain) &&
+          decoded?.destinationDomain === String(destDomain) &&
+          typeof decoded?.nonce === 'string' && /^\d+$/.test(decoded.nonce) &&
+          typeof decoded?.messageBody === 'string' && /^0x[0-9a-fA-F]+$/.test(decoded.messageBody) &&
+          body?.mintRecipient?.toLowerCase() === cleanRecipient.toLowerCase() &&
+          body?.burnToken?.toLowerCase() === sourceUsdc.toLowerCase() &&
+          typeof body?.amount === 'string' && /^\d+$/.test(body.amount) && BigInt(body.amount) === amountUnits
+      })
+      if (!correlatedMessage) {
+        await new Promise((r) => setTimeout(r, intervalMs))
+        continue
+      }
+      const messageNonce = BigInt(correlatedMessage.decodedMessage.nonce)
+      console.log(`[pollCctpDestinationTx] Matched Iris CCTP message nonce=${messageNonce} (attempt ${attempt}/${maxAttempts})`)
 
-      // Step B: Query destination chain for USDC Transfer from zeroAddress to recipient (the mint event)
+      // Step B: require the destination MessageTransmitterV2 MessageReceived event to match
+      // this exact Iris message nonce/domain/body, then require a successful destination receipt.
       if (destPublicClient && destUsdc) {
         try {
           const latestBlock = await destPublicClient.getBlockNumber()
-          const fromBlock = startBlock > 0n ? startBlock : (latestBlock > 200n ? latestBlock - 200n : 0n)
-
-          const logs = await destPublicClient.getLogs({
-            address: destUsdc,
-            event: {
-              type: 'event',
-              name: 'Transfer',
-              inputs: [
-                { type: 'address', indexed: true, name: 'from' },
-                { type: 'address', indexed: true, name: 'to' },
-                { type: 'uint256', indexed: false, name: 'value' },
-              ],
-            },
+          // The nonce topic narrows this query to one exact CCTP message; scan the full chain
+          // so slow attestations do not disappear after an arbitrary 100-block lookback.
+          const transmitter = getCctpMessageTransmitter(destChain)
+          const receivedLogs = await destPublicClient.getLogs({
+            address: transmitter,
+            event: CCTP_MESSAGE_RECEIVED_ABI,
             args: {
-              from: '0x0000000000000000000000000000000000000000' as Address,
-              to: cleanRecipient,
+              nonce: `0x${messageNonce.toString(16).padStart(64, '0')}` as Hex,
             },
-            fromBlock,
-            toBlock: latestBlock,
+            fromBlock: 0n, toBlock: latestBlock,
           })
+          for (const entry of receivedLogs) {
+            if (!entry.transactionHash || entry.args?.messageBody?.toLowerCase() !== correlatedMessage.decodedMessage.messageBody.toLowerCase()) continue
+            const receipt = await destPublicClient.getTransactionReceipt({ hash: entry.transactionHash })
+            if (receipt.status !== 'success' || receipt.transactionHash.toLowerCase() !== entry.transactionHash.toLowerCase()) continue
 
-          if (logs && logs.length > 0) {
-            let matchingLog = logs[logs.length - 1]
-            if (amountUnits) {
-              const exact = logs.find((l: any) => l.args?.value === amountUnits)
-              if (exact) matchingLog = exact
-            }
-            if (matchingLog && matchingLog.transactionHash) {
-              console.log(
-                `[pollCctpDestinationTx] Found confirmed destination mint tx on ${destChain}:`,
-                matchingLog.transactionHash
-              )
-              return { status: 'confirmed', destTxHash: matchingLog.transactionHash }
+            // CCTP V2 routes MessageReceived to TokenMessengerV2. Its nested
+            // MintAndWithdraw event is stronger proof than a generic USDC Transfer.
+            const exactCctpMint = receipt.logs.some((log: any) => {
+              if (log.address?.toLowerCase() !== getCctpTokenMessenger(destChain).toLowerCase()) return false
+              try {
+                const decoded = decodeEventLog({ abi: CCTP_BURN_RECEIVED_ABI, data: log.data, topics: log.topics })
+                return String((decoded.args as any).mintRecipient).toLowerCase() === cleanRecipient &&
+                  BigInt((decoded.args as any).amount) + BigInt((decoded.args as any).feeCollected || 0n) === amountUnits &&
+                  String((decoded.args as any).mintToken).toLowerCase() === destUsdc.toLowerCase()
+              } catch {
+                return false
+              }
+            })
+            if (exactCctpMint) {
+              for (const mintEvent of receipt.logs) {
+                if (mintEvent.address?.toLowerCase() !== getCctpTokenMessenger(destChain).toLowerCase()) continue
+                try {
+                  const decodedMint = decodeEventLog({ abi: CCTP_BURN_RECEIVED_ABI, data: mintEvent.data, topics: mintEvent.topics })
+                  const args = decodedMint.args as any
+                  if (
+                    String(args.mintRecipient).toLowerCase() === cleanRecipient &&
+                    BigInt(args.amount) + BigInt(args.feeCollected || 0n) === amountUnits &&
+                    String(args.mintToken).toLowerCase() === destUsdc.toLowerCase()
+                  ) {
+                    return { status: 'confirmed', destTxHash: receipt.transactionHash, receivedAmount: formatUnits(BigInt(args.amount), 6) }
+                  }
+                } catch {
+                  // Ignore unrelated TokenMessenger events in the same receipt.
+                }
+              }
             }
           }
         } catch (logErr) {

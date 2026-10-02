@@ -1,13 +1,8 @@
-// Circle Modular Wallets & Autonomous Session Key State Manager for Arcis
-// Implements wallet-scoped isolation: each wallet (Circle UCW, Passkey MSCA, EOA) maintains its own independent session key settings and budget.
-// Ephemeral private keys are kept strictly in memory and wallet-scoped sessionStorage (NEVER in persistent localStorage).
-
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
+// Client-side session limits remain wallet-scoped metadata; no local key is authorized for signing.
 import type { SessionKeyConfig, SessionActionType, SessionTimeRemaining } from '../types/sessionKey'
 import { getStoredMscaAddress } from './modularWalletService'
 
 const SESSION_META_STORAGE_PREFIX = 'arcis_session_meta_v3_'
-const SESSION_PRIV_KEY_STORAGE_PREFIX = 'arcis_session_priv_key_v3_'
 const LEGACY_STORAGE_KEY = 'arcis_autonomous_session_meta_v2'
 
 export const SESSION_KEY_UPDATED_EVENT = 'arcis_session_key_updated'
@@ -16,15 +11,12 @@ export const DEFAULT_SESSION_KEY_CONFIG = {
   durationHours: 24,
   maxSpendUsdc: 100.0,
   maxPerTxUsdc: 50.0,
-  autoExecute: true,
-  allowedActions: ['swap', 'deposit', 'bridge', 'send', 'faucet', 'ai_service'] as SessionActionType[],
+  autoExecute: false,
+  allowedActions: ['swap', 'deposit', 'bridge', 'send', 'ai_service'] as SessionActionType[],
 }
 
 // Normalized address of the currently active wallet in session context
 let currentActiveWallet: string | null = null
-
-// Volatile in-memory key storage mapped by normalized wallet address
-const inMemoryEphemeralKeys = new Map<string, string>()
 
 /**
  * Normalizes any wallet address to lowercase trimmed string, or 'default'
@@ -74,10 +66,6 @@ function getStorageKeyForWallet(walletKey: string): string {
   return `${SESSION_META_STORAGE_PREFIX}${walletKey}`
 }
 
-function getPrivKeyStorageKeyForWallet(walletKey: string): string {
-  return `${SESSION_PRIV_KEY_STORAGE_PREFIX}${walletKey}`
-}
-
 function dispatchSessionUpdateEvent(config: SessionKeyConfig): void {
   if (typeof window !== 'undefined') {
     try {
@@ -92,74 +80,29 @@ function dispatchSessionUpdateEvent(config: SessionKeyConfig): void {
   }
 }
 
-function getEphemeralPrivateKey(walletKey: string): string | null {
-  const inMem = inMemoryEphemeralKeys.get(walletKey)
-  if (inMem) return inMem
-
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const storageKey = getPrivKeyStorageKeyForWallet(walletKey)
-      const stored = sessionStorage.getItem(storageKey)
-      if (stored) {
-        inMemoryEphemeralKeys.set(walletKey, stored)
-        return stored
-      }
-    }
-  } catch (e) {
-    // sessionStorage might be restricted in some privacy modes
-  }
-  return null
-}
-
-function setEphemeralPrivateKey(key: string | null, walletKey: string): void {
-  if (key) {
-    inMemoryEphemeralKeys.set(walletKey, key)
-  } else {
-    inMemoryEphemeralKeys.delete(walletKey)
-  }
-
-  try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const storageKey = getPrivKeyStorageKeyForWallet(walletKey)
-      if (key) {
-        sessionStorage.setItem(storageKey, key)
-      } else {
-        sessionStorage.removeItem(storageKey)
-      }
-    }
-  } catch (e) {
-    // ignore quota/privacy errors
-  }
-}
-
 function createInitialSessionConfig(walletKey: string): SessionKeyConfig {
-  const privKey = generatePrivateKey()
-  const account = privateKeyToAccount(privKey)
   const msca = getStoredMscaAddress()
 
-  // Store private key ONLY in memory + sessionStorage (never in persistent localStorage)
-  setEphemeralPrivateKey(privKey, walletKey)
-
   return {
-    sessionId: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-    sessionPublicKey: account.address,
-    ephemeralPrivateKey: privKey,
+    sessionId: '',
+    sessionPublicKey: '',
     walletAddress: walletKey !== 'default' ? walletKey : undefined,
     mscaAddress: msca || undefined,
     delegationType: msca ? 'msca' : 'headless',
-    expiresAt: Date.now() + DEFAULT_SESSION_KEY_CONFIG.durationHours * 3600 * 1000,
-    maxSpendUsdc: DEFAULT_SESSION_KEY_CONFIG.maxSpendUsdc,
+    expiresAt: 0,
+    maxSpendUsdc: 0,
     spentUsdc: 0.0,
-    maxPerTxUsdc: DEFAULT_SESSION_KEY_CONFIG.maxPerTxUsdc,
-    allowedActions: [...DEFAULT_SESSION_KEY_CONFIG.allowedActions],
-    isActive: true, // Default active for seamless autonomous copilot experience
-    autoExecute: DEFAULT_SESSION_KEY_CONFIG.autoExecute, // Zero-popup auto-execution via headless session key
-    createdAt: Date.now(),
+    maxPerTxUsdc: 0,
+    allowedActions: [],
+    isActive: false,
+    autoExecute: false,
+    createdAt: 0,
   }
 }
 
 /**
  * Loads session key configuration scoped to the given or active wallet address.
+ * Never persists a phantom or unconfigured session to storage on read.
  */
 export function getSessionKeyConfig(walletAddress?: string): SessionKeyConfig {
   const walletKey = resolveTargetWallet(walletAddress)
@@ -177,7 +120,6 @@ export function getSessionKeyConfig(walletAddress?: string): SessionKeyConfig {
     }
 
     const activeMsca = getStoredMscaAddress()
-    const activePrivKey = getEphemeralPrivateKey(walletKey)
 
     if (raw) {
       const parsed: SessionKeyConfig = JSON.parse(raw)
@@ -189,11 +131,9 @@ export function getSessionKeyConfig(walletAddress?: string): SessionKeyConfig {
 
       parsed.walletAddress = walletKey !== 'default' ? walletKey : parsed.walletAddress
 
-      // Hydrate ephemeral private key from memory/sessionStorage if active
-      if (activePrivKey) {
-        parsed.ephemeralPrivateKey = activePrivKey
-        const account = privateKeyToAccount(activePrivKey as `0x${string}`)
-        parsed.sessionPublicKey = account.address
+      // Check expiration
+      if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+        parsed.isActive = false
       }
 
       // Update MSCA linkage if changed
@@ -202,28 +142,23 @@ export function getSessionKeyConfig(walletAddress?: string): SessionKeyConfig {
         parsed.delegationType = 'msca'
       }
 
-      // If expired, deactivate and wipe private key
-      if (parsed.expiresAt <= Date.now()) {
-        parsed.isActive = false
-        setEphemeralPrivateKey(null, walletKey)
-      }
+      // Never hydrate private key material into app state
+      parsed.ephemeralPrivateKey = undefined
 
-      saveSessionKeyConfig(parsed, false, walletKey)
       return parsed
     }
   } catch (err) {
     console.error(`Failed to load session key config for wallet ${walletKey}:`, err)
   }
 
-  // Initialize and persist default state for this specific wallet
-  const initial = createInitialSessionConfig(walletKey)
-  saveSessionKeyConfig(initial, true, walletKey)
-  return initial
+  // Return empty unconfigured state without writing anything to localStorage
+  return createInitialSessionConfig(walletKey)
 }
 
 /**
- * Persists session metadata to localStorage, strictly omitting the unencrypted private key
- * Metadata is saved under the wallet-scoped key.
+ * Persists client-side session metadata without retaining local signing keys.
+ * Only writes to localStorage when an active session with a valid budget exists;
+ * otherwise cleans up storage to prevent phantom inactive sessions.
  */
 export function saveSessionKeyConfig(
   config: SessionKeyConfig,
@@ -234,17 +169,19 @@ export function saveSessionKeyConfig(
   const storageKey = getStorageKeyForWallet(walletKey)
 
   try {
-    // Keep ephemeral private key in memory / sessionStorage only
-    if (config.ephemeralPrivateKey) {
-      setEphemeralPrivateKey(config.ephemeralPrivateKey, walletKey)
-    }
+    config.ephemeralPrivateKey = undefined
 
-    // SANITIZE: Never write ephemeralPrivateKey to persistent localStorage!
     const { ephemeralPrivateKey, ...sanitizedMeta } = config
     if (walletKey !== 'default') {
       sanitizedMeta.walletAddress = walletKey
     }
-    localStorage.setItem(storageKey, JSON.stringify(sanitizedMeta))
+
+    // Only persist if it's an active session with a non-zero budget and not expired
+    if (sanitizedMeta.isActive && sanitizedMeta.maxSpendUsdc > 0 && Date.now() <= sanitizedMeta.expiresAt) {
+      localStorage.setItem(storageKey, JSON.stringify(sanitizedMeta))
+    } else {
+      localStorage.removeItem(storageKey)
+    }
     
     if (notify) {
       dispatchSessionUpdateEvent({
@@ -262,6 +199,8 @@ export function saveSessionKeyConfig(
  * strictly scoped to the specified or active wallet address.
  */
 export async function activateSessionKey(params: {
+  /** Explicit user consent for this session. Without it the session stays inactive. */
+  userApproved: boolean
   maxSpendUsdc?: number
   durationHours?: number
   maxPerTxUsdc?: number
@@ -271,26 +210,25 @@ export async function activateSessionKey(params: {
   walletAddress?: string
 }): Promise<SessionKeyConfig> {
   const walletKey = resolveTargetWallet(params.walletAddress)
+
+  if (!params.userApproved) {
+    const unapproved = createInitialSessionConfig(walletKey)
+    saveSessionKeyConfig(unapproved, true, walletKey)
+    return unapproved
+  }
+
   const durationHours = params.durationHours || 24
-  const maxSpendUsdc = params.maxSpendUsdc ?? 100.0
-  const maxPerTxUsdc = params.maxPerTxUsdc ?? Math.min(maxSpendUsdc, 50.0)
-  const autoExecute = params.autoExecute ?? true
+  const maxSpendUsdc = params.maxSpendUsdc ?? DEFAULT_SESSION_KEY_CONFIG.maxSpendUsdc
+  const maxPerTxUsdc = params.maxPerTxUsdc ?? Math.min(maxSpendUsdc, DEFAULT_SESSION_KEY_CONFIG.maxPerTxUsdc)
+  const autoExecute = params.autoExecute ?? false
   const allowedActions = params.allowedActions && params.allowedActions.length > 0 
     ? params.allowedActions 
     : [...DEFAULT_SESSION_KEY_CONFIG.allowedActions]
   const msca = params.mscaAddress || getStoredMscaAddress()
 
-  // Generate real cryptographic ephemeral EVM keypair for the session
-  const privKey = generatePrivateKey()
-  const account = privateKeyToAccount(privKey)
-
-  // Store in memory + sessionStorage for this specific wallet
-  setEphemeralPrivateKey(privKey, walletKey)
-
   const newConfig: SessionKeyConfig = {
     sessionId: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-    sessionPublicKey: account.address,
-    ephemeralPrivateKey: privKey,
+    sessionPublicKey: '',
     walletAddress: walletKey !== 'default' ? walletKey : undefined,
     mscaAddress: msca || undefined,
     delegationType: msca ? 'msca' : 'headless',
@@ -376,17 +314,19 @@ export function elevateSessionPerTxCap(newCap: number, walletAddress?: string): 
 }
 
 /**
- * Instantly revokes the active session key for this wallet and purges it from memory/storage
+ * Revokes and cleans up session metadata for this wallet, removing it from storage.
  */
 export function revokeSessionKey(walletAddress?: string): SessionKeyConfig {
   const walletKey = resolveTargetWallet(walletAddress)
-  setEphemeralPrivateKey(null, walletKey)
-  const config = getSessionKeyConfig(walletKey)
-  config.isActive = false
-  config.autoExecute = false
-  config.ephemeralPrivateKey = undefined
-  saveSessionKeyConfig(config, true, walletKey)
-  return config
+  const storageKey = getStorageKeyForWallet(walletKey)
+  try {
+    localStorage.removeItem(storageKey)
+  } catch (err) {
+    console.error(`Failed to remove session key config for ${walletKey}:`, err)
+  }
+  const empty = createInitialSessionConfig(walletKey)
+  dispatchSessionUpdateEvent(empty)
+  return empty
 }
 
 /**
@@ -395,8 +335,10 @@ export function revokeSessionKey(walletAddress?: string): SessionKeyConfig {
 export function toggleSessionAutoExecute(enabled: boolean, walletAddress?: string): SessionKeyConfig {
   const walletKey = resolveTargetWallet(walletAddress)
   const config = getSessionKeyConfig(walletKey)
-  config.autoExecute = enabled
-  saveSessionKeyConfig(config, true, walletKey)
+  if (config.isActive) {
+    config.autoExecute = enabled
+    saveSessionKeyConfig(config, true, walletKey)
+  }
   return config
 }
 

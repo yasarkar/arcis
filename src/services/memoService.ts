@@ -223,6 +223,138 @@ export async function sendUsdcWithMemo(
   }
 }
 
+/** Parameters for an on-chain memo-wrapped ERC-20 transfer. */
+export interface TokenMemoTransferParams {
+  tokenAddress: `0x${string}`
+  decimals: number
+  recipient: string
+  amount: string
+  memoText: string
+  customMemoId?: string
+  tier?: SpeedTier
+}
+
+/**
+ * Builds the Memo.memo(target, transferCalldata, memoId, memoData) call for ANY Arc ERC-20 token.
+ * The Memo contract wraps an arbitrary target call (here: an ERC-20 transfer), so it is not USDC-only.
+ * Returning plain `{ to, data }` lets every signing path (provider, session key, modular UserOp)
+ * submit the exact same memoized transfer instead of silently dropping the memo.
+ */
+export function buildMemoCall(params: {
+  tokenAddress: `0x${string}`
+  decimals: number
+  recipient: string
+  amount: string
+  memoText: string
+  customMemoId?: string
+}): { to: `0x${string}`; data: `0x${string}`; memoId: `0x${string}`; callDataHash: `0x${string}` } {
+  const recipientAddress = getAddress(params.recipient as Address)
+  const amountBaseUnits = parseUnits(params.amount, params.decimals)
+  const transferCalldata = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'transfer',
+    args: [recipientAddress, amountBaseUnits],
+  })
+  const memoId = generateMemoId(params.customMemoId || params.memoText)
+  const memoBytes = encodeMemoData(params.memoText)
+  const data = encodeFunctionData({
+    abi: MEMO_ABI,
+    functionName: 'memo',
+    args: [params.tokenAddress, transferCalldata, memoId, memoBytes],
+  })
+  return {
+    to: MEMO_CONTRACT_ADDRESS,
+    data,
+    memoId,
+    callDataHash: keccak256(transferCalldata),
+  }
+}
+
+/**
+ * Sends ANY Arc Testnet ERC-20 token with an attached on-chain Memo via the user's browser wallet.
+ * This is the generalized form of sendUsdcWithMemo (which remains as a USDC convenience wrapper).
+ */
+export async function sendTokenWithMemo(
+  provider: any,
+  params: TokenMemoTransferParams
+): Promise<MemoSendResult> {
+  if (!provider) {
+    throw new Error('No browser wallet provider found. Please connect your wallet.')
+  }
+
+  const accounts = (await provider.request({ method: 'eth_requestAccounts' })) as string[]
+  if (!accounts?.[0]) {
+    throw new Error('No active wallet account returned.')
+  }
+
+  const senderAddress = getAddress(accounts[0] as Address)
+  await ensureArcChain(provider)
+
+  const publicClient = getArcPublicClient()
+  const walletClient = createWalletClient({
+    account: senderAddress,
+    chain: arcTestnet,
+    transport: custom(provider),
+  })
+
+  // Verify the Memo contract is actually deployed before trying to use it.
+  const memoCode = await publicClient.getCode({ address: MEMO_CONTRACT_ADDRESS })
+  if (!memoCode || memoCode === '0x') {
+    throw new Error(`Arc Memo contract is not found at ${MEMO_CONTRACT_ADDRESS}`)
+  }
+
+  const memoCall = buildMemoCall({
+    tokenAddress: params.tokenAddress,
+    decimals: params.decimals,
+    recipient: params.recipient,
+    amount: params.amount,
+    memoText: params.memoText,
+    customMemoId: params.customMemoId,
+  })
+
+  const gasOptions = await getDynamicArcGasOptions(
+    publicClient,
+    params.tier ?? 'fast',
+    ARC_GAS_LIMITS.memoTransfer
+  )
+
+  const txHash = await walletClient.sendTransaction({
+    account: senderAddress,
+    to: memoCall.to,
+    data: memoCall.data,
+    maxFeePerGas: gasOptions.maxFeePerGas,
+    maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
+  })
+
+  const receiptResult = await resilientWaitForReceipt(publicClient, txHash, 'Memo transaction', 60_000)
+  if (receiptResult.status === 'reverted') {
+    throw new Error(`Memo transaction reverted on Arc Testnet (tx: ${txHash})`)
+  }
+  const receipt = receiptResult.receipt
+  if (!receipt) {
+    throw new Error(`Transaction submitted (hash: ${txHash}) but receipt polling timed out on Arc node. Please verify on ArcScan.`)
+  }
+
+  const effectiveGasPrice = receipt.effectiveGasPrice || gasOptions.maxFeePerGas
+  const gasFeeUsdc = (Number(receipt.gasUsed * effectiveGasPrice) / 1e18).toFixed(5)
+
+  const parsedLogs = parseEventLogs({ abi: MEMO_ABI, logs: receipt.logs })
+  const memoEvent = parsedLogs.find((l) => l.eventName === 'Memo')
+  const memoArgs = memoEvent?.args as { memoIndex?: bigint; memoId?: `0x${string}` } | undefined
+
+  return {
+    txHash,
+    blockNumber: receipt.blockNumber,
+    memoIndex: memoArgs?.memoIndex,
+    memoId: memoArgs?.memoId || memoCall.memoId,
+    memoText: params.memoText,
+    callDataHash: memoCall.callDataHash,
+    sender: senderAddress,
+    target: params.tokenAddress,
+    gasFeeUsdc,
+  }
+}
+
 /**
  * Queries on-chain Memo events matching a specific memoId.
  */

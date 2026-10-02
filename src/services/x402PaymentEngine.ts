@@ -1,27 +1,11 @@
 // src/services/x402PaymentEngine.ts
-// Real x402 Micropayment Settlement Engine for Arcis
-// Manages zero-popup session keys, Arc Testnet micro-USDC settlement,
-// 1% YieldVault protocol fee diversion, and global transaction logging.
+// Legacy direct-transfer settlement helper, not the x402 paid-service client.
+// Paid service execution is handled by paymentOrchestrator and fails closed without facilitator confirmation.
 
-import { keccak256, stringToBytes, parseUnits, type Hex, type Address, createWalletClient, custom } from 'viem'
+import { getAddress, type Address } from 'viem'
 import type { x402Service, x402PaymentChallenge } from '../types/marketplace'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
-import { POOL_CONTRACTS, ERC20_ABI } from '../config/poolsConfig'
-import { getExplorerTxUrl } from '../config/sendConfig'
-import {
-  getSessionKeyConfig,
-  verifySessionLimits,
-  deductSessionSpend,
-} from './sessionKeyService'
-import {
-  getStoredMscaAddress,
-  getActiveSmartAccount,
-  restoreSmartAccount,
-  sendModularUserOperation,
-  createModularUsdcTransferCall,
-} from './modularWalletService'
-import { getArcPublicClient } from './rpc'
-import { addTransaction } from '../utils/history'
+import { arcTestnet } from '../config/arcChain'
+import { getStoredMscaAddress } from './modularWalletService'
 
 const PROVIDER_EARNINGS_STORAGE_KEY = 'arcis_x402_provider_earnings_v2'
 const YIELD_VAULT_CONTRIBUTIONS_KEY = 'arcis_yield_vault_ai_share_v2'
@@ -134,22 +118,28 @@ export async function withdrawProviderEarningsApi(
   signerProvider?: any
 ): Promise<{ success: boolean; txHash?: string; error?: string }> {
   try {
-    const nonce = Date.now().toString()
-    const authMsg = `Authorize withdrawal of ${amountUsdc} USDC to ${providerAddress} (nonce: ${nonce})`
-    let signature: Hex | undefined
+    const nonce = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('')}` as Hex
+    const deadline = Math.floor(Date.now() / 1000) + 5 * 60
+    const effective = signerProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null)
+    if (!effective) return { success: false, error: 'Connect the provider wallet to authorize this ledger operation.' }
 
-    if (signerProvider || (typeof window !== 'undefined' && (window as any).ethereum)) {
-      const effective = signerProvider || (window as any).ethereum
-      const walletClient = createWalletClient({
-        account: providerAddress as `0x${string}`,
-        chain: arcTestnet,
-        transport: custom(effective),
-      })
-      signature = await walletClient.signMessage({
-        account: providerAddress as `0x${string}`,
-        message: authMsg,
-      })
-    }
+    const walletClient = createWalletClient({
+      account: providerAddress as `0x${string}`,
+      chain: arcTestnet,
+      transport: custom(effective),
+    })
+    const signature = await walletClient.signTypedData({
+      account: providerAddress as `0x${string}`,
+      domain: X402_AUTHORIZATION_DOMAIN,
+      types: PROVIDER_LEDGER_TYPES,
+      primaryType: 'ProviderLedgerAuthorization',
+      message: {
+        providerAddress: providerAddress as `0x${string}`,
+        amountMicros: BigInt(Math.round(amountUsdc * 1_000_000)),
+        nonce,
+        deadline: BigInt(deadline),
+      },
+    })
 
     const res = await fetch('/api/x402/withdraw', {
       method: 'POST',
@@ -159,6 +149,7 @@ export async function withdrawProviderEarningsApi(
         amountUsdc,
         signature,
         nonce,
+        deadline,
       }),
     })
 
@@ -179,7 +170,7 @@ export async function withdrawProviderEarningsApi(
       return { success: false, error: data.error || 'Withdrawal rejected by server' }
     }
   } catch (err: any) {
-    return { success: false, error: err.message || 'Withdrawal request failed' }
+    return { success: false, error: err.message || 'Provider ledger operation failed' }
   }
 }
 
@@ -211,10 +202,9 @@ export function incrementYieldVaultFees(feeUsdc: number): number {
 }
 
 /**
- * Main settlement routine for an x402 service execution
+ * Legacy direct-transfer routine retained for compatibility. It is not an x402 payment and
+ * never credits provider earnings, protocol fees, or a canonical settlement ledger.
  */
-import { calculateFeeSplit } from '../config/x402/pricing'
-
 export async function settleX402Payment(
   service: x402Service,
   payerAddress?: string,
@@ -239,12 +229,10 @@ export async function settleX402Payment(
 }> {
   const mscaAddress = getStoredMscaAddress()
   const activePayer = payerAddress || mscaAddress
-  const sessionConfig = getSessionKeyConfig()
-
   const price = service.pricing.priceUsdc
-  const feeSplit = calculateFeeSplit(price, service.pricing.protocolFeeBps || 100)
-  const protocolFeeUsdc = feeSplit.protocolFeeUsdc
-  const providerEarnedUsdc = feeSplit.providerEarnedUsdc
+  const protocolFeeUsdc = 0
+  const providerEarnedUsdc = 0
+  void provider
 
   const nonce = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
   const challenge: x402PaymentChallenge = {
@@ -260,220 +248,16 @@ export async function settleX402Payment(
     validUntil: Date.now() + 60000,
   }
 
-  // If no payer address and no active session key:
-  if (!activePayer && !(sessionConfig.isActive && sessionConfig.ephemeralPrivateKey)) {
-    return {
-      success: false,
-      error: 'Wallet not connected. Please connect your Web3 wallet or Passkey to authorize on-chain payment.',
-      costUsdc: 0,
-      protocolFeeUsdc: 0,
-      providerEarnedUsdc: 0,
-      challenge,
-    }
-  }
-
-  // 1. Check autonomous session key limits
-  if (sessionConfig.isActive) {
-    const limitCheck = verifySessionLimits('ai_service', price)
-    if (!limitCheck.allowed) {
-      return {
-        success: false,
-        error: limitCheck.reason || 'Session key budget exceeded for AI service call.',
-        costUsdc: 0,
-        protocolFeeUsdc: 0,
-        providerEarnedUsdc: 0,
-        challenge,
-      }
-    }
-  }
-
-  // 2. Cryptographic authorization proof
-  const timestamp = Date.now()
-  const proofMessage = `x402-Payment-Auth:chainId=${arcTestnet.id}:payer=${activePayer || '0x0000000000000000000000000000000000000000'}:recipient=${service.provider.address}:vault=${POOL_CONTRACTS.YIELD_VAULT}:amount=${price}:nonce=${nonce}:time=${timestamp}`
-  const signature = keccak256(stringToBytes(proofMessage))
-
-  let realTxHash = ''
-  let executionMode: 'onchain_verified' | 'session_autonomous' | undefined
-  let gasSponsored = false
-  let realBlockNumber: number | undefined
-  let paymentError = ''
-
-  const totalAmountUnits = parseUnits(price.toFixed(6), 6)
-
-  // 3. On-Chain Settlement Attempt
-  // Path A: Circle Modular Smart Account (MSCA) via Passkey + Circle Paymaster (Gasless)
-  try {
-    let smartAccount = getActiveSmartAccount()
-    if (!smartAccount && mscaAddress) {
-      smartAccount = await restoreSmartAccount()
-    }
-
-    if (smartAccount) {
-      const calls = [
-        createModularUsdcTransferCall(service.provider.address as Hex, providerEarnedUsdc),
-      ]
-      if (protocolFeeUsdc > 0) {
-        calls.push(createModularUsdcTransferCall(POOL_CONTRACTS.YIELD_VAULT as Hex, protocolFeeUsdc))
-      }
-
-      const opRes = await sendModularUserOperation({
-        calls,
-        paymaster: true,
-      })
-
-      if (opRes.success && opRes.txHash) {
-        realTxHash = opRes.txHash
-        executionMode = 'session_autonomous'
-        gasSponsored = true
-      } else if (opRes.error) {
-        paymentError = opRes.error
-      }
-    }
-  } catch (mscaErr: any) {
-    console.warn('[x402PaymentEngine] Modular Smart Account payment attempt notice:', mscaErr)
-    paymentError = mscaErr?.message || 'Smart Account payment failed'
-  }
-
-  // Path B: Autonomous Ephemeral Session Key (Zero-Popup Execution)
-  if (!realTxHash && sessionConfig.isActive && sessionConfig.ephemeralPrivateKey) {
-    try {
-      const { privateKeyToAccount } = await import('viem/accounts')
-      const { createWalletClient, http } = await import('viem')
-      const sessionAccount = privateKeyToAccount(sessionConfig.ephemeralPrivateKey as Hex)
-      const walletClient = createWalletClient({
-        account: sessionAccount,
-        chain: arcTestnet,
-        transport: http(ARC_METADATA.rpcHttpUrl),
-      })
-
-      const hash = await walletClient.writeContract({
-        address: POOL_CONTRACTS.USDC as Address,
-        abi: ERC20_ABI,
-        functionName: 'transfer',
-        args: [service.provider.address as Address, totalAmountUnits],
-      })
-
-      if (hash) {
-        realTxHash = hash
-        executionMode = 'session_autonomous'
-      }
-    } catch (sessionErr: any) {
-      console.warn('[x402PaymentEngine] Ephemeral session key payment attempt notice:', sessionErr)
-      paymentError = sessionErr?.message || 'Session key transfer failed'
-    }
-  }
-
-  // Path C: Connected EOA Browser Wallet (MetaMask / Rainbow / Coinbase)
-  const effectiveProvider = provider || (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
-  if (!realTxHash && effectiveProvider && activePayer) {
-    try {
-      const { createWalletClient, custom } = await import('viem')
-      const walletClient = createWalletClient({
-        account: activePayer as Hex,
-        chain: arcTestnet,
-        transport: custom(effectiveProvider),
-      })
-
-      const hash = await walletClient.writeContract({
-        address: POOL_CONTRACTS.USDC as Address,
-        abi: ERC20_ABI,
-        functionName: 'transfer',
-        args: [service.provider.address as Address, totalAmountUnits],
-      })
-
-      if (hash) {
-        realTxHash = hash
-        executionMode = 'onchain_verified'
-      }
-    } catch (walletErr: any) {
-      console.warn('[x402PaymentEngine] Browser wallet transfer prompt note:', walletErr)
-      if (walletErr?.message?.includes('User rejected') || walletErr?.code === 4001) {
-        paymentError = 'Transaction rejected by user in wallet.'
-      } else if (walletErr?.message?.includes('transfer amount exceeds balance')) {
-        paymentError = 'Insufficient USDC balance on Arc Testnet.'
-      } else {
-        paymentError = walletErr?.shortMessage || walletErr?.message || 'Wallet transaction failed'
-      }
-    }
-  }
-
-  // 4. Strict Failure Check: If no genuine on-chain transaction succeeded, fail cleanly!
-  if (!realTxHash) {
-    return {
-      success: false,
-      error: paymentError || 'On-chain payment settlement failed. No transaction was confirmed.',
-      costUsdc: 0,
-      protocolFeeUsdc: 0,
-      providerEarnedUsdc: 0,
-      challenge,
-      authProof: {
-        signature,
-        payerAddress: activePayer || '',
-        timestamp,
-      },
-    }
-  }
-
-  // 5. Resolve Block Number & Explorer Receipt from Arc Testnet
-  const publicClient = getArcPublicClient()
-  try {
-    const receipt = await publicClient.waitForTransactionReceipt({
-      hash: realTxHash as Hex,
-      timeout: 15_000,
-    }).catch(() => null)
-
-    if (receipt) {
-      realBlockNumber = Number(receipt.blockNumber)
-    }
-  } catch (rcptErr) {
-    console.warn('[x402PaymentEngine] Waiting for receipt note:', rcptErr)
-  }
-
-  const explorerUrl = `${ARC_METADATA.explorerUrl}/tx/${realTxHash}`
-
-  // 6. Deduct from active session key if active
-  if (sessionConfig.isActive) {
-    deductSessionSpend(price)
-  }
-
-  // 7. Divert 1% to YieldVault and credit 99% to provider (ONLY on verified real tx)
-  incrementYieldVaultFees(protocolFeeUsdc)
-  creditProviderEarnings(service.provider.address, providerEarnedUsdc)
-
-  // 8. Add to Arcis Global Transaction History
-  try {
-    addTransaction({
-      type: 'ai_service',
-      txHash: realTxHash,
-      amount: price.toFixed(4),
-      tokenSymbol: 'USDC',
-      sourceChain: 'Arc Testnet',
-      userAddress: activePayer,
-      recipient: service.provider.address,
-      status: 'success',
-      serviceId: service.id,
-      serviceName: service.name,
-      providerAddress: service.provider.address,
-    })
-  } catch (err) {
-    console.warn('[x402PaymentEngine] Failed to append to transaction history:', err)
-  }
-
+  // A direct ERC-20 transfer is not an x402 facilitator settlement. Refuse before signing,
+  // sending any transaction, changing budget state, or creating financial history.
   return {
-    success: true,
-    txHash: realTxHash,
-    blockNumber: realBlockNumber,
-    explorerUrl,
-    costUsdc: price,
+    success: false,
+    error: activePayer
+      ? 'Paid service execution is unavailable: no trusted payment settlement is configured. No authorization or charge was created.'
+      : 'Connect a wallet to request a paid service; no authorization or charge was created.',
+    costUsdc: 0,
     protocolFeeUsdc,
     providerEarnedUsdc,
     challenge,
-    authProof: {
-      signature,
-      payerAddress: activePayer,
-      timestamp,
-    },
-    executionMode,
-    gasSponsored,
   }
 }

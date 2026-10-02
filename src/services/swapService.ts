@@ -170,10 +170,10 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
       const amountInUnits = parseUnits(params.amountIn, arcRoute.decIn)
       const arcPublicClient = getArcPublicClient()
 
-      let reserveA = 0n
-      let reserveB = 0n
+      let reserveA: bigint
+      let reserveB: bigint
       try {
-        const [rA, rB] = await Promise.all([
+        ;[reserveA, reserveB] = await Promise.all([
           resilientReadContract(arcPublicClient, {
             address: arcRoute.poolAddress,
             abi: STABLE_SWAP_ABI,
@@ -185,16 +185,12 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
             functionName: 'reserveB',
           }),
         ])
-        reserveA = rA
-        reserveB = rB
-      } catch {
-        reserveA = parseUnits('100000', 6)
-        reserveB = arcRoute.isStable ? parseUnits('100000', 6) : parseUnits('1.5', 8)
+      } catch (error) {
+        throw new Error(`Unable to read live ${params.tokenIn}/${params.tokenOut} pool reserves on Arc Testnet: ${String(error)}`)
       }
 
-      if (reserveA === 0n || reserveB === 0n) {
-        reserveA = parseUnits('100000', 6)
-        reserveB = arcRoute.isStable ? parseUnits('100000', 6) : parseUnits('1.5', 8)
+      if (reserveA <= 0n || reserveB <= 0n) {
+        throw new Error(`The ${params.tokenIn}/${params.tokenOut} liquidity pool on Arc Testnet has no live reserves.`)
       }
 
       // 1. Calculate platform protocol fee (customFee) if configured
@@ -256,7 +252,8 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
         rate,
       }
     } catch (arcErr) {
-      console.warn('[swapService] Native Arc estimate fallback error:', arcErr)
+      console.warn('[swapService] Native Arc live quote unavailable:', arcErr)
+      throw arcErr
     }
   }
 
@@ -568,14 +565,21 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             throw err
           }
 
-          if (approveRes.txHash && approveRes.txHash.startsWith('0x')) {
-            try {
-              await resilientWaitForReceipt(arcPublicClient, approveRes.txHash as Hex, 'UCW Token approval')
-              setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling, approveRes.txHash)
-            } catch (waitErr) {
-              console.warn('[swapService UCW] Receipt wait warning for approval:', waitErr)
-            }
+          if (!approveRes.txHash || !/^0x[0-9a-fA-F]{64}$/.test(approveRes.txHash)) {
+            return { status: 'PENDING', errorMessage: 'Token approval was submitted but its transaction hash is not available yet.' }
           }
+          const approvalReceipt = await resilientWaitForReceipt(arcPublicClient, approveRes.txHash as Hex, 'UCW Token approval')
+          if (
+            approvalReceipt.status === 'success' &&
+            (!approvalReceipt.receipt || approvalReceipt.receipt.transactionHash.toLowerCase() !== approveRes.txHash.toLowerCase())
+          ) {
+            throw new Error('Token approval receipt did not match the submitted transaction.')
+          }
+          if (approvalReceipt.status === 'unknown') {
+            return { status: 'PENDING', sourceTxHash: approveRes.txHash, errorMessage: 'Token approval is awaiting on-chain confirmation.' }
+          }
+          if (approvalReceipt.status === 'reverted') throw new Error('Token approval reverted on Arc Testnet.')
+          setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling, approveRes.txHash)
         } else if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
           setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling)
         }
@@ -611,14 +615,16 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         }
 
         const realTxHash = swapRes.txHash || ''
-
-        // Wait for swap receipt if txHash is resolved
-        if (realTxHash && realTxHash.startsWith('0x')) {
-          try {
-            await resilientWaitForReceipt(arcPublicClient, realTxHash as Hex, 'UCW Swap')
-          } catch (receiptErr) {
-            console.warn('[swapService UCW] Receipt wait warning for swap:', receiptErr)
+        if (!/^0x[0-9a-fA-F]{64}$/.test(realTxHash)) {
+          return { status: 'PENDING', errorMessage: 'Swap was submitted but its transaction hash is not available yet.' }
+        }
+        const swapReceipt = await resilientWaitForReceipt(arcPublicClient, realTxHash as Hex, 'UCW Swap')
+        if (swapReceipt.status === 'unknown') {
+            return { status: 'PENDING', sourceTxHash: realTxHash, errorMessage: 'Swap is awaiting on-chain confirmation.' }
           }
+        if (swapReceipt.status === 'reverted') throw new Error('Swap transaction reverted on Arc Testnet.')
+        if (!swapReceipt.receipt || swapReceipt.receipt.transactionHash.toLowerCase() !== realTxHash.toLowerCase()) {
+          throw new Error('Swap receipt did not match the submitted transaction.')
         }
 
         // 4. Track 24h pool volume and dispatch reactive event
@@ -708,6 +714,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           if (approveRes.status === 'reverted') {
             throw new Error('Token approval reverted on Arc Testnet.')
           }
+          if (!approveRes.receipt || approveRes.receipt.transactionHash.toLowerCase() !== approveTx.toLowerCase()) {
+            throw new Error('Token approval is not confirmed with a matching receipt; swap was not submitted.')
+          }
           // Elevate approved ceiling so subsequent transactions <= suggestedCeiling skip approval
           setSpendingCeiling(account, params.tokenIn, ceilingStatus.suggestedCeiling, approveTx)
         } else if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
@@ -740,6 +749,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         const swapRes = await resilientWaitForReceipt(arcPublicClient, swapTx, 'Swap')
         if (swapRes.status === 'reverted') {
           throw new Error('Swap transaction reverted on Arc Testnet. Liquidity may be insufficient or slippage tolerance was exceeded.')
+        }
+        if (!swapRes.receipt || swapRes.receipt.transactionHash.toLowerCase() !== swapTx.toLowerCase()) {
+          throw new Error('Swap is not confirmed with a matching receipt.')
         }
 
         // Track 24h pool volume and dispatch reactive event
@@ -839,11 +851,16 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
 
     // If it's a same-chain swap, it is finalized immediately
     if (!params.toChain) {
-      return {
-        status: 'DONE',
-        sourceTxHash: result.txHash,
-        destinationTxHash: result.txHash
+      const sourceTxHash = result?.txHash
+      if (!sourceTxHash || !/^0x[0-9a-fA-F]{64}$/.test(sourceTxHash)) {
+        return { status: 'PENDING', errorMessage: 'Swap was submitted but its transaction hash is not available yet.' }
       }
+      const receipt = await resilientWaitForReceipt(arcPublicClient, sourceTxHash as Hex, 'Swap')
+      if (receipt.status === 'unknown') {
+        return { status: 'PENDING', sourceTxHash, errorMessage: 'Swap is awaiting on-chain confirmation.' }
+      }
+      if (receipt.status === 'reverted') throw new Error('Swap transaction reverted on Arc Testnet.')
+      return { status: 'DONE', sourceTxHash, destinationTxHash: sourceTxHash }
     }
 
     // If it's a cross-chain swap, we poll using kit.waitForSwap()

@@ -12,7 +12,9 @@ import {
   USDC_ADDRESSES,
 } from '../config/gatewayConfig'
 import { IS_TESTNET } from '../config/arcChain'
-import { getGatewayBalances } from './gatewayService'
+import { getNetwork } from '../config/networks/networkRegistry'
+import { getResilientPublicClient } from './rpc'
+import { getGatewayBalances, verifyDestinationUsdcMint } from './gatewayService'
 import { getExplorerTxUrl } from '../config/sendConfig'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -78,24 +80,9 @@ function randomHex32(): `0x${string}` {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}` as const
 }
 
-// ── Gateway burn-intent fee constants ────────────────────────────────────────
-//
-// Circle requires `maxFee >= gas fee + (transfer amount * 0.00005)`:
-// https://developers.circle.com/gateway/references/fees
-//
-// The authoritative value always comes from the Gateway `/estimate` endpoint
-// (`POST /v1/estimate?enableForwarder=false`). The constants below are ONLY a
-// local fallback used when `/estimate` is temporarily unreachable, so they must
-// stay at or above the real fee for every supported destination chain.
-const TRANSFER_FEE_BPS = 5n // 0.005% = 5 basis points
-const TRANSFER_FEE_DENOMINATOR = 100_000n
-const FALLBACK_GAS_FEE_UNITS = parseUnits('0.05', 6) // 0.05 USDC gas buffer
-/**
- * Forwarding Service fallback: covers Circle's destination gas + the $0.20
- * service fee on non-Ethereum destinations. `/estimate?enableForwarder=true`
- * is authoritative whenever it is reachable.
- */
-const FALLBACK_FORWARDING_FEE_UNITS = parseUnits('0.25', 6)
+// ── Gateway burn-intent fee policy ───────────────────────────────────────────
+// Circle's estimate is authoritative. Cross-chain signing fails closed when the
+// endpoint cannot provide a quote; a local approximation must never authorize a burn.
 /**
  * The forwarding fee quote is dynamic: Circle's own `/estimate?enableForwarder=true`
  * value was a couple of subunits short in live testing ("Insufficient total maxFee
@@ -132,8 +119,8 @@ export interface GatewayTransferSpecPayload {
  * the 0.005% transfer fee and the forwarding fee, plus a small safety buffer
  * (the quote is dynamic and Circle's own value can be a few subunits short).
  *
- * Returns `null` when the endpoint is unreachable so the caller can fall back to
- * the local fee formula instead of failing the whole transfer.
+ * Returns `null` when the endpoint is unreachable so the caller can fail closed
+ * without signing an intent based on an unverified local estimate.
  */
 export async function estimateGatewayMaxFee(
   spec: GatewayTransferSpecPayload,
@@ -153,7 +140,7 @@ export async function estimateGatewayMaxFee(
 
     if (!response.ok) {
       console.warn(
-        `[executeUcwGatewayTransfer] /estimate returned HTTP ${response.status}; falling back to the local fee formula.`
+        `[executeUcwGatewayTransfer] /estimate returned HTTP ${response.status}; refusing to sign without a fee quote.`
       )
       return null
     }
@@ -162,11 +149,13 @@ export async function estimateGatewayMaxFee(
     const item = Array.isArray(payload) ? payload[0] : payload?.body?.[0]
     const burnIntent = item?.burnIntent
     if (!burnIntent?.maxFee) {
-      console.warn('[executeUcwGatewayTransfer] /estimate response did not contain maxFee; using fallback fee.')
+      console.warn('[executeUcwGatewayTransfer] /estimate response did not contain maxFee; refusing to sign without a fee quote.')
       return null
     }
 
     let maxFee = BigInt(burnIntent.maxFee)
+    const maxBlockHeight = burnIntent.maxBlockHeight ? BigInt(burnIntent.maxBlockHeight) : MAX_BLOCK_HEIGHT
+    if (maxFee <= 0n || maxBlockHeight <= 0n) return null
     if (useForwarder) {
       const percentBuffer = (maxFee * FORWARDING_FEE_BUFFER_BPS) / FORWARDING_FEE_BUFFER_DENOMINATOR
       const buffer =
@@ -176,10 +165,10 @@ export async function estimateGatewayMaxFee(
 
     return {
       maxFee,
-      maxBlockHeight: burnIntent.maxBlockHeight ? BigInt(burnIntent.maxBlockHeight) : MAX_BLOCK_HEIGHT,
+      maxBlockHeight,
     }
   } catch (err) {
-    console.warn('[executeUcwGatewayTransfer] /estimate request failed; using fallback fee:', err)
+    console.warn('[executeUcwGatewayTransfer] /estimate request failed; refusing to sign without a fee quote:', err)
     return null
   }
 }
@@ -191,9 +180,10 @@ export async function estimateGatewayMaxFee(
  */
 export async function pollForwardedGatewayTransfer(
   transferId: string,
-  options: { maxAttempts?: number; intervalMs?: number } = {}
+  options: { maxAttempts?: number; intervalMs?: number; destChain?: string; recipient?: string; amount?: string } = {}
 ): Promise<{ status: string; txHash?: string; failureReason?: string }> {
-  const { maxAttempts = 40, intervalMs = 3000 } = options
+  const { maxAttempts = 40, intervalMs = 3000, destChain, recipient, amount } = options
+  if (!transferId || !/^[a-zA-Z0-9_-]{1,160}$/.test(transferId)) return { status: 'invalid_transfer_id' }
 
   let lastStatus = 'pending'
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -205,14 +195,19 @@ export async function pollForwardedGatewayTransfer(
 
         if (lastStatus === 'confirmed' || lastStatus === 'finalized') {
           const forwarding = details?.forwardingDetails || {}
-          const txHash =
-            forwarding.transactionHash ||
-            forwarding.txHash ||
-            forwarding.mintTransactionHash ||
-            details?.transactionHash ||
-            details?.txHash ||
-            undefined
-          return { status: lastStatus, txHash }
+          const responseTransferId = details?.transferId || details?.id
+          if (responseTransferId && responseTransferId !== transferId) return { status: 'pending' }
+          const txHash = forwarding.transactionHash || forwarding.txHash || forwarding.mintTransactionHash || details?.transactionHash || details?.txHash
+          if (typeof txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(txHash) || !destChain || !recipient || !amount) return { status: 'pending' }
+
+          const network = getNetwork(destChain)
+          if (!network?.viemChain || !USDC_ADDRESSES[destChain]) return { status: 'pending' }
+          const publicClient = getResilientPublicClient(network.viemChain)
+          const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` })
+          if (receipt.status !== 'success' || receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) return { status: 'pending' }
+
+          const hasExactMint = await verifyDestinationUsdcMint(destChain, txHash, recipient, amount)
+          return hasExactMint ? { status: lastStatus, txHash } : { status: 'pending' }
         }
 
         if (lastStatus === 'failed') {
@@ -266,7 +261,7 @@ export function mapChainKeyToCircleBlockchain(chainKey: string): string {
  * Architecture Flow:
  * 1. Resolves source/destination domains and USDC token contracts.
  * 2. Resolves the burn-intent fee (`maxFee`/`maxBlockHeight`) from Circle's
- *    Gateway `/estimate` endpoint (forwarding-aware) with a safe local fallback.
+ *    Gateway `/estimate` endpoint (forwarding-aware); unavailable quotes fail closed.
  * 3. Pre-flights the Gateway unified balance for `value + maxFee`.
  * 4. Triggers Circle UCW signTypedData challenge (PIN / biometrics) for the EIP-712 BurnIntent.
  * 5. Submits the signed BurnIntent to Circle Gateway `/transfer`.
@@ -309,6 +304,9 @@ export async function executeUcwGatewayTransfer(
   const gatewayMinter = ACTIVE_GATEWAY_CONTRACTS.gatewayMinter
   const destRecipient = (recipientAddress?.trim() || connectedAddress) as Address
 
+  if (!/^\d+(?:\.\d{1,6})?$/.test(amount) || parseUnits(amount, 6) <= 0n) {
+    throw new Error('Gateway transfer amount must be greater than zero and have at most 6 decimal places.')
+  }
   const burnValue = parseUnits(amount, 6)
   const isSameChain = sourceDomain === destinationDomain
   const salt = randomHex32()
@@ -333,22 +331,19 @@ export async function executeUcwGatewayTransfer(
 
   // Step 2: Resolve `maxFee` / `maxBlockHeight`.
   // Circle requires `maxFee >= gas fee + (transfer amount * 0.00005)`; the Gateway
-  // /estimate endpoint is the source of truth and the local formula is a fallback only.
+  // /estimate endpoint is the source of truth; the transfer must fail closed if unavailable.
   // With the Forwarding Service the maxFee also covers the forwarding fee.
   onStepProgress?.('checking_balance')
-  let maxFee = isSameChain
-    ? 0n
-    : useForwarder
-      ? FALLBACK_FORWARDING_FEE_UNITS
-      : FALLBACK_GAS_FEE_UNITS + (burnValue * TRANSFER_FEE_BPS) / TRANSFER_FEE_DENOMINATOR
+  let maxFee = 0n
   let maxBlockHeight = MAX_BLOCK_HEIGHT
 
   if (!isSameChain) {
     const estimate = await estimateGatewayMaxFee(spec, useForwarder)
-    if (estimate) {
-      maxFee = estimate.maxFee
-      maxBlockHeight = estimate.maxBlockHeight
+    if (!estimate) {
+      throw new Error('Circle Gateway fee estimate is unavailable. Transfer was not signed; retry when the fee quote is available.')
     }
+    maxFee = estimate.maxFee
+    maxBlockHeight = estimate.maxBlockHeight
   }
 
   console.log(
@@ -386,7 +381,7 @@ export async function executeUcwGatewayTransfer(
     if (checkErr.message?.includes('Circle Gateway')) {
       throw checkErr
     }
-    console.warn('[executeUcwGatewayTransfer] Pre-flight balance check warning:', checkErr)
+    throw new Error(`Circle Gateway balance could not be verified; refusing to sign transfer: ${checkErr?.message || 'unknown error'}`)
   }
 
   // Step 4: Build the BurnIntent + EIP-712 payload
@@ -476,7 +471,11 @@ export async function executeUcwGatewayTransfer(
     onStepProgress?.('forwarding')
     console.log(`[executeUcwGatewayTransfer] Forwarding Service transferId: ${transferId}. Polling status...`)
 
-    const forwarded = await pollForwardedGatewayTransfer(transferId)
+    const forwarded = await pollForwardedGatewayTransfer(transferId, {
+      destChain,
+      recipient: destRecipient,
+      amount,
+    })
 
     if (forwarded.status === 'failed' || forwarded.status === 'expired') {
       throw new Error(
@@ -485,6 +484,9 @@ export async function executeUcwGatewayTransfer(
     }
 
     const forwardedTxHash = forwarded.txHash || ''
+    if ((forwarded.status === 'confirmed' || forwarded.status === 'finalized') && !/^0x[0-9a-fA-F]{64}$/.test(forwardedTxHash)) {
+      throw new Error('Gateway reported completion without a valid destination transaction hash.')
+    }
     console.log(
       `[executeUcwGatewayTransfer] Forwarding status=${forwarded.status}, destTxHash=${forwardedTxHash || '(pending)'}`
     )
@@ -557,6 +559,10 @@ export async function executeUcwGatewayTransfer(
     }
   }
 
+  if (!/^0x[0-9a-fA-F]{64}$/.test(mintTxHash)) throw new Error('Gateway mint challenge did not return a valid destination transaction hash.')
+  if (!await verifyDestinationUsdcMint(destChain, mintTxHash, destRecipient, amount)) {
+    throw new Error('Gateway mint receipt did not prove the exact USDC delivery to the requested recipient.')
+  }
   onStepProgress?.('completed')
 
   return {

@@ -1,15 +1,15 @@
 // src/services/x402/gatewayClient.ts
-// Circle Gateway Nanopayments Client for Arcis AI Services
-// Implements gasless authorizations, unified balance discovery, and PaymentReceipt creation
+// Circle Gateway Nanopayments Client for Arcis AI Services.
+// Balance discovery and x402 support probing only: every value here is read from the chain
+// or from the session config, so no deposit/withdraw hash or authorization signature is
+// invented by a client-side facade.
 
-import type { Hex, Address } from 'viem'
-import type { PaymentReceipt, X402PaymentRequirements } from '../../types/x402'
-import { arcTestnet, ARC_METADATA } from '../../config/arcChain'
+import type { Address } from 'viem'
+import type { X402PaymentRequirements } from '../../types/x402'
 import { POOL_CONTRACTS, ERC20_ABI } from '../../config/poolsConfig'
 import { getArcPublicClient } from '../rpc'
 import { getSessionKeyConfig } from '../sessionKeyService'
-import { calculateFeeSplit, usdcToBaseUnits, baseUnitsToUsdc } from '../../config/x402/pricing'
-import { registerReceipt } from './guard'
+import { baseUnitsToUsdc } from '../../config/x402/pricing'
 
 export interface GatewayBalancesResult {
   walletUsdc: number
@@ -20,22 +20,6 @@ export interface GatewaySupportsResult {
   supported: boolean
   accepts?: X402PaymentRequirements['accepts']
   error?: string
-}
-
-export interface GatewayPayOptions {
-  method?: 'GET' | 'POST'
-  body?: unknown
-  maxAmountUsdc?: number
-  payerAddress?: `0x${string}`
-  serviceId?: string
-  serviceVersion?: string
-  payTo?: `0x${string}`
-}
-
-export interface GatewayPayResult<T = unknown> {
-  status: number
-  data: T
-  receipt: PaymentReceipt
 }
 
 class GatewayClientFacade {
@@ -80,33 +64,6 @@ class GatewayClientFacade {
   }
 
   /**
-   * Deposits USDC into Circle Gateway unified balance.
-   */
-  public async deposit(amountUsdc: string, payer?: `0x${string}`): Promise<{ depositTxHash: Hex }> {
-    const sessionConfig = getSessionKeyConfig()
-    const activePayer =
-      payer || sessionConfig.sessionPublicKey || (sessionConfig as any).ephemeralAddress
-    if (!activePayer) {
-      throw new Error('No wallet or active session found to perform Gateway deposit.')
-    }
-
-    // In a testnet/sandbox environment, simulate or submit through viem client
-    const depositHash: Hex = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`
-    return { depositTxHash: depositHash }
-  }
-
-  /**
-   * Withdraws USDC from Gateway balance back to wallet or destination chain.
-   */
-  public async withdraw(
-    amountUsdc: string,
-    opts?: { chain?: string; recipient?: `0x${string}` }
-  ): Promise<{ txHash: Hex }> {
-    const txHash: Hex = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`
-    return { txHash }
-  }
-
-  /**
    * Probes an endpoint to check if it supports x402 / Gateway batching.
    */
   public async supports(url: string): Promise<GatewaySupportsResult> {
@@ -145,73 +102,6 @@ class GatewayClientFacade {
         supported: false,
         error: err?.message || 'Failed to probe x402 support',
       }
-    }
-  }
-
-  /**
-   * Executes paid request using Gateway EIP-3009 payment authorization.
-   */
-  public async pay<T = unknown>(
-    url: string,
-    options: GatewayPayOptions = {}
-  ): Promise<GatewayPayResult<T>> {
-    const startTime = performance.now()
-    const method = options.method || 'POST'
-    const serviceId = options.serviceId || 'arc-service'
-    const serviceVersion = options.serviceVersion || '1.0.0'
-    const maxAmountUsdc = options.maxAmountUsdc || 0.01
-    const payer = options.payerAddress || '0x0000000000000000000000000000000000000000'
-    const payTo = options.payTo || '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A'
-
-    const nonceHex: Hex = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`
-    const idempotencyKey = `${serviceId}:${payer.toLowerCase()}:${nonceHex}`
-
-    const feeSplit = calculateFeeSplit(maxAmountUsdc)
-
-    // Call upstream or internal endpoint
-    const response = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `x402-Gateway-V1 payer=${payer},amount=${maxAmountUsdc},nonce=${nonceHex}`,
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    })
-
-    const latencyMs = Math.round(performance.now() - startTime)
-    const data = (await response.json()) as T
-
-    const receipt: PaymentReceipt = {
-      id: `rcpt-${Date.now()}-${nonceHex.slice(2, 10)}`,
-      idempotencyKey,
-      serviceId,
-      serviceVersion,
-      payer,
-      payTo,
-      amountUsdc: maxAmountUsdc,
-      authorizedMaxUsdc: maxAmountUsdc,
-      scheme: 'exact',
-      network: 'arcTestnet',
-      authorizationSignature: `0x${Array.from({ length: 130 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`,
-      settlementRef: `gw-batch-${Date.now()}`,
-      explorerUrl: `${ARC_METADATA.explorerUrl}/address/${payer}`,
-      protocolFeeUsdc: feeSplit.protocolFeeUsdc,
-      providerEarnedUsdc: feeSplit.providerEarnedUsdc,
-      latencyMs,
-      status: response.ok ? 'served' : 'voided',
-      engineMode: 'gateway_batched',
-      gasSponsored: true,
-      createdAt: Date.now(),
-    }
-
-    if (response.ok) {
-      registerReceipt(receipt)
-    }
-
-    return {
-      status: response.status,
-      data,
-      receipt,
     }
   }
 }

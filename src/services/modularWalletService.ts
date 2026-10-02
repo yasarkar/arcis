@@ -275,7 +275,7 @@ async function getOrRestoreSmartAccount() {
 export async function sendModularUserOperation(params: {
   calls: UserOpCall[]
   paymaster?: boolean
-}): Promise<{ success: boolean; txHash?: string; userOpHash?: string; error?: string }> {
+}): Promise<{ success: boolean; txHash?: string; userOpHash?: string; error?: string; failed?: boolean }> {
   try {
     const smartAccount = await getOrRestoreSmartAccount()
     if (!smartAccount) {
@@ -291,7 +291,8 @@ export async function sendModularUserOperation(params: {
       paymaster: params.paymaster !== false,
     } as any)
 
-    let txHash = userOpHash
+    let transactionHash: string | undefined
+    let failed = false
     try {
       // Wait for inclusion with 45s timeout to tolerate network/bundler latency
       const receipt = await bundlerClient.waitForUserOperationReceipt({
@@ -299,12 +300,32 @@ export async function sendModularUserOperation(params: {
         timeout: 45_000,
         pollingInterval: 3000,
       } as any)
-      txHash = (receipt as any).receipt?.transactionHash || userOpHash
+      const receiptResult = receipt as any
+      const transactionStatus = receiptResult.receipt?.status
+      const receiptSucceeded = receiptResult.success === true &&
+        (transactionStatus === 'success' || transactionStatus === 1 || transactionStatus === '0x1')
+      failed = receiptResult.success === false ||
+        transactionStatus === 'reverted' || transactionStatus === 0 || transactionStatus === '0x0'
+      const resolvedHash = receiptResult.receipt?.transactionHash
+      if (receiptSucceeded && typeof resolvedHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(resolvedHash)) {
+        transactionHash = resolvedHash
+      }
     } catch (receiptErr) {
       console.warn('[ModularWallet] UserOp receipt polling notice (userOp was broadcast):', userOpHash, receiptErr)
     }
 
-    return { success: true, txHash, userOpHash }
+    // A userOpHash is not an on-chain transaction receipt. Keep it for diagnostics, but expose
+    // success/txHash only once the bundler returns the included transaction hash.
+    return transactionHash
+      ? { success: true, txHash: transactionHash, userOpHash }
+      : {
+          success: false,
+          userOpHash,
+          failed,
+          error: failed
+            ? 'UserOperation was included but reverted on-chain.'
+            : 'UserOperation was broadcast, but its transaction receipt is still pending.',
+        }
   } catch (err: any) {
     console.error('[ModularWallet] sendModularUserOperation error:', err)
     const parsed = parsePasskeyError(err)

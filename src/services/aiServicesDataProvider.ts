@@ -3,7 +3,7 @@
 // Uses real Arc Testnet DEX pool reserves, Curve AMM mathematics,
 // live token price oracles, and dynamic Arc L1 gas metrics.
 
-import { formatUnits, parseUnits, type Address } from 'viem'
+import { formatUnits, type Address } from 'viem'
 import type { x402Service, ActionableSignalPayload } from '../types/marketplace'
 import {
   POOL_CONTRACTS,
@@ -14,7 +14,12 @@ import { getLiveTokenPrices, normalizeTokenSymbol } from './tokenPriceService'
 import { getSwapEstimate } from './swapService'
 import { getArcPublicClient, resilientReadContract } from './rpc'
 import { ARC_MIN_BASE_FEE_FLOOR } from './arcGasService'
-import { GATEWAY_DOMAINS } from '../config/gatewayConfig'
+import {
+  buildGatewayFlowServiceData,
+  formatUsdcOrUnavailable,
+  readGatewayFlow,
+  type GatewayFlowWindow,
+} from './gatewayFlowIndexer'
 
 export interface GeneratedServiceData {
   data: Record<string, any>
@@ -22,9 +27,10 @@ export interface GeneratedServiceData {
 }
 
 /**
- * Safely fetches live reserves from Arc Testnet StableSwap pool (USDC / EURC)
+ * Reads live reserves from the Arc Testnet StableSwap pool (USDC / EURC).
+ * Returns null when the on-chain read fails — never a substituted reserve figure.
  */
-async function fetchStablePoolReserves(): Promise<{ reserveA: bigint; reserveB: bigint }> {
+async function fetchStablePoolReserves(): Promise<{ reserveA: bigint; reserveB: bigint } | null> {
   try {
     const client = getArcPublicClient()
     const [rA, rB] = await Promise.all([
@@ -41,18 +47,16 @@ async function fetchStablePoolReserves(): Promise<{ reserveA: bigint; reserveB: 
     ])
     return { reserveA: rA, reserveB: rB }
   } catch (err) {
-    console.warn('[aiServicesDataProvider] Failed to read on-chain stable reserves, using verified fallback:', err)
-    return {
-      reserveA: parseUnits('125000', 6),
-      reserveB: parseUnits('118000', 6),
-    }
+    console.warn('[aiServicesDataProvider] On-chain stable reserves unavailable:', err)
+    return null
   }
 }
 
 /**
- * Safely fetches totalAssets from Arc Testnet YieldVault (af-USDC ERC-4626)
+ * Reads totalAssets from the Arc Testnet YieldVault (af-USDC ERC-4626).
+ * Returns null when the on-chain read fails — never a substituted figure.
  */
-async function fetchVaultTotalAssets(): Promise<bigint> {
+async function fetchVaultTotalAssets(): Promise<bigint | null> {
   try {
     const client = getArcPublicClient()
     const totalAssets = await resilientReadContract(client, {
@@ -62,24 +66,25 @@ async function fetchVaultTotalAssets(): Promise<bigint> {
     })
     return totalAssets
   } catch (err) {
-    console.warn('[aiServicesDataProvider] Failed to read on-chain vault assets, using fallback:', err)
-    return parseUnits('84250', 6)
+    console.warn('[aiServicesDataProvider] On-chain vault assets unavailable:', err)
+    return null
   }
 }
 
 /**
- * Computes dynamic Arc L1 gas cost in USDC for a given gas limit
+ * Computes the dynamic Arc L1 gas cost in USDC for a given gas limit.
+ * The protocol's real minimum base fee is the only fallback; a failed read returns null.
  */
-async function computeArcGasCostUsdc(gasLimit = 120_000n): Promise<number> {
+async function computeArcGasCostUsdc(gasLimit = 120_000n): Promise<number | null> {
   try {
     const client = getArcPublicClient()
     const gasPrice = await client.getGasPrice().catch(() => ARC_MIN_BASE_FEE_FLOOR)
     const effectiveFee = gasPrice > 0n ? gasPrice : ARC_MIN_BASE_FEE_FLOOR
     const costWei = gasLimit * effectiveFee
-    const costUsdc = parseFloat(formatUnits(costWei, 18))
-    return Number(Math.max(0.0024, costUsdc).toFixed(6))
-  } catch {
-    return 0.0036 // Safe standard fallback on Arc Testnet
+    return Number(parseFloat(formatUnits(costWei, 18)).toFixed(6))
+  } catch (err) {
+    console.warn('[aiServicesDataProvider] Arc L1 gas price unavailable:', err)
+    return null
   }
 }
 
@@ -106,24 +111,69 @@ export async function generateLiveServiceData(
     const tokenA = normalizeTokenSymbol(tokens[0] || 'USDC')
     const tokenB = normalizeTokenSymbol(tokens[1] || 'EURC')
 
-    const oraclePriceA = livePrices[tokenA] ?? 1.0
-    const oraclePriceB = livePrices[tokenB] ?? (tokenB === 'EURC' ? 1.08 : tokenB === 'WETH' ? 2500.0 : 78500.0)
-    const oracleMarketRate = oraclePriceB > 0 ? (tokenA === 'USDC' ? oraclePriceB : oraclePriceA / oraclePriceB) : 1.0
+    // Unquoted tokens stay unknown: no made-up price is substituted for a missing oracle quote.
+    const oraclePriceA = livePrices[tokenA]
+    const oraclePriceB = livePrices[tokenB]
+    const oracleMarketRate =
+      oraclePriceA !== undefined && oraclePriceB !== undefined && oraclePriceB > 0
+        ? tokenA === 'USDC'
+          ? oraclePriceB
+          : oraclePriceA / oraclePriceB
+        : null
 
     // Fetch genuine Arc Testnet DEX reserves
-    const { reserveA, reserveB } = await fetchStablePoolReserves()
-    const numReserveA = parseFloat(formatUnits(reserveA, 6))
-    const numReserveB = parseFloat(formatUnits(reserveB, 6))
-
-    // Real on-chain pool exchange rate
-    const poolRate = numReserveB > 0 ? numReserveA / numReserveB : 1.082
-
-    // Real mathematical spread between Arc Pool Rate and Oracle External Rate
-    const rawSpread = Math.abs(oracleMarketRate - poolRate) / poolRate
-    const spreadPct = Number(Math.max(0.24, rawSpread * 100).toFixed(3))
+    const reserves = await fetchStablePoolReserves()
+    const poolRate =
+      reserves && reserves.reserveB > 0n
+        ? Number(formatUnits(reserves.reserveA, 6)) / Number(formatUnits(reserves.reserveB, 6))
+        : null
 
     // Calculate dynamic gas on Arc L1 (USDC Native Gas)
     const gasUsdc = await computeArcGasCostUsdc(120_000n)
+
+    // Every input to the spread is a real read. If one of them is missing, the answer says so
+    // instead of quoting a spread, a confidence score or a profit that nobody measured.
+    if (!reserves || oracleMarketRate === null || poolRate === null || gasUsdc === null) {
+      const unavailable = [
+        oracleMarketRate === null && 'external oracle price for the pair',
+        poolRate === null && 'on-chain StableSwap pool reserves',
+        gasUsdc === null && 'Arc L1 gas price',
+      ].filter((value): value is string => typeof value === 'string')
+
+      return {
+        data: {
+          status: 'UNAVAILABLE',
+          timestamp: now,
+          pair,
+          unavailable,
+          reason: `Spread not computed: could not read ${unavailable.join(', ')}.`,
+          liveOraclePrices: { [tokenA]: oraclePriceA ?? null, [tokenB]: oraclePriceB ?? null },
+          onChainReserves: reserves
+            ? {
+                pool: POOL_CONTRACTS.STABLE_SWAP_POOL,
+                reserveUSDC: Number(formatUnits(reserves.reserveA, 6)),
+                reserveEURC: Number(formatUnits(reserves.reserveB, 6)),
+              }
+            : null,
+        },
+        actionablePayload: {
+          type: 'arbitrage',
+          title: `Execute ${pair} Arbitrage`,
+          badgeText: 'Spread unavailable — required on-chain read failed',
+          details: {
+            pair,
+            tradeSizeUsdc: tradeSize,
+            fromToken: tokenA,
+            toToken: tokenB,
+            poolAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
+          },
+        },
+      }
+    }
+
+    // Real mathematical spread between Arc Pool Rate and Oracle External Rate
+    const rawSpread = Math.abs(oracleMarketRate - poolRate) / poolRate
+    const spreadPct = Number((rawSpread * 100).toFixed(3))
 
     // Calculate gross and net profit based on genuine trade size and spread
     const grossProfit = Number((tradeSize * (spreadPct / 100)).toFixed(2))
@@ -152,23 +202,12 @@ export async function generateLiveServiceData(
         estimatedGasCostUsdc: gasUsdc,
         netProfitUsdc: netProfit,
         netProfitPct: netProfitPct,
-        confidenceScore: 0.994,
-        executionCalldataHex: `0x522faf9a${Math.floor(tradeSize).toString(16).padStart(32, '0')}`,
       },
       onChainReserves: {
         pool: POOL_CONTRACTS.STABLE_SWAP_POOL,
-        reserveUSDC: numReserveA,
-        reserveEURC: numReserveB,
+        reserveUSDC: Number(formatUnits(reserves.reserveA, 6)),
+        reserveEURC: Number(formatUnits(reserves.reserveB, 6)),
       },
-      secondaryOpportunities: [
-        {
-          buyDex: 'Arcis Constant Product (cirBTC)',
-          sellDex: 'Arcis Swap Router',
-          grossSpreadPct: Number((spreadPct * 0.42).toFixed(3)),
-          netProfitUsdc: Number((netProfit * 0.4).toFixed(2)),
-        },
-      ],
-      mempoolRisk: 'LOW_MEV_THREAT',
       targetContracts: {
         stableSwapPool: POOL_CONTRACTS.STABLE_SWAP_POOL,
         router: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
@@ -204,10 +243,9 @@ export async function generateLiveServiceData(
     const toToken = (inputPayload.toToken || 'EURC').toUpperCase()
 
     // Query real DEX estimate using swapService and Curve StableSwap mathematics
-    let expectedOutputNum = 0
-    let effectiveExecutionPrice = 1.0
-    let priceImpactPct = 0.04
-    let savedUsdc = 0
+    let expectedOutputNum: number | null = null
+    let effectiveExecutionPrice: number | null = null
+    let priceImpactPct: number | null = null
 
     try {
       const quote = await getSwapEstimate({
@@ -222,29 +260,51 @@ export async function generateLiveServiceData(
       expectedOutputNum = parseFloat(quote.estimatedOutput)
       effectiveExecutionPrice = parseFloat(quote.rate)
 
-      // Calculate price impact vs 1:1 spot or oracle benchmark
+      // Price impact against the live oracle benchmark; unknown when either side is unquoted
       const livePrices = await getLiveTokenPrices()
-      const spotFrom = livePrices[normalizeTokenSymbol(fromToken)] || 1.0
-      const spotTo = livePrices[normalizeTokenSymbol(toToken)] || 1.0
-      const benchmarkRate = spotFrom / spotTo
-      const diff = Math.abs(benchmarkRate - effectiveExecutionPrice) / benchmarkRate
-      priceImpactPct = Number(Math.max(0.01, diff * 100).toFixed(3))
-
-      // Curve StableSwap saves approximately 60-80% slippage compared to traditional xy=k AMMs on high volumes
-      savedUsdc = Number((amount * (priceImpactPct / 100) * 0.75).toFixed(2))
+      const spotFrom = livePrices[normalizeTokenSymbol(fromToken)]
+      const spotTo = livePrices[normalizeTokenSymbol(toToken)]
+      const benchmarkRate =
+        spotFrom !== undefined && spotTo !== undefined && spotTo > 0 ? spotFrom / spotTo : null
+      priceImpactPct =
+        benchmarkRate !== null && benchmarkRate > 0
+          ? Number(((Math.abs(benchmarkRate - effectiveExecutionPrice) / benchmarkRate) * 100).toFixed(3))
+          : null
     } catch (err) {
-      console.warn('[aiServicesDataProvider] getSwapEstimate fallback:', err)
-      expectedOutputNum = Number((amount * 0.924).toFixed(4))
-      effectiveExecutionPrice = 0.924
-      priceImpactPct = 0.042
-      savedUsdc = Number((amount * 0.0065).toFixed(2))
+      console.warn('[aiServicesDataProvider] Live swap quote unavailable:', err)
     }
 
     // Read real pool reserves for depth estimation
-    const { reserveA, reserveB } = await fetchStablePoolReserves()
-    const totalReserveDepth = Math.round(
-      parseFloat(formatUnits(reserveA, 6)) + parseFloat(formatUnits(reserveB, 6))
-    )
+    const reserves = await fetchStablePoolReserves()
+    const totalReserveDepth = reserves
+      ? Math.round(
+          Number(formatUnits(reserves.reserveA, 6)) + Number(formatUnits(reserves.reserveB, 6))
+        )
+      : null
+
+    // No quoted route and no computed price impact means there is no answer to give here.
+    if (expectedOutputNum === null || effectiveExecutionPrice === null || priceImpactPct === null) {
+      return {
+        data: {
+          status: 'UNAVAILABLE',
+          inputAmount: `${amount} ${fromToken}`,
+          unavailable: ['live DEX swap quote and/or its oracle benchmark'],
+          reason: 'Route not optimised: the live quote or its oracle benchmark could not be read.',
+          flashReserveDepthUsdc: totalReserveDepth,
+        },
+        actionablePayload: {
+          type: 'swap',
+          title: `Execute Optimized ${fromToken} ➔ ${toToken} Swap`,
+          badgeText: 'Route quote unavailable — no fabricated estimate',
+          details: {
+            fromToken,
+            toToken,
+            amountIn: amount,
+            poolAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
+          },
+        },
+      }
+    }
 
     const data = {
       status: 'ROUTE_OPTIMIZED',
@@ -252,29 +312,13 @@ export async function generateLiveServiceData(
       expectedOutput: `${expectedOutputNum.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ${toToken}`,
       effectiveExecutionPrice,
       overallPriceImpactPct: priceImpactPct,
-      savedVsSinglePoolUsdc: savedUsdc,
-      splitExecutionDistribution: [
-        {
-          pool: `Arcis StableSwap V3 (${fromToken}/${toToken})`,
-          allocationPct: 70,
-          amountUsdc: Math.round(amount * 0.7),
-          priceImpact: Number((priceImpactPct * 0.5).toFixed(3)),
-        },
-        {
-          pool: `Arcis Constant Product Router`,
-          allocationPct: 30,
-          amountUsdc: Math.round(amount * 0.3),
-          priceImpact: Number((priceImpactPct * 1.5).toFixed(3)),
-        },
-      ],
-      flashReserveDepthUsdc: totalReserveDepth > 0 ? totalReserveDepth : 243_000,
-      settlementTimeEstimateMs: 280,
+      flashReserveDepthUsdc: totalReserveDepth,
     }
 
     const actionablePayload: ActionableSignalPayload = {
       type: 'swap',
       title: `Execute Optimized ${fromToken} ➔ ${toToken} Swap`,
-      badgeText: `Saved $${savedUsdc} via Curve StableSwap Routing`,
+      badgeText: `Live route for ${amount.toLocaleString()} ${fromToken} at ${priceImpactPct}% price impact`,
       details: {
         fromToken,
         toToken,
@@ -296,50 +340,26 @@ export async function generateLiveServiceData(
 
     // Fetch real Arc Testnet YieldVault assets
     const vaultAssets = await fetchVaultTotalAssets()
-    const vaultAssetsNum = parseFloat(formatUnits(vaultAssets, 6))
 
-    // Scale flash-loan execution capital based on required reward and on-chain liquidity
-    const requiredFlashLoanUsdc = Math.max(minReward * 12.5, 20_000)
-    // Arc L1 flash loan fee: 5 BPS (0.05%)
-    const flashLoanFeeUsdc = Number((requiredFlashLoanUsdc * 0.0005).toFixed(2))
-    // 8% average liquidation bonus
-    const grossBonus = requiredFlashLoanUsdc * 0.08
-    const netExpectedProfit = Number(Math.max(minReward, grossBonus - flashLoanFeeUsdc).toFixed(2))
-
+    // Arcis has no on-chain liquidation source: it cannot enumerate under-collateralized
+    // positions, so no opportunity, health factor, bonus or reward is invented here.
     const data = {
-      status: 'LIQUIDATIONS_FOUND',
-      activeOpportunitiesCount: 2,
-      onChainVaultLiquidityUsdc: vaultAssetsNum,
-      opportunities: [
-        {
-          protocol: 'ArcLend V3 (Arc Native)',
-          borrowerAddress: '0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772',
-          healthFactor: 0.942,
-          debtAsset: 'USDC',
-          debtToCoverUsdc: requiredFlashLoanUsdc,
-          collateralAsset: 'EURC',
-          collateralAmount: `${(requiredFlashLoanUsdc * 0.98).toFixed(2)} EURC`,
-          liquidationBonusPct: 8.0,
-          netExpectedProfitUsdc: netExpectedProfit,
-          requiredFlashLoanUsdc,
-          flashLoanFeeUsdc,
-          executableTxPayload: `0xab4281f0${now.toString(16)}`,
-        },
-      ],
-      vaultYieldOrigin: 'Arcis YieldVault Real Protocol Share (ERC-4626)',
+      status: 'UNAVAILABLE',
+      requestedMinLiquidationRewardUsdc: minReward,
+      onChainVaultLiquidityUsdc: vaultAssets === null ? null : Number(formatUnits(vaultAssets, 6)),
+      activeOpportunitiesCount: null,
+      opportunities: [],
+      unavailable: ['liquidation opportunity feed'],
+      reason:
+        'No on-chain liquidation source is connected, so no liquidation opportunity or expected reward can be reported.',
     }
 
     const actionablePayload: ActionableSignalPayload = {
-      type: 'arbitrage',
-      title: 'Execute Flash-Loan Liquidation',
-      badgeText: `+$${netExpectedProfit.toFixed(2)} USDC Net Reward`,
+      type: 'navigate',
+      title: 'Liquidation feed unavailable',
+      badgeText: 'No liquidation source connected',
       details: {
-        protocol: 'ArcLend V3',
-        debtToCoverUsdc: requiredFlashLoanUsdc,
-        estimatedProfitUsdc: netExpectedProfit,
-        fromToken: 'USDC',
-        toToken: 'EURC',
-        poolAddress: POOL_CONTRACTS.YIELD_VAULT,
+        navTab: 'ai-services',
       },
     }
 
@@ -353,41 +373,47 @@ export async function generateLiveServiceData(
     const amount = Number(inputPayload.targetTxAmountUsdc) || 100000
     const slippageTolerancePct = Number(inputPayload.slippageTolerancePct) || 0.5
 
-    // Read real pool reserves to calculate slippage vulnerability
-    const { reserveA } = await fetchStablePoolReserves()
-    const poolReserveUsdc = parseFloat(formatUnits(reserveA, 6))
-
-    // Transactions larger than 5% of pool reserve are exposed to sandwich attacks
-    const reserveSharePct = poolReserveUsdc > 0 ? (amount / poolReserveUsdc) * 100 : 5
-    const isHighRisk = reserveSharePct > 5.0
-
-    // Potential loss without shield based on user slippage tolerance
-    const lossEstimate = Number((amount * (slippageTolerancePct / 100) * 0.72).toFixed(2))
+    // Read real pool reserves to measure the exposure the user's trade represents
+    const reserves = await fetchStablePoolReserves()
+    const poolReserveUsdc = reserves ? Number(formatUnits(reserves.reserveA, 6)) : null
+    // Transactions larger than 5% of pool reserve are exposed to sandwich attacks.
+    // The share is a real ratio of two real inputs, or unknown when the reserve read failed.
+    const reserveSharePct =
+      poolReserveUsdc !== null && poolReserveUsdc > 0
+        ? Number(((amount / poolReserveUsdc) * 100).toFixed(2))
+        : null
 
     // Arc L1 dynamic priority gas options
     const arcGasUsdc = await computeArcGasCostUsdc(120_000n)
-    const suggestedSlippagePct = Number(Math.min(slippageTolerancePct, 0.08).toFixed(2))
+    const suggestedSlippagePct = Number(slippageTolerancePct.toFixed(2))
 
     const data = {
-      status: 'ANALYSIS_COMPLETE',
-      vulnerabilityLevel: isHighRisk ? 'HIGH_IF_UNPROTECTED' : 'LOW_RISK',
-      tradeReserveExposurePct: Number(reserveSharePct.toFixed(2)),
-      potentialLossWithoutShieldUsdc: lossEstimate,
-      detectedActiveMevBotsCount: isHighRisk ? 4 : 1,
+      status: reserveSharePct === null ? 'UNAVAILABLE' : 'ANALYSIS_COMPLETE',
+      vulnerabilityLevel:
+        reserveSharePct === null ? null : reserveSharePct > 5.0 ? 'HIGH_IF_UNPROTECTED' : 'LOW_RISK',
+      tradeReserveExposurePct: reserveSharePct,
       arcL1MempoolArchitecture: 'Deterministic FIFO / USDC-Native Gas Priority',
       recommendedShieldAction: {
         bundleType: 'Arc L1 Native Priority Shield (Instant Finality)',
         adjustedMaxSlippagePct: suggestedSlippagePct,
-        mevProtectionScore: '100% SECURE VIA FIFO RPC',
         estimatedGasCostUsdc: arcGasUsdc,
         relayerSubmissionUrl: 'https://rpc.testnet.arc.network',
       },
+      ...(reserveSharePct === null
+        ? {
+            unavailable: ['on-chain pool reserve depth'],
+            reason: 'Exposure not computed: the pool reserve read failed.',
+          }
+        : {}),
     }
 
     const actionablePayload: ActionableSignalPayload = {
       type: 'navigate',
       title: 'Apply Shielded Slippage & FIFO Priority',
-      badgeText: `Protects Against $${lossEstimate} Sandwich Risk`,
+      badgeText:
+        reserveSharePct === null
+          ? 'Exposure unavailable — pool reserve read failed'
+          : `Trade is ${reserveSharePct}% of the USDC pool reserve`,
       details: {
         adjustedMaxSlippagePct: suggestedSlippagePct,
         navTab: 'swap',
@@ -401,56 +427,23 @@ export async function generateLiveServiceData(
   // 5. CROSS-CHAIN GATEWAY FLOW INDEXER
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-cross-chain-gateway-flow-indexer') {
-    const timeWindow = inputPayload.timeWindow || '1h'
+    const requestedWindow = String(inputPayload.timeWindow || '1h')
+    const timeWindow: GatewayFlowWindow =
+      requestedWindow === '24h' || requestedWindow === '7d' ? requestedWindow : '1h'
 
-    // Time window multiplier for volume projection
-    const windowMultiplier = timeWindow === '7d' ? 168 : timeWindow === '24h' ? 24 : 1
-
-    const baseHourlyInflow = 142_500
-    const totalProjectedInflow = baseHourlyInflow * windowMultiplier
-
-    // Build real Gateway supported domain distributions
-    const topSourceChains = [
-      {
-        chain: 'Ethereum Sepolia',
-        domain: GATEWAY_DOMAINS.ETH_SEPOLIA,
-        inflowUsdc: Math.round(totalProjectedInflow * 0.48),
-        sharePct: 48.0,
-      },
-      {
-        chain: 'Base Sepolia',
-        domain: GATEWAY_DOMAINS.BASE_SEPOLIA,
-        inflowUsdc: Math.round(totalProjectedInflow * 0.28),
-        sharePct: 28.0,
-      },
-      {
-        chain: 'Arbitrum Sepolia',
-        domain: GATEWAY_DOMAINS.ARB_SEPOLIA,
-        inflowUsdc: Math.round(totalProjectedInflow * 0.18),
-        sharePct: 18.0,
-      },
-      {
-        chain: 'Solana Devnet',
-        domain: GATEWAY_DOMAINS.SOLANA_DEVNET,
-        inflowUsdc: Math.round(totalProjectedInflow * 0.06),
-        sharePct: 6.0,
-      },
-    ]
-
-    const data = {
-      status: 'FEED_ACTIVE',
-      timeWindow,
-      netUsdcInflowToArc: `+${totalProjectedInflow.toLocaleString()} USDC`,
-      topSourceChains,
-      institutionalWhaleTransfersCount: Math.round(8 * windowMultiplier),
-      flowSentiment: 'STRONG_BULLISH_LIQUIDITY_ACCUMULATION',
-      gatewaySettlementTime: '< 500ms (Instant Finality)',
-    }
+    // Real read: Circle Gateway AttestationUsed / GatewayBurned logs on Arc L1.
+    // `gatewayFlowIndexer` owns both the fetch and the payload mapping; when the read
+    // yields nothing or fails, the figures stay unavailable with the time of the attempt.
+    const flow = await readGatewayFlow(timeWindow)
+    const data = buildGatewayFlowServiceData(flow)
 
     const actionablePayload: ActionableSignalPayload = {
       type: 'deposit',
       title: 'Manage Unified Cross-Chain Balance',
-      badgeText: `Gateway Inflow +$${(totalProjectedInflow / 1_000_000).toFixed(2)}M USDC`,
+      badgeText:
+        flow.netInflowUsdc === null
+          ? `Gateway flow data ${flow.status === 'UNAVAILABLE' ? 'unavailable' : 'stale'}`
+          : `Gateway net flow ${formatUsdcOrUnavailable(flow.netInflowUsdc)}`,
       details: {
         navTab: 'unified',
         targetChain: 'Arc Testnet',
@@ -471,7 +464,7 @@ export async function generateLiveServiceData(
       serviceName: service.name,
       inputsReceived: inputPayload,
       executionResult: {
-        message: 'x402 Micro-Service executed successfully on Arc L1.',
+        message: 'Community service payload accepted and echoed back; no on-chain execution was performed.',
         echo: inputPayload,
       },
     },

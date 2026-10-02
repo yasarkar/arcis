@@ -232,6 +232,20 @@ export function getCachedTokenPrice(symbol: string): number {
 }
 
 /**
+ * Converts a token amount into its USD value using the live price cache (with safe static
+ * fallbacks). Session budgets/limits are denominated in USD, so a non-stable token such as cirBTC
+ * must be valued rather than counted 1:1 — otherwise 1 cirBTC (~$84k) would count as 1 USDC
+ * against the spending ceiling.
+ */
+export function tokenAmountToUsd(tokenSymbol: string, amount: number): number {
+  const safeAmount = Number.isFinite(amount) ? amount : 0
+  const sym = (tokenSymbol || 'USDC').toUpperCase()
+  if (sym === 'USDC') return safeAmount
+  const price = getCachedTokenPrice(tokenSymbol)
+  return Number.isFinite(price) && price > 0 ? safeAmount * price : safeAmount
+}
+
+/**
  * Calculates conversion output and exchange rate for given pair and amount
  */
 export function calculateTokenConversion(
