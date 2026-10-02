@@ -87,8 +87,11 @@ contract SessionKeyModuleTest is Test {
         module.registerSessionKey(sessionKey, expiry, 100_000_000, 10_000_000);
 
         // Simple ETH transfer (no revert expected on zero target — just an example)
+        vm.prank(owner);
+        module.setApprovedTarget(address(token), true);
+        bytes memory transferCalldata = abi.encodeWithSelector(IERC20.transfer.selector, stranger, 0);
         vm.prank(msca);
-        module.executeFromSessionKey(sessionKey, address(0), 0, "");
+        module.executeFromSessionKey(sessionKey, address(token), 0, transferCalldata);
     }
 
     function test_RevertExpiredKeyExecution() public {
@@ -96,10 +99,12 @@ contract SessionKeyModuleTest is Test {
         vm.prank(owner);
         module.registerSessionKey(sessionKey, expiry, 100, 10);
 
+        vm.prank(owner);
+        module.setApprovedTarget(address(token), true);
         vm.warp(block.timestamp + 11);
         vm.expectRevert(SessionKeyModule.SessionKeyExpired.selector);
         vm.prank(msca);
-        module.executeFromSessionKey(sessionKey, address(0), 0, "");
+        module.executeFromSessionKey(sessionKey, address(token), 0, "");
     }
 
     function test_RevertExceedsMaxPerTx() public {
@@ -107,9 +112,11 @@ contract SessionKeyModuleTest is Test {
         vm.prank(owner);
         module.registerSessionKey(sessionKey, expiry, 100, 10); // max 10 per tx
 
+        vm.prank(owner);
+        module.setApprovedTarget(address(token), true);
         vm.expectRevert(SessionKeyModule.ExceedsMaxPerTx.selector);
         vm.prank(msca);
-        module.executeFromSessionKey(sessionKey, address(0), 20, "");
+        module.executeFromSessionKey(sessionKey, address(token), 20, "");
     }
 
     function test_RevertNonMSCAExecution() public {
@@ -133,6 +140,8 @@ contract SessionKeyModuleTest is Test {
             stranger,
             25_000_000 // 25 USDC > 10 USDC per tx limit
         );
+        vm.prank(owner);
+        module.setApprovedTarget(address(token), true);
 
         vm.expectRevert(SessionKeyModule.ExceedsMaxPerTx.selector);
         vm.prank(msca);
@@ -149,6 +158,8 @@ contract SessionKeyModuleTest is Test {
             stranger,
             9_000_000 // 9 USDC
         );
+        vm.prank(owner);
+        module.setApprovedTarget(address(token), true);
 
         vm.prank(msca);
         module.executeFromSessionKey(sessionKey, address(token), 0, transferCalldata);
@@ -169,6 +180,8 @@ contract SessionKeyModuleTest is Test {
             stranger,
             5_000_000 // 5 USDC
         );
+        vm.prank(owner);
+        module.setApprovedTarget(address(token), true);
 
         vm.prank(msca);
         module.executeFromSessionKey(sessionKey, address(token), 0, transferCalldata);
@@ -196,6 +209,18 @@ contract SessionKeyModuleTest is Test {
         return abi.encodePacked(r, s, v); // 65 bytes: r(32) || s(32) || v(1)
     }
 
+    function _signedOperationHash(
+        address skAddr,
+        address target,
+        uint256 value,
+        bytes memory data,
+        uint256 currentNonce
+    ) internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            block.chainid, address(module), skAddr, target, value, keccak256(data), currentNonce
+        ));
+    }
+
     function _registerRealKey() internal returns (address skAddr) {
         skAddr = vm.addr(SK_PK);
         uint48 expiry = uint48(block.timestamp + 1 days);
@@ -213,7 +238,9 @@ contract SessionKeyModuleTest is Test {
             stranger,
             5_000_000 // 5 USDC
         );
-        bytes32 userOpHash = keccak256(abi.encodePacked(address(token), uint256(0), transferCalldata));
+        vm.prank(owner);
+        module.setApprovedTarget(address(token), true);
+        bytes32 userOpHash = _signedOperationHash(skAddr, address(token), 0, transferCalldata, 0);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SK_PK, userOpHash);
         bytes memory signature = _encodeSig(v, r, s);
 
@@ -246,7 +273,7 @@ contract SessionKeyModuleTest is Test {
             stranger,
             1_000_000
         );
-        bytes32 userOpHash = keccak256(abi.encodePacked(address(token), uint256(0), transferCalldata));
+        bytes32 userOpHash = _signedOperationHash(skAddr, address(token), 0, transferCalldata, 0);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xCAFE_CAFE, userOpHash); // different key
         bytes memory signature = _encodeSig(v, r, s);
 
