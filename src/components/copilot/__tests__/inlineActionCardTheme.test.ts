@@ -128,4 +128,32 @@ describe('InlineActionCard outcome themes', () => {
     expect(html).toContain('border-amber-500/40')
     expect(html).not.toContain('border-rose-500/50')
   })
+
+  it('renders explorer tx URL with explorer branding for PENDING bridge receipts instead of raw hash', () => {
+    const html = render({
+      id: 'rcpt-pending-bridge',
+      actionType: 'bridge',
+      title: 'Source Burn Confirmed but Destination Mint Pending.',
+      subtitle: 'The burn transaction has been confirmed on the source network, while the mint process on the destination network is currently in progress via Circle CCTP.',
+      status: 'PENDING',
+      txHash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      sourceTxHash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      fromChain: 'Arc Testnet',
+      toChain: 'Base Sepolia',
+      gasUsdc: 0,
+      settlementLatencyMs: 500,
+      timestamp: Date.now(),
+    })
+
+    expect(html).toContain('Source Burn Confirmed but Destination Mint Pending.')
+    expect(html).toContain('The burn transaction has been confirmed on the source network')
+    expect(html).toContain('Source Burn Tx:')
+    expect(html).toContain('ArcScan')
+    expect(html).toContain('https://testnet.arcscan.app/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef')
+    // Truncated monospace display
+    expect(html).toContain('0x123456...abcdef')
+    // No raw unlinked full hash paragraph
+    expect(html).not.toContain('<p class="text-[10px] font-mono text-slate-400 break-all">0x1234567890abcdef')
+  })
 })
+
