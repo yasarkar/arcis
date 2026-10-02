@@ -97,6 +97,11 @@ export interface ServiceManifest {
 
 export interface X402PaymentRequirements {
   x402Version: 1 | 2
+  resource?: {
+    url: string
+    description: string
+    mimeType: string
+  }
   accepts: Array<{
     scheme: 'exact'
     network: string
@@ -139,6 +144,7 @@ export interface X402PaymentSignaturePayload {
     }
   }
   accepted?: any
+  resource?: X402PaymentRequirements['resource']
 }
 
 export interface PaymentReceipt {
@@ -156,12 +162,13 @@ export interface PaymentReceipt {
   network: string
   authorizationSignature: `0x${string}`
   settlementRef?: string
+  amountMicros?: number
   batchTxHash?: `0x${string}`
   explorerUrl?: string
   protocolFeeUsdc: number
   providerEarnedUsdc: number
   latencyMs: number
-  status: 'authorized' | 'settled' | 'served' | 'refunded' | 'voided' | 'failed'
+  status: 'authorized' | 'settlement_pending' | 'settled' | 'served' | 'refunded' | 'voided' | 'failed'
   failureReason?: string
   engineMode: 'gateway_batched' | 'onchain_exact'
   gasSponsored: boolean

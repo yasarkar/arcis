@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest'
 import { OFFICIAL_MANIFESTS } from '../../config/x402/manifests'
 import { calculateFeeSplit, usdcToBaseUnits, baseUnitsToUsdc } from '../../config/x402/pricing'
 import { DEFAULT_X402_DOMAIN, X402_SCHEMES, X402_NETWORKS } from '../../config/x402/schemes'
+import { ARC_TESTNET_TOKENS } from '../../config/arcChain'
 import { SERVICE_CATEGORIES, ALL_CATEGORY_LABELS } from '../../config/x402/categories'
 
 describe('x402 Architectural Contracts & Manifest Integrity', () => {
@@ -39,8 +40,8 @@ describe('x402 Architectural Contracts & Manifest Integrity', () => {
       expect(manifest.accepts.length).toBeGreaterThan(0)
       for (const accept of manifest.accepts) {
         expect(accept.scheme).toBe(X402_SCHEMES.EXACT)
-        expect(accept.asset).toBe('USDC')
-        expect(accept.network).toBe(X402_NETWORKS.ARC_TESTNET)
+        expect(accept.asset).toBe(ARC_TESTNET_TOKENS.USDC)
+        expect(accept.network).toBe(X402_NETWORKS.CAIP2_ARC_TESTNET)
         expect(accept.payTo).toMatch(/^0x[a-fA-F0-9]{40}$/)
         if (accept.domain) {
           expect(accept.domain.chainId).toBe(5042002)
