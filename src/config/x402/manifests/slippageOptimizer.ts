@@ -1,8 +1,8 @@
 // src/config/x402/manifests/slippageOptimizer.ts
 import type { ServiceManifest } from '../../../types/x402'
+import { ARC_TESTNET_TOKENS } from '../../arcChain'
 import {
   DEFAULT_X402_DOMAIN,
-  GATEWAY_BATCHED_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
@@ -31,14 +31,14 @@ export const slippageOptimizerManifest: ServiceManifest = {
   pricing: {
     model: 'per_call',
     priceUsdc: 0.002,
-    maxAmountUsdc: 0.005,
-    protocolFeeBps: 100,
+    maxAmountUsdc: 0.002,
+    protocolFeeBps: 0,
   },
   accepts: [
     {
       scheme: X402_SCHEMES.EXACT,
-      network: X402_NETWORKS.ARC_TESTNET,
-      asset: 'USDC',
+      network: X402_NETWORKS.CAIP2_ARC_TESTNET,
+      asset: ARC_TESTNET_TOKENS.USDC,
       payTo: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
       amount: '2000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
@@ -56,6 +56,7 @@ export const slippageOptimizerManifest: ServiceManifest = {
   },
   requestSchema: {
     type: 'object',
+    additionalProperties: false,
     required: ['fromToken', 'toToken', 'amount'],
     properties: {
       fromToken: { type: 'string' },
@@ -116,7 +117,8 @@ export const slippageOptimizerManifest: ServiceManifest = {
       expectedOutput: '17.5842 WETH',
       effectiveExecutionPrice: 2843.46,
       overallPriceImpactPct: 0.042,
-      savedVsSinglePoolUsdc: 384.2,
+      // Real pool depth; null when the reserve read fails (the response then reports
+      // status 'UNAVAILABLE' with no quote rather than a substituted estimate).
       flashReserveDepthUsdc: 14200000,
     },
   },

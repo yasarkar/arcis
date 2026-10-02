@@ -9,7 +9,7 @@ export interface SlashCommandItem {
   icon: string
   templatePrompt?: string
   isDirectAction?: boolean
-  directActionKey?: 'clear' | 'session' | 'faucet'
+  directActionKey?: 'clear' | 'session'
 }
 
 export const COPILOT_SLASH_COMMANDS: SlashCommandItem[] = [
@@ -56,7 +56,7 @@ export const COPILOT_SLASH_COMMANDS: SlashCommandItem[] = [
   {
     id: 'slash-send',
     command: '/send',
-    title: 'Send / Batch Payments',
+    title: 'Send Payments',
     description: 'Send USDC/EURC to any recipient address with optional memo on Arc Testnet.',
     syntax: '/send [amount] [token] to [0x...]',
     category: 'Tools',
@@ -72,18 +72,6 @@ export const COPILOT_SLASH_COMMANDS: SlashCommandItem[] = [
     category: 'Trading',
     icon: '⚡',
     templatePrompt: 'Scan Arc DEX pools for the highest arbitrage spread and net profitability.',
-  },
-  {
-    id: 'slash-faucet',
-    command: '/faucet',
-    title: 'Claim 1,000 Testnet USDC',
-    description: 'Claim 1,000 testnet USDC from faucet',
-    syntax: '/faucet',
-    category: 'Tools',
-    icon: '💧',
-    templatePrompt: 'Claim 1,000 testnet USDC from faucet',
-    isDirectAction: true,
-    directActionKey: 'faucet',
   },
   {
     id: 'slash-session',

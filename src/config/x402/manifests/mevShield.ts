@@ -1,8 +1,8 @@
 // src/config/x402/manifests/mevShield.ts
 import type { ServiceManifest } from '../../../types/x402'
+import { ARC_TESTNET_TOKENS } from '../../arcChain'
 import {
   DEFAULT_X402_DOMAIN,
-  GATEWAY_BATCHED_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
@@ -31,14 +31,14 @@ export const mevShieldManifest: ServiceManifest = {
   pricing: {
     model: 'per_call',
     priceUsdc: 0.004,
-    maxAmountUsdc: 0.01,
-    protocolFeeBps: 100,
+    maxAmountUsdc: 0.004,
+    protocolFeeBps: 0,
   },
   accepts: [
     {
       scheme: X402_SCHEMES.EXACT,
-      network: X402_NETWORKS.ARC_TESTNET,
-      asset: 'USDC',
+      network: X402_NETWORKS.CAIP2_ARC_TESTNET,
+      asset: ARC_TESTNET_TOKENS.USDC,
       payTo: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
       amount: '4000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
@@ -56,6 +56,7 @@ export const mevShieldManifest: ServiceManifest = {
   },
   requestSchema: {
     type: 'object',
+    additionalProperties: false,
     required: ['targetTxAmountUsdc', 'slippageTolerancePct'],
     properties: {
       targetTxAmountUsdc: { type: 'number', minimum: 1 },
@@ -90,12 +91,13 @@ export const mevShieldManifest: ServiceManifest = {
     response: {
       status: 'ANALYSIS_COMPLETE',
       vulnerabilityLevel: 'HIGH_IF_UNPROTECTED',
-      detectedActiveMevBotsCount: 6,
-      potentialLossWithoutShieldUsdc: 450.8,
+      // Real ratio of the user's trade size to the on-chain USDC pool reserve; null with
+      // status 'UNAVAILABLE' when that reserve read fails.
+      tradeReserveExposurePct: 7.14,
       recommendedShieldAction: {
-        bundleType: 'Flashbots/ArcPrivateRelayer',
-        adjustedMaxSlippagePct: 0.08,
-        mevProtectionScore: '100% SECURE',
+        bundleType: 'Arc L1 Native Priority Shield (Instant Finality)',
+        adjustedMaxSlippagePct: 0.5,
+        estimatedGasCostUsdc: 0.0084,
       },
     },
   },

@@ -12,5 +12,11 @@ export {
   extractBaseFeeFromHeaderExtraData,
   getDynamicArcGasOptions,
   calculateArcGasCostFromFee,
+  calculateStaticTierGasCostUsdc,
+  arcTransferGasLimit,
+  arcTransferFeeFallbackUsdc,
+  resolveArcActualFeeUsdc,
+  getObservedArcPriorityFee,
+  type ArcActualFeeResult,
   type DynamicArcGasResult,
 } from './fees'

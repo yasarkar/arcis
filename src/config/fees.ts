@@ -5,15 +5,32 @@
 // - Arc L1 Native USDC Gas Calculations & Dynamic Options
 // - Module Protocol Fee Rates (Send, Swap, Bridge) & Circle AppKit Revenue Sharing
 import { parseGwei } from 'viem'
+
+// ─────────────────────────────────────────────────────────────
+// 0. ENVIRONMENT ACCESS
+// `import.meta.env` is inlined by Vite in the browser bundle, but the API server loads these
+// same modules through tsx (`npm run start`), where it is undefined. Read process.env first and
+// guard the Vite access, the same way src/config/networks/networkRegistry.ts does.
+// ─────────────────────────────────────────────────────────────
+const ENV_EVM_TREASURY = (typeof process !== 'undefined' && process.env && process.env.VITE_EVM_TREASURY_ADDRESS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_EVM_TREASURY_ADDRESS)
+const ENV_SOLANA_TREASURY = (typeof process !== 'undefined' && process.env && process.env.VITE_SOLANA_TREASURY_ADDRESS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SOLANA_TREASURY_ADDRESS)
+const ENV_INJECTIVE_TREASURY = (typeof process !== 'undefined' && process.env && process.env.VITE_INJECTIVE_TREASURY_ADDRESS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_INJECTIVE_TREASURY_ADDRESS)
+const ENV_BRIDGE_FEE_ENABLED = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_ENABLED) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_ENABLED)
+const ENV_BRIDGE_FEE_VALUE = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_VALUE) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_VALUE)
+const ENV_BRIDGE_FEE_RECIPIENT = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_RECIPIENT) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_RECIPIENT)
+const ENV_SWAP_FEE_ENABLED = (typeof process !== 'undefined' && process.env && process.env.VITE_SWAP_FEE_ENABLED) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SWAP_FEE_ENABLED)
+const ENV_SWAP_FEE_BPS = (typeof process !== 'undefined' && process.env && process.env.VITE_SWAP_FEE_BPS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SWAP_FEE_BPS)
+const ENV_SWAP_FEE_RECIPIENT = (typeof process !== 'undefined' && process.env && process.env.VITE_SWAP_FEE_RECIPIENT) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SWAP_FEE_RECIPIENT)
+
 // ─────────────────────────────────────────────────────────────
 // 1. MULTI-CHAIN TREASURY ADDRESSES & RESOLUTION
 // ─────────────────────────────────────────────────────────────
 
 //Circle AppKit rule: custom fee recipient MUST be on the source blockchain where the fee is debited.
 export const TREASURY_ADDRESSES = {
-  evm: (import.meta.env.VITE_EVM_TREASURY_ADDRESS as `0x${string}`),
-  solana: ((import.meta.env.VITE_SOLANA_TREASURY_ADDRESS) as string),
-  injective: ((import.meta.env.VITE_INJECTIVE_TREASURY_ADDRESS) as string),
+  evm: (ENV_EVM_TREASURY as `0x${string}`),
+  solana: (ENV_SOLANA_TREASURY as string),
+  injective: (ENV_INJECTIVE_TREASURY as string),
 } as const
 
 // Backwards-compatible default (EVM)
@@ -473,9 +490,9 @@ function isLikelyAddress(value: string | undefined): boolean {
 }
 
 function loadBridgeFeeConfig(): BridgeCustomFeeConfig {
-  const envEnabled = import.meta.env.VITE_BRIDGE_FEE_ENABLED as string | undefined
-  const envValue = import.meta.env.VITE_BRIDGE_FEE_VALUE as string | undefined
-  const envRecipient = import.meta.env.VITE_BRIDGE_FEE_RECIPIENT as string | undefined
+  const envEnabled = ENV_BRIDGE_FEE_ENABLED as string | undefined
+  const envValue = ENV_BRIDGE_FEE_VALUE as string | undefined
+  const envRecipient = ENV_BRIDGE_FEE_RECIPIENT as string | undefined
 
   const value = envValue && parseFloat(envValue) > 0 ? envValue : '0.10'
   const recipient = isLikelyAddress(envRecipient) ? envRecipient! : (TREASURY_ADDRESSES.evm || '')
@@ -486,9 +503,9 @@ function loadBridgeFeeConfig(): BridgeCustomFeeConfig {
 }
 
 function loadSwapFeeConfig(): SwapCustomFeeConfig {
-  const envEnabled = import.meta.env.VITE_SWAP_FEE_ENABLED as string | undefined
-  const envBps = Number(import.meta.env.VITE_SWAP_FEE_BPS)
-  const envRecipient = import.meta.env.VITE_SWAP_FEE_RECIPIENT as string | undefined
+  const envEnabled = ENV_SWAP_FEE_ENABLED as string | undefined
+  const envBps = Number(ENV_SWAP_FEE_BPS)
+  const envRecipient = ENV_SWAP_FEE_RECIPIENT as string | undefined
 
   const bps = Number.isFinite(envBps) && envBps >= 0 ? Math.round(envBps) : 25
   const recipient = isLikelyAddress(envRecipient) ? envRecipient! : (TREASURY_ADDRESSES.evm || '')
@@ -522,5 +539,11 @@ export {
   extractBaseFeeFromHeaderExtraData,
   getDynamicArcGasOptions,
   calculateArcGasCostFromFee,
+  calculateStaticTierGasCostUsdc,
+  arcTransferGasLimit,
+  arcTransferFeeFallbackUsdc,
+  resolveArcActualFeeUsdc,
+  getObservedArcPriorityFee,
+  type ArcActualFeeResult,
   type DynamicArcGasResult,
 } from '../services/arcGasService'

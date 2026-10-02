@@ -129,8 +129,20 @@ export const POOL_CONTRACTS_V3 = {
 
 // ── Pool Version & Slippage Helpers ───────────────────────────────────────────
 // LIVE contracts are now V3 (mainnet-bound) on Arc Testnet.
-export const POOL_VERSION_V3: boolean = (import.meta.env.VITE_POOL_VERSION ?? 'v3') === 'v3'
-export const POOL_VERSION_V2: boolean = import.meta.env.VITE_POOL_V2 === 'true'
+// `import.meta.env` only exists inside the Vite bundle; the API server loads these same
+// modules through tsx, where it is undefined. Read process.env first and guard the Vite
+// access, the same way src/config/networks/networkRegistry.ts does.
+const poolVersionEnv =
+  (typeof process !== 'undefined' && process.env && process.env.VITE_POOL_VERSION) ||
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_POOL_VERSION) ||
+  'v3'
+const poolVersionV2Env =
+  (typeof process !== 'undefined' && process.env && process.env.VITE_POOL_V2) ||
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_POOL_V2) ||
+  'false'
+
+export const POOL_VERSION_V3: boolean = poolVersionEnv === 'v3'
+export const POOL_VERSION_V2: boolean = poolVersionV2Env === 'true'
 
 // Default AMM LP operation slippage tolerance (0.5%).
 export const POOL_DEFAULT_SLIPPAGE_BPS = 50

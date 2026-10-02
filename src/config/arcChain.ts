@@ -22,6 +22,7 @@ export const ARC_TESTNET_TOKENS = {
   USDC: TESTNET_NETWORKS.Arc_Testnet.tokens.USDC as `0x${string}`,
   EURC: TESTNET_NETWORKS.Arc_Testnet.tokens.EURC as `0x${string}`,
   cirBTC: (TESTNET_NETWORKS.Arc_Testnet.tokens.cirBTC || '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF') as `0x${string}`,
+  WETH: (TESTNET_NETWORKS.Arc_Testnet.tokens.WETH || '0x2c4047028a72803939b6fb674D01bC059B5C4961') as `0x${string}`,
 } as const
 
 /** Token addresses for Arc Mainnet */
@@ -29,6 +30,7 @@ export const ARC_MAINNET_TOKENS = {
   USDC: (MAINNET_NETWORKS.Arc?.tokens.USDC || '0x3600000000000000000000000000000000000000') as `0x${string}`,
   EURC: (MAINNET_NETWORKS.Arc?.tokens.EURC || '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a') as `0x${string}`,
   cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF' as `0x${string}`,
+  WETH: (MAINNET_NETWORKS.Arc?.tokens.WETH || '0x128cC466B61f542da60c70e3aA11c10e19B84EDB') as `0x${string}`,
 } as const
 
 /** Active token addresses according to environment */

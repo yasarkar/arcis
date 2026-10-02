@@ -1,8 +1,8 @@
 // src/config/x402/manifests/flashLoanRadar.ts
 import type { ServiceManifest } from '../../../types/x402'
+import { ARC_TESTNET_TOKENS } from '../../arcChain'
 import {
   DEFAULT_X402_DOMAIN,
-  GATEWAY_BATCHED_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
@@ -31,14 +31,14 @@ export const flashLoanRadarManifest: ServiceManifest = {
   pricing: {
     model: 'per_call',
     priceUsdc: 0.008,
-    maxAmountUsdc: 0.015,
-    protocolFeeBps: 100,
+    maxAmountUsdc: 0.008,
+    protocolFeeBps: 0,
   },
   accepts: [
     {
       scheme: X402_SCHEMES.EXACT,
-      network: X402_NETWORKS.ARC_TESTNET,
-      asset: 'USDC',
+      network: X402_NETWORKS.CAIP2_ARC_TESTNET,
+      asset: ARC_TESTNET_TOKENS.USDC,
       payTo: '0x9482Ac02f0B0F3Ac9443Bf38e78fC3A360049f5E',
       amount: '8000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
@@ -56,6 +56,7 @@ export const flashLoanRadarManifest: ServiceManifest = {
   },
   requestSchema: {
     type: 'object',
+    additionalProperties: false,
     required: ['minLiquidationRewardUsdc'],
     properties: {
       minLiquidationRewardUsdc: { type: 'number', minimum: 1 },
@@ -92,22 +93,17 @@ export const flashLoanRadarManifest: ServiceManifest = {
       minLiquidationRewardUsdc: 100,
       targetProtocol: 'All',
     },
+    // No on-chain liquidation source is connected, so no opportunity, health factor, bonus
+    // or expected reward is reported. Only the real YieldVault liquidity is returned.
     response: {
-      status: 'LIQUIDATIONS_FOUND',
-      activeOpportunitiesCount: 2,
-      opportunities: [
-        {
-          protocol: 'ArcLend V3',
-          borrowerAddress: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-          healthFactor: 0.942,
-          debtAsset: 'USDC',
-          debtToCoverUsdc: 42000,
-          collateralAsset: 'WETH',
-          collateralAmount: '16.24 WETH',
-          liquidationBonusPct: 8.0,
-          netExpectedProfitUsdc: 3360.0,
-        },
-      ],
+      status: 'UNAVAILABLE',
+      requestedMinLiquidationRewardUsdc: 100,
+      onChainVaultLiquidityUsdc: 84250,
+      activeOpportunitiesCount: null,
+      opportunities: [],
+      unavailable: ['liquidation opportunity feed'],
+      reason:
+        'No on-chain liquidation source is connected, so no liquidation opportunity or expected reward can be reported.',
     },
   },
   sla: {

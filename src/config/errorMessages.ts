@@ -12,12 +12,18 @@ export interface ErrorDefinition {
   isActionable?: boolean
 }
 
+/** Canonical title shown for a deliberate wallet / UCW / passkey cancellation. */
+export const USER_CANCELED_TITLE = 'Transaction Cancelled'
+
+/** Canonical subtext shown for a deliberate cancellation, across every surface. */
+export const USER_CANCELED_MESSAGE = 'Transaction canceled by user. Try again whenever you are ready.'
+
 export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   // 1. User Cancellation
   USER_CANCELED: {
     category: 'WALLET_REJECTION',
-    title: 'Transaction Canceled',
-    message: 'Transaction canceled in wallet. Try again whenever you are ready.',
+    title: USER_CANCELED_TITLE,
+    message: USER_CANCELED_MESSAGE,
     isCanceled: true,
     isRetryable: true,
   },

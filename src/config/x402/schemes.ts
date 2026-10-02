@@ -30,8 +30,11 @@ export const GATEWAY_CONTRACTS = {
 export const CIRCLE_BATCHING_METADATA = {
   NAME: 'GatewayWalletBatched',
   VERSION: '1',
-  MAX_TIMEOUT_SECONDS: 345600, // 4 days (345,600s) default
-  FULL_VALIDITY_SECONDS: 604900, // 7 days (604,900s)
+  // Gateway requires at least 7 days of authorization validity. The Circle SDK
+  // advertises/signs 100 extra seconds to absorb request and clock skew.
+  MIN_AUTH_VALIDITY_SECONDS: 604800,
+  MAX_TIMEOUT_SECONDS: 604900,
+  FULL_VALIDITY_SECONDS: 604900,
 } as const
 
 /**

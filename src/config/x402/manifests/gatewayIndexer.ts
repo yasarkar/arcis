@@ -1,8 +1,8 @@
 // src/config/x402/manifests/gatewayIndexer.ts
 import type { ServiceManifest } from '../../../types/x402'
+import { ARC_TESTNET_TOKENS } from '../../arcChain'
 import {
   DEFAULT_X402_DOMAIN,
-  GATEWAY_BATCHED_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
@@ -31,14 +31,14 @@ export const gatewayIndexerManifest: ServiceManifest = {
   pricing: {
     model: 'per_call',
     priceUsdc: 0.003,
-    maxAmountUsdc: 0.006,
-    protocolFeeBps: 100,
+    maxAmountUsdc: 0.003,
+    protocolFeeBps: 0,
   },
   accepts: [
     {
       scheme: X402_SCHEMES.EXACT,
-      network: X402_NETWORKS.ARC_TESTNET,
-      asset: 'USDC',
+      network: X402_NETWORKS.CAIP2_ARC_TESTNET,
+      asset: ARC_TESTNET_TOKENS.USDC,
       payTo: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
       amount: '3000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
@@ -56,6 +56,7 @@ export const gatewayIndexerManifest: ServiceManifest = {
   },
   requestSchema: {
     type: 'object',
+    additionalProperties: false,
     required: ['timeWindow'],
     properties: {
       timeWindow: {
@@ -85,18 +86,36 @@ export const gatewayIndexerManifest: ServiceManifest = {
     request: {
       timeWindow: '1h',
     },
+    // Shape only, and it says so: `status` is 'EXAMPLE' and every measured field is null.
+    // A real response reads the Circle Gateway contracts on Arc L1 (GatewayMinter.AttestationUsed
+    // for inflow, GatewayWallet.GatewayBurned for outflow) and reports `status` as LIVE / STALE /
+    // UNAVAILABLE together with the `readAt` time it was read; when the read yields nothing the
+    // service says so with its read time instead of substituting a number.
     response: {
-      status: 'FEED_ACTIVE',
+      status: 'EXAMPLE',
+      source:
+        'Circle Gateway contracts on Arc L1: GatewayMinter.AttestationUsed + GatewayWallet.GatewayBurned logs',
+      readAt: null,
+      ageSeconds: null,
       timeWindow: '1h',
-      netUsdcInflowToArc: '+4,820,500 USDC',
-      topSourceChains: [
-        { chain: 'Ethereum Mainnet/Sepolia', inflowUsdc: 2450000, sharePct: 50.8 },
-        { chain: 'Base', inflowUsdc: 1320500, sharePct: 27.4 },
-        { chain: 'Arbitrum', inflowUsdc: 850000, sharePct: 17.6 },
-        { chain: 'Solana Devnet', inflowUsdc: 200000, sharePct: 4.2 },
-      ],
-      institutionalWhaleTransfersCount: 14,
-      flowSentiment: 'STRONG_BULLISH_LIQUIDITY_ACCUMULATION',
+      requestedWindowSeconds: 3600,
+      grossInflowUsdc: null,
+      grossOutflowUsdc: null,
+      netUsdcInflowUsdc: null,
+      transferCount: null,
+      whaleTransferCount: null,
+      topSourceChains: [{ chain: '<resolved from AttestationUsed.sourceDomain>', domain: null, inflowUsdc: null, sharePct: null }],
+      flowDirection: null,
+      window: {
+        fromBlock: null,
+        toBlock: null,
+        scannedBlocks: null,
+        requestedSeconds: 3600,
+        secondsPerBlock: null,
+        coveredSeconds: null,
+        partialWindow: null,
+      },
+      note: 'Illustrative shape only — no measurement was taken. A real response carries status LIVE (or STALE / UNAVAILABLE) and the readAt time of the on-chain read.',
     },
   },
   sla: {

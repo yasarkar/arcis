@@ -1,8 +1,8 @@
 // src/config/x402/manifests/arbitrageSentinel.ts
 import type { ServiceManifest } from '../../../types/x402'
+import { ARC_TESTNET_TOKENS } from '../../arcChain'
 import {
   DEFAULT_X402_DOMAIN,
-  GATEWAY_BATCHED_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
@@ -31,14 +31,14 @@ export const arbitrageSentinelManifest: ServiceManifest = {
   pricing: {
     model: 'per_call',
     priceUsdc: 0.005,
-    maxAmountUsdc: 0.01,
-    protocolFeeBps: 100,
+    maxAmountUsdc: 0.005,
+    protocolFeeBps: 0,
   },
   accepts: [
     {
       scheme: X402_SCHEMES.EXACT,
-      network: X402_NETWORKS.ARC_TESTNET,
-      asset: 'USDC',
+      network: X402_NETWORKS.CAIP2_ARC_TESTNET,
+      asset: ARC_TESTNET_TOKENS.USDC,
       payTo: '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A',
       amount: '5000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
@@ -56,6 +56,7 @@ export const arbitrageSentinelManifest: ServiceManifest = {
   },
   requestSchema: {
     type: 'object',
+    additionalProperties: false,
     required: ['pair', 'tradeSizeUsdc'],
     properties: {
       pair: {
@@ -107,24 +108,25 @@ export const arbitrageSentinelManifest: ServiceManifest = {
       minNetProfitPct: 0.35,
       includeGasCostEstimate: true,
     },
+    // Every figure comes from the on-chain pool reserves, the live oracle prices and Arc's
+    // gas price for the requested trade size. If one of those reads fails the response is
+    // { status: 'UNAVAILABLE', unavailable: [...], reason: [...] } with no numbers at all.
     response: {
       status: 'OPPORTUNITY_DETECTED',
       timestamp: 1760000000000,
       pair: 'USDC/WETH',
+      liveOraclePrices: { USDC: 1, WETH: 2842.1 },
       bestRoute: {
-        buyDex: 'ArcSwap V3 (Pool 0.05%)',
+        buyDex: 'Arcis StableSwap V3 Pool',
         buyPriceUsdc: 2842.1,
-        sellDex: 'Aerodrome Arc Fork (Pool 0.3%)',
+        sellDex: 'External Oracle / Gateway Bridge',
         sellPriceUsdc: 2864.8,
         grossSpreadPct: 0.798,
         recommendedTradeSize: 25000,
         estimatedGasCostUsdc: 0.0084,
         netProfitUsdc: 199.25,
         netProfitPct: 0.797,
-        confidenceScore: 0.984,
-        executionCalldataHex: '0x522faf9a0000000000000000000000003600000000000000000000000000000000000000...',
       },
-      mempoolRisk: 'LOW_MEV_THREAT',
     },
   },
   sla: {
