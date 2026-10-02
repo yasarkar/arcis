@@ -12,6 +12,7 @@ export interface BridgeSuccessReceiptProps {
   destIconId: string
   recipient: string
   mode: 'direct' | 'gateway'
+  pending?: boolean
   txHash?: string
   sourceTxHash?: string
   destTxHash?: string
@@ -35,6 +36,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
   destIconId,
   recipient,
   mode,
+  pending = false,
   txHash,
   sourceTxHash,
   destTxHash,
@@ -50,6 +52,9 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
   return (
     <UnifiedSuccessReceipt
       type="bridge"
+      title={pending ? 'Bridge Pending — Destination Confirmation Required' : undefined}
+      subtitle={pending ? 'The source transaction was submitted. Destination mint is not yet verified; no final delivery is claimed.' : undefined}
+      status={pending ? 'pending' : 'success'}
       amount={amount}
       tokenSymbol="USDC"
       tokenIcon={UsdcIcon}
