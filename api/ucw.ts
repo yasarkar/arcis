@@ -1,23 +1,7 @@
 import { initiateUserControlledWalletsClient } from "@circle-fin/user-controlled-wallets";
 import { checkRateLimit } from "./_utils/rateLimiter";
 import { apiSuccess, apiError, safeJsonParse } from "./_utils/apiResponse";
-
-// ─────────────────────────────────────────────────────────────
-// 1. IP RESOLUTION HELPER
-// ─────────────────────────────────────────────────────────────
-function getClientIp(req: Request): string {
-  const headers = req.headers;
-  const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
-  }
-  return (
-    headers.get("cf-connecting-ip") ||
-    headers.get("x-real-ip") ||
-    headers.get("true-client-ip") ||
-    "127.0.0.1"
-  );
-}
+import { extractTrustedClientIp } from "./_utils/trustedIp";
 
 // ─────────────────────────────────────────────────────────────
 // 2. INPUT SANITIZATION & VALIDATION HELPERS
@@ -64,7 +48,7 @@ export async function OPTIONS() {
 export async function POST(req: Request) {
   const url = new URL(req.url);
   const action = url.searchParams.get("action");
-  const clientIp = getClientIp(req);
+  const clientIp = extractTrustedClientIp(req);
 
   const jsonResult = await safeJsonParse(req);
   if (!jsonResult.success) {
@@ -80,41 +64,12 @@ export async function POST(req: Request) {
   try {
     // ── Action: Create User & Obtain userToken ────────────────
     if (action === "createUserToken") {
-      // Distributed Rate Limit: 15 requests per 60s per IP
-      const rateCheck = await checkRateLimit(`userToken:${clientIp}`, 15, 60_000);
-      if (!rateCheck.allowed) {
-        return apiError(
-          "Rate limit exceeded for user sessions. Please wait before trying again.",
-          "RATE_LIMIT_EXCEEDED",
-          429,
-          null,
-          { retryAfter: rateCheck.retryAfterSeconds }
-        );
-      }
-
-      const userId = sanitizeString(body.userId, 100);
-      if (!userId) {
-        return apiError("userId is required and must be a valid string.", "MISSING_USER_ID", 400);
-      }
-
-      const client = getCircleClient();
-      
-      // First ensure user exists or create user
-      try {
-        await client.createUser({ userId });
-      } catch (err: any) {
-        // Code 155106 means user already exists, which is fine
-        if (err?.response?.data?.code !== 155106) {
-          console.warn("[UCW API] User creation warning:", err?.message || err);
-        }
-      }
-
-      // Generate user token
-      const response = await client.createUserToken({ userId });
-      return apiSuccess({ 
-        userToken: response.data?.userToken, 
-        encryptionKey: response.data?.encryptionKey 
-      });
+      // Security (SEC-02): Disable arbitrary user token generation until verified application sessions are implemented
+      return apiError(
+        "Direct unauthenticated user token creation is disabled pending application session verification.",
+        "USER_TOKEN_AUTHENTICATION_REQUIRED",
+        503
+      );
     }
 
     // ── Action: Request Email OTP Token ───────────────────────

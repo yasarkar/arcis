@@ -3,14 +3,19 @@
 // Redis cache layer with TTL support for Arcis Pool & Position states.
 // Connects to Vercel KV / Upstash Redis with a graceful in-memory TTL fallback.
 
-import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
+import { apiSuccess, apiError } from './_utils/apiResponse'
 import {
   kvGet,
-  kvSet,
-  kvDel,
   kvTtl,
   getStorageDriver,
 } from './_utils/redisStorage'
+
+// Security (SEC-01): Allowlist of read-only public cache keys.
+// Sensitive financial state, provider ledgers, locks, and history cannot be read through public cache.
+const ALLOWED_PUBLIC_CACHE_KEYS = new Set([
+  'arcis:token_prices:v1',
+  'arcis:pools:state',
+])
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -18,6 +23,11 @@ export async function GET(req: Request) {
 
   if (!key) {
     return apiError('Query parameter "key" is required.', 'MISSING_QUERY_PARAM', 400)
+  }
+
+  // Security (SEC-01): Enforce public key allowlist
+  if (!ALLOWED_PUBLIC_CACHE_KEYS.has(key)) {
+    return apiError('Cache key is not public.', 'FORBIDDEN', 403)
   }
 
   try {
@@ -57,50 +67,12 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
-  const jsonResult = await safeJsonParse(req)
-  if (!jsonResult.success) {
-    return apiError(
-      jsonResult.error || 'Invalid or malformed JSON payload in request body.',
-      'INVALID_JSON',
-      400
-    )
-  }
-
-  const body = jsonResult.data || {}
-  const { key, value, ttlSeconds = 30 } = body
-
-  if (!key || value === undefined) {
-    return apiError('"key" and "value" are required.', 'MISSING_PARAMETERS', 400)
-  }
-
-  try {
-    const ttl = Number(ttlSeconds) || 30
-    const strVal = typeof value === 'string' ? value : JSON.stringify(value)
-    await kvSet(key, strVal, ttl)
-
-    return apiSuccess({
-      key,
-      ttlSeconds: ttl,
-      source: getStorageDriver(),
-    })
-  } catch (error: any) {
-    return apiError(error.message || 'Internal server error in Cache save', 'CACHE_POST_ERROR', 500)
-  }
+export async function POST(_req: Request) {
+  // Security (SEC-01): Disable public cache writes to prevent arbitrary key overwrite/poisoning
+  return apiError('Public cache writes are disabled.', 'FORBIDDEN', 403)
 }
 
-export async function DELETE(req: Request) {
-  const url = new URL(req.url)
-  const key = url.searchParams.get('key')
-
-  if (!key) {
-    return apiError('Query parameter "key" is required.', 'MISSING_QUERY_PARAM', 400)
-  }
-
-  try {
-    await kvDel(key)
-    return apiSuccess({ key, message: 'Deleted' })
-  } catch (error: any) {
-    return apiError(error.message || 'Internal server error in Cache delete', 'CACHE_DELETE_ERROR', 500)
-  }
+export async function DELETE(_req: Request) {
+  // Security (SEC-01): Disable public cache deletion to prevent arbitrary key erasure
+  return apiError('Public cache deletion is disabled.', 'FORBIDDEN', 403)
 }

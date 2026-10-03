@@ -8,6 +8,7 @@ import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from '../src/serv
 import { getSwapEstimate } from '../src/services/swapService'
 import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 import { checkRateLimit } from './_utils/rateLimiter'
+import { extractTrustedClientIp } from './_utils/trustedIp'
 // Single owner of the portfolio → prompt contract, shared with the browser so field names cannot drift.
 import { formatPortfolioForPrompt, availableTokenBalance } from '../src/utils/portfolioPrompt'
 import {
@@ -16,26 +17,8 @@ import {
   validateSendAmount,
   isValidEvmAddress,
   isZeroAddress,
-  validateSendAmount,
   WBTC_UNSUPPORTED_MESSAGE,
 } from '../src/config/copilotTokens'
-
-// ─────────────────────────────────────────────────────────────
-// IP RESOLUTION HELPER
-// ─────────────────────────────────────────────────────────────
-function getClientIp(req: Request): string {
-  const headers = req.headers
-  const forwarded = headers.get('x-forwarded-for')
-  if (forwarded) {
-    return forwarded.split(',')[0].trim()
-  }
-  return (
-    headers.get('cf-connecting-ip') ||
-    headers.get('x-real-ip') ||
-    headers.get('true-client-ip') ||
-    '127.0.0.1'
-  )
-}
 
 // A BYOK credential is honored only when it is unmistakably an OpenAI / OpenRouter key.
 // Any other Authorization value is ignored, so an arbitrary header can never be forwarded
@@ -44,7 +27,7 @@ const BYOK_KEY_PATTERN = /^sk-(or-)?[A-Za-z0-9_-]{16,}$/
 
 export async function POST(req: Request) {
   try {
-    const clientIp = getClientIp(req)
+    const clientIp = extractTrustedClientIp(req)
 
     // Distributed rate limit: 20 requests / 60s per IP. Protect the shared server key from
     // anonymous flooding and cost amplification.

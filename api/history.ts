@@ -142,10 +142,23 @@ export async function GET(req: Request) {
     // Sort descending by timestamp (newest first)
     const sorted = items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, limit)
 
+    // Security (SEC-04): Strip private memo content for public unauthenticated requests
+    const sanitized = sorted.map((item) => {
+      if (item.isPrivate) {
+        return {
+          ...item,
+          memo: undefined,
+          memoId: undefined,
+          memoIndex: undefined,
+        }
+      }
+      return item
+    })
+
     return apiSuccess({
       address: address || null,
-      count: sorted.length,
-      transactions: sorted,
+      count: sanitized.length,
+      transactions: sanitized,
       source,
     })
   } catch (error: any) {
@@ -159,7 +172,19 @@ export async function GET(req: Request) {
  * Body: Partial<ServerHistoryItem>
  * Adds or updates a transaction in server storage (Vercel KV / Redis + memory fallback).
  */
-export async function POST(req: Request) {
+export async function POST(_req: Request) {
+  // Security (SEC-04 Quarantine): Anonymous history writes and updates are disabled pending wallet authentication.
+  return apiError(
+    'Anonymous history writes are disabled pending wallet authentication.',
+    'FORBIDDEN',
+    403
+  )
+}
+
+/**
+ * Historical implementation preserved for when authenticated wallet sessions are active.
+ */
+async function _legacyUnauthenticatedPOST(req: Request) {
   try {
     const jsonResult = await safeJsonParse(req)
     if (!jsonResult.success) {
@@ -283,68 +308,7 @@ export async function POST(req: Request) {
  *   - address: string (optional, clears user-specific history)
  *   - txHash: string (optional, removes specific transaction)
  */
-export async function DELETE(req: Request) {
-  try {
-    const url = new URL(req.url)
-    const address = url.searchParams.get('address')?.toLowerCase()
-    const txHash = url.searchParams.get('txHash')?.toLowerCase()
-
-    if (!address && !txHash) {
-      return apiError('Query parameter "address" or "txHash" is required.', 'MISSING_QUERY_PARAM', 400)
-    }
-
-    // 1. Remove from in-memory
-    if (txHash) {
-      const idx = memoryHistory.findIndex((m) => m.txHash?.toLowerCase() === txHash)
-      if (idx >= 0) memoryHistory.splice(idx, 1)
-    } else if (address) {
-      for (let i = memoryHistory.length - 1; i >= 0; i--) {
-        if (
-          memoryHistory[i].userAddress?.toLowerCase() === address ||
-          memoryHistory[i].recipient?.toLowerCase() === address
-        ) {
-          memoryHistory.splice(i, 1)
-        }
-      }
-    }
-
-    // 2. Remove from KV Storage
-    try {
-      if (txHash) {
-        // Remove from global list
-        const rawAll = await kvGet(REDIS_KEY_ALL)
-        const allList = parseItems(rawAll)
-        const filteredAll = allList.filter((m) => m.txHash?.toLowerCase() !== txHash)
-        await kvSet(REDIS_KEY_ALL, JSON.stringify(filteredAll))
-
-        // If address also provided, clean user list
-        if (address) {
-          const userKey = `${REDIS_KEY_USER_PREFIX}${address}`
-          const rawUser = await kvGet(userKey)
-          const userList = parseItems(rawUser)
-          const filteredUser = userList.filter((m) => m.txHash?.toLowerCase() !== txHash)
-          await kvSet(userKey, JSON.stringify(filteredUser))
-        }
-      } else if (address) {
-        // Delete user key
-        await kvDel(`${REDIS_KEY_USER_PREFIX}${address}`)
-
-        // Filter out this user's records from global list
-        const rawAll = await kvGet(REDIS_KEY_ALL)
-        const allList = parseItems(rawAll)
-        const filteredAll = allList.filter(
-          (m) =>
-            m.userAddress?.toLowerCase() !== address &&
-            m.recipient?.toLowerCase() !== address
-        )
-        await kvSet(REDIS_KEY_ALL, JSON.stringify(filteredAll))
-      }
-    } catch (storageErr) {
-      console.warn('[History API] Failed to update remote KV storage on DELETE:', storageErr)
-    }
-
-    return apiSuccess({ message: 'History record(s) removed' })
-  } catch (error: any) {
-    return apiError(error.message || 'Internal server error in History delete', 'HISTORY_DELETE_ERROR', 500)
-  }
+export async function DELETE(_req: Request) {
+  // Security (SEC-04): Disable arbitrary unauthenticated history deletions to prevent unauthorized erasure of transactions
+  return apiError('Public unauthenticated history deletion is disabled.', 'FORBIDDEN', 403)
 }

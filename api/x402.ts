@@ -315,9 +315,9 @@ function createPaymentRequirements(manifest: ServiceManifest): X402PaymentRequir
 export function isX402ServiceResultAvailable(data: unknown): boolean {
   return Boolean(
     data &&
-      typeof data === 'object' &&
-      typeof (data as Record<string, unknown>).status === 'string' &&
-      (data as Record<string, unknown>).status !== 'UNAVAILABLE'
+    typeof data === 'object' &&
+    typeof (data as Record<string, unknown>).status === 'string' &&
+    (data as Record<string, unknown>).status !== 'UNAVAILABLE'
   )
 }
 
@@ -501,7 +501,7 @@ export async function GET(req: Request): Promise<Response> {
         const customList: unknown = JSON.parse(customListJson)
         if (Array.isArray(customList)) allManifests = [...allManifests, ...customList.filter(validateCommunityManifest)]
       }
-    } catch {}
+    } catch { }
     return new Response(JSON.stringify({ success: true, protocol: 'x402-Gateway-V1', chainId: arcTestnet.id, gasToken: arcTestnet.nativeCurrency.symbol, count: allManifests.length, services: allManifests }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
   if (pathname.endsWith('/health')) {
@@ -516,7 +516,7 @@ export async function GET(req: Request): Promise<Response> {
     try {
       const kvData = await kvGet(providerLedgerKey(providerAddr))
       if (kvData) stats = JSON.parse(kvData)
-    } catch {}
+    } catch { }
     const ledger: ProviderLedger = {
       providerAddress: safeChecksumAddress(providerAddr),
       // The atomic provider ledger is wallet-wide. Until per-service dimensions are stored
@@ -617,6 +617,9 @@ export async function POST(req: Request): Promise<Response> {
         return new Response(JSON.stringify({ success: false, error: 'Shared atomic ledger storage is unavailable; authorization nonce remains reserved to prevent replay' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
       }
       if (update.status === 'insufficient') return new Response(JSON.stringify({ success: false, error: 'Insufficient unclaimed earnings' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+      if (update.status !== 'updated' || !update.ledger) {
+        return new Response(JSON.stringify({ success: false, error: 'Ledger update was not confirmed' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+      }
       serverProviderStore.set(lower, update.ledger)
       return new Response(JSON.stringify({ success: true, providerAddress: safeChecksumAddress(providerAddress), amountUsdc, remainingBalanceUsdc: update.ledger.unclaimedEarningsUsdc, totalWithdrawnUsdc: update.ledger.withdrawnUsdc, settlementStatus: 'offchain_ledger_only', message: 'This only moves the internal provider ledger. No USDC payout was sent to a wallet.', timestamp: Date.now() }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     } catch (err: any) {
@@ -643,7 +646,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   let bodyJson: Record<string, any> = {}
-  try { const parsed: unknown = await req.json(); if (isRecord(parsed)) bodyJson = parsed } catch {}
+  try { const parsed: unknown = await req.json(); if (isRecord(parsed)) bodyJson = parsed } catch { }
   const requestPayload = isRecord(bodyJson.payload) ? bodyJson.payload : bodyJson
   const payloadProperties = isRecord(manifest.requestSchema?.properties) ? manifest.requestSchema.properties : {}
   const payloadRequired = Array.isArray(manifest.requestSchema?.required) ? manifest.requestSchema.required : []
@@ -706,7 +709,7 @@ export async function POST(req: Request): Promise<Response> {
     try {
       const recovered = await recoverTypedDataAddress({ domain, types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES, primaryType: 'TransferWithAuthorization', message: { from: payerAddress, to: providerChecksum, value: BigInt(requiredBaseUnits), validAfter: validAfter!, validBefore: explicitValidBefore!, nonce: resolvedNonce }, signature })
       if (recovered.toLowerCase() === payerAddress.toLowerCase()) { recoveredAddress = recovered; break }
-    } catch {}
+    } catch { }
   }
   if (!recoveredAddress) return new Response(JSON.stringify({ error: 'Cryptographic verification failed: signature does not match payer authorization.', statusCode: 402 }), { status: 402, headers: { 'Content-Type': 'application/json' } })
   payerAddress = recoveredAddress

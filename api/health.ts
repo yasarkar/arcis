@@ -42,7 +42,8 @@ export async function GET(req: Request) {
       error: undefined,
     }
   } catch (err: any) {
-    rpcStatus.error = err.message || `Failed to connect to ${arcActiveChain.name} RPC`
+    console.error(`[Health API] RPC check failed for ${arcActiveChain.name}:`, (err?.message || '').replace(/token=[^&\s]+/gi, 'token=[REDACTED]'))
+    rpcStatus.error = `Failed to connect to ${arcActiveChain.name} RPC endpoint`
   }
 
   // 2. Check Relayer Key Configuration & On-chain Balance
@@ -132,7 +133,13 @@ export async function GET(req: Request) {
         name: arcActiveChain.name,
         chainId: arcActiveChain.id,
         nativeCurrency: arcActiveChain.nativeCurrency.symbol,
-        rpcUrl: ARC_METADATA.rpcHttpUrl,
+        rpcHost: (() => {
+          try {
+            return new URL(ARC_METADATA.rpcHttpUrl).hostname
+          } catch {
+            return 'configured'
+          }
+        })(),
         explorerUrl: ARC_METADATA.explorerUrl,
       },
       rpc: rpcStatus,
