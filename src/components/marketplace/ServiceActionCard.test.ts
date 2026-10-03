@@ -45,7 +45,7 @@ describe('ServiceActionCard transaction truthfulness', () => {
     expect(getExplicitTradeAmount({})).toBeUndefined()
     expect(getExplicitTradeAmount({ amountIn: 0 })).toBeUndefined()
     expect(getExplicitTradeAmount({ tradeSizeUsdc: Number.POSITIVE_INFINITY })).toBeUndefined()
-    expect(getExplicitTradeAmount({ amountIn: 'not-a-number' })).toBeUndefined()
+    expect(getExplicitTradeAmount({ amountIn: 'not-a-number' as any })).toBeUndefined()
     expect(buildServiceActionPayload(basePayload)).toBeUndefined()
   })
 

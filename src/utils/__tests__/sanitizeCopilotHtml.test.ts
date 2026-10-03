@@ -62,6 +62,13 @@ describe('sanitizeCopilotHtml', () => {
     expect(sanitizeCopilotHtml('plain text')).toBe('plain text')
     expect(sanitizeCopilotHtml('a < b')).toBe('a &lt; b')
   })
+
+  it('UX-04: does not consume subsequent closing tags on mathematical less-than like (<500ms)', () => {
+    const input = '<strong>Sub-Second Finality (<500ms):</strong>'
+    const result = sanitizeCopilotHtml(input)
+    expect(result).toBe('<strong>Sub-Second Finality (&lt;500ms):</strong>')
+    expect(result).not.toContain('&lt;/strong&gt;')
+  })
 })
 
 describe('stripCopilotHtml', () => {

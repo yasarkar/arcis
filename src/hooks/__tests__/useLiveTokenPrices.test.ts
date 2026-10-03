@@ -63,11 +63,15 @@ describe('formatFiatEstimate', () => {
     expect(formatFiatEstimate('0.00000005', 'cirBTC', mockPrices)).toBe('< $0.01 USD')
   })
 
-  it('never applies counter-token poolExchangeRate to LP tokens and prices them accurately', () => {
-    // 46.36 af-USDC-cirBTC in a pool with BTC rate 467562.71 must NOT become $21M!
+  it('UX-03: returns undefined for LP tokens when valuation is unavailable and prices accurately when provided', () => {
     const btcPoolRate = 467562.71
-    expect(formatFiatEstimate('46.36', 'af-USDC-cirBTC', null, btcPoolRate)).toBe('≈ $46.36 USD')
-    expect(formatFiatEstimate('100', 'af-USDC-EURC', null, 1.082)).toBe('≈ $100.00 USD')
-    expect(formatFiatEstimate('50', 'LP', null, btcPoolRate)).toBe('≈ $50.00 USD')
+    // Without explicit valuation, must NOT invent a fabricated $1.00/share fallback:
+    expect(formatFiatEstimate('46.36', 'af-USDC-cirBTC', null, btcPoolRate)).toBeUndefined()
+    expect(formatFiatEstimate('100', 'af-USDC-EURC', null, 1.082)).toBeUndefined()
+
+    // With explicit valuation from oracle / pool reserves:
+    const lpPrices = { 'af-USDC-cirBTC': 1.05, 'af-USDC-EURC': 1.01 }
+    expect(formatFiatEstimate('100', 'af-USDC-cirBTC', lpPrices)).toBe('≈ $105.00 USD')
+    expect(formatFiatEstimate('100', 'af-USDC-EURC', lpPrices)).toBe('≈ $101.00 USD')
   })
 })

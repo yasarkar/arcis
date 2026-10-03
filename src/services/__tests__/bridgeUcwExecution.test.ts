@@ -135,7 +135,12 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       const call = mockExecuteContract.mock.calls[0][0]
       expect(call.blockchain).toBe('ARC-TESTNET')
       expect(call.contractAddress).toBe(ARC_CCTP_TOKEN_MESSENGER)
-      expect(call.abiFunctionSignature).toBe('depositForBurn(uint256,uint32,bytes32,address)')
+      expect(call.abiFunctionSignature).toBe('depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)')
+      expect(call.abiParameters[0]).toBe(parseUnits('25', 6).toString())
+      expect(call.abiParameters[1]).toBe(GATEWAY_DOMAINS['Base_Sepolia'])
+      expect(call.abiParameters[4]).toBe('0x0000000000000000000000000000000000000000000000000000000000000000')
+      expect(call.abiParameters[5]).toBe('0')
+      expect(call.abiParameters[6]).toBe(1000)
       expect(onStepProgress).toHaveBeenCalledWith('burning')
       expect(onStepProgress).toHaveBeenCalledWith('completed')
     })
@@ -187,8 +192,12 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       const burnCall = mockExecuteContract.mock.calls[1][0]
       expect(burnCall.blockchain).toBe('BASE-SEPOLIA')
       expect(burnCall.contractAddress).toBe(CCTP_TOKEN_MESSENGER_TESTNET)
+      expect(burnCall.abiFunctionSignature).toBe('depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)')
       expect(burnCall.abiParameters[1]).toBe(26) // Arc Testnet domain
       expect(burnCall.abiParameters[3]).toBe(USDC_ADDRESSES['Base_Sepolia'])
+      expect(burnCall.abiParameters[4]).toBe('0x0000000000000000000000000000000000000000000000000000000000000000')
+      expect(burnCall.abiParameters[5]).toBe('0')
+      expect(burnCall.abiParameters[6]).toBe(1000)
 
       expect(onStepProgress).toHaveBeenCalledWith('approving')
       expect(onStepProgress).toHaveBeenCalledWith('burning')
@@ -271,11 +280,11 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       ],
     }] as const
 
-    function mockIrisAndDestinationReceipt(mintRecipient: string) {
+    function mockIrisAndDestinationReceipt(mintRecipient: string, includeRootTxHash: boolean = true) {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          sourceTxHash: burnTxHash,
+          ...(includeRootTxHash ? { sourceTxHash: burnTxHash } : {}),
           messages: [{
             message: '0xabcd',
             cctpVersion: 2,
@@ -330,7 +339,7 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       expect(decodeEventLog({
         abi: mintEventAbi,
         data: mintLog.data,
-        topics: mintLog.topics,
+        topics: mintLog.topics as any,
       }).args).toMatchObject({ mintRecipient: recipient, mintToken: USDC_ADDRESSES[destChain], amount: parseUnits('24.99', 6), feeCollected: parseUnits('0.01', 6) })
 
       const result = await pollCctpDestinationTx({
@@ -343,6 +352,18 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
         args: { nonce: `0x${BigInt(nonce).toString(16).padStart(64, '0')}` },
       }))
       expect(getTransactionReceipt).toHaveBeenCalledWith({ hash: destinationTxHash })
+      expect(result).toEqual({ status: 'confirmed', destTxHash: destinationTxHash, receivedAmount: '24.99' })
+    })
+
+    it('successfully correlates documented Iris response when root sourceTxHash is absent (W3-10)', async () => {
+      // Circle Iris API documented schema omits root sourceTxHash
+      mockIrisAndDestinationReceipt(recipient, false)
+
+      const result = await pollCctpDestinationTx({
+        sourceChain, destChain, burnTxHash, recipientAddress: recipient, amount,
+        maxAttempts: 1, intervalMs: 0,
+      })
+
       expect(result).toEqual({ status: 'confirmed', destTxHash: destinationTxHash, receivedAmount: '24.99' })
     })
 

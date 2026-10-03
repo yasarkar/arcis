@@ -150,10 +150,10 @@ describe('InlineActionCard outcome themes', () => {
     expect(html).toContain('Source Burn Tx:')
     expect(html).toContain('ArcScan')
     expect(html).toContain('https://testnet.arcscan.app/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef')
-    // Truncated monospace display
-    expect(html).toContain('0x123456...abcdef')
-    // No raw unlinked full hash paragraph
-    expect(html).not.toContain('<p class="text-[10px] font-mono text-slate-400 break-all">0x1234567890abcdef')
+    expect(html).toContain('group-hover:text-indigo-400')
+    // No raw unlinked full hash paragraph or inline hash digits
+    expect(html).not.toContain('<p class="text-[10px] font-mono text-slate-400 break-all">')
+    expect(html).not.toContain('>0x1234567890abcdef')
   })
 })
 

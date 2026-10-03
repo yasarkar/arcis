@@ -11,6 +11,9 @@ import {
   revokeSessionKey,
   normalizeWalletAddress,
   setActiveWalletForSession,
+  reserveSessionSpend,
+  releaseSessionSpend,
+  commitSessionSpend,
 } from '../sessionKeyService'
 
 describe('Wallet-Scoped Session Key Isolation', () => {
@@ -213,5 +216,43 @@ describe('Wallet-Scoped Session Key Isolation', () => {
     const current = getSessionKeyConfig(WALLET_A)
     expect(current.isActive).toBe(false)
     expect(current.maxSpendUsdc).toBe(0)
+  })
+
+  it('rejects NaN, negative, and infinite spend amounts (W3-04)', async () => {
+    await activateSessionKey({
+      userApproved: true,
+      walletAddress: WALLET_A,
+      maxSpendUsdc: 100,
+    })
+    expect(verifySessionLimits('send', NaN, WALLET_A).allowed).toBe(false)
+    expect(verifySessionLimits('send', -10, WALLET_A).allowed).toBe(false)
+    expect(verifySessionLimits('send', Infinity, WALLET_A).allowed).toBe(false)
+  })
+
+  it('prevents concurrent overspend via reservation mechanism (W3-04)', async () => {
+    await activateSessionKey({
+      userApproved: true,
+      walletAddress: WALLET_A,
+      maxSpendUsdc: 100,
+      maxPerTxUsdc: 100,
+    })
+
+    // Action 1 checks 80 USDC -> allowed
+    expect(verifySessionLimits('send', 80, WALLET_A).allowed).toBe(true)
+    expect(reserveSessionSpend(80, WALLET_A)).toBe(true)
+
+    // Action 2 tries 80 USDC concurrently -> rejected because 80 is reserved
+    expect(verifySessionLimits('send', 80, WALLET_A).allowed).toBe(false)
+    expect(reserveSessionSpend(80, WALLET_A)).toBe(false)
+
+    // Action 1 fails -> releases reservation
+    releaseSessionSpend(80, WALLET_A)
+    expect(verifySessionLimits('send', 80, WALLET_A).allowed).toBe(true)
+
+    // Action 1 succeeds -> commits spend
+    reserveSessionSpend(80, WALLET_A)
+    commitSessionSpend(80, WALLET_A)
+    expect(getSessionKeyConfig(WALLET_A).spentUsdc).toBe(80)
+    expect(verifySessionLimits('send', 25, WALLET_A).allowed).toBe(false)
   })
 })

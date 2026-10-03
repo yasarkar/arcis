@@ -102,7 +102,7 @@ describe('client paid-call orchestrator fails closed without trusted settlement'
 
   it('rejects an untrusted payment challenge before asking the wallet to sign', async () => {
     const invalidChallenge = makeGatewayChallenge()
-    invalidChallenge.accepts[0].asset = 'USDC'
+    invalidChallenge.accepts[0].asset = 'USDC' as any
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(null, { status: 402, headers: { 'PAYMENT-REQUIRED': base64Json(invalidChallenge) } })))
     const provider = eoaProvider()
 

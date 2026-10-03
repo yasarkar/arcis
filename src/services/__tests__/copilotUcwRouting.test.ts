@@ -128,6 +128,42 @@ function mockConfirmedSwapOutput(amountOut: string) {
   } as any)
 }
 
+const DEPOSIT_ABI = [{
+  type: 'event', name: 'Deposit',
+  inputs: [
+    { name: 'sender', type: 'address', indexed: true },
+    { name: 'owner', type: 'address', indexed: true },
+    { name: 'assets', type: 'uint256', indexed: false },
+    { name: 'shares', type: 'uint256', indexed: false },
+  ],
+}] as const
+
+function mockConfirmedDeposit(amount = '1') {
+  const topics = encodeEventTopics({
+    abi: DEPOSIT_ABI,
+    eventName: 'Deposit',
+    args: { sender: UCW_WALLET as `0x${string}`, owner: UCW_WALLET as `0x${string}` },
+  })
+  const data = encodeAbiParameters(
+    [{ type: 'uint256' }, { type: 'uint256' }],
+    [parseUnits(amount, 6), parseUnits(amount, 6)]
+  )
+  vi.mocked(getResilientPublicClient).mockReturnValue({
+    readContract: vi.fn().mockImplementation((params: any) => {
+      if (params.functionName === 'allowance') return Promise.resolve(0n)
+      if (params.functionName === 'balanceOf') return Promise.resolve(100_000_000_000n)
+      return Promise.resolve(100_000_000_000n)
+    }),
+    waitForTransactionReceipt: vi.fn().mockResolvedValue({
+      transactionHash: TX_HASH,
+      status: 'success',
+      gasUsed: 42_000n,
+      effectiveGasPrice: 20_000_000_000n,
+      logs: [{ address: POOL_CONTRACTS.YIELD_VAULT, topics, data }],
+    }),
+  } as any)
+}
+
 describe('Ask Arco → Circle UCW routing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -476,4 +512,118 @@ describe('Ask Arco → Circle UCW routing', () => {
     expect(receipt.errorMessage).toMatch(/Memos cannot be attached/i)
     expect(executeUcwTransfer).not.toHaveBeenCalled()
   })
+
+  it('routes yield vault deposit through Circle UCW with token approve and deposit challenges', async () => {
+    mockConfirmedDeposit('1')
+    const executeUcwContract = vi.fn().mockImplementation(async (params: any) => {
+      if (params.abiFunctionSignature?.startsWith('approve')) {
+        return { success: true, txHash: TX_HASH }
+      }
+      if (params.abiFunctionSignature?.startsWith('deposit')) {
+        return { success: true, txHash: TX_HASH }
+      }
+      return { success: false, error: 'Unknown function' }
+    })
+
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_deposit',
+        title: 'Deposit 1 USDC into YieldVault',
+        data: { amount: 1 },
+      },
+      UCW_WALLET,
+      undefined,
+      undefined,
+      { authSource: 'ucw', executeUcwContract }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(receipt.actionType).toBe('deposit')
+    expect(receipt.amountIn).toBe(1)
+    expect(receipt.amountOut).toBe(1)
+    expect(executeUcwContract).toHaveBeenCalledTimes(2)
+    // 1st call: approve USDC
+    expect(executeUcwContract).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      contractAddress: POOL_CONTRACTS.USDC,
+      abiFunctionSignature: 'approve(address,uint256)',
+      abiParameters: [POOL_CONTRACTS.YIELD_VAULT, parseUnits('1', 6).toString()],
+      blockchain: 'ARC-TESTNET',
+    }))
+    // 2nd call: deposit into Yield Vault
+    expect(executeUcwContract).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      contractAddress: POOL_CONTRACTS.YIELD_VAULT,
+      abiFunctionSignature: 'deposit(uint256,address)',
+      abiParameters: [parseUnits('1', 6).toString(), UCW_WALLET],
+      blockchain: 'ARC-TESTNET',
+    }))
+  })
+
+  it('skips token approve challenge when UCW wallet already has sufficient allowance', async () => {
+    mockConfirmedDeposit('1')
+    // Mock allowance returning sufficient balance
+    vi.mocked(getResilientPublicClient).mockReturnValue({
+      readContract: vi.fn().mockImplementation((params: any) => {
+        if (params.functionName === 'allowance') return Promise.resolve(parseUnits('100', 6))
+        if (params.functionName === 'balanceOf') return Promise.resolve(parseUnits('100', 6))
+        return Promise.resolve(100_000_000_000n)
+      }),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        transactionHash: TX_HASH,
+        status: 'success',
+        gasUsed: 42_000n,
+        effectiveGasPrice: 20_000_000_000n,
+        logs: [{
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          topics: encodeEventTopics({ abi: DEPOSIT_ABI, eventName: 'Deposit', args: { sender: UCW_WALLET as `0x${string}`, owner: UCW_WALLET as `0x${string}` } }),
+          data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [parseUnits('1', 6), parseUnits('1', 6)]),
+        }],
+      }),
+    } as any)
+
+    const executeUcwContract = vi.fn().mockResolvedValue({ success: true, txHash: TX_HASH })
+
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_deposit',
+        title: 'Deposit 1 USDC into YieldVault',
+        data: { amount: 1 },
+      },
+      UCW_WALLET,
+      undefined,
+      undefined,
+      { authSource: 'ucw', executeUcwContract }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    // Only deposit challenge was issued; approve was skipped
+    expect(executeUcwContract).toHaveBeenCalledTimes(1)
+    expect(executeUcwContract).toHaveBeenCalledWith(expect.objectContaining({
+      contractAddress: POOL_CONTRACTS.YIELD_VAULT,
+      abiFunctionSignature: 'deposit(uint256,address)',
+    }))
+  })
+
+  it('rejects deposit when on-chain USDC balance is insufficient', async () => {
+    vi.mocked(getResilientPublicClient).mockReturnValue({
+      readContract: vi.fn().mockResolvedValue(0n),
+    } as any)
+
+    const executeUcwContract = vi.fn()
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_deposit',
+        title: 'Deposit 1 USDC into YieldVault',
+        data: { amount: 1 },
+      },
+      UCW_WALLET,
+      undefined,
+      undefined,
+      { authSource: 'ucw', executeUcwContract }
+    )
+
+    expect(receipt.status).toBe('FAILED')
+    expect(receipt.errorMessage).toContain('yeterli bakiye bulunamadı')
+    expect(executeUcwContract).not.toHaveBeenCalled()
+  })
 })
+

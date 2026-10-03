@@ -134,6 +134,15 @@ describe('getLivePortfolioSnapshot chain reads', () => {
     expect(snapshot.vaultStakedUsdc).toBe(0)
   })
 
+  it('does not inflate tiny native USDC balances (W3-05)', async () => {
+    setChainBalances()
+    mocks.resilientGetBalance.mockResolvedValue(10_000_000_000_000n) // 0.00001 native USDC (18 decimals)
+    mocks.resilientReadContract.mockImplementation(async (_client: unknown, _params: any) => BigInt(0))
+    const snapshot = await getLivePortfolioSnapshot(WALLET)
+    expect(snapshot.liquidUsdc).toBe(0)
+    expect(snapshot.liquidUsdc).not.toBe(10_000_000)
+  })
+
   it('returns an empty snapshot for a wallet that is not a valid address', async () => {
     setChainBalances()
     const snapshot = await getLivePortfolioSnapshot('')

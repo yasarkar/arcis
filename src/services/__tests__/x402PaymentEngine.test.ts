@@ -4,6 +4,7 @@ import {
   getAccumulatedYieldVaultFees,
   getStoredProviderEarnings,
   incrementYieldVaultFees,
+  withdrawProviderEarningsApi,
 } from '../x402PaymentEngine'
 import { executeX402Call } from '../x402Client'
 import type { x402Service } from '../../types/marketplace'
@@ -219,6 +220,36 @@ describe('x402PaymentEngine & x402Client Unit Tests', () => {
       expect(result.error).toMatch(/no trusted payment settlement/i)
       expect(rejectingProvider.request.mock.calls.map(([request]) => request.method)).not.toContain('eth_signTypedData_v4')
       expect(rejectingProvider.request.mock.calls.map(([request]) => request.method)).not.toContain('eth_sendTransaction')
+    })
+  })
+
+  describe('withdrawProviderEarningsApi (W3-01 verification)', () => {
+    it('returns error when no wallet provider is available', async () => {
+      const res = await withdrawProviderEarningsApi('0x1111111111111111111111111111111111111111', 10, null)
+      expect(res.success).toBe(false)
+      expect(res.error).toMatch(/Connect the provider wallet/i)
+    })
+
+    it('creates wallet client and signs ledger withdrawal without ReferenceError', async () => {
+      const mockRequest = vi.fn().mockImplementation(async ({ method }) => {
+        if (method === 'eth_chainId') return '0x4cef52' // 5042002 in hex
+        if (method === 'eth_accounts') return ['0x1111111111111111111111111111111111111111']
+        if (method === 'eth_signTypedData_v4') return '0x' + 'a'.repeat(130)
+        return null
+      })
+      const mockSigner = { request: mockRequest }
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ success: true, remainingBalanceUsdc: 0, totalWithdrawnUsdc: 10 }), { status: 200 })
+      )
+
+      try {
+        const res = await withdrawProviderEarningsApi('0x1111111111111111111111111111111111111111', 10, mockSigner)
+        expect(res.success).toBe(true)
+        expect(mockRequest).toHaveBeenCalled()
+      } finally {
+        fetchSpy.mockRestore()
+      }
     })
   })
 })
