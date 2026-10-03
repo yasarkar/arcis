@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import path from 'path'
+import { signInternalClientIpHeaders } from './api/_utils/trustedIp'
 
 function apiPlugin(): Plugin {
   return {
@@ -75,9 +76,16 @@ function apiPlugin(): Plugin {
             if (handler) {
               const bodyStr = await bodyPromise
               const fullUrl = `http://${host}${req.url}`
+              const reqHeaders: Record<string, string> = {}
+              for (const [key, value] of Object.entries(req.headers)) {
+                if (typeof value === 'string') reqHeaders[key.toLowerCase()] = value
+                else if (Array.isArray(value)) reqHeaders[key.toLowerCase()] = value.join(', ')
+              }
+              signInternalClientIpHeaders(reqHeaders, req.socket?.remoteAddress || '127.0.0.1')
+
               const webReq = new Request(fullUrl, {
                 method: req.method,
-                headers: req.headers as Record<string, string>,
+                headers: reqHeaders,
                 body: ['POST', 'PUT', 'PATCH'].includes(req.method || '') && bodyStr ? bodyStr : undefined,
               })
 

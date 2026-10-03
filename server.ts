@@ -22,6 +22,7 @@ import * as cacheHandler from './api/cache'
 import * as copilotHandler from './api/copilot'
 import * as x402Handler from './api/x402'
 import * as historyHandler from './api/history'
+import { signInternalClientIpHeaders } from './api/_utils/trustedIp'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -54,12 +55,13 @@ app.use(cors({
 app.use(express.json({ limit: '256kb' }))
 app.use(express.urlencoded({ extended: true, limit: '256kb' }))
 
-// Security Headers Middleware
+// Security Headers Middleware (SEC-09: Centralized complete security policy)
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('X-Frame-Options', 'DENY')
-  res.setHeader('X-XSS-Protection', '1; mode=block')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
   next()
 })
 
@@ -72,9 +74,12 @@ function adapt(handler: (req: Request) => Promise<Response>) {
       const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
       const headers: Record<string, string> = {}
       for (const [key, value] of Object.entries(req.headers)) {
-        if (typeof value === 'string') headers[key] = value
-        else if (Array.isArray(value)) headers[key] = value.join(', ')
+        if (typeof value === 'string') headers[key.toLowerCase()] = value
+        else if (Array.isArray(value)) headers[key.toLowerCase()] = value.join(', ')
       }
+
+      // Security (SEC-06): Strip caller-controlled forwarding headers and sign verified internal IP
+      signInternalClientIpHeaders(headers, (req.ip || req.socket.remoteAddress || '127.0.0.1').toString())
 
       const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.body && Object.keys(req.body).length > 0
         ? JSON.stringify(req.body)
