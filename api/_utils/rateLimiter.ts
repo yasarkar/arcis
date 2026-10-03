@@ -34,7 +34,7 @@ export async function getRedisInstance() {
       connectTimeout: 4000,
       lazyConnect: true,
       retryStrategy: () => null, // Don't hang if Redis is offline
-      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: true } : undefined,
     })
 
     redisClient.on('error', () => {
@@ -47,7 +47,9 @@ export async function getRedisInstance() {
 
     redisAvailable = redisClient.status === 'ready' || redisClient.status === 'connect'
     if (redisAvailable) {
-      console.log('[RateLimiter] ✓ Connected to Redis at', redisUrl)
+      let host = 'connected'
+      try { host = new URL(redisUrl).hostname } catch {}
+      console.log('[RateLimiter] ✓ Connected to Redis at host:', host)
     } else {
       console.log('[RateLimiter] ℹ Redis not reachable, using in-memory fallback')
     }

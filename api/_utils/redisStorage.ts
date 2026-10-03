@@ -75,7 +75,7 @@ async function getIoredisClient(): Promise<any> {
       connectTimeout: 4000,
       lazyConnect: true,
       retryStrategy: () => null,
-      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: true } : undefined,
     })
 
     ioredisClient.on('error', () => {
