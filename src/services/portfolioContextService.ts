@@ -125,11 +125,8 @@ export async function getLivePortfolioSnapshot(
       }).catch(() => BigInt(0)),
     ])
 
-    // Format native USDC (18 decimals standard on Arc L1, or 6 decimals)
-    let nativeFormatted = parseFloat(formatUnits(nativeBal, 18))
-    if (nativeFormatted < 0.0001 && nativeBal > BigInt(0)) {
-      nativeFormatted = parseFloat(formatUnits(nativeBal, 6))
-    }
+    // Format native USDC (fixed 18 decimals on Arc L1)
+    const nativeFormatted = parseFloat(formatUnits(nativeBal, 18))
     const erc20Formatted = parseFloat(formatUnits(erc20UsdcBal, 6))
     liquidUsdc = Number(Math.max(nativeFormatted, erc20Formatted).toFixed(2))
     liquidEurc = Number(parseFloat(formatUnits(eurcBal, 6)).toFixed(2))

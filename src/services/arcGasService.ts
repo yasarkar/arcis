@@ -6,10 +6,11 @@
 
 import {
   parseGwei,
+  formatUnits,
   type PublicClient,
 } from 'viem'
 import { arcTestnet } from '../config/arcChain'
-import { type SpeedTier, SPEED_TIERS } from '../config/feeTiers'
+import { type SpeedTier, SPEED_TIERS } from '../config/gasTierConstants'
 import { getArcPublicClient as getCentralArcPublicClient } from './rpc'
 
 // ── Arc Protocol Constants ───────────────────────────────────────────────────
@@ -226,7 +227,7 @@ export async function getDynamicArcGasOptions(
       effectiveBaseFee: ARC_MIN_BASE_FEE_FLOOR,
       expectedFeePerGas: ARC_MIN_BASE_FEE_FLOOR,
       observedPriorityFee: null,
-      estimatedCostUsdc: staticTier.estimatedCostUsdc,
+      estimatedCostUsdc: calculateArcGasCostFromFee(gasLimit, staticTier.maxFeePerGas),
       estimatedBaseFeeUsdc: calculateArcGasCostFromFee(gasLimit, ARC_MIN_BASE_FEE_FLOOR),
       estimatedPriorityUsdc: '0.00000',
       isDynamic: false,
@@ -369,15 +370,15 @@ export async function resolveArcActualFeeUsdc(
     const baseWei = gasUsed * baseComponent
     const priorityWei = feeWei - baseWei
 
-    const feeUsdcExact = (Number(feeWei) / 1e18).toString()
+    const feeUsdcExact = formatUnits(feeWei, 18)
     const feeUsdc = Number(feeUsdcExact)
     if (!Number.isFinite(feeUsdc) || feeUsdc < 0) return empty
 
     return {
       feeUsdc,
       feeUsdcExact,
-      baseFeeUsdcExact: (Number(baseWei) / 1e18).toString(),
-      priorityFeeUsdcExact: (Number(priorityWei) / 1e18).toString(),
+      baseFeeUsdcExact: formatUnits(baseWei, 18),
+      priorityFeeUsdcExact: formatUnits(priorityWei, 18),
       gasUsed: Number(gasUsed),
       effectiveGasPriceGwei: Number(effectiveGasPrice) / 1e9,
       blockNumber,

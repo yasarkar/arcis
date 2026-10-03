@@ -2,7 +2,7 @@ import { AppKit, Blockchain } from '@circle-fin/app-kit'
 import { createViemAdapterFromProvider, createViemAdapterFromPrivateKey } from '@circle-fin/adapter-viem-v2'
 import { createPublicClient, createWalletClient, defineChain, http, erc20Abi, maxUint256 } from 'viem'
 import type { SendParams } from '@circle-fin/app-kit'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
+import { arcTestnet, ARC_METADATA, IS_TESTNET } from '../config/arcChain'
 import { CHAIN_DEFS } from '../config/chainMeta'
 import { getResilientPublicClient, resilientReadContract } from './rpc'
 import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
@@ -404,6 +404,9 @@ export async function sendToken(
   recipientAddress: string,
   amount: string
 ) {
+  if (!IS_TESTNET) {
+    throw new Error('Mainnet execution is disabled until deployments and signing routes are verified.')
+  }
   const adapter = await createViemAdapter(provider)
   const sendParams: SendParams = {
     from: { adapter, chain: chain as Blockchain },

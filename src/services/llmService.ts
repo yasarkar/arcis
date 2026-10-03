@@ -275,7 +275,12 @@ async function quoteResult<T extends { message: string; actionPayload?: CopilotA
   const actionable = ensureActionableTransactionResult(
     authoritativeResult, userPrompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas
   )
-  return attachLiveQuote(actionable, walletAddress, portfolio)
+  const quoted = await attachLiveQuote(actionable, walletAddress, portfolio)
+  return {
+    ...result,
+    message: quoted.message,
+    actionPayload: quoted.actionPayload,
+  } as T
 }
 
 export async function attachLiveQuote<T extends { message: string; actionPayload?: CopilotActionPayload }>(

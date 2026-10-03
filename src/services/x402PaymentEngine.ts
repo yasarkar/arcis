@@ -2,9 +2,10 @@
 // Legacy direct-transfer settlement helper, not the x402 paid-service client.
 // Paid service execution is handled by paymentOrchestrator and fails closed without facilitator confirmation.
 
-import { getAddress, type Address } from 'viem'
+import { getAddress, createWalletClient, custom, type Address, type Hex } from 'viem'
 import type { x402Service, x402PaymentChallenge } from '../types/marketplace'
 import { arcTestnet } from '../config/arcChain'
+import { X402_AUTHORIZATION_DOMAIN, PROVIDER_LEDGER_TYPES } from '../config/x402/authorization'
 import { getStoredMscaAddress } from './modularWalletService'
 
 const PROVIDER_EARNINGS_STORAGE_KEY = 'arcis_x402_provider_earnings_v2'

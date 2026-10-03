@@ -85,7 +85,7 @@ export function getSourceUsdcAddress(chainKey: string): Address {
   throw new Error(`USDC contract address not found for chain: ${chainKey}`)
 }
 
-// Minimal ABI for CCTP TokenMessengerV2 depositForBurn function
+// Minimal ABI for CCTP TokenMessengerV2 depositForBurn function (7 parameters)
 export const CCTP_TOKEN_MESSENGER_ABI = [
   {
     type: 'function',
@@ -95,8 +95,11 @@ export const CCTP_TOKEN_MESSENGER_ABI = [
       { name: 'destinationDomain', type: 'uint32' },
       { name: 'mintRecipient', type: 'bytes32' },
       { name: 'burnToken', type: 'address' },
+      { name: 'destinationCaller', type: 'bytes32' },
+      { name: 'maxFee', type: 'uint256' },
+      { name: 'minFinalityThreshold', type: 'uint32' },
     ],
-    outputs: [{ name: '', type: 'uint64' }],
+    outputs: [{ name: '_nonce', type: 'uint64' }],
     stateMutability: 'nonpayable',
   },
 ] as const
@@ -126,6 +129,9 @@ export interface UcwBridgeParams {
   destChain: string
   recipientAddress: string
   connectedAddress: string
+  destinationCaller?: Hex
+  maxFee?: bigint
+  minFinalityThreshold?: number
   executeUcwContract: (params: {
     contractAddress: string
     abiFunctionSignature?: string
@@ -195,12 +201,19 @@ export async function checkUcwAllowanceSufficient(
 export async function executeUcwBridgeTransfer(
   params: UcwBridgeParams
 ): Promise<UcwBridgeResult> {
+  if (!IS_TESTNET) {
+    throw new Error('Mainnet execution is disabled until deployments and signing routes are verified.')
+  }
+
   const {
     amount,
     sourceChain,
     destChain,
     recipientAddress,
     connectedAddress,
+    destinationCaller,
+    maxFee,
+    minFinalityThreshold,
     executeUcwContract,
     onStepProgress,
   } = params
@@ -319,14 +332,21 @@ export async function executeUcwBridgeTransfer(
   console.log(`[bridgeUcwService] Initiating UCW depositForBurn challenge on ${sourceChain} (${circleBlockchain})...`)
   onStepProgress?.('burning')
 
+  const destinationCallerBytes32 = (destinationCaller || '0x0000000000000000000000000000000000000000000000000000000000000000') as Hex
+  const maxFeeUnits = maxFee ?? 0n
+  const finalityThreshold = minFinalityThreshold ?? 1000
+
   const burnRes = await executeUcwContract({
     contractAddress: tokenMessenger,
-    abiFunctionSignature: 'depositForBurn(uint256,uint32,bytes32,address)',
+    abiFunctionSignature: 'depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)',
     abiParameters: [
       amountUnits.toString(),
       Number(destDomain),
       mintRecipientBytes32,
       sourceUsdc,
+      destinationCallerBytes32,
+      maxFeeUnits.toString(),
+      finalityThreshold,
     ],
     blockchain: circleBlockchain,
   })
@@ -413,6 +433,7 @@ export interface PollCctpDestinationParams {
   amount?: string
   maxAttempts?: number
   intervalMs?: number
+  signal?: AbortSignal
 }
 
 /**
@@ -431,7 +452,10 @@ export async function pollCctpDestinationTx(
     amount,
     maxAttempts = 40,
     intervalMs = 3000,
+    signal,
   } = params
+
+  if (signal?.aborted) return { status: 'aborted' }
 
   if (!/^0x[0-9a-fA-F]{64}$/.test(burnTxHash)) {
     return { status: 'invalid_burn_hash' }
@@ -465,12 +489,14 @@ export async function pollCctpDestinationTx(
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (signal?.aborted) return { status: 'aborted' }
     try {
       // Step A: Check Circle Iris API for message status
       const irisUrl = `${irisBase}/${sourceDomain}?transactionHash=${burnTxHash}`
-      const irisRes = await fetch(irisUrl)
+      const irisRes = await fetch(irisUrl, { signal: signal ?? AbortSignal.timeout(8000) })
       let correlatedMessage: any = null
       if (!irisRes.ok) {
+        if (signal?.aborted) return { status: 'aborted' }
         await new Promise((r) => setTimeout(r, intervalMs))
         continue
       }
@@ -480,7 +506,9 @@ export async function pollCctpDestinationTx(
         if (typeof candidate?.message !== 'string' || !/^0x[0-9a-fA-F]+$/.test(candidate.message)) return false
         const decoded = candidate.decodedMessage
         const body = decoded?.decodedMessageBody
-        return data?.sourceTxHash?.toLowerCase() === burnTxHash.toLowerCase() &&
+        // Circle Iris API V2 response does not have root sourceTxHash; if present, it must match burnTxHash
+        const matchesSourceTx = !data?.sourceTxHash || data.sourceTxHash.toLowerCase() === burnTxHash.toLowerCase()
+        return matchesSourceTx &&
           candidate.cctpVersion === 2 && candidate.status === 'complete' &&
           decoded?.sourceDomain === String(sourceDomain) &&
           decoded?.destinationDomain === String(destDomain) &&
@@ -609,6 +637,9 @@ export async function executeCctpReceiveMessage(params: {
     blockchain?: string
   }) => Promise<{ success: boolean; txHash?: string; error?: string }>
 }): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  if (!IS_TESTNET) {
+    throw new Error('Mainnet execution is disabled until deployments and signing routes are verified.')
+  }
   const { destChain, messageBytes, attestationBytes, executeUcwContract } = params
   const transmitterAddress = getCctpMessageTransmitter(destChain)
   const circleBlockchain = mapChainKeyToCircleBlockchain(destChain)

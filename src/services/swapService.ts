@@ -10,11 +10,11 @@ import {
   type Hex,
   type Address,
 } from 'viem'
-import { arcTestnet } from '../config/arcChain'
+import { arcTestnet, IS_TESTNET } from '../config/arcChain'
 import { POOL_CONTRACTS, STABLE_SWAP_ABI, ERC20_ABI, ARCIS_SWAP_ROUTER_ABI } from '../config/poolsConfig'
 import { sendModularUserOperation, getActiveSmartAccount } from './modularWalletService'
 import { getDynamicArcGasOptions, ARC_GAS_LIMITS } from '../config/feeTiers'
-import { getArcPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
+import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import type { SwapExecuteParams, SwapQuoteResult, SwapExecutionStatus } from '../types/swap'
 import { SWAP_SUPPORTED_TOKENS } from '../types/swap'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
@@ -352,6 +352,13 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
  * For cross-chain swaps, it polls with kit.waitForSwap() until done or failed.
  */
 export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecutionStatus> {
+  if (!IS_TESTNET) {
+    return {
+      status: 'FAILED',
+      errorMessage: 'Mainnet execution is disabled until deployments and signing routes are verified.',
+    }
+  }
+  let submittedTxHash: string | undefined = undefined
   try {
     const isArcNative = params.fromChain === 'Arc_Testnet' && (!params.toChain || params.toChain === 'Arc_Testnet')
     const arcRoute = isArcNative ? resolveArcNativeRoute(params.tokenIn, params.tokenOut) : null
@@ -831,6 +838,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     let result: any
     try {
       result = await kit.swap(swapParams)
+      submittedTxHash = result?.txHash
     } catch (err: any) {
       const tokenInAddr = resolveTokenAddr(params.fromChain, params.tokenIn)
       const tokenOutAddr = resolveTokenAddr(params.fromChain, params.tokenOut)
@@ -841,6 +849,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             tokenIn: tokenInAddr as any,
             tokenOut: tokenOutAddr as any
           })
+          submittedTxHash = result?.txHash
         } catch (retryErr) {
           throw err
         }
@@ -855,11 +864,19 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       if (!sourceTxHash || !/^0x[0-9a-fA-F]{64}$/.test(sourceTxHash)) {
         return { status: 'PENDING', errorMessage: 'Swap was submitted but its transaction hash is not available yet.' }
       }
-      const receipt = await resilientWaitForReceipt(arcPublicClient, sourceTxHash as Hex, 'Swap')
+      submittedTxHash = sourceTxHash
+      const sourceClient = getResilientPublicClient(params.fromChain)
+      const receipt = await resilientWaitForReceipt(sourceClient, sourceTxHash as Hex, 'Swap')
       if (receipt.status === 'unknown') {
         return { status: 'PENDING', sourceTxHash, errorMessage: 'Swap is awaiting on-chain confirmation.' }
       }
-      if (receipt.status === 'reverted') throw new Error('Swap transaction reverted on Arc Testnet.')
+      if (receipt.status === 'reverted') {
+        return {
+          status: 'FAILED',
+          sourceTxHash,
+          errorMessage: `Swap transaction reverted on ${params.fromChain || 'source chain'}.`,
+        }
+      }
       return { status: 'DONE', sourceTxHash, destinationTxHash: sourceTxHash }
     }
 
@@ -885,6 +902,22 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     }
   } catch (err: any) {
     console.error('[swapService] executeSwap failed:', err)
+    const errStr = (err?.message || '').toLowerCase()
+    const isReverted = errStr.includes('revert') || err?.receipt?.status === 'reverted'
+    if (isReverted) {
+      return {
+        status: 'FAILED',
+        sourceTxHash: submittedTxHash,
+        errorMessage: err.message || 'Swap transaction reverted on-chain.',
+      }
+    }
+    if (submittedTxHash && !isUserCanceled(err)) {
+      return {
+        status: 'PENDING',
+        sourceTxHash: submittedTxHash,
+        errorMessage: 'Submitted; confirmation is temporarily unavailable. Do not resubmit.',
+      }
+    }
     const clean = formatCopilotError(err)
     const isCanceled = clean.isCanceled || isUserCanceled(err) || err?.isCanceled === true
     return {

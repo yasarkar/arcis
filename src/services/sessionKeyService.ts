@@ -109,13 +109,16 @@ export function getSessionKeyConfig(walletAddress?: string): SessionKeyConfig {
   const storageKey = getStorageKeyForWallet(walletKey)
 
   try {
-    let raw = localStorage.getItem(storageKey)
-    
-    // Migration fallback: check legacy v2 storage if not yet initialized
-    if (!raw) {
-      const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY)
-      if (legacyRaw) {
-        raw = legacyRaw
+    let raw: string | null = null
+    if (typeof localStorage !== 'undefined') {
+      raw = localStorage.getItem(storageKey)
+      
+      // Migration fallback: check legacy v2 storage if not yet initialized
+      if (!raw) {
+        const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY)
+        if (legacyRaw) {
+          raw = legacyRaw
+        }
       }
     }
 
@@ -177,10 +180,12 @@ export function saveSessionKeyConfig(
     }
 
     // Only persist if it's an active session with a non-zero budget and not expired
-    if (sanitizedMeta.isActive && sanitizedMeta.maxSpendUsdc > 0 && Date.now() <= sanitizedMeta.expiresAt) {
-      localStorage.setItem(storageKey, JSON.stringify(sanitizedMeta))
-    } else {
-      localStorage.removeItem(storageKey)
+    if (typeof localStorage !== 'undefined') {
+      if (sanitizedMeta.isActive && sanitizedMeta.maxSpendUsdc > 0 && Date.now() <= sanitizedMeta.expiresAt) {
+        localStorage.setItem(storageKey, JSON.stringify(sanitizedMeta))
+      } else {
+        localStorage.removeItem(storageKey)
+      }
     }
     
     if (notify) {
@@ -246,6 +251,37 @@ export async function activateSessionKey(params: {
   return newConfig
 }
 
+const activeSpendReservations: Map<string, number> = new Map()
+
+export function getReservedSessionSpend(walletAddress?: string): number {
+  const walletKey = resolveTargetWallet(walletAddress)
+  return activeSpendReservations.get(walletKey) || 0
+}
+
+export function reserveSessionSpend(amountUsdc: number, walletAddress?: string): boolean {
+  if (!Number.isFinite(amountUsdc) || amountUsdc <= 0) return true
+  const walletKey = resolveTargetWallet(walletAddress)
+  const config = getSessionKeyConfig(walletKey)
+  const currentReserved = activeSpendReservations.get(walletKey) || 0
+  if (config.spentUsdc + currentReserved + amountUsdc > config.maxSpendUsdc) {
+    return false
+  }
+  activeSpendReservations.set(walletKey, Number((currentReserved + amountUsdc).toFixed(4)))
+  return true
+}
+
+export function releaseSessionSpend(amountUsdc: number, walletAddress?: string): void {
+  if (!Number.isFinite(amountUsdc) || amountUsdc <= 0) return
+  const walletKey = resolveTargetWallet(walletAddress)
+  const currentReserved = activeSpendReservations.get(walletKey) || 0
+  activeSpendReservations.set(walletKey, Math.max(0, Number((currentReserved - amountUsdc).toFixed(4))))
+}
+
+export function commitSessionSpend(amountUsdc: number, walletAddress?: string): void {
+  releaseSessionSpend(amountUsdc, walletAddress)
+  deductSessionSpend(amountUsdc, walletAddress)
+}
+
 /**
  * Checks whether an incoming action with an amount conforms to active session boundaries
  * for the given or active wallet address.
@@ -255,7 +291,12 @@ export function verifySessionLimits(
   amountUsdc: number = 0,
   walletAddress?: string
 ): { allowed: boolean; reason?: string } {
-  const config = getSessionKeyConfig(walletAddress)
+  if (!Number.isFinite(amountUsdc) || amountUsdc < 0) {
+    return { allowed: false, reason: 'Spend amount must be a finite non-negative USD value.' }
+  }
+
+  const walletKey = resolveTargetWallet(walletAddress)
+  const config = getSessionKeyConfig(walletKey)
 
   if (!config.isActive) {
     return { allowed: false, reason: 'Autonomous session mode is inactive.' }
@@ -276,10 +317,12 @@ export function verifySessionLimits(
     }
   }
 
-  if (config.spentUsdc + amountUsdc > config.maxSpendUsdc) {
+  const reserved = activeSpendReservations.get(walletKey) || 0
+  if (config.spentUsdc + reserved + amountUsdc > config.maxSpendUsdc) {
+    const remaining = Math.max(0, config.maxSpendUsdc - (config.spentUsdc + reserved))
     return {
       allowed: false,
-      reason: `Session budget limit reached! Remaining: ${(config.maxSpendUsdc - config.spentUsdc).toFixed(2)} USDC.`,
+      reason: `Session budget limit reached! Remaining: ${remaining.toFixed(2)} USDC.`,
     }
   }
 
@@ -290,6 +333,7 @@ export function verifySessionLimits(
  * Records a successful spend against the wallet's session budget
  */
 export function deductSessionSpend(amountUsdc: number, walletAddress?: string): void {
+  if (!Number.isFinite(amountUsdc) || amountUsdc <= 0) return
   const walletKey = resolveTargetWallet(walletAddress)
   const config = getSessionKeyConfig(walletKey)
   config.spentUsdc = Number((config.spentUsdc + amountUsdc).toFixed(4))
@@ -320,7 +364,9 @@ export function revokeSessionKey(walletAddress?: string): SessionKeyConfig {
   const walletKey = resolveTargetWallet(walletAddress)
   const storageKey = getStorageKeyForWallet(walletKey)
   try {
-    localStorage.removeItem(storageKey)
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(storageKey)
+    }
   } catch (err) {
     console.error(`Failed to remove session key config for ${walletKey}:`, err)
   }

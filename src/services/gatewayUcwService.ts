@@ -284,6 +284,10 @@ export async function executeUcwGatewayTransfer(
     onStepProgress,
   } = params
 
+  if (!IS_TESTNET) {
+    throw new Error('Mainnet execution is disabled until deployments and signing routes are verified.')
+  }
+
   if (!connectedAddress) {
     throw new Error('Circle UCW cüzdan adresi bulunamadı. Lütfen oturumunuzu kontrol edin.')
   }

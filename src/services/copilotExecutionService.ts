@@ -11,7 +11,7 @@ import {
   validateSendAmount,
   WBTC_UNSUPPORTED_MESSAGE,
 } from '../config/copilotTokens'
-import { ARC_TOKENS } from '../config/arcChain'
+import { ARC_TOKENS, IS_TESTNET } from '../config/arcChain'
 import { resolveArcActualFeeUsdc } from './arcGasService'
 import { getResilientPublicClient } from './rpc'
 import type { CopilotActionPayload } from '../types/marketplace'
@@ -21,6 +21,21 @@ import {
   deductSessionSpend,
   getSessionKeyConfig,
 } from './sessionKeyService'
+import { getLiveTokenPrices, normalizeTokenSymbol, DEFAULT_TOKEN_PRICES } from './tokenPriceService'
+
+async function valueTokenAmountUsd(tokenSymbol: string, amount: number): Promise<number> {
+  if (!Number.isFinite(amount) || amount <= 0) return 0
+  const norm = normalizeTokenSymbol(tokenSymbol)
+  if (norm === 'USDC') return amount
+  try {
+    const prices = await getLiveTokenPrices()
+    const price = prices[norm] || DEFAULT_TOKEN_PRICES[norm] || 1.0
+    return Number((amount * price).toFixed(4))
+  } catch {
+    const fallback = DEFAULT_TOKEN_PRICES[norm] || 1.0
+    return Number((amount * fallback).toFixed(4))
+  }
+}
 import { createViemAdapter, sendToken } from './sendService'
 import { getSwapEstimate, executeSwap, resolveArcNativeRoute } from './swapService'
 import { executeBridge } from './bridgeService'
@@ -29,7 +44,6 @@ import {
   getStoredMscaAddress,
   sendModularUserOperation,
   createModularUsdcTransferCall,
-  getModularPublicClient,
   arcTestnetChain,
 } from './modularWalletService'
 import { POOL_CONTRACTS, STABLE_SWAP_ABI, ARCIS_SWAP_ROUTER_ABI, ERC20_ABI, YIELD_VAULT_ABI } from '../config/poolsConfig'
@@ -251,6 +265,24 @@ export async function executeDirectCopilotAction(
     }
   }
 
+  if (!IS_TESTNET) {
+    if (onProgress) onProgress('failed')
+    const actionTypeMapped: InlineExecutionReceipt['actionType'] =
+      actType === 'interactive_swap' || actType === 'trade'
+        ? 'swap'
+        : actType === 'interactive_deposit'
+        ? 'deposit'
+        : actType === 'interactive_bridge'
+        ? 'bridge'
+        : 'send'
+    return failedActionReceipt(
+      actionTypeMapped,
+      'Network Not Enabled',
+      'Mainnet execution is disabled until deployments and signing routes are verified.',
+      startTime
+    )
+  }
+
   const sessionConfig = getSessionKeyConfig(activeWallet)
   // No active local session can execute until an actual SessionKeyModule integration exists.
   const isZeroPopupMode = false
@@ -282,8 +314,9 @@ export async function executeDirectCopilotAction(
       return failedActionReceipt('swap', 'Unsupported Token', WBTC_UNSUPPORTED_MESSAGE, startTime)
     }
 
-      // Local caps are not chain-enforced and no session is active without module delegation.
-    const limitCheck = verifySessionLimits('swap', fromTok === 'cirBTC' ? amountIn * 78_500 : amountIn, activeWallet)
+    // Local caps are not chain-enforced and no session is active without module delegation.
+    const spendUsdc = await valueTokenAmountUsd(fromTok, amountIn)
+    const limitCheck = verifySessionLimits('swap', spendUsdc, activeWallet)
     if (!limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
@@ -352,7 +385,7 @@ export async function executeDirectCopilotAction(
         }
         if (swapProof.status === 'reverted') throw new Error('Swap reverted on Arc Testnet.')
         const fee = await resolveArcActualFeeUsdc(hash)
-        deductSessionSpend(amountIn, activeWallet)
+        deductSessionSpend(spendUsdc, activeWallet)
         addTransaction({ type: 'swap', txHash: hash, amount: amountIn.toString(), tokenSymbol: fromTok, sourceChain: 'Arc_Testnet', recipient: activeWallet, userAddress: activeWallet, status: 'success', amountIn: amountIn.toString(), amountOut: swapProof.amountOut.toString(), tokenIn: fromTok, tokenOut: toTok })
         if (onProgress) onProgress('confirmed')
         return {
@@ -398,12 +431,12 @@ export async function executeDirectCopilotAction(
       const amountInUnits = parseUnits(amountIn.toString(), decIn)
       const minOutUnits = (parseUnits(estimatedOutput, decOut) * 98n) / 100n // 2% slippage protection
 
-      const publicClient = getModularPublicClient()
+      const resilientClient = getResilientPublicClient('Arc_Testnet')
       let effectiveBalUnits = 0n
       try {
         // Every configured swap route consumes an ERC-20; Arc's native gas-token balance
         // is a separate asset and must never satisfy a USDC token balance check.
-        effectiveBalUnits = await publicClient.readContract({
+        effectiveBalUnits = await resilientClient.readContract({
           address: arcRoute.tokenInAddr as Hex,
           abi: ERC20_ABI,
           functionName: 'balanceOf',
@@ -480,7 +513,7 @@ export async function executeDirectCopilotAction(
       const durationMs = Date.now() - startTime
 
       // Deduct session spend
-      deductSessionSpend(amountIn, activeWallet)
+      deductSessionSpend(spendUsdc, activeWallet)
 
       // Add to transaction history
       addTransaction({
@@ -620,7 +653,7 @@ export async function executeDirectCopilotAction(
         const durationMs = Date.now() - startTime
 
         // Deduct session budget
-        deductSessionSpend(amountIn, activeWallet)
+        deductSessionSpend(spendUsdc, activeWallet)
 
         // Add real transaction to history & broadcast event
         addTransaction({
@@ -713,17 +746,18 @@ export async function executeDirectCopilotAction(
 
     if (onProgress) onProgress('routing')
 
-    // Step 1: Verify the actual USDC ERC-20 balance; native Arc balance is a different asset.
-    const publicClient = getModularPublicClient()
+    // Step 1: Verify the actual USDC ERC-20 balance on Arc Testnet via resilient RPC client
+    const resilientClient = getResilientPublicClient('Arc_Testnet')
     let onChainBalWei: bigint
     try {
-      onChainBalWei = await publicClient.readContract({
+      onChainBalWei = await resilientClient.readContract({
         address: POOL_CONTRACTS.USDC,
         abi: ERC20_ABI,
         functionName: 'balanceOf',
         args: [activeWallet as Hex],
       })
-    } catch {
+    } catch (readErr: any) {
+      console.warn('[copilotExecutionService] Failed to read USDC balance on Arc Testnet:', readErr)
       if (onProgress) onProgress('failed')
       return failedActionReceipt('deposit', 'Balance Unavailable', 'Could not verify the USDC balance; no transaction was sent.', startTime)
     }
@@ -751,6 +785,84 @@ export async function executeDirectCopilotAction(
     const effectiveProvider = provider || (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
 
     const amountUnits = parseUnits(amount.toString(), 6)
+
+    // A. Circle UCW Execution (Email OTP / User-Controlled Wallet)
+    if (ucwHandlers?.authSource === 'ucw') {
+      if (!ucwHandlers.executeUcwContract) {
+        if (onProgress) onProgress('failed')
+        return failedActionReceipt('deposit', 'Circle UCW Unavailable', 'Circle UCW contract challenge handler is missing; no fallback signer was used.', startTime)
+      }
+
+      try {
+        // Step 1: Check token allowance on USDC for Yield Vault
+        let currentAllowance = 0n
+        try {
+          currentAllowance = (await resilientClient.readContract({
+            address: POOL_CONTRACTS.USDC,
+            abi: ERC20_ABI,
+            functionName: 'allowance',
+            args: [activeWallet as Hex, POOL_CONTRACTS.YIELD_VAULT],
+          })) as bigint
+        } catch (allowanceErr) {
+          console.warn('[copilotExecutionService] USDC allowance check failed, proceeding with approve:', allowanceErr)
+        }
+
+        // Step 2: Approve if current allowance is less than deposit amount
+        if (currentAllowance < amountUnits) {
+          if (onProgress) onProgress('signing')
+          const approveRes = await ucwHandlers.executeUcwContract({
+            contractAddress: POOL_CONTRACTS.USDC,
+            abiFunctionSignature: 'approve(address,uint256)',
+            abiParameters: [POOL_CONTRACTS.YIELD_VAULT, amountUnits.toString()],
+            blockchain: 'ARC-TESTNET',
+          })
+          if (!approveRes.success) {
+            const isCanceled =
+              approveRes.error?.toLowerCase().includes('cancel') ||
+              approveRes.error?.toLowerCase().includes('iptal') ||
+              approveRes.error?.toLowerCase().includes('closed')
+            const err: any = new Error(approveRes.error || 'Token allowance authorization failed.')
+            if (isCanceled) err.isCanceled = true
+            throw err
+          }
+          if (approveRes.txHash && isTransactionHash(approveRes.txHash)) {
+            const approveRec = await resilientClient.waitForTransactionReceipt({
+              hash: approveRes.txHash as Hex,
+              timeout: 20000,
+            }).catch(() => null)
+            if (approveRec && approveRec.status !== 'success') {
+              throw new Error('USDC allowance approval reverted on-chain.')
+            }
+          }
+        }
+
+        // Step 3: Execute Vault Deposit
+        if (onProgress) onProgress('broadcasting')
+        const depositRes = await ucwHandlers.executeUcwContract({
+          contractAddress: POOL_CONTRACTS.YIELD_VAULT,
+          abiFunctionSignature: 'deposit(uint256,address)',
+          abiParameters: [amountUnits.toString(), activeWallet],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!depositRes.success) {
+          const isCanceled =
+            depositRes.error?.toLowerCase().includes('cancel') ||
+            depositRes.error?.toLowerCase().includes('iptal') ||
+            depositRes.error?.toLowerCase().includes('closed')
+          const err: any = new Error(depositRes.error || 'Yield vault deposit authorization failed.')
+          if (isCanceled) err.isCanceled = true
+          throw err
+        }
+        if (depositRes.txHash) {
+          realTxHash = depositRes.txHash
+        }
+      } catch (ucwErr: any) {
+        console.warn('[copilotExecutionService] UCW vault deposit error:', ucwErr)
+        if (onProgress) onProgress('failed')
+        const cleanErr = formatCopilotError(ucwErr)
+        return failedActionReceipt('deposit', cleanErr.title || 'Deposit Failed', cleanErr.message || ucwErr.message, startTime)
+      }
+    }
 
     // B. Passkey MSCA Execution
     if (!realTxHash && activeMsca) {
@@ -799,7 +911,7 @@ export async function executeDirectCopilotAction(
           functionName: 'approve',
           args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
         })
-        const approveRec = await publicClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err: unknown) => {
+        const approveRec = await resilientClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err: unknown) => {
           console.warn('[copilotExecutionService] EOA vault approve receipt warning:', err)
           return null
         })
@@ -812,7 +924,7 @@ export async function executeDirectCopilotAction(
           functionName: 'deposit',
           args: [amountUnits, activeWallet as Hex],
         })
-        const depRec = await publicClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err: unknown) => {
+        const depRec = await resilientClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err: unknown) => {
           console.warn('[copilotExecutionService] EOA vault deposit receipt warning:', err)
           return null
         })
@@ -863,9 +975,10 @@ export async function executeDirectCopilotAction(
         const decoded = decodeEventLog({ abi: YIELD_VAULT_ABI, data: log.data, topics: log.topics })
         if (decoded.eventName !== 'Deposit') continue
         const args = decoded.args as any
+        const senderMatch = String(args.sender).toLowerCase() === activeWallet.toLowerCase()
+        const ownerMatch = String(args.owner).toLowerCase() === activeWallet.toLowerCase()
         if (
-          String(args.sender).toLowerCase() === activeWallet.toLowerCase() &&
-          String(args.owner).toLowerCase() === activeWallet.toLowerCase() &&
+          (senderMatch || ownerMatch) &&
           BigInt(args.assets) === expectedDepositAssets && BigInt(args.shares) > 0n
         ) {
           sharesReceived = BigInt(args.shares)
