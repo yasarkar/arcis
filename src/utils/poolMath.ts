@@ -3,19 +3,28 @@
 // Mirrors the on-chain Curve Stableswap invariant from StableSwapPoolV3.sol
 // and the Constant Product invariant from ConstantProductPoolV3.sol.
 
+// Pool invariants (A, LP fees) come from the single source of truth in poolsConfig so the
+// frontend can never drift from the deployed contracts (audit #14).
+import {
+  STABLE_SWAP_AMP,
+  STABLE_SWAP_ANN_MULTIPLIER,
+  STABLE_SWAP_LP_FEE_BPS,
+  CONSTANT_PRODUCT_LP_FEE_BPS,
+} from '../config/poolsConfig'
+
 /**
  * Computes the Curve Stableswap invariant D for a 2-token pool.
  * @param x Token A reserve (6 decimals for USDC)
  * @param y Token B reserve (6 decimals for EURC)
  * @param amp Amplification coefficient (default 100)
  */
-export function getStableSwapD(x: bigint, y: bigint, amp: bigint = 100n): bigint {
+export function getStableSwapD(x: bigint, y: bigint, amp: bigint = STABLE_SWAP_AMP): bigint {
   const s = x + y
   if (s === 0n) return 0n
 
   let prevD = 0n
   let d = s
-  const Ann = amp * 4n // n=2 -> Ann = A * 4
+  const Ann = amp * STABLE_SWAP_ANN_MULTIPLIER // n=2 -> Ann = A * n**n
 
   for (let i = 0; i < 255; i++) {
     let dP = d
@@ -38,8 +47,8 @@ export function getStableSwapD(x: bigint, y: bigint, amp: bigint = 100n): bigint
  * @param d Invariant D
  * @param amp Amplification coefficient (default 100)
  */
-export function getStableSwapY(x: bigint, d: bigint, amp: bigint = 100n): bigint {
-  const Ann = amp * 4n
+export function getStableSwapY(x: bigint, d: bigint, amp: bigint = STABLE_SWAP_AMP): bigint {
+  const Ann = amp * STABLE_SWAP_ANN_MULTIPLIER
   let c = (d * d) / (x * 2n)
   c = (c * d) / (Ann * 2n)
   const b = x + d / Ann
@@ -63,15 +72,15 @@ export function getStableSwapY(x: bigint, d: bigint, amp: bigint = 100n): bigint
  * @param amountIn Input token amount in raw integer units
  * @param reserveIn Current reserve of input token
  * @param reserveOut Current reserve of output token
- * @param feeBps Swap fee in basis points (e.g. 12n for 0.12%)
- * @param amp Amplification coefficient (default 100n)
+ * @param feeBps Swap fee in basis points (default: deployed StableSwap 12 bps = 0.12%)
+ * @param amp Amplification coefficient (default: deployed A = 100)
  */
 export function calculateStableSwapExpectedOut(
   amountIn: bigint,
   reserveIn: bigint,
   reserveOut: bigint,
-  feeBps: bigint = 12n,
-  amp: bigint = 100n
+  feeBps: bigint = STABLE_SWAP_LP_FEE_BPS,
+  amp: bigint = STABLE_SWAP_AMP
 ): bigint {
   if (amountIn <= 0n || reserveIn <= 0n || reserveOut <= 0n) return 0n
   const fee = (amountIn * feeBps) / 10000n
@@ -87,13 +96,13 @@ export function calculateStableSwapExpectedOut(
  * @param amountIn Input token amount in raw integer units
  * @param reserveIn Current reserve of input token
  * @param reserveOut Current reserve of output token
- * @param feeBps Swap fee in basis points (e.g. 25n for 0.25%)
+ * @param feeBps Swap fee in basis points (default: deployed CP fee 25 bps = 0.25%)
  */
 export function calculateConstantProductExpectedOut(
   amountIn: bigint,
   reserveIn: bigint,
   reserveOut: bigint,
-  feeBps: bigint = 25n
+  feeBps: bigint = CONSTANT_PRODUCT_LP_FEE_BPS
 ): bigint {
   if (amountIn <= 0n || reserveIn <= 0n || reserveOut <= 0n) return 0n
   const fee = (amountIn * feeBps) / 10000n

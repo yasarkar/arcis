@@ -77,6 +77,14 @@ export function sanitizeCopilotHtml(input: string): string {
 
     out += input.slice(cursor, open)
 
+    // UX-04: If '<' does not begin a tag name (e.g. '<500ms' or '< 10'), escape it directly
+    // so it cannot consume subsequent valid closing tags like '</strong>'.
+    if (!/^<\/?[a-zA-Z]/.test(input.slice(open))) {
+      out += '&lt;'
+      cursor = open + 1
+      continue
+    }
+
     const close = input.indexOf('>', open)
 
     // HTML parsers still treat a trailing unterminated tag at EOF as a tag, so escape the rest.

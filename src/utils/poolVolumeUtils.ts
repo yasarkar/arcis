@@ -3,6 +3,8 @@
 // and cross-component event dispatching for real-time UI synchronization.
 // STRICT: Pure live on-chain & genuine transaction history only — ZERO synthetic seeds.
 
+import { DEFAULT_TOKEN_PRICES } from '../services/tokenPriceService'
+
 const SWAP_VOL_STORAGE_KEY = 'arcis_swap_volume_history'
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
@@ -133,6 +135,47 @@ export const recordClientSwapVolume = (poolId: string, volumeUsd: number, txHash
       })
     )
   }
+}
+
+/**
+ * Maps a swap pair to the Arc pool whose volume it increases.
+ */
+export function poolIdForSwapPair(tokenIn: string, tokenOut: string): string {
+  const isCirBtc = (symbol: string) => symbol === 'CIRBTC' || symbol === 'BTC'
+  const inSymbol = String(tokenIn || '').toUpperCase()
+  const outSymbol = String(tokenOut || '').toUpperCase()
+  return isCirBtc(inSymbol) || isCirBtc(outSymbol) ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
+}
+
+/**
+ * Approximate USD value of a swap input using the shared fallback price table.
+ * Single FX source (DEFAULT_TOKEN_PRICES) replacing the three duplicated `* 1.08` / `* 78500`
+ * hardcodes that lived inside swapService (audit: hardcoded FX prices).
+ */
+export function approximateSwapVolumeUsd(tokenIn: string, amountIn: string): number {
+  const amount = parseFloat(amountIn)
+  if (!Number.isFinite(amount) || amount <= 0) return 0
+
+  const symbol = String(tokenIn || '').toUpperCase()
+  if (symbol === 'USDC') return amount
+
+  const priceKey = symbol === 'BTC' ? 'CIRBTC' : symbol
+  const price = DEFAULT_TOKEN_PRICES[priceKey]
+  return Number.isFinite(price) && price > 0 ? amount * price : 0
+}
+
+/**
+ * Records a client-side swap volume for the pair's pool; no-ops for unknown assets.
+ */
+export function recordClientSwapVolumeForPair(
+  tokenIn: string,
+  tokenOut: string,
+  amountIn: string,
+  txHash?: string
+): void {
+  const volumeUsd = approximateSwapVolumeUsd(tokenIn, amountIn)
+  if (volumeUsd <= 0) return
+  recordClientSwapVolume(poolIdForSwapPair(tokenIn, tokenOut), volumeUsd, txHash)
 }
 
 /**

@@ -3,6 +3,7 @@
 
 import type { ArcisAppError, ErrorCategory } from '../types/errors'
 import { ERROR_DEFINITIONS, type ErrorDefinition } from '../config/errorMessages'
+import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants'
 
 /**
  * Checks whether an error was caused by the user deliberately rejecting/canceling
@@ -583,7 +584,7 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
       isCanceled: false,
       isRetryable: true,
       isActionable: true,
-      actionHint: 'Increase the bridge amount to at least 2 USDC to cover CCTP forwarder fees.',
+      actionHint: `Increase the bridge amount to at least ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC to cover CCTP forwarder fees.`,
       rawMessage,
     }
   }
