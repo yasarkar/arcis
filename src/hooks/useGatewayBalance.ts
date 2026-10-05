@@ -2,6 +2,7 @@
 //
 // React hook for querying the Circle Gateway unified balance.
 
+import { useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getGatewayBalances,
@@ -9,7 +10,21 @@ import {
   type GatewayBalanceResponse,
 } from '../services/gatewayService'
 import { GATEWAY_DOMAINS, GATEWAY_CHAIN_NAMES, DOMAIN_TO_CHAIN } from '../config/gatewayConfig'
-import { applyOptimisticDelta, getOptimisticDelta } from '../services/optimisticGatewayTracker'
+import { getActiveOptimisticDeltas } from '../services/optimisticGatewayTracker'
+import { normalizeWalletAddress } from '../utils/address'
+
+const EMPTY_PENDING_BY_CHAIN: Record<string, number> = {}
+/** Live poll cadence for the unified balance. */
+export const GATEWAY_POLL_INTERVAL_MS = 10_000
+
+/**
+ * Cache key for the Gateway balance query.
+ * Addresses are normalized (trimmed + lowercased) so the connect-time prefetch and every
+ * consumer resolve to the same cache entry instead of fetching the same balances twice.
+ */
+export function gatewayBalancesQueryKey(walletAddress: string): readonly ['gatewayBalances', string] {
+  return ['gatewayBalances', normalizeWalletAddress(walletAddress)] as const
+}
 
 export interface GatewayBalance {
   domain: number
@@ -21,11 +36,25 @@ export interface GatewayBalance {
   error?: string
 }
 
+export interface GatewayBalancesData {
+  balances: GatewayBalance[]
+  totalBalance: string
+  /** Net amount pending Circle's indexer (positive for deposits on their way in). */
+  pendingDelta: number
+  /** Pending amounts keyed by originating chain so rows can label them honestly. */
+  pendingByChain: Record<string, number>
+}
+
 export async function fetchGatewayBalancesData(
   walletAddress: string
-): Promise<{ balances: GatewayBalance[]; totalBalance: string }> {
+): Promise<GatewayBalancesData> {
   if (!walletAddress) {
-    return { balances: [] as GatewayBalance[], totalBalance: '0.00' }
+    return {
+      balances: [] as GatewayBalance[],
+      totalBalance: '0.00',
+      pendingDelta: 0,
+      pendingByChain: EMPTY_PENDING_BY_CHAIN,
+    }
   }
   console.log(`[useGatewayBalance] Live fetching balance for wallet: ${walletAddress}`)
   const rawData: GatewayBalanceResponse = await getGatewayBalances(walletAddress)
@@ -48,26 +77,35 @@ export async function fetchGatewayBalancesData(
     0
   )
 
-  const effectiveTotal = applyOptimisticDelta(walletAddress, sum, 'gateway-settlement-pool')
-  const delta = getOptimisticDelta(walletAddress, sum, 'gateway-settlement-pool')
+  // Pending deposits/withdrawals that Circle's off-chain indexer has not surfaced yet.
+  const activeDeltas = getActiveOptimisticDeltas(walletAddress, sum, 'gateway-settlement-pool')
+  const pendingDelta = activeDeltas.reduce((acc, item) => acc + item.delta, 0)
+  const effectiveTotal = Math.max(0, parseFloat((sum + pendingDelta).toFixed(4)))
 
-  // Distribute delta to Arc_Testnet item for UI consistency
-  if (delta !== 0 && mapped.length > 0) {
-    const arcIndex = mapped.findIndex((m) => m.chainKey === 'Arc_Testnet')
-    if (arcIndex >= 0) {
-      const oldBal = parseFloat(mapped[arcIndex].balance || '0')
-      mapped[arcIndex].balance = Math.max(0, oldBal + delta).toFixed(2)
-    }
+  // Attribute each pending delta to the chain it happened on so the breakdown stays honest.
+  const pendingByChain: Record<string, number> = {}
+  for (const item of activeDeltas) {
+    if (!item.chainKey || item.delta === 0) continue
+    pendingByChain[item.chainKey] = (pendingByChain[item.chainKey] ?? 0) + item.delta
+  }
+  for (const row of mapped) {
+    const pending = pendingByChain[row.chainKey]
+    if (!pending) continue
+    row.balance = Math.max(0, parseFloat(row.balance) + pending).toFixed(2)
   }
 
   return {
     balances: mapped,
     totalBalance: effectiveTotal.toFixed(2),
+    pendingDelta,
+    pendingByChain,
   }
 }
 
 export function useGatewayBalance(walletAddress: string) {
   const queryClient = useQueryClient()
+  const normalizedAddress = normalizeWalletAddress(walletAddress)
+  const queryKey = useMemo(() => gatewayBalancesQueryKey(normalizedAddress), [normalizedAddress])
 
   const {
     data,
@@ -75,12 +113,19 @@ export function useGatewayBalance(walletAddress: string) {
     isFetching,
     error: queryError,
     refetch,
+    dataUpdatedAt,
   } = useQuery({
-    queryKey: ['gatewayBalances', walletAddress],
-    queryFn: () => fetchGatewayBalancesData(walletAddress),
-    enabled: Boolean(walletAddress),
-    staleTime: 4_000, // 4 seconds fresh cache for live updates
-    refetchInterval: 8_000, // Live poll every 8 seconds
+    queryKey,
+    queryFn: () => fetchGatewayBalancesData(normalizedAddress),
+    enabled: Boolean(normalizedAddress),
+    staleTime: 5_000, // 5 seconds fresh cache for live updates
+    refetchInterval: GATEWAY_POLL_INTERVAL_MS, // Live poll every 10 seconds
+    // Hidden tabs must not poll: React Query skips interval ticks while the document is
+    // hidden and resumes automatically once it is visible again (focusManager reads
+    // document.visibilityState). Keep this explicit — switching to a
+    // `document.hidden ? false : interval` callback would clear the timer for good, because
+    // the app disables refetchOnWindowFocus globally.
+    refetchIntervalInBackground: false,
     gcTime: 1000 * 60 * 5, // 5 minutes garbage collection
   })
 
@@ -89,9 +134,17 @@ export function useGatewayBalance(walletAddress: string) {
     totalBalance: data?.totalBalance || '0.00',
     loading: isLoading,
     isFetching,
+    /** True once a successful Gateway response has been received (stale data is kept on refresh errors). */
+    hasData: data !== undefined,
     error: queryError ? (queryError as Error).message : null,
+    /** Epoch ms of the last successful Gateway fetch; lets callers couple their own refreshes to the poll. */
+    dataUpdatedAt,
+    /** Net optimistic amount still waiting for Circle's indexer (positive for pending deposits). */
+    pendingDelta: data?.pendingDelta ?? 0,
+    /** Per-chain pending amounts so rows can be labeled honestly instead of crediting another chain. */
+    pendingByChain: data?.pendingByChain ?? EMPTY_PENDING_BY_CHAIN,
     refresh: () => {
-      queryClient.invalidateQueries({ queryKey: ['gatewayBalances', walletAddress] })
+      queryClient.invalidateQueries({ queryKey })
       return refetch()
     },
   }

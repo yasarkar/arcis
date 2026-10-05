@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSocialProviderInfo } from '../config/socialAuthConfig';
+import { normalizeCircleBlockchain } from '../utils/circleBlockchain';
 
 export interface UcwWalletInfo {
   id: string;
@@ -772,22 +773,15 @@ export function useUserControlledWallet() {
     }
   }, [circleAppId, sdkInstance, deviceId, ensureSdk]);
 
-  // Helper: Normalize blockchain string to Circle-compatible uppercase identifier
+  // Helper: resolve the blockchain param through the shared fail-closed whitelist.
+  // The previous substring heuristic collapsed unknown chains into ETH-SEPOLIA
+  // (e.g. Unichain_Sepolia) and rewrote mainnet identifiers to their testnet
+  // counterparts (ETH → ETH-SEPOLIA) — both sign the challenge on the wrong
+  // chain. Unknown chains now throw, which each caller surfaces as
+  // { success: false, error }.
   const normalizeCircleBlockchainParam = useCallback((bc?: string): string | undefined => {
     if (!bc) return undefined;
-    const upper = bc.toUpperCase().replace(/_/g, '-');
-    if (upper.includes('ARC')) return 'ARC-TESTNET';
-    if (upper.includes('BASE')) return 'BASE-SEPOLIA';
-    if (
-      upper.includes('ETH') ||
-      upper.includes('ETHEREUM') ||
-      (upper.includes('SEPOLIA') && !upper.includes('BASE') && !upper.includes('ARB') && !upper.includes('OP'))
-    ) return 'ETH-SEPOLIA';
-    if (upper.includes('ARB') || upper.includes('ARBITRUM')) return 'ARB-SEPOLIA';
-    if (upper.includes('OP') || upper.includes('OPTIMISM')) return 'OP-SEPOLIA';
-    if (upper.includes('AVAX') || upper.includes('AVALANCHE') || upper.includes('FUJI')) return 'AVAX-FUJI';
-    if (upper.includes('POLYGON') || upper.includes('MATIC') || upper.includes('AMOY')) return 'MATIC-AMOY';
-    return upper;
+    return normalizeCircleBlockchain(bc);
   }, []);
 
   // Helper: Ensure user wallet exists on the target blockchain (auto-creates if missing)

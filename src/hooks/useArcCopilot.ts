@@ -526,6 +526,24 @@ export function useArcCopilot(
   const [messages, setMessages] = useState<CopilotMessage[]>([createArcisWelcomeMessage()])
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress))
   const pendingActionRef = useRef<CopilotActionPayload | null>(null)
+  const queryBusyRef = useRef<boolean>(false)
+  const queryGenerationRef = useRef<number>(0)
+  const queryAbortRef = useRef<AbortController | null>(null)
+
+  // Invalidate in-flight query tasks and pending actions when the connected wallet changes
+  const prevWalletRef = useRef<string | undefined>(walletAddress)
+  useEffect(() => {
+    if (prevWalletRef.current !== walletAddress) {
+      prevWalletRef.current = walletAddress
+      queryGenerationRef.current += 1
+      queryAbortRef.current?.abort()
+      queryAbortRef.current = null
+      queryBusyRef.current = false
+      setIsAnalyzing(false)
+      pendingActionRef.current = null
+      setSessionConfig(getSessionKeyConfig(walletAddress))
+    }
+  }, [walletAddress])
 
   const toggleOpen = useCallback(() => {
     setIsOpen((prev) => !prev)
@@ -533,6 +551,7 @@ export function useArcCopilot(
 
   const streamAssistantMessage = async (msg: CopilotMessage): Promise<void> => {
     setIsAnalyzing(false)
+    const currentGeneration = queryGenerationRef.current
     const fullContent = msg.content
     const msgId = msg.id
 
@@ -546,14 +565,16 @@ export function useArcCopilot(
 
     setMessages((prev) => [...prev, initialMsg])
 
-    // 2. Elegant, organic typewriter cadence (chunk of 3-4 chars with natural punctuation pauses)
-    const chunkSize = 4
-    const delayMs = 22
+    // 2. High-performance, organic typewriter cadence (24 chars batch with natural pauses)
+    const chunkSize = 24
+    const delayMs = 30
 
     let currentText = ''
     let i = 0
 
     while (i < fullContent.length) {
+      if (currentGeneration !== queryGenerationRef.current) return
+
       // If we encounter an HTML tag (e.g. <strong>, <code>), consume the entire tag atomically
       if (fullContent[i] === '<') {
         const closingIdx = fullContent.indexOf('>', i)
@@ -577,10 +598,12 @@ export function useArcCopilot(
       // Subtle natural breathing pause on sentence ends and line breaks
       const lastChar = currentText.slice(-1)
       const isPauseChar = lastChar === '.' || lastChar === '!' || lastChar === '?' || lastChar === '\n'
-      const currentDelay = isPauseChar ? 36 : delayMs
+      const currentDelay = isPauseChar ? 45 : delayMs
 
       await new Promise((resolve) => setTimeout(resolve, currentDelay))
     }
+
+    if (currentGeneration !== queryGenerationRef.current) return
 
     // 3. Finished streaming: reveal full content, stop cursor, attach actionPayload
     setMessages((prev) =>
@@ -964,33 +987,36 @@ export function useArcCopilot(
 
   // Orchestrate execution of natural language query or quick prompt
   const executeQuery = async (queryText: string) => {
-    if (!queryText.trim() || isAnalyzing) return
-
-    const userMsgId = 'user-' + Date.now()
-    const userMsg: CopilotMessage = {
-      id: userMsgId,
-      role: 'user',
-      content: queryText,
-      timestamp: Date.now(),
-    }
-    addMessage(userMsg)
+    if (!queryText.trim() || queryBusyRef.current) return
+    queryBusyRef.current = true
     setIsAnalyzing(true)
 
-    // Fetch live on-chain portfolio snapshot concurrently with animated thinking delay
-    const [portfolioSnapshot] = await Promise.all([
-      getLivePortfolioSnapshot(walletAddress),
-      new Promise((res) => setTimeout(res, 1800)),
-    ])
+    const currentGeneration = queryGenerationRef.current
+    const abortController = new AbortController()
+    queryAbortRef.current = abortController
 
-    // 0. PRIORITY ACTION & STRATEGY ROUTING
-    // If the query is an action, swap, bridge, deposit, faucet, portfolio analysis,
-    // or multi-turn correction, directly dispatch to the LLM / Local NLP Engine.
-    if (isActionOrStrategyIntent(queryText)) {
-      await handleLLMIntent(queryText, portfolioSnapshot)
-      setIsAnalyzing(false)
-      setCurrentSteps([])
-      return
-    }
+    try {
+      const userMsgId = 'user-' + Date.now()
+      const userMsg: CopilotMessage = {
+        id: userMsgId,
+        role: 'user',
+        content: queryText,
+        timestamp: Date.now(),
+      }
+      addMessage(userMsg)
+
+      // Fetch live on-chain portfolio snapshot directly (no artificial 1.8s wait)
+      const portfolioSnapshot = await getLivePortfolioSnapshot(walletAddress)
+      if (currentGeneration !== queryGenerationRef.current) return
+
+      // 0. PRIORITY ACTION & STRATEGY ROUTING
+      // If the query is an action, swap, bridge, deposit, faucet, portfolio analysis,
+      // or multi-turn correction, directly dispatch to the LLM / Local NLP Engine.
+      if (isActionOrStrategyIntent(queryText)) {
+        await handleLLMIntent(queryText, portfolioSnapshot)
+        setCurrentSteps([])
+        return
+      }
 
     const q = queryText.toLowerCase()
     const steps: CopilotStepLog[] = []
@@ -1016,17 +1042,17 @@ It combines ultra-low latency execution, unified cross-chain liquidity, and an a
 • <strong>Native USDC Gas Token:</strong>
 All transaction fees on Arc L1 are paid directly in USDC. There is no need to hold or manage volatile gas tokens like ETH.
 
-• <strong>Sub-Second Finality (<500ms):</strong>
-Transactions settle and finalize in under 500 milliseconds, eliminating execution delays and front-running risks.
+• <strong>Sub-Second Finality (&lt;500ms):</strong>
+Transactions settle and finalize in under 500 milliseconds on Arc L1, reducing execution latency and exposure window.
 
 • <strong>Circle Gateway Liquidity:</strong>
-Access your unified USDC balance across 13+ blockchains with instant spendability and zero bridge waiting periods.
+Access your unified USDC balance across 13+ blockchains with instant spendability and streamlined cross-chain movement.
 
 • <strong>x402 AI Services Catalog:</strong>
 The catalog lists analytical services at configured rates. Paid client calls are currently disabled and fail closed until trusted settlement is configured.
 
 • <strong>Real-Yield Vault (af-USDC):</strong>
-Earn sustainable 8.42% APY compound real-yield powered by institutional borrowing interest and protocol fee sharing.`,
+Earn compounding real yield powered by protocol transaction fees; variable yields reflect live pool utilization and protocol volume.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1395,7 +1421,7 @@ You can redeem af-USDC for the underlying principal and all earned yield at any 
 Single-asset USDC deposit earning institutional borrower interest + protocol fees. Zero impermanent loss — the flagship 'set & forget' option.
 
 • <strong>Gateway Cross-Chain Settlement Pool (7.25% APR):</strong>
-USDC routed through Circle Gateway earns routing yield while staying instantly spendable across 13+ chains.
+USDC routed through Circle Gateway earns routing yield while staying instantly spendable across 12+ chains.
 
 • <strong>USDC / EURC Stable Pool (6.15% APR):</strong>
 Stablecoin LP pair with near-zero impermanent loss, earning FX fees from euro (EURC) swaps.
@@ -2004,11 +2030,21 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
       await handleLLMIntent(queryText, portfolioSnapshot)
     }
 
-    setIsAnalyzing(false)
     setCurrentSteps([])
+  } catch (err) {
+    console.error('[useArcCopilot] executeQuery error:', err)
+  } finally {
+    queryBusyRef.current = false
+    setIsAnalyzing(false)
   }
+}
 
   const clearChat = () => {
+    queryGenerationRef.current += 1
+    queryAbortRef.current?.abort()
+    queryAbortRef.current = null
+    queryBusyRef.current = false
+    setIsAnalyzing(false)
     pendingActionRef.current = null
     setMessages([createArcisWelcomeMessage()])
   }

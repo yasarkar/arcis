@@ -59,11 +59,14 @@ export function formatFiatEstimate(
   }
 
   // 2. LP Tokens & Vault Shares (e.g. af-USDC, af-USDC-cirBTC, af-USDC-EURC, LP)
-  // In Arcis, LP tokens represent proportional pool liquidity where 1 share is pegged ~1.00 USD.
+  // LP tokens require measured valuation data; never invent a flat $1.00/share fallback.
   const isLpToken = normUpper.startsWith('AF-') || normUpper.includes('LP') || norm === 'af-USDC'
   if (isLpToken) {
-    const rawPrice = prices?.[norm]
-    const lpPrice = typeof rawPrice === 'number' && rawPrice > 0 ? rawPrice : 1.0
+    const rawPrice = prices?.[tokenSymbol || ''] ?? prices?.[norm] ?? prices?.[normUpper]
+    if (typeof rawPrice !== 'number' || !Number.isFinite(rawPrice) || rawPrice <= 0) {
+      return undefined
+    }
+    const lpPrice = rawPrice
     const totalUsd = num * lpPrice
     if (totalUsd < 0.01) {
       return '< $0.01 USD'

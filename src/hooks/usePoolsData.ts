@@ -28,6 +28,9 @@ import {
   poolSlippageBps,
   poolMinOut,
   poolMinLpShares,
+  STABLE_SWAP_AMP,
+  STABLE_SWAP_LP_FEE_BPS,
+  CONSTANT_PRODUCT_LP_FEE_BPS,
   type PoolConfig,
 } from '../config/poolsConfig'
 import {
@@ -269,8 +272,8 @@ export function computeMinLpShares(
     // StableSwap pool: Exact Curve invariant calculation matching StableSwapPoolV3.sol
     const reserveBRaw = st.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
     if (reserveBRaw > 0n && amountA > 0n && amountB > 0n) {
-      const d0 = getStableSwapD(reserveARaw, reserveBRaw, 100n)
-      const d1 = getStableSwapD(reserveARaw + amountA, reserveBRaw + amountB, 100n)
+      const d0 = getStableSwapD(reserveARaw, reserveBRaw, STABLE_SWAP_AMP)
+      const d1 = getStableSwapD(reserveARaw + amountA, reserveBRaw + amountB, STABLE_SWAP_AMP)
       if (d1 > d0 && d0 > 0n) {
         expectedLp = ((d1 - d0) * totalLpRaw) / d0
       }
@@ -1519,7 +1522,7 @@ export function usePoolsData(
         expectedOut = (resB * inAfterFee) / (resA + inAfterFee)
       } else {
         // Exact Curve StableSwap invariant (K6)
-        expectedOut = calculateStableSwapExpectedOut(halfUsdc, resA, resB, feeBps, 100n)
+        expectedOut = calculateStableSwapExpectedOut(halfUsdc, resA, resB, feeBps, STABLE_SWAP_AMP)
       }
 
       const slippageTolerance = typeof _slippage === 'number' && _slippage > 0 ? _slippage : 0.5
@@ -2937,9 +2940,9 @@ export function usePoolsData(
               if (resA > 0n && resB > 0n) {
                 let expectedOut = 0n
                 if (poolId === 'usdc-eurc-stable-pool') {
-                  expectedOut = calculateStableSwapExpectedOut(receivedCounter, resB, resA, 12n, 100n)
+                  expectedOut = calculateStableSwapExpectedOut(receivedCounter, resB, resA, STABLE_SWAP_LP_FEE_BPS, STABLE_SWAP_AMP)
                 } else {
-                  expectedOut = calculateConstantProductExpectedOut(receivedCounter, resB, resA, 25n)
+                  expectedOut = calculateConstantProductExpectedOut(receivedCounter, resB, resA, CONSTANT_PRODUCT_LP_FEE_BPS)
                 }
                 const slipBps = poolSlippageBps(_slippage)
                 const minOut = poolMinOut(expectedOut, slipBps)
