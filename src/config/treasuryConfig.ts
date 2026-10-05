@@ -29,4 +29,7 @@ export {
   getBridgeProtocolFee,
   getBridgeProtocolFeePercent,
   calculateBridgeProtocolFeeAmount,
+  isBridgePlatformFeeCharged,
+  getBridgePlatformFeeValue,
+  getBridgePlatformFeeDisplay,
 } from './fees'

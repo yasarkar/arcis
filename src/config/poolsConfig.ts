@@ -147,6 +147,24 @@ export const POOL_VERSION_V2: boolean = poolVersionV2Env === 'true'
 // Default AMM LP operation slippage tolerance (0.5%).
 export const POOL_DEFAULT_SLIPPAGE_BPS = 50
 
+// ── Deployed V3 pool invariants — SINGLE SOURCE OF TRUTH (audit #14) ──────────────
+// Previously hard-coded in swapService, poolMath, SwapModal and usePoolsData. These must stay
+// in sync with the deployed contracts (enforced by utils/__tests__/poolContractConstants.test.ts):
+//   contracts/src/v3/StableSwapPoolV3.sol  → `uint256 public constant A = 100;` (Ann = A * n**n = A*4)
+//   contracts/script/DeployV3.s.sol        → StableSwapPoolV3(..., 12, ...) / ConstantProductPoolV3(..., 25, ...)
+
+/** Curve Stableswap amplification coefficient (A). */
+export const STABLE_SWAP_AMP = 100n
+
+/** `Ann = A * n**n` for a 2-token pool → multiplier 4 (V3 corrected V2's A*2 bug). */
+export const STABLE_SWAP_ANN_MULTIPLIER = 4n
+
+/** USDC/EURC StableSwap LP fee: 12 bps (0.12%). */
+export const STABLE_SWAP_LP_FEE_BPS = 12n
+
+/** USDC/cirBTC Constant-Product LP fee: 25 bps (0.25%). */
+export const CONSTANT_PRODUCT_LP_FEE_BPS = 25n
+
 // Converts a percent tolerance (e.g. 0.5) to bps, clamped to [10, 1000].
 export function poolSlippageBps(tolerancePercent: number): number {
   if (!Number.isFinite(tolerancePercent) || tolerancePercent <= 0) return POOL_DEFAULT_SLIPPAGE_BPS

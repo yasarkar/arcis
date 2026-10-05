@@ -2,6 +2,7 @@
 // Standardized Web3 Error Messages Dictionary for Arcis Protocol (100% English)
 
 import type { ErrorCategory } from '../types/errors'
+import { MIN_DIRECT_BRIDGE_AMOUNT } from './constants'
 
 export interface ErrorDefinition {
   category: ErrorCategory
@@ -95,7 +96,7 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   CCTP_MIN_FEE_VIOLATION: {
     category: 'VALIDATION',
     title: 'Bridge Amount Below CCTP Fee',
-    message: 'The bridge amount must be greater than the CCTP forwarder fee. Please increase the transfer amount (recommended: at least 2 USDC).',
+    message: `The bridge amount must be greater than the CCTP forwarder fee. Please increase the transfer amount (minimum: ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC).`,
     isCanceled: false,
     isRetryable: true,
   },

@@ -115,6 +115,15 @@ export const GATEWAY_CHAIN_NAMES: Record<string, string> = Object.fromEntries(
 // ── Supported Gateway Chains ─────────────────────────────────────────────────
 export const GATEWAY_SUPPORTED_CHAINS = Object.keys(GATEWAY_DOMAINS)
 
+// NOTE on Gateway fees: Circle charges its own Gateway cost (0.005% transfer fee
+// plus a per-chain source gas fee, and the forwarding fee when it submits the
+// destination mint) from the unified Gateway balance at burn time, never out of
+// the minted principal — a live `gatewayMint` receipt holds exactly one USDC mint
+// (the full amount, to the recipient) and no fee movement.
+// Circle and Arc provide that route end to end, Arcis charges no platform fee on
+// it, and the Bridge UI therefore quotes and shows no Gateway fee at all.
+// Reference: https://developers.circle.com/gateway/references/fees
+
 // ── EIP-712 Typed Data for Burn Intents ─────────────────────────────────────
 export const GATEWAY_EIP712_DOMAIN = {
   name: 'GatewayWallet',
