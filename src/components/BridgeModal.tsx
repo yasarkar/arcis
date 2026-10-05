@@ -15,17 +15,22 @@ import { NetworkIcon } from '@web3icons/react/dynamic'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
-import { transferFromGateway, estimateGatewayTransfer, ensureChain, verifyDestinationUsdcMint } from '../services/gatewayService'
-import { executeBridge, estimateBridgeCost } from '../services/bridgeService'
-import { executeUcwBridgeTransfer, pollCctpDestinationTx } from '../services/bridgeUcwService'
+import { transferFromGateway, ensureChain, verifyDestinationUsdcMint, gatewayTransferFeeCeiling, resolveDestinationUsdcMintAmount, gatewayDeliveredUsdc } from '../services/gatewayService'
+import { executeBridge, estimateBridgeCost, resolveBridgeNetworkFee } from '../services/bridgeService'
+import { executeUcwBridgeTransfer, pollCctpDestinationTx, fetchCctpFastFeeBps, fetchCctpForwardQuote } from '../services/bridgeUcwService'
 import {
   executeUcwGatewayTransfer,
   pollForwardedGatewayTransfer,
   mapChainKeyToCircleBlockchain,
 } from '../services/gatewayUcwService'
 import { createViemAdapter } from '../services/sendService'
-import { GATEWAY_SUPPORTED_CHAINS } from '../config/gatewayConfig'
 import { normalizeAppError } from '../utils/errorNormalizer'
+import {
+  maxBridgeAmount,
+  bridgeAmountForPercentage,
+  gatewayMaxFeeUsdc,
+  sumBridgeDeductedFees,
+} from '../utils/bridgeAmountUtils'
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
@@ -37,14 +42,16 @@ import {
   CHAIN_DEFS,
   getChainDisplayName,
   getChainIconId,
+  BRIDGE_SELECTABLE_CHAINS,
 } from '../config/bridgeConfig'
 import {
   getBridgeFeeRecipient,
-  BRIDGE_CUSTOM_FEE_CONFIG,
+  isBridgePlatformFeeCharged,
+  getBridgePlatformFeeValue,
 } from '../config/treasuryConfig'
 import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants'
 import { formatFeeDecimals, CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
-import { addTransaction } from '../utils/history'
+import { addTransaction, completeBridgeTransaction } from '../utils/history'
 import { Tooltip } from './common/Tooltip'
 import {
   FintechCard,
@@ -106,7 +113,10 @@ export default function BridgeModal({
   const { solana, injective } = useMultiChainWallet()
   const [isPrivateBridge, setIsPrivateBridge] = useState(false)
 
-  // Speed & Priority Tier Selection: 'standard' (Eco / CCTP Slow), 'fast' (CCTP Fast 15-30s), 'turbo' (Gateway <500ms Instant)
+  // Speed & Priority Tier Selection (Direct CCTP): 'standard' (Eco / CCTP Slow),
+  // 'fast' (CCTP Fast 15-30s), 'turbo' (fastest Direct tier — carries its own
+  // platform fee). The Gateway route is a separate mode picked through
+  // SegmentedModeSwitch, not a speed tier.
   const [speedTier, setSpeedTier] = useState<SpeedTier>('fast')
   const [showSettings, setShowSettings] = useState(false)
 
@@ -114,19 +124,19 @@ export default function BridgeModal({
   const [bridgeMode, setBridgeMode] = useState<'direct' | 'gateway'>('direct')
 
   const handleSpeedTierChange = (tier: SpeedTier) => {
+    // Speed tiers are a Direct CCTP property: Turbo is the fastest Direct tier
+    // and carries its own platform fee (charged through App Kit's customFee),
+    // not a synonym for the Gateway route. Picking any tier while the Gateway
+    // route is active switches back to Direct; the route itself is chosen only
+    // through the mode switch below.
     setSpeedTier(tier)
-    if (tier === 'turbo') {
-      setBridgeMode('gateway')
-    } else {
-      setBridgeMode('direct')
-    }
+    setBridgeMode('direct')
   }
 
   const [sourceChain, setSourceChain] = useState('Arc_Testnet')
   const [destChain, setDestChain] = useState('Base_Sepolia')
   const [amount, setAmount] = useState('')
   const [recipient, setRecipient] = useState('')
-  const [recipientError, setRecipientError] = useState<string | null>(null)
 
   // Chain selection modals
   const [showSourceChainModal, setShowSourceChainModal] = useState(false)
@@ -161,15 +171,33 @@ export default function BridgeModal({
 
   const activeBalance = bridgeMode === 'direct' ? sourceWalletBalance : sourceGatewayBalance
 
-  // Custom Platform Fee configuration from Arcis Treasury Fee Engine (.env: VITE_BRIDGE_FEE_VALUE & VITE_BRIDGE_FEE_ENABLED)
-  const platformFeeEnabled =
-    BRIDGE_CUSTOM_FEE_CONFIG.enabled && parseFloat(BRIDGE_CUSTOM_FEE_CONFIG.value) > 0
-  const platformFeeAmount = platformFeeEnabled ? parseFloat(BRIDGE_CUSTOM_FEE_CONFIG.value) : 0
-  const platformFeePercent = platformFeeEnabled ? `${platformFeeAmount.toFixed(2)} USDC` : '0.00 USDC'
+  // Custom Platform Fee configuration from Arcis Treasury Fee Engine
+  // (.env: VITE_BRIDGE_FEE_ENABLED + the per-speed ladder VITE_BRIDGE_FEE_VALUE_STANDARD /
+  // _FAST / _TURBO, falling back to the flat VITE_BRIDGE_FEE_VALUE). Every charge
+  // surface below (requiredDebit, MAX reserve, App Kit customFee, breakdown, receipt)
+  // reads this one tiered value, so what is shown and what is debited cannot diverge.
+  const platformFeeAmount = getBridgePlatformFeeValue(speedTier)
+  // One policy, one source: the fee is only charged — and only enforced against
+  // the balance — where the execution path can actually collect it (Direct CCTP
+  // via App Kit; never for UCW or the Gateway paths).
+  const platformFeeCharged = isBridgePlatformFeeCharged({ bridgeMode, authSource })
   const requiredDebit = amount
-    ? parseFloat(amount) + (bridgeMode === 'direct' ? platformFeeAmount : 0)
+    ? parseFloat(amount) + (platformFeeCharged ? platformFeeAmount : 0)
     : 0
   const isInsufficient = amount ? requiredDebit > parseFloat(activeBalance) : false
+
+  // What execution will debit on top of the entered amount. MAX and the
+  // percentage chips must reserve both, otherwise clicking MAX is rejected as
+  // INSUFFICIENT the moment it fills the field:
+  //   • Direct CCTP adds the flat platform fee to the debit.
+  //   • Gateway pre-flight requires balance ≥ amount + maxFee (1.0 USDC floor),
+  //     so the reserve is computed from the full balance — maxFee grows with the
+  //     amount, which never exceeds the balance.
+  const amountReserves = {
+    platformFeeUsdc: platformFeeCharged ? platformFeeAmount : 0,
+    gatewayMaxFeeUsdc:
+      bridgeMode === 'gateway' ? gatewayMaxFeeUsdc(parseFloat(activeBalance) || 0) : 0,
+  }
 
   // Transfer execution states
   const [isTransferring, setIsTransferring] = useState(false)
@@ -180,13 +208,11 @@ export default function BridgeModal({
 
   // Fee estimation
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null)
-  const [isEstimating, setIsEstimating] = useState(false)
 
   // Systematic input and state clearing on wallet disconnect
   const resetFormInputs = useCallback(() => {
     setAmount('')
     setRecipient('')
-    setRecipientError(null)
     setIsTransferring(false)
     setSuccessReceipt(null)
     setIsBridgePending(false)
@@ -212,87 +238,110 @@ export default function BridgeModal({
       setError(null)
       setIsCanceledError(false)
       setEstimatedFee(null)
-      setRecipientError(null)
     }
   }, [isOpen])
+
+  // Direct CCTP fee fallback: Circle's Fast Transfer fee is route-specific and
+  // changes over time (Circle: "Do not hardcode fee values"), so quote the live
+  // fee API first and only fall back to the legacy static estimate when the
+  // quote itself is unavailable.
+  const quoteDirectCctpFee = useCallback(async (): Promise<string> => {
+    if (speedTier === 'standard') return '0.00' // Standard transfers are free
+    try {
+      const feeBps = await fetchCctpFastFeeBps(sourceChain, destChain)
+      if (feeBps !== null) {
+        return formatFeeDecimals((parseFloat(amount || '0') * feeBps) / 10000)
+      }
+    } catch {
+      // Quote unavailable → keep the static fallback below.
+    }
+    return '0.20'
+  }, [speedTier, sourceChain, destChain, amount])
+
+  // UCW direct CCTP transfers are submitted through Circle's Forwarding Service:
+  // there is no destination wallet signing the mint, so the displayed cost is
+  // the CCTP protocol fee (Fast tier only; Standard is free) PLUS the live
+  // forwarding fee that covers destination gas. Quoting only the protocol fee
+  // understated the real cost and left the receipt's pending net amount wrong.
+  const quoteUcwDirectBridgeFee = useCallback(async (): Promise<string> => {
+    const threshold = speedTier === 'standard' ? 2000 : 1000
+    try {
+      const quote = await fetchCctpForwardQuote(sourceChain, destChain, threshold)
+      if (quote) {
+        const protocolFee = (parseFloat(amount || '0') * quote.minimumFeeBps) / 10000
+        const forwardFee = Number(quote.forwardFeeSubunits) / 1_000_000
+        return formatFeeDecimals(protocolFee + forwardFee)
+      }
+    } catch {
+      // Quote unavailable → fall back to the legacy direct estimate below.
+    }
+    return quoteDirectCctpFee()
+  }, [speedTier, sourceChain, destChain, amount, quoteDirectCctpFee])
 
   // Debounced fee estimation
   useEffect(() => {
     if (isTransferring) return
 
+    // Each quote belongs to the amount it was computed for. Drop the previous
+    // quote as soon as an input changes so the breakdown never pairs a stale
+    // fee with a new amount; the debounced quote below replaces it.
+    setEstimatedFee(null)
+
     if (!amount || parseFloat(amount) <= 0) {
-      setEstimatedFee(null)
       return
     }
 
     let isMounted = true
     const getEstimation = async () => {
-      setIsEstimating(true)
       try {
+        // Gateway Fast quotes nothing: Arcis charges no platform fee on that
+        // route and Circle bills its own cost straight from the user's Gateway
+        // balance, so no fee is deducted from the bridged amount and there is no
+        // fee row or quote to produce for it (in any auth mode).
+        if (bridgeMode === 'gateway') return
+
         if (authSource === 'ucw') {
-          if (bridgeMode === 'gateway') {
-            const fee = await estimateGatewayTransfer(sourceChain, destChain, amount)
-            if (isMounted) setEstimatedFee(fee)
-          } else {
-            // Circle UCW CCTP transfer fee estimation
-            if (isMounted) {
-              setEstimatedFee(speedTier === 'standard' ? '0.00' : '0.20')
-            }
+          // Circle UCW CCTP transfer fee estimation (live Circle fee quote)
+          if (isMounted) {
+            setEstimatedFee(await quoteUcwDirectBridgeFee())
           }
           return
         }
 
-        if (bridgeMode === 'gateway') {
-          const fee = await estimateGatewayTransfer(sourceChain, destChain, amount)
-          if (isMounted) setEstimatedFee(fee)
-        } else {
-          // Direct CCTP mode cost estimation
-          if (provider) {
-            const adapter = await createViemAdapter(provider)
-            const cost = await estimateBridgeCost({
-              fromChain: sourceChain,
-              toChain: destChain,
-              amount,
-              sourceAdapter: adapter,
-              recipientAddress: recipient || connectedAddress,
-              useForwarder: true,
-              transferSpeed: speedTier === 'standard' ? 'SLOW' : 'FAST',
-              ...(platformFeeEnabled && {
-                customFee: {
-                  value: platformFeeAmount.toFixed(2),
-                  recipientAddress: getBridgeFeeRecipient(sourceChain),
-                },
-              }),
-            })
-            const totalFeeInUsdc =
-              cost?.fees?.reduce((acc, fee) => {
-                const parsed = fee.amount ? parseFloat(fee.amount) : 0
-                return acc + (isNaN(parsed) ? 0 : parsed)
-              }, 0) ?? 0
+        // Direct CCTP mode cost estimation
+        if (provider) {
+          const adapter = await createViemAdapter(provider)
+          const cost = await estimateBridgeCost({
+            fromChain: sourceChain,
+            toChain: destChain,
+            amount,
+            sourceAdapter: adapter,
+            recipientAddress: recipient || connectedAddress,
+            useForwarder: true,
+            transferSpeed: speedTier === 'standard' ? 'SLOW' : 'FAST',
+            ...(platformFeeCharged && {
+              customFee: {
+                value: platformFeeAmount.toFixed(2),
+                recipientAddress: getBridgeFeeRecipient(sourceChain),
+              },
+            }),
+          })
+          // Only the fees deducted from the bridged amount (CCTP provider +
+          // forwarder) may reduce Net Received. The App Kit `kit` entry is
+          // Arcis's platform fee, added ON TOP of the transfer amount, so it is
+          // excluded here and disclosed in its own Platform Fee row instead.
+          const totalFeeInUsdc = sumBridgeDeductedFees(cost?.fees as any)
 
-            if (isMounted) {
-              setEstimatedFee(
-                totalFeeInUsdc > 0
-                  ? formatFeeDecimals(totalFeeInUsdc)
-                  : speedTier === 'standard'
-                  ? '0.00'
-                  : '0.20'
-              )
-            }
+          if (isMounted) {
+            setEstimatedFee(
+              totalFeeInUsdc > 0 ? formatFeeDecimals(totalFeeInUsdc) : await quoteDirectCctpFee()
+            )
           }
         }
       } catch (err) {
-        if (isMounted) {
-          setEstimatedFee(
-            bridgeMode === 'gateway'
-              ? formatFeeDecimals(parseFloat(amount) * 0.00005)
-              : speedTier === 'standard'
-              ? '0.00'
-              : '0.20'
-          )
+        if (isMounted && bridgeMode !== 'gateway') {
+          setEstimatedFee(await quoteDirectCctpFee())
         }
-      } finally {
-        if (isMounted) setIsEstimating(false)
       }
     }
 
@@ -307,26 +356,27 @@ export default function BridgeModal({
     destChain,
     bridgeMode,
     speedTier,
-    platformFeeEnabled,
+    platformFeeCharged,
     provider,
     recipient,
     connectedAddress,
     isTransferring,
     platformFeeAmount,
+    authSource,
+    quoteDirectCctpFee,
+    quoteUcwDirectBridgeFee,
   ])
-
-  if (!isOpen && !isInline) return null
 
   // Chains formatting for selector modal
   const sourceChainsList = useMemo(() => {
-    return GATEWAY_SUPPORTED_CHAINS.map((c) => ({
+    return BRIDGE_SELECTABLE_CHAINS.map((c) => ({
       chain: c,
       name: getChainDisplayName(c),
     }))
   }, [])
 
   const destChainsList = useMemo(() => {
-    return GATEWAY_SUPPORTED_CHAINS.map((c) => ({
+    return BRIDGE_SELECTABLE_CHAINS.map((c) => ({
       chain: c,
       name: getChainDisplayName(c),
     }))
@@ -391,6 +441,22 @@ export default function BridgeModal({
             )}.`
       )
       return
+    }
+
+    // Circle UCW can only sign on chains it supports. Validate the route against
+    // the shared fail-closed chain map BEFORE creating a broadcast, so an
+    // unsupported network shows one clear inline error instead of a pending
+    // transaction that would otherwise be signed on the wrong blockchain.
+    if (authSource === 'ucw') {
+      try {
+        mapChainKeyToCircleBlockchain(sourceChain)
+        if (bridgeMode === 'gateway') {
+          mapChainKeyToCircleBlockchain(destChain)
+        }
+      } catch (chainErr) {
+        setError(chainErr instanceof Error ? chainErr.message : String(chainErr))
+        return
+      }
     }
 
     setIsTransferring(true)
@@ -487,6 +553,11 @@ export default function BridgeModal({
           }
 
           const ucwResult = await executeUcwBridgeTransfer({
+            // Route the burn through Circle's Forwarding Service so the mint is
+            // submitted on the destination chain; without the hook nothing
+            // mints and the transfer stays pending forever.
+            useForwarder: true,
+            minFinalityThreshold: speedTier === 'standard' ? 2000 : 1000,
             amount,
             sourceChain,
             destChain,
@@ -534,7 +605,7 @@ export default function BridgeModal({
           recipientAddress: targetRecipient,
           useForwarder: true,
           transferSpeed: speedTier === 'standard' ? 'SLOW' : 'FAST',
-          ...(platformFeeEnabled && {
+          ...(platformFeeCharged && {
             customFee: {
               value: formatFeeDecimals(platformFeeAmount),
               recipientAddress: getBridgeFeeRecipient(sourceChain),
@@ -585,6 +656,21 @@ export default function BridgeModal({
           recipient: targetRecipient,
           sourceChainDef: CHAIN_DEFS[sourceChain],
           destinationChainDef: CHAIN_DEFS[destChain],
+        }).finally(() => {
+          // transferFromGateway switches the wallet to the destination chain for
+          // the mint. Restore the pre-flow (source) network afterwards as a
+          // best-effort action: a rejected or failed switch prompt must never
+          // change the result of the transfer itself.
+          try {
+            const sourceDef = CHAIN_DEFS[sourceChain]
+            if (sourceDef && typeof provider.request === 'function') {
+              ensureChain(provider, sourceDef).catch((switchErr: any) =>
+                console.debug('[BridgeModal] Source network restore skipped:', switchErr?.message || switchErr)
+              )
+            }
+          } catch (restoreErr: any) {
+            console.debug('[BridgeModal] Source network restore skipped:', restoreErr?.message || restoreErr)
+          }
         })
 
         if (!result || !result.mintTxHash) {
@@ -601,7 +687,7 @@ export default function BridgeModal({
       const isGateway = bridgeMode === 'gateway'
       let destinationConfirmed = Boolean(
         isGateway && mintTxHash && /^0x[0-9a-fA-F]{64}$/.test(mintTxHash) &&
-        await verifyDestinationUsdcMint(destChain, mintTxHash, targetRecipient, amount)
+        await verifyDestinationUsdcMint(destChain, mintTxHash, targetRecipient, amount, gatewayTransferFeeCeiling(amount))
       )
       if (!isGateway && mintTxHash && /^0x[0-9a-fA-F]{64}$/.test(mintTxHash)) {
         const cctpDestination = await pollCctpDestinationTx({
@@ -611,16 +697,34 @@ export default function BridgeModal({
         destinationConfirmed = cctpDestination.status === 'confirmed' && cctpDestination.destTxHash?.toLowerCase() === mintTxHash.toLowerCase()
         confirmedCctpReceivedAmount = destinationConfirmed ? cctpDestination.receivedAmount : undefined
       }
+
+      // Gateway delivery: Circle mints the FULL principal to the recipient (it
+      // bills its own cost from the unified Gateway balance instead), so the only
+      // thing worth reading here is what the mint receipt proves was delivered.
+      let gatewayReceivedAmount: string | undefined = undefined
+      if (isGateway && destinationConfirmed && mintTxHash) {
+        const mintedSubunits = await resolveDestinationUsdcMintAmount(destChain, mintTxHash, targetRecipient)
+        gatewayReceivedAmount = mintedSubunits === null ? undefined : gatewayDeliveredUsdc(mintedSubunits) ?? undefined
+      }
+
       if (!destinationConfirmed) mintTxHash = ''
       setIsBridgePending(!destinationConfirmed)
-      const computedFee =
-        estimatedFee ||
-        (bridgeMode === 'gateway'
-          ? (parseFloat(amount) * 0.00005).toFixed(6)
-          : '0.0001')
-      const netAmount = destinationConfirmed
-        ? (confirmedCctpReceivedAmount ?? Math.max(0, parseFloat(amount) - parseFloat(computedFee)).toFixed(6))
-        : undefined
+      // Net Received. The CCTP routes deduct a protocol fee from the minted
+      // amount; Gateway never does, so it settles on the full bridged amount
+      // unless the mint receipt proves a different delivery. The fee-derived
+      // estimate is only ever the CCTP routes' last resort.
+      let netAmount: string | undefined = undefined
+      if (destinationConfirmed) {
+        if (isGateway) {
+          netAmount = gatewayReceivedAmount ?? amount
+        } else {
+          const fallbackFee =
+            estimatedFee || (authSource === 'ucw' ? await quoteUcwDirectBridgeFee() : await quoteDirectCctpFee())
+          netAmount =
+            confirmedCctpReceivedAmount ??
+            Math.max(0, parseFloat(amount) - parseFloat(fallbackFee)).toFixed(6)
+        }
+      }
       const primaryTxHash = isGateway ? mintTxHash : (burnTxHash || mintTxHash || '')
       const explorerUrl = destinationConfirmed && mintTxHash
         ? getExplorerTxUrl(destChain, mintTxHash)
@@ -630,6 +734,23 @@ export default function BridgeModal({
         : (burnTxHash && sourceExplorerUrl ? sourceExplorerUrl : explorerUrl)
       const broadcastNetwork = isGateway ? destChain : sourceChain
       const hasRealDestTx = destinationConfirmed && Boolean(mintTxHash)
+
+      // Real source-chain gas for the receipt's Network Fee row, read from the
+      // mined burn receipt. Undefined → the row is omitted; never an estimate.
+      const networkFeeText =
+        !isGateway && burnTxHash
+          ? await resolveBridgeNetworkFee(sourceChain, burnTxHash)
+          : undefined
+
+      // Real destination-chain gas for the receipt's Destination Network Fee row, read
+      // from the mined mint receipt and denominated in the destination chain's
+      // native token (ETH on Base, USDC on Arc) — exactly like the source row.
+      // The mint is submitted by Circle's Forwarding Service, so this is the
+      // gas the destination network charged for the mint, never an estimate.
+      const destFeeText =
+        hasRealDestTx && mintTxHash
+          ? await resolveBridgeNetworkFee(destChain, mintTxHash)
+          : undefined
 
       setSuccessReceipt({
         txHash: destinationConfirmed ? (isGateway ? mintTxHash : burnTxHash) : undefined,
@@ -641,7 +762,8 @@ export default function BridgeModal({
         amount,
         sourceChain,
         destChain,
-        fee: `${computedFee} USDC`,
+        networkFee: networkFeeText,
+        destFee: destFeeText,
         netReceived: netAmount,
         mode: bridgeMode,
       })
@@ -675,6 +797,7 @@ export default function BridgeModal({
         addTransaction({
           type: 'bridge',
           txHash: mintTxHash,
+          destTxHash: mintTxHash,
           amount,
           tokenSymbol: 'USDC',
           sourceChain,
@@ -712,21 +835,43 @@ export default function BridgeModal({
                 burnTxHash,
                 recipientAddress: targetRecipient,
                 amount,
-                maxAttempts: 40,
+                // Slow destinations (e.g. Ethereum Sepolia standard finality)
+                // can take ~13 minutes to mint; a 2-minute budget stranded the
+                // receipt on "Bridge Pending" even after a successful burn.
+                maxAttempts: 300,
                 intervalMs: 3000,
               })
               if (cctpDest.status === 'confirmed' && cctpDest.destTxHash && /^0x[0-9a-fA-F]{64}$/.test(cctpDest.destTxHash)) {
                 resolvedDestTx = cctpDest.destTxHash
                 confirmedCctpReceivedAmount = cctpDest.receivedAmount
+              } else {
+                console.warn(
+                  '[BridgeModal] Background CCTP destination poll ended without confirmation for burn',
+                  burnTxHash,
+                  '→ status:',
+                  cctpDest.status
+                )
               }
             }
 
-            if (resolvedDestTx && isGateway && !await verifyDestinationUsdcMint(destChain, resolvedDestTx, targetRecipient, amount)) {
+            if (resolvedDestTx && isGateway && !await verifyDestinationUsdcMint(destChain, resolvedDestTx, targetRecipient, amount, gatewayTransferFeeCeiling(amount))) {
               resolvedDestTx = undefined
             }
             if (resolvedDestTx) {
               console.log('[BridgeModal] Real destination tx confirmed on-chain:', resolvedDestTx)
               const resolvedExplorerUrl = getExplorerTxUrl(destChain, resolvedDestTx)
+              // Same mechanism as the source Network Fee row: the destination
+              // mint's real gas in the destination chain's native token.
+              const resolvedDestFeeText = await resolveBridgeNetworkFee(destChain, resolvedDestTx)
+
+              // Gateway only: the mint receipt proves the delivered amount, so
+              // the receipt settles on real delivery as soon as the mint lands.
+              let resolvedGatewayReceivedAmount: string | undefined = undefined
+              if (isGateway) {
+                const mintedSubunits = await resolveDestinationUsdcMintAmount(destChain, resolvedDestTx, targetRecipient)
+                resolvedGatewayReceivedAmount =
+                  mintedSubunits === null ? undefined : gatewayDeliveredUsdc(mintedSubunits) ?? undefined
+              }
 
               // Update Success Receipt Modal state in real-time
               setSuccessReceipt((prev: any) =>
@@ -737,14 +882,15 @@ export default function BridgeModal({
                       destTxHash: resolvedDestTx,
                       explorerUrl: isGateway ? resolvedExplorerUrl : prev.explorerUrl,
                       destExplorerUrl: resolvedExplorerUrl,
-                      netReceived: isGateway ? prev.netReceived : confirmedCctpReceivedAmount,
+                      netReceived: isGateway ? (resolvedGatewayReceivedAmount ?? prev.netReceived) : confirmedCctpReceivedAmount,
+                      destFee: resolvedDestFeeText ?? prev.destFee,
                     }
                   : prev
               )
               setIsBridgePending(false)
-              addTransaction({
-                type: 'bridge', txHash: resolvedDestTx, amount, tokenSymbol: 'USDC', sourceChain, destChain,
-                recipient: targetRecipient, userAddress: connectedAddress, status: 'success', isPrivate: isPrivateBridge,
+              completeBridgeTransaction({
+                sourceTxHash: burnTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: 'USDC', sourceChain, destChain,
+                recipient: targetRecipient, userAddress: connectedAddress, isPrivate: isPrivateBridge,
               })
               onSuccess(amount, resolvedDestTx)
 
@@ -778,6 +924,126 @@ export default function BridgeModal({
     } catch (err: any) {
       console.error('[BridgeModal] Execution error:', err)
       setIsTransferring(false)
+
+      // Recovery: a Direct CCTP transfer that failed AFTER the source burn is
+      // not a failure — the USDC is already burned. Reporting it as an error
+      // would invite a retry that burns a second time, so fall back to the
+      // pending receipt and keep polling for the destination mint.
+      const failedBridgeResult = err?.bridgeResult
+      const burnedTxHash: string | undefined = failedBridgeResult?.steps?.find(
+        (s: any) => s?.name === 'burn' && s?.state === 'success' && /^0x[0-9a-fA-F]{64}$/.test(s?.txHash || '')
+      )?.txHash
+
+      if (burnedTxHash && bridgeMode === 'direct' && authSource !== 'ucw') {
+        const sourceExplorer = getExplorerTxUrl(sourceChain, burnedTxHash)
+        setError(null)
+        setIsCanceledError(false)
+        const pendingNetworkFee = await resolveBridgeNetworkFee(sourceChain, burnedTxHash)
+        setSuccessReceipt({
+          txHash: burnedTxHash,
+          sourceTxHash: burnedTxHash,
+          destTxHash: undefined,
+          explorerUrl: sourceExplorer,
+          sourceExplorerUrl: sourceExplorer,
+          destExplorerUrl: undefined,
+          amount,
+          sourceChain,
+          destChain,
+          networkFee: pendingNetworkFee,
+          netReceived: undefined,
+          mode: bridgeMode,
+        })
+        setIsBridgePending(true)
+
+        addTransaction({
+          type: 'bridge', txHash: burnedTxHash, amount, tokenSymbol: 'USDC',
+          sourceChain, destChain, recipient: targetRecipient, userAddress: connectedAddress,
+          status: 'pending', isPrivate: isPrivateBridge,
+        })
+
+        updateBroadcast(broadcastId, {
+          type: 'bridge',
+          title: 'Source Transaction Confirmed — Destination Pending',
+          status: 'pending',
+          badgeText: 'Pending',
+          message: 'The source burn succeeded; the destination mint is being tracked automatically.',
+          details: {
+            amount,
+            tokenSymbol: 'USDC',
+            tokenIcon: UsdcIcon,
+            sourceChain,
+            destChain,
+            bridgeMode,
+            network: sourceChain,
+            txHash: burnedTxHash,
+            sourceTxHash: burnedTxHash,
+            sourceExplorerUrl: sourceExplorer,
+          },
+        })
+
+        // Background resolution of the destination mint (same poll as the happy path).
+        ;(async () => {
+          try {
+            const cctpDest = await pollCctpDestinationTx({
+              sourceChain, destChain, burnTxHash: burnedTxHash,
+              recipientAddress: targetRecipient, amount,
+              maxAttempts: 300, intervalMs: 3000,
+            })
+            const resolvedDestTx =
+              cctpDest.status === 'confirmed' && cctpDest.destTxHash && /^0x[0-9a-fA-F]{64}$/.test(cctpDest.destTxHash)
+                ? cctpDest.destTxHash
+                : undefined
+            if (!resolvedDestTx) {
+              console.warn('[BridgeModal] Recovery: destination mint still unconfirmed after polling')
+              return
+            }
+            const resolvedExplorerUrl = getExplorerTxUrl(destChain, resolvedDestTx)
+            // Destination-chain gas, read from the resolved mint receipt.
+            const resolvedDestFeeText = await resolveBridgeNetworkFee(destChain, resolvedDestTx)
+            setSuccessReceipt((prev: any) =>
+              prev
+                ? {
+                    ...prev,
+                    destTxHash: resolvedDestTx,
+                    destExplorerUrl: resolvedExplorerUrl,
+                    netReceived: cctpDest.receivedAmount ?? prev.netReceived,
+                    destFee: resolvedDestFeeText ?? prev.destFee,
+                  }
+                : prev
+            )
+            setIsBridgePending(false)
+            completeBridgeTransaction({
+              sourceTxHash: burnedTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: 'USDC',
+              sourceChain, destChain, recipient: targetRecipient, userAddress: connectedAddress,
+              isPrivate: isPrivateBridge,
+            })
+            onSuccess(amount, resolvedDestTx)
+            updateBroadcast(broadcastId, {
+              type: 'bridge',
+              title: 'Bridge Completed Successfully',
+              status: 'success',
+              badgeText: 'Confirmed',
+              details: {
+                amount,
+                tokenSymbol: 'USDC',
+                tokenIcon: UsdcIcon,
+                sourceChain,
+                destChain,
+                bridgeMode,
+                network: sourceChain,
+                txHash: burnedTxHash,
+                sourceTxHash: burnedTxHash,
+                destTxHash: resolvedDestTx,
+                destExplorerUrl: resolvedExplorerUrl,
+              },
+            })
+          } catch (pollingErr) {
+            console.warn('[BridgeModal] Recovery destination polling notice:', pollingErr)
+          }
+        })()
+
+        return
+      }
 
       const normalized = normalizeAppError(err)
       const isCanceled = normalized.isCanceled
@@ -886,13 +1152,13 @@ export default function BridgeModal({
   const breakdownItems = useMemo(() => {
     if (!amount || parseFloat(amount) <= 0) return []
 
+    // Gateway mints the full principal — Circle bills its own cost from the user's
+    // Gateway balance — so nothing is subtracted from Net Received on that route.
     const computedFee =
-      (estimatedFee ? formatFeeDecimals(estimatedFee) : null) ||
-      (bridgeMode === 'gateway'
-        ? formatFeeDecimals(parseFloat(amount) * 0.00005)
-        : speedTier === 'standard'
+      bridgeMode === 'gateway'
         ? '0.00'
-        : '0.20')
+        : (estimatedFee ? formatFeeDecimals(estimatedFee) : null) ||
+          (speedTier === 'standard' ? '0.00' : '0.20')
 
     const computedFeeNum = parseFloat(computedFee)
     const netReceived = Math.max(
@@ -951,22 +1217,25 @@ export default function BridgeModal({
         highlightColor: 'text-indigo-400',
       },
       {
-        label: 'Protocol Fee',
-        tooltip: 'The underlying cross-chain attestation and minting protocol fee.',
-        value: isEstimating ? 'Calculating...' : `${computedFee} USDC`,
-      },
-      {
         label: 'Source Network Fee',
-        tooltip: 'Transaction gas fee required to initiate the bridge deposit on the source chain.',
-        value: sourceChain === 'Arc_Testnet' ? '~0.000021 USDC' : `< 0.001 ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}`,
+        tooltip:
+          bridgeMode === 'gateway'
+            ? 'Gateway Fast Transfer authorizes the burn with an off-chain EIP-712 signature: your wallet never submits a source-chain transaction, so you pay no source gas.'
+            : 'Transaction gas fee required to initiate the bridge deposit on the source chain.',
+        value:
+          bridgeMode === 'gateway'
+            ? '0.00 USDC'
+            : sourceChain === 'Arc_Testnet'
+              ? '~0.000021 USDC'
+              : `< 0.001 ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}`,
       },
       {
         label: 'Platform Fee',
         tooltip: 'Arcis platform routing fee for cross-chain transaction management.',
         value:
-          platformFeeEnabled && bridgeMode === 'direct' && platformFeeAmount
+          platformFeeCharged && platformFeeAmount
             ? `${formatFeeDecimals(platformFeeAmount)} USDC`
-            : '0.00 USDC (Free)',
+            : '0.00 USDC',
       },
       {
         label: 'Estimated Arrival',
@@ -978,19 +1247,28 @@ export default function BridgeModal({
       },
     ]
 
-    return items
+    // Gateway Fast is a route Circle and Arc provide end to end: Arcis charges no
+    // platform fee on it and Circle bills its own cost from the user's Gateway
+    // balance, so no Platform Fee row is presented for that route.
+    return bridgeMode === 'gateway'
+      ? items.filter((item) => item.label !== 'Platform Fee')
+      : items
   }, [
     amount,
     estimatedFee,
     bridgeMode,
     speedTier,
-    platformFeeEnabled,
+    platformFeeCharged,
     platformFeeAmount,
-    platformFeePercent,
-    isEstimating,
     sourceChain,
     destChain,
+    authSource,
   ])
+
+  // NOTE: Keep every hook above this line unconditional. The render bailout for
+  // a closed modal must run after all hooks so hook order never changes between
+  // renders (React throws "Rendered more/fewer hooks" otherwise).
+  if (!isOpen && !isInline) return null
 
   // Header actions with Privacy, Settings and Close
   const headerActions = (
@@ -1036,7 +1314,6 @@ export default function BridgeModal({
           type="button"
           onClick={() => {
             setRecipient(solana.address)
-            setRecipientError(null)
             setError(null)
           }}
           className="text-[10px] text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition select-none"
@@ -1051,7 +1328,6 @@ export default function BridgeModal({
           type="button"
           onClick={() => {
             setRecipient(injective.address)
-            setRecipientError(null)
             setError(null)
           }}
           className="text-[10px] text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition select-none"
@@ -1066,7 +1342,6 @@ export default function BridgeModal({
           type="button"
           onClick={() => {
             setRecipient(connectedAddress)
-            setRecipientError(null)
             setError(null)
           }}
           className="text-[10px] text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition select-none"
@@ -1118,7 +1393,18 @@ export default function BridgeModal({
           explorerUrl={successReceipt.explorerUrl}
           sourceExplorerUrl={successReceipt.sourceExplorerUrl}
           destExplorerUrl={successReceipt.destExplorerUrl}
-          fee={successReceipt.fee}
+          // Gateway Fast carries no Arcis platform fee, so no Platform Fee row is
+          // requested for it; every other bridge route still reports the real one.
+          platformFee={
+            successReceipt.mode === 'gateway'
+              ? undefined
+              : platformFeeCharged && platformFeeAmount
+                ? `${formatFeeDecimals(platformFeeAmount)} USDC`
+                : '0.00 USDC (Free)'
+          }
+          networkFee={successReceipt.networkFee}
+          sourceFeeGasless={successReceipt.mode === 'gateway'}
+          destinationFee={successReceipt.destFee}
           netReceived={successReceipt.netReceived}
           isInline={isInline}
           onBridgeAgain={() => {
@@ -1138,12 +1424,9 @@ export default function BridgeModal({
             options={modeOptions}
             activeId={bridgeMode}
             onChange={(mode) => {
+              // Route and speed are independent: switching routes keeps the
+              // selected Direct tier (turbo no longer means "gateway").
               setBridgeMode(mode as 'direct' | 'gateway')
-              if (mode === 'gateway') {
-                setSpeedTier('turbo')
-              } else if (speedTier === 'turbo') {
-                setSpeedTier('fast')
-              }
               setError(null)
               setIsCanceledError(false)
             }}
@@ -1254,13 +1537,12 @@ export default function BridgeModal({
             tokenSymbol="USDC"
             tokenIcon={UsdcIcon}
             balance={activeBalance}
-            onMaxClick={() => setAmount(activeBalance)}
+            onMaxClick={() => setAmount(maxBridgeAmount(activeBalance, amountReserves))}
             quickPercentages={[25, 50, 75, 100]}
             onSelectPercentage={(pct) => {
-              const b = parseFloat(activeBalance)
-              if (!isNaN(b) && b > 0) {
-                const calculated = ((b * pct) / 100).toFixed(6)
-                setAmount(parseFloat(calculated).toString())
+              const next = bridgeAmountForPercentage(activeBalance, pct, amountReserves)
+              if (parseFloat(next) > 0) {
+                setAmount(next)
               }
             }}
             error={isInsufficient}
@@ -1273,7 +1555,7 @@ export default function BridgeModal({
               <Zap className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
               <div className="flex-1 space-y-1.5">
                 <p className="leading-relaxed">
-                  Gateway üzerinde {getChainDisplayName(sourceChain)} için birleşik bakiyeniz yetersiz ancak cüzdanınızda <strong>{sourceWalletBalance} USDC</strong> bulunuyor.
+                  Your Gateway unified balance on {getChainDisplayName(sourceChain)} is insufficient, but you hold <strong>{sourceWalletBalance} USDC</strong> in your wallet.
                 </p>
                 <button
                   type="button"
@@ -1286,7 +1568,7 @@ export default function BridgeModal({
                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-300 hover:text-white bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-500/30 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                 >
                   <Wallet className="w-3.5 h-3.5" />
-                  <span>Direct CCTP Moduna Geç</span>
+                  <span>Switch to Direct CCTP</span>
                 </button>
               </div>
             </div>
@@ -1305,7 +1587,6 @@ export default function BridgeModal({
             value={recipient}
             onChange={(val) => {
               setRecipient(val)
-              setRecipientError(null)
               setError(null)
               setIsCanceledError(false)
             }}
@@ -1318,7 +1599,6 @@ export default function BridgeModal({
                 : '0x....'
             }
             isValid={recipientIsValid}
-            error={recipientError}
             disabled={isTransferring}
             rightBadge={recipientBadge}
           />
@@ -1361,7 +1641,7 @@ export default function BridgeModal({
           setError(null)
           setIsCanceledError(false)
           if (c === destChain) {
-            const alternate = GATEWAY_SUPPORTED_CHAINS.find((sc) => sc !== c) || ''
+            const alternate = BRIDGE_SELECTABLE_CHAINS.find((sc) => sc !== c) || ''
             setDestChain(alternate)
           }
         }}
@@ -1380,7 +1660,7 @@ export default function BridgeModal({
           setError(null)
           setIsCanceledError(false)
           if (c === sourceChain) {
-            const alternate = GATEWAY_SUPPORTED_CHAINS.find((sc) => sc !== c) || ''
+            const alternate = BRIDGE_SELECTABLE_CHAINS.find((sc) => sc !== c) || ''
             setSourceChain(alternate)
           }
         }}

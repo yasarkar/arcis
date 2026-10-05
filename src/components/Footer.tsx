@@ -45,7 +45,7 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
         existing.push(email)
         localStorage.setItem('arcis_subscribers', JSON.stringify(existing))
       }
-    } catch (err) {}
+    } catch (err) { }
 
     setIsSubscribed(true)
     setEmail('')
@@ -62,10 +62,10 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-5/6 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/40 to-transparent pointer-events-none" />
 
       <div className="w-full max-w-[1800px] 2xl:max-w-full mx-auto px-4 sm:px-8 md:px-12 lg:px-16 xl:px-20 py-12 md:py-16 flex flex-col gap-12">
-        
+
         {/* Top 4-Column Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-8 lg:gap-10">
-          
+
           {/* Column 1: Brand & Description (4 cols) */}
           <div className="lg:col-span-4 flex flex-col gap-4">
             <button
@@ -192,7 +192,7 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
             <div className="text-s font-mono font-semibold tracking-wider text-slate-300 uppercase">
               // SUBSCRIBE FOR UPDATES
             </div>
-            
+
             <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
               Get the latest Arcis news, yield updates, and protocol releases delivered to your inbox.
             </p>
@@ -214,7 +214,8 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
                 <button
                   type="submit"
                   disabled={isSubscribed}
-                  className="px-4 bg-blue-700 hover:bg-blue-600 active:scale-95 text-white text-xs font-semibold tracking-wide transition-all cursor-pointer disabled:bg-emerald-600/80 disabled:cursor-default flex items-center justify-center shrink-0 rounded-r-xl"
+                  className="py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+
                 >
                   {isSubscribed ? (
                     <span className="font-mono text-emerald-100">

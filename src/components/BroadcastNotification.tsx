@@ -309,7 +309,7 @@ function BroadcastContainer({
 
   return (
     <div
-      className="fixed bottom-6 left-6 z-[9999] flex flex-col-reverse gap-3 w-[calc(100vw-3rem)] sm:w-[460px] max-w-[460px] pointer-events-none"
+      className="fixed bottom-6 left-6 z-[9999] flex flex-col-reverse gap-3 w-[calc(100vw-3rem)] sm:w-[460px] md:w-[480px] lg:w-[500px] max-w-[500px] pointer-events-none"
       style={{ fontFamily: 'var(--fonts--dm-sans, sans-serif)' }}
     >
       {broadcasts.map(broadcast => (
@@ -413,7 +413,7 @@ function BroadcastCard({
     <div
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className="pointer-events-auto animate-slide-in-left relative overflow-hidden rounded-2xl p-4 transition-all duration-300"
+      className="w-full pointer-events-auto animate-slide-in-left relative overflow-hidden rounded-2xl p-4 transition-all duration-300"
       style={{
         background: 'rgba(13, 19, 35, 0.96)',
         backdropFilter: 'blur(16px)',
@@ -725,7 +725,7 @@ function SendBroadcastContent({ details }: { details?: BroadcastDetails }) {
         {/* Network Badge */}
         <div className="flex items-center gap-1.5 font-medium text-slate-300 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 shrink-0">
           <ChainIconBadge chain={network} size={14} />
-          <span className="truncate max-w-[150px] text-[11px] font-semibold">
+          <span className="truncate max-w-[180px] text-[11px] font-semibold">
             {getChainDisplayName(network)}
           </span>
         </div>
@@ -739,8 +739,8 @@ function SendBroadcastContent({ details }: { details?: BroadcastDetails }) {
             To:
           </span>
           <span className="font-mono text-xs text-white font-medium truncate" title={recipientAddr}>
-            {recipientAddr.length > 20
-              ? `${recipientAddr.slice(0, 10)}...${recipientAddr.slice(-8)}`
+            {recipientAddr.length > 24
+              ? `${recipientAddr.slice(0, 14)}...${recipientAddr.slice(-10)}`
               : recipientAddr}
           </span>
         </div>
@@ -753,7 +753,7 @@ function SendBroadcastContent({ details }: { details?: BroadcastDetails }) {
             <FileText className="w-3 h-3 text-slate-400" />
             Memo:
           </span>
-          <span className="text-xs text-slate-200 font-medium truncate max-w-[280px] px-1.5 py-0.5 rounded-lg">
+          <span className="text-xs text-slate-200 font-medium truncate max-w-[380px] px-1.5 py-0.5 rounded-lg">
             {details.memo}
           </span>
         </div>
@@ -801,7 +801,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
         {/* Source Network */}
         <div className="flex items-center gap-1.5 min-w-0">
           <ChainIconBadge chain={sourceChain} size={18} />
-          <span className="font-semibold text-slate-200 truncate max-w-[135px]" title={getChainDisplayName(sourceChain)}>
+          <span className="font-semibold text-slate-200 truncate max-w-[180px]" title={getChainDisplayName(sourceChain)}>
             {getChainDisplayName(sourceChain)}
           </span>
         </div>
@@ -824,8 +824,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
         <div className="flex items-center gap-1.5 min-w-0 justify-end">
           <ChainIconBadge chain={destChain} size={18} />
           <span
-            className={`font-semibold truncate max-w-[135px] text-white'
-              }`}
+            className="font-semibold truncate max-w-[180px] text-white"
             title={getChainDisplayName(destChain)}
           >
             {getChainDisplayName(destChain)}
@@ -1085,7 +1084,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
           {/* Right: Network Badge (Matching SendModal & SwapModal exactly) */}
           <div className="flex items-center gap-1.5 font-medium text-slate-300 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 shrink-0">
             <ChainIconBadge chain={network} size={14} />
-            <span className="truncate max-w-[150px] text-[11px] font-semibold">
+            <span className="truncate max-w-[180px] text-[11px] font-semibold">
               {getChainDisplayName(network)}
             </span>
           </div>
@@ -1100,7 +1099,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
             {/* Source Network Badge */}
             <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1.5 rounded-xl border border-slate-800 min-w-0">
               <ChainIconBadge chain={details.sourceChain} size={14} />
-              <span className="font-semibold text-slate-200 truncate max-w-[110px] text-[11px]" title={getChainDisplayName(details.sourceChain)}>
+              <span className="font-semibold text-slate-200 truncate max-w-[150px] text-[11px]" title={getChainDisplayName(details.sourceChain)}>
                 {getChainDisplayName(details.sourceChain)}
               </span>
             </div>
@@ -1122,7 +1121,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
             {/* Destination Network Badge */}
             <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1.5 rounded-xl border border-slate-800 min-w-0 justify-end">
               <ChainIconBadge chain={network} size={14} />
-              <span className="font-semibold text-white truncate max-w-[110px] text-[11px]" title={getChainDisplayName(network)}>
+              <span className="font-semibold text-white truncate max-w-[150px] text-[11px]" title={getChainDisplayName(network)}>
                 {getChainDisplayName(network)}
               </span>
             </div>
@@ -1220,7 +1219,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
         {/* Source Wallet Chain */}
         <div className="flex items-center gap-1.5 min-w-0">
           <ChainIconBadge chain={sourceChain} size={16} />
-          <span className="font-semibold text-slate-200 truncate max-w-[120px]">
+          <span className="font-semibold text-slate-200 truncate max-w-[170px]">
             {getChainDisplayName(sourceChain)}
           </span>
         </div>
@@ -1242,7 +1241,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
         {/* Circle Gateway */}
         <div className="flex items-center gap-1.5 min-w-0 justify-end">
           <img src={CircleIcon} alt="Circle Gateway" className="w-4 h-4 object-contain shrink-0" />
-          <span className="font-semibold text-slate-200 truncate max-w-[120px]" title="Circle Gateway">
+          <span className="font-semibold text-slate-200 truncate max-w-[170px]" title="Circle Gateway">
             Circle Gateway
           </span>
         </div>
@@ -1270,7 +1269,7 @@ function FaucetBroadcastContent({ details }: { details?: BroadcastDetails }) {
           <span className="text-[11px] font-medium text-slate-400">Network:</span>
           <div className="flex items-center gap-1.5 font-semibold text-slate-200 bg-slate-900/80 px-2 py-0.5 rounded-lg border border-slate-800">
             <ChainIconBadge chain={network} size={15} />
-            <span className="truncate max-w-[120px]">{getChainDisplayName(network)}</span>
+            <span className="truncate max-w-[180px]">{getChainDisplayName(network)}</span>
           </div>
         </div>
 

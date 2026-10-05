@@ -4,6 +4,7 @@ import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   ArrowUpRight,
   ArrowRightLeft,
+  ArrowDownToLine,
   Globe,
   ExternalLink,
   Clock,
@@ -19,7 +20,14 @@ import {
   FileText,
   Bot,
 } from 'lucide-react'
-import { getHistory, fetchHistory, isHistoryLoaded, HistoryItem } from '../utils/history'
+import {
+  getHistory,
+  fetchHistory,
+  isHistoryLoaded,
+  historyDisplayTxHash,
+  historyDisplayChain,
+  HistoryItem,
+} from '../utils/history'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
@@ -345,7 +353,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
   const [isLoading, setIsLoading] = useState<boolean>(() =>
     Boolean(activeWalletAddress && !isHistoryLoaded(activeWalletAddress))
   )
-  const [filter, setFilter] = useState<'all' | 'send' | 'swap' | 'bridge' | 'memo'>('all')
+  const [filter, setFilter] = useState<'all' | 'send' | 'swap' | 'bridge' | 'deposit' | 'memo'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [hoveredRecipient, setHoveredRecipient] = useState<string | null>(null)
@@ -627,6 +635,13 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
             <RenderTokenIcon symbol={item.tokenSymbol} />
           </span>
         )
+      case 'deposit':
+        return (
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+            <span>{formatAmountDisplay(item.amount)}</span>
+            <RenderTokenIcon symbol={item.tokenSymbol} />
+          </span>
+        )
       case 'ai_service':
         return (
           <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
@@ -809,7 +824,9 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
 
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
-      const matchesHash = item.txHash.toLowerCase().includes(term)
+      const matchesHash =
+        item.txHash.toLowerCase().includes(term) ||
+        Boolean(item.destTxHash && item.destTxHash.toLowerCase().includes(term))
       const matchesRecipient = item.recipient?.toLowerCase().includes(term)
       const matchesMemo = item.memo?.toLowerCase().includes(term)
       const matchesMemoId = item.memoId?.toLowerCase().includes(term)
@@ -956,12 +973,13 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                         </div>
 
                         {/* Options - Horizontal row of compact buttons */}
-                        <div className="grid grid-cols-4 gap-1.5">
+                        <div className="grid grid-cols-5 gap-1.5">
                           {[
                             { id: 'all', label: 'All', icon: null },
                             { id: 'send', label: 'Send', icon: ArrowUpRight },
                             { id: 'swap', label: 'Swap', icon: ArrowRightLeft },
                             { id: 'bridge', label: 'Bridge', icon: Globe },
+                            { id: 'deposit', label: 'Deposit', icon: ArrowDownToLine },
                           ].map(t => {
                             const Icon = t.icon
                             const isSelected = filter === t.id
@@ -1471,24 +1489,18 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     <td className="w-1/5 px-5 py-3">
                       <div className="flex items-center gap-2 font-mono">
                         <a
-                          href={getExplorerLink(
-                            item.txHash,
-                            item.type === 'bridge' && item.destChain ? item.destChain : (item.sourceChain || 'Arc_Testnet')
-                          )}
+                          href={getExplorerLink(historyDisplayTxHash(item), historyDisplayChain(item))}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-slate-200 hover:text-white font-medium transition-all group/tx select-none cursor-pointer"
-                          title={getExplorerLink(
-                            item.txHash,
-                            item.type === 'bridge' && item.destChain ? item.destChain : (item.sourceChain || 'Arc_Testnet')
-                          )}
+                          title={getExplorerLink(historyDisplayTxHash(item), historyDisplayChain(item))}
                         >
-                          <span className="group-hover/tx:text-white">{formatAddress(item.txHash)}</span>
+                          <span className="group-hover/tx:text-white">{formatAddress(historyDisplayTxHash(item))}</span>
                           <ExternalLink className="w-4 h-4 text-slate-500 group-hover/tx:text-[var(--purple-1)] transition-colors opacity-70 group-hover/tx:opacity-100 shrink-0" />
                         </a>
 
                         <button
-                          onClick={() => handleCopy(item.txHash, item.id)}
+                          onClick={() => handleCopy(historyDisplayTxHash(item), item.id)}
                           className="p-1 rounded-xl text-slate-500 hover:text-white hover:bg-white/[0.08] active:scale-95 transition-all cursor-pointer"
                           title="Copy Transaction Hash"
                         >
@@ -1520,6 +1532,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                           {item.type === 'send' && <ArrowUpRight className="w-3.5 h-3.5 text-indigo-300" />}
                           {item.type === 'swap' && <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-300" />}
                           {item.type === 'bridge' && <Globe className="w-3.5 h-3.5 text-indigo-300" />}
+                          {item.type === 'deposit' && <ArrowDownToLine className="w-3.5 h-3.5 text-emerald-300" />}
                           {item.type === 'ai_service' && <Bot className="w-3.5 h-3.5 text-cyan-400" />}
                         </div>
                         <span className="font-semibold text-white uppercase text-xs" style={{ fontFamily: 'var(--font-app)' }}>

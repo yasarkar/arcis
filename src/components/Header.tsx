@@ -85,6 +85,34 @@ export default function Header({
   const [isPasskeyMenuOpen, setIsPasskeyMenuOpen] = useState<boolean>(false)
   const [isEvmMenuOpen, setIsEvmMenuOpen] = useState<boolean>(false)
 
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+    }
+  }, [])
+
+  const copyToClipboard = async (
+    text: string,
+    setCopied: (val: boolean) => void,
+    onSuccessClose?: () => void
+  ) => {
+    if (!text) return
+    try {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopied(false)
+        if (onSuccessClose) onSuccessClose()
+        copyTimeoutRef.current = null
+      }, 1200)
+    } catch (err) {
+      console.warn('Failed to copy to clipboard:', err)
+    }
+  }
+
   const circleMenuRef = useRef<HTMLDivElement>(null)
   const passkeyMenuRef = useRef<HTMLDivElement>(null)
   const evmMenuRef = useRef<HTMLDivElement>(null)
@@ -318,12 +346,7 @@ export default function Header({
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(mscaAddress)
-                      setCopiedMsca(true)
-                      setTimeout(() => {
-                        setCopiedMsca(false)
-                        setIsPasskeyMenuOpen(false)
-                      }, 1200)
+                      void copyToClipboard(mscaAddress, setCopiedMsca, () => setIsPasskeyMenuOpen(false))
                     }}
                     className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
                   >
@@ -428,12 +451,7 @@ export default function Header({
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(ucwAddress)
-                      setCopiedUcw(true)
-                      setTimeout(() => {
-                        setCopiedUcw(false)
-                        setIsCircleMenuOpen(false)
-                      }, 1200)
+                      void copyToClipboard(ucwAddress, setCopiedUcw, () => setIsCircleMenuOpen(false))
                     }}
                     className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
                   >
@@ -522,9 +540,7 @@ export default function Header({
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(solana.address)
-                  setCopiedSol(true)
-                  setTimeout(() => setCopiedSol(false), 2000)
+                  void copyToClipboard(solana.address, setCopiedSol)
                 }}
                 className="flex items-center gap-1 text-xs font-bold text-purple-200 hover:text-white transition cursor-pointer"
               >
@@ -568,9 +584,7 @@ export default function Header({
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(injective.address)
-                  setCopiedInj(true)
-                  setTimeout(() => setCopiedInj(false), 2000)
+                  void copyToClipboard(injective.address, setCopiedInj)
                 }}
                 className="flex items-center gap-1 text-xs font-bold text-blue-200 hover:text-white transition cursor-pointer"
               >
@@ -635,7 +649,7 @@ export default function Header({
                         <button
                           onClick={openConnectModal}
                           type="button"
-                          className="ub-action-btn ub-action-btn-primary"
+                          className="ub-action-btn"
                           style={{
                             padding: isUcwConnected || isPasskeyConnected ? '6px 10px' : '6px 16px',
                           }}
@@ -733,12 +747,7 @@ export default function Header({
                               type="button"
                               onClick={() => {
                                 if (account.address) {
-                                  navigator.clipboard.writeText(account.address)
-                                  setCopiedEvm(true)
-                                  setTimeout(() => {
-                                    setCopiedEvm(false)
-                                    setIsEvmMenuOpen(false)
-                                  }, 1200)
+                                  void copyToClipboard(account.address, setCopiedEvm, () => setIsEvmMenuOpen(false))
                                 }
                               }}
                               className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
@@ -797,9 +806,9 @@ export default function Header({
       </div>
 
       {/* Mobile Navigation Bar (below header on small screens) */}
-      <div className="flex lg:hidden items-center justify-center mt-2.5 overflow-x-auto py-1 px-1">
+      <div className="flex lg:hidden items-center justify-start mt-2.5 overflow-x-auto py-1 px-1 w-full no-scrollbar">
         <nav
-          className="flex items-center gap-1 p-1 rounded-full backdrop-blur-xl"
+          className="flex shrink-0 w-max items-center gap-1 p-1 rounded-full backdrop-blur-xl"
           style={{
             background: 'rgba(16, 18, 30, 0.85)',
             border: '1px solid rgba(255, 255, 255, 0.08)',

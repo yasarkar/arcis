@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
@@ -17,17 +17,17 @@ import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
-import { formatUnits, erc20Abi } from 'viem'
+import { formatUnits, erc20Abi, isAddress } from 'viem'
 import { getResilientPublicClient, getArcPublicClient, resilientGetBalance, resilientReadContract } from '../services/rpc'
 import { getDisplayTokenSymbol, CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
-import { estimateGas, sendToken } from '../services/sendService'
+import { estimateGas, sendToken, resolveNativeActualFee } from '../services/sendService'
+import { ensureNetwork } from '../services/chainSwitchService'
 import { sendUsdcWithMemo } from '../services/memoService'
 import { MEMO_PRESETS, type MemoPreset } from '../config/memoConfig'
 import { transferFromGateway } from '../services/gatewayService'
 import { GATEWAY_DOMAINS, USDC_ADDRESSES, EURC_ADDRESSES } from '../config/gatewayConfig'
-import { mapChainKeyToCircleBlockchain } from '../services/gatewayUcwService'
 import {
   SUPPORTED_SEND_CHAINS,
   CHAIN_DEFS,
@@ -35,6 +35,8 @@ import {
   getExplorerTxUrl,
 } from '../config/sendConfig'
 import { addTransaction } from '../utils/history'
+import { normalizeCircleBlockchain, isCircleUcwChain } from '../utils/circleBlockchain'
+import { gatewayMaxFeeUsdc } from '../utils/bridgeAmountUtils'
 import { normalizeAppError } from '../utils/errorNormalizer'
 import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 import { useBroadcast } from './BroadcastNotification'
@@ -86,24 +88,82 @@ function formatFeeSplit(fee: {
   return ` (Base: ${base.toFixed(5)} + Priority: ${priority.toFixed(5)})`
 }
 
-/** Helper to map app chain names to Circle UCW TokenBlockchain enum */
-export function normalizeCircleBlockchain(chainStr?: string): string {
-  if (!chainStr) return 'ARC-TESTNET'
-  const mapped = mapChainKeyToCircleBlockchain(chainStr)
-  if (mapped && mapped !== 'ARC-TESTNET') return mapped
-  if (chainStr === 'Arc_Testnet' || chainStr === 'Arc') return mapped
-
-  const s = chainStr.toUpperCase().replace(/[\s_]/g, '-')
-  if (s.includes('ARC')) return 'ARC-TESTNET'
-  if (s.includes('BASE')) return 'BASE-SEPOLIA'
-  if (s.includes('ARB')) return 'ARB-SEPOLIA'
-  if (s.includes('OP')) return 'OP-SEPOLIA'
-  if (s.includes('AVAX') || s.includes('FUJI')) return 'AVAX-FUJI'
-  if (s.includes('MATIC') || s.includes('POLYGON') || s.includes('AMOY')) return 'MATIC-AMOY'
-  if (s.includes('ETH') || s.includes('SEPOLIA')) return 'ETH-SEPOLIA'
-  if (s.includes('SOL')) return 'SOL-DEVNET'
-  return s
+/**
+ * Composes the receipt "Network Fee" display: the actual paid fee whenever it can
+ * be resolved — Arc in USDC (same ArcScan model), every other EVM chain in its
+ * native currency from its own receipt (gasUsed × effectiveGasPrice) — with
+ * honest estimate/fallback text otherwise.
+ */
+export async function buildActualFeeDisplay(opts: {
+  chainKey: string
+  txHash: string
+  arcFallback: string
+  nativeFallback?: string
+}): Promise<string> {
+  const nativeSymbol = CHAIN_NATIVE_MAP[opts.chainKey]?.symbol || 'native gas'
+  if (opts.chainKey === 'Arc_Testnet') {
+    const actualFee = await resolveArcActualFeeUsdc(opts.txHash)
+    return actualFee.feeUsdcExact
+      ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee)}`
+      : `~${opts.arcFallback} USDC (estimate, receipt unavailable)`
+  }
+  const nativeFee = await resolveNativeActualFee(opts.txHash, opts.chainKey)
+  if (nativeFee.feeExact) {
+    return `${truncateDecimalString(nativeFee.feeExact, 9)} ${nativeFee.symbol}`
+  }
+  return opts.nativeFallback || `Paid in ${nativeSymbol} (fee could not be resolved)`
 }
+
+/** Formats a positive number as a decimal string truncated (never rounded up) to
+ * `decimals` fractional digits — safe for MAX/percentage amounts. */
+export function truncateToDecimal(value: number, decimals: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0'
+  const safeDecimals = Math.min(Math.max(decimals, 0), 18)
+  const factor = 10 ** safeDecimals
+  const truncated = Math.floor(value * factor) / factor
+  const fixed = truncated.toFixed(safeDecimals)
+  return fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed
+}
+
+/** Truncates an exact decimal string (e.g. from formatUnits) without rounding. */
+export function truncateDecimalString(raw: string, decimals: number): string {
+  const [intPart, fracPart = ''] = raw.split('.')
+  const cut = fracPart.slice(0, decimals).replace(/0+$/, '')
+  return cut ? `${intPart}.${cut}` : intPart
+}
+
+const AMOUNT_PATTERN = /^\d+(\.\d+)?$/
+
+/** Strict amount check: plain decimal notation only, bounded fractional digits, > 0. */
+export function isValidAmountInput(raw: string, maxDecimals: number): boolean {
+  const trimmed = raw.trim()
+  if (!AMOUNT_PATTERN.test(trimmed)) return false
+  const dot = trimmed.indexOf('.')
+  if (dot >= 0 && trimmed.length - dot - 1 > maxDecimals) return false
+  return parseFloat(trimmed) > 0
+}
+
+const SOLANA_BASE58_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+const INJECTIVE_BECH32_PATTERN = /^inj1[02-9ac-hj-np-z]{38,}$/
+
+export function isValidEvmAddress(addr: string): boolean {
+  return isAddress(addr, { strict: true })
+}
+
+export function isValidSolanaAddress(addr: string): boolean {
+  return SOLANA_BASE58_PATTERN.test(addr)
+}
+
+export function isValidInjectiveAddress(addr: string): boolean {
+  return INJECTIVE_BECH32_PATTERN.test(addr)
+}
+
+// Circle UCW blockchain mapping and the Gateway max-fee floor moved to the
+// shared single source of truth:
+//   src/utils/circleBlockchain.ts   (normalizeCircleBlockchain, isCircleUcwChain)
+//   src/utils/bridgeAmountUtils.ts  (gatewayMaxFeeUsdc)
+// Keep using those imports everywhere so the Send and Bridge flows can never
+// disagree about which chain a transfer is signed on.
 
 /** Resolves the appropriate tokenAddress parameter for Circle UCW transfers */
 export function resolveUcwTokenAddress(
@@ -131,13 +191,46 @@ export function resolveUcwTokenAddress(
   return ''
 }
 
+/** Minimal EIP-1193 provider surface used by the send flows. */
+export interface Eip1193ProviderLike {
+  request(args: { method: string; params?: unknown }): Promise<unknown>
+}
+
+interface CustomTokenInfo {
+  address: string
+  symbol: string
+  decimals: number
+  balance: string
+}
+
+interface SendReceiptState {
+  txHash: string
+  explorerUrl?: string
+  gasFee: string
+  blockNumber: string
+  memoText?: string
+  memoId?: string
+}
+
+/** Cryptographically random suffix for generated memo reference ids. */
+function randomRefSuffix(): string {
+  try {
+    const bytes = new Uint8Array(4)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  } catch {
+    return Math.random().toString(36).slice(2, 8)
+  }
+}
+
 interface SendModalProps {
   isOpen: boolean
   isInline?: boolean
   onClose: () => void
   connectedAddress: string
-  provider: any
-  currentChainId: number
+  provider: Eip1193ProviderLike | null
   authSource?: 'passkey' | 'ucw' | 'evm' | null
   executeUcwTransfer?: (params: {
     destinationAddress: string
@@ -149,8 +242,6 @@ interface SendModalProps {
     feeLevel?: 'LOW' | 'MEDIUM' | 'HIGH'
   }) => Promise<{ success: boolean; txHash?: string; error?: string }>
   onSuccess?: (amount?: string, txHash?: string) => void
-  addToast?: (title: string, description: string, type: 'info' | 'success' | 'warning' | 'error' | 'pending', txHash?: string, network?: string) => string
-  removeToast?: (id: string) => void
 }
 
 export default function SendModal({
@@ -164,6 +255,7 @@ export default function SendModal({
   onSuccess,
 }: SendModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
+  const dialogRef = useRef<HTMLDivElement | null>(null)
 
   // Live Token Prices
   const { data: tokenPrices } = useLiveTokenPrices()
@@ -191,26 +283,30 @@ export default function SendModal({
     }
   }, [authSource, selectedChain])
 
-  // All EVM chains supported by Circle are unlocked for UCW; only non-EVM (Solana) is disabled.
+  // Circle UCW can only execute on whitelisted chains (Solana additionally stays
+  // EVM-only); unsupported chains are disabled so a transfer can never be signed
+  // for the wrong blockchain.
   const availableSendChains = useMemo(() => {
     if (authSource === 'ucw') {
       return SUPPORTED_SEND_CHAINS.map((c) => {
         const isSolana = c.chain.toLowerCase().includes('solana')
+        const supported = isCircleUcwChain(c.chain)
         return {
           ...c,
-          disabled: isSolana,
-          disabledReason: isSolana ? 'EVM Only' : undefined,
+          disabled: isSolana || !supported,
+          disabledReason: isSolana
+            ? 'EVM Only'
+            : supported
+            ? undefined
+            : 'Not supported by Circle UCW',
         }
       })
     }
     return SUPPORTED_SEND_CHAINS
   }, [authSource])
 
-  // Address validation
-  const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
-  const isValidSolanaAddress = (addr: string): boolean =>
-    !addr.startsWith('0x') && addr.length >= 32 && addr.length <= 44
-  const isValidInjectiveAddress = (addr: string): boolean => addr.startsWith('inj1') && addr.length >= 38
+  // Address validation helpers (EVM checksum, Solana base58, Injective bech32)
+  // live at module scope above so they can be unit tested.
 
   const isChainSolana = selectedChain.toLowerCase().includes('solana')
   const isChainInjective = selectedChain.toLowerCase().includes('injective')
@@ -228,12 +324,12 @@ export default function SendModal({
   const [showTokenModal, setShowTokenModal] = useState(false)
   const [isCustom, setIsCustom] = useState(false)
   const [customTokenAddress, setCustomTokenAddress] = useState('')
-  const [customTokenResult, setCustomTokenResult] = useState<any | null>(null)
+  const [customTokenResult, setCustomTokenResult] = useState<CustomTokenInfo | null>(null)
   const [customTokenError, setCustomTokenError] = useState<string | null>(null)
   const [isInspectingCustomToken, setIsInspectingCustomToken] = useState(false)
   const [isSending, setIsSending] = useState(false)
 
-  const [successReceipt, setSuccessReceipt] = useState<any>(null)
+  const [successReceipt, setSuccessReceipt] = useState<SendReceiptState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isCanceledError, setIsCanceledError] = useState(false)
 
@@ -257,25 +353,35 @@ export default function SendModal({
     setMemoText('')
     setCustomMemoId('')
     setSelectedPresetId(null)
+    setShowMemoPanel(false)
+    setShowSettings(false)
+    setShowTokenModal(false)
+    setShowChainModal(false)
+    setEstimatedFee(null)
     setError(null)
     setIsCanceledError(false)
     setSuccessReceipt(null)
     setIsSending(false)
   }, [])
 
+  // Wallet-disconnect cleanup runs through the shared clear event the app
+  // dispatches (WALLET_DISCONNECT_CLEAR_EVENT) — a single mechanism, no
+  // duplicate connectedAddress reset effect.
   useClearOnWalletDisconnect(resetFormInputs)
 
-  useEffect(() => {
-    if (!connectedAddress) {
-      resetFormInputs()
-    }
-  }, [connectedAddress, resetFormInputs])
+  const handleRecipientBlur = () => {
+    setRecipientError(
+      recipient && !recipientIsValid
+        ? `Invalid address for ${selectedChain.replace(/_/g, ' ')}`
+        : null
+    )
+  }
 
   const handleSelectMemoPreset = (preset: MemoPreset) => {
     setSelectedPresetId(preset.id)
     setMemoText(preset.text)
     if (preset.refIdPrefix) {
-      setCustomMemoId(`${preset.refIdPrefix}-${Math.random().toString(36).substring(2, 7)}`)
+      setCustomMemoId(`${preset.refIdPrefix}-${randomRefSuffix()}`)
     }
   }
 
@@ -284,6 +390,19 @@ export default function SendModal({
     setMemoText('')
     setCustomMemoId('')
   }
+
+  // The Arc transaction memo only applies to direct USDC transfers on Arc — clear
+  // it the moment that context is left so it is never silently dropped.
+  const isMemoContext =
+    selectedChain === 'Arc_Testnet' && sendMode === 'direct' && token === 'USDC' && !isCustom
+  useEffect(() => {
+    if (!isMemoContext && (memoText || customMemoId || selectedPresetId || showMemoPanel)) {
+      setMemoText('')
+      setCustomMemoId('')
+      setSelectedPresetId(null)
+      setShowMemoPanel(false)
+    }
+  }, [isMemoContext, memoText, customMemoId, selectedPresetId, showMemoPanel])
 
   // Load connected wallet balances across testnet chains & Gateway unified balance
   const { walletBalances, refetch: refetchWalletBalances } = useWalletTestnetBalances(connectedAddress)
@@ -329,14 +448,48 @@ export default function SendModal({
       ? customTokenResult?.symbol || 'Custom Token'
       : getDisplayTokenSymbol(selectedChain, token)
 
-  // Balance sufficiency check (Direct transfer has 0 platform fee; L1 gas is paid separately via native USDC gas)
-  const isInsufficient = amount ? parseFloat(amount) > parseFloat(activeBalance) : false
+  // Amount precision rules per token (custom tokens expose their own decimals).
+  const amountDecimals = isCustom
+    ? customTokenResult?.decimals ?? 18
+    : token === 'NATIVE'
+    ? CHAIN_NATIVE_MAP[selectedChain]?.decimals ?? 18
+    : token === 'cirBTC'
+    ? 8
+    : 6
+
+  // Gas is debited from the transferred asset itself when the native currency is
+  // being sent (NATIVE anywhere, native USDC on Arc) — reserve it in the checks.
+  const feeInSentAsset =
+    sendMode === 'direct' &&
+    !isCustom &&
+    (token === 'NATIVE' || (selectedChain === 'Arc_Testnet' && token === 'USDC'))
+
+  // Circle Gateway draws amount + maxFee (min 1.0 USDC) from the source domain —
+  // reserve it the same way as gas-in-sent-asset so MAX / the balance check stay honest.
+  const gatewayFeeReserve =
+    sendMode === 'gateway' ? gatewayMaxFeeUsdc(parseFloat(activeBalance) || 0) : 0
+
+  const feeReserve = feeInSentAsset
+    ? parseFloat(
+        estimatedFee ||
+          (selectedChain === 'Arc_Testnet' ? arcTransferFeeFallbackUsdc(token, false, speedTier) : '0')
+      ) || 0
+    : gatewayFeeReserve
+
+  // Balance sufficiency check (Direct transfer has 0 platform fee; gas is reserved
+  // above when it is paid from the transferred asset itself).
+  const isInsufficient = amount
+    ? parseFloat(amount) + feeReserve > parseFloat(activeBalance)
+    : false
+
+  // Spendable balance after reserving that gas fee — used by MAX / quick percentages.
+  const spendableBalance = Math.max((parseFloat(activeBalance) || 0) - feeReserve, 0)
 
   // Fetch native token balance from RPC when "NATIVE" is selected in Direct mode
   useEffect(() => {
     if (!connectedAddress || !isOpen) return
 
-    if (sendMode !== 'direct' || token !== 'NATIVE' || isCustom) return
+    if (sendMode !== 'direct' || isCustom) return
 
     let isMounted = true
     const fetchNativeBal = async () => {
@@ -344,7 +497,7 @@ export default function SendModal({
         const rpcClient = getResilientPublicClient(selectedChain)
         const bal = await resilientGetBalance(rpcClient, { address: connectedAddress as `0x${string}` })
         const decimals = CHAIN_NATIVE_MAP[selectedChain]?.decimals || 18
-        const formatted = parseFloat(formatUnits(bal, decimals)).toFixed(4)
+        const formatted = truncateDecimalString(formatUnits(bal, decimals), 8)
         if (isMounted) {
           setNativeBalance(formatted)
         }
@@ -376,6 +529,9 @@ export default function SendModal({
     setCustomTokenError(null)
 
     const inspectToken = async () => {
+      // Debounce so typing does not fire an RPC round trip per keystroke.
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      if (!isMounted) return
       try {
         const client = getResilientPublicClient(selectedChain)
 
@@ -405,11 +561,11 @@ export default function SendModal({
             address: trimmedAddress,
             symbol: String(symbol),
             decimals: Number(decimals),
-            balance: parseFloat(formatUnits(balance, Number(decimals))).toFixed(4),
+            balance: truncateDecimalString(formatUnits(balance, Number(decimals)), Math.min(Number(decimals), 8)),
           })
           setIsInspectingCustomToken(false)
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('[SendModal] Custom token inspection failed:', err)
         if (isMounted) {
           setCustomTokenResult(null)
@@ -434,6 +590,9 @@ export default function SendModal({
 
     let isMounted = true
     const calculateFee = async () => {
+      // Debounce so typing does not fire a fee estimation round trip per keystroke.
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      if (!isMounted) return
       if (sendMode === 'gateway') {
         setEstimatedFee('0.00')
         return
@@ -475,7 +634,9 @@ export default function SendModal({
           if (isMounted) {
             setEstimatedFee(quoted)
           }
-        } else if (provider) {
+        } else if (!provider) {
+          if (isMounted) setEstimatedFee(null)
+        } else {
           const gasRes = await estimateGas(
             provider,
             selectedChain,
@@ -483,16 +644,23 @@ export default function SendModal({
             recipientIsValid ? recipient : undefined,
             amount || '1'
           )
+          if (isMounted) setEstimatedFee(null)
           if (isMounted && gasRes?.fee) {
             const nativeInfo = CHAIN_NATIVE_MAP[selectedChain]
             const decimals = nativeInfo?.decimals ?? 18
             const formatted = formatUnits(BigInt(gasRes.fee), decimals)
             const feeNum = parseFloat(formatted)
-            setEstimatedFee(feeNum > 0 ? feeNum.toFixed(5) : arcTransferFeeFallbackUsdc())
+            setEstimatedFee(feeNum > 0 ? feeNum.toFixed(5) : null)
           }
         }
       } catch (err) {
-        if (isMounted) setEstimatedFee(arcTransferFeeFallbackUsdc(token))
+        if (isMounted) {
+          setEstimatedFee(
+            selectedChain === 'Arc_Testnet'
+              ? arcTransferFeeFallbackUsdc(token, memoText.trim().length > 0, speedTier)
+              : null
+          )
+        }
       }
     }
 
@@ -527,28 +695,76 @@ export default function SendModal({
     }
   }, [isOpen])
 
-  // Close Settings modal on ESC key
+  // ESC: close the Settings overlay first, otherwise close the modal (never
+  // while a nested selector modal owns the keyboard).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && showSettings) {
+      if (e.key !== 'Escape') return
+      if (showSettings) {
         setShowSettings(false)
+        return
+      }
+      if (showTokenModal || showChainModal) return
+      if (!isInline && isOpen) onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showSettings, showTokenModal, showChainModal, isInline, isOpen, onClose])
+
+  // Modal-mode accessibility: background scroll lock, initial focus and Tab trap
+  useEffect(() => {
+    if (isInline || !isOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const node = dialogRef.current
+    node?.focus()
+    const handleTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !node) return
+      const focusables = Array.from(
+        node.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+        )
+      )
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey) {
+        if (active === first || active === node || !node.contains(active)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else if (active === last || !node.contains(active)) {
+        e.preventDefault()
+        first.focus()
       }
     }
-    if (showSettings) {
-      window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keydown', handleTab)
+    return () => {
+      window.removeEventListener('keydown', handleTab)
+      document.body.style.overflow = previousOverflow
     }
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showSettings])
+  }, [isOpen, isInline])
 
   // Send execution
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSending) return
     setError(null)
     setIsCanceledError(false)
     setSuccessReceipt(null)
 
     if (!recipientIsValid) {
-      setError(`Please enter a valid recipient address for ${selectedChain.replace(/_/g, ' ')}`)
+      const recipientMsg = `Please enter a valid recipient address for ${selectedChain.replace(/_/g, ' ')}`
+      setError(recipientMsg)
+      setRecipientError(recipientMsg)
+      setIsCanceledError(false)
+      return
+    }
+
+    const maxAmountDecimals = sendMode === 'gateway' ? 6 : amountDecimals
+    if (!isValidAmountInput(amount, maxAmountDecimals)) {
+      setError(`Please enter a valid amount (max ${maxAmountDecimals} decimal places)`)
       setIsCanceledError(false)
       return
     }
@@ -560,8 +776,12 @@ export default function SendModal({
       return
     }
 
-    if (sendMode === 'direct' && isCustom && !customTokenAddress) {
-      setError('Please enter a valid custom token address')
+    if (sendMode === 'direct' && isCustom && (!customTokenAddress || !customTokenResult || isInspectingCustomToken)) {
+      setError(
+        customTokenAddress
+          ? 'Custom token contract has not been verified yet. Wait for the inspection to complete.'
+          : 'Please enter a valid custom token address'
+      )
       setIsCanceledError(false)
       return
     }
@@ -585,7 +805,7 @@ export default function SendModal({
         tokenIcon: sendMode === 'gateway' ? TOKEN_ICONS.USDC : tokenIcon,
         recipient,
         network: selectedChain,
-        memo: selectedChain === 'Arc_Testnet' && memoText.trim() ? memoText.trim() : undefined,
+        memo: isMemoContext && memoText.trim() ? memoText.trim() : undefined,
       },
     })
 
@@ -637,19 +857,23 @@ export default function SendModal({
           throw new Error(ucwResult.error || 'Transfer authorization was canceled or failed.')
         }
         const txHash = ucwResult.txHash || ''
-        setIsSending(false)
 
-        const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
-        const actualFee = await resolveArcActualFeeUsdc(txHash)
+        const explorerUrl = txHash ? getExplorerTxUrl(selectedChain, txHash) : undefined
+        const gasFeeText = await buildActualFeeDisplay({
+          chainKey: selectedChain,
+          txHash,
+          arcFallback: arcTransferFeeFallbackUsdc('USDC'),
+        })
 
         setSuccessReceipt({
           txHash,
           explorerUrl,
-          gasFee: actualFee.feeUsdcExact
-            ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee)}`
-            : `~${arcTransferFeeFallbackUsdc('USDC')} USDC (estimate, receipt unavailable)`,
+          gasFee: gasFeeText,
           blockNumber: 'Circle MPC Confirmed',
         })
+        // Keep the form locked until the receipt is on screen — unlocking earlier
+        // re-enabled the form mid-await and allowed a second (double) send.
+        setIsSending(false)
 
         updateBroadcast(broadcastId, {
           type: 'send',
@@ -682,11 +906,11 @@ export default function SendModal({
         })
         onSuccess?.(amount, txHash)
         return
-      } catch (err: any) {
+      } catch (err) {
         console.error('[SendModal] Circle UCW transfer failed:', err)
         const normalized = normalizeAppError(err)
         const isCanceled = normalized.isCanceled
-        const errMsg = normalized.message || err.message || 'Transfer failed'
+        const errMsg = normalized.message || (err instanceof Error ? err.message : '') || 'Transfer failed'
 
         setError(errMsg)
         setIsSending(false)
@@ -739,15 +963,54 @@ export default function SendModal({
             return
           }
 
-          const sourceBalItem = gatewayBalances.find((b) => parseFloat(b.balance) >= sendAmt)
+          // Circle Gateway draws the transfer from a single source domain whose
+          // balance must cover amount + maxFee (min 1.0 USDC; cross-domain adds
+          // 0.005% + 0.05 USDC gas buffer). Prefer the destination chain, then the
+          // first domain that fully covers the transfer.
+          const requiredGatewayBalance = (chainKey: string) =>
+            sendAmt +
+            (GATEWAY_DOMAINS[chainKey] === GATEWAY_DOMAINS[selectedChain]
+              ? 1 // same-domain: transfer fee is 0, so maxFee is exactly the 1.0 floor
+              : gatewayMaxFeeUsdc(sendAmt))
+          const coveringSources = gatewayBalances.filter(
+            (b) =>
+              GATEWAY_DOMAINS[b.chainKey] !== undefined &&
+              parseFloat(b.balance) >= requiredGatewayBalance(b.chainKey)
+          )
+          const sourceBalItem =
+            coveringSources.find((b) => b.chainKey === selectedChain) || coveringSources[0]
+          if (!sourceBalItem && gatewayBalances.length > 0) {
+            const largestDomainBalance = gatewayBalances.reduce(
+              (max, b) => Math.max(max, parseFloat(b.balance) || 0),
+              0
+            )
+            const errorText =
+              `No single Gateway network covers ${amount} USDC plus up to ` +
+              `${gatewayMaxFeeUsdc(sendAmt).toFixed(2)} USDC Gateway max fee. ` +
+              (largestDomainBalance > 0
+                ? `Largest balance on one network: ${largestDomainBalance.toFixed(2)} USDC — reduce the amount or consolidate balances first.`
+                : 'No confirmed Gateway balance is available yet.')
+            setError(errorText)
+            setIsSending(false)
+            updateBroadcast(broadcastId, {
+              type: 'send',
+              title: 'Gateway Send Failed',
+              status: 'failed',
+              badgeText: 'Failed',
+              message: errorText,
+              details: {
+                amount,
+                tokenSymbol: 'USDC',
+                tokenIcon: TOKEN_ICONS.USDC,
+                recipient,
+                network: selectedChain,
+              },
+            })
+            return
+          }
           const effectiveSourceChain =
-            sourceBalItem?.chainKey && GATEWAY_DOMAINS[sourceBalItem.chainKey] !== undefined
-              ? sourceBalItem.chainKey
-              : GATEWAY_DOMAINS[selectedChain] !== undefined
-              ? selectedChain
-              : 'Arc_Testnet'
-
-          await new Promise((r) => setTimeout(r, 600))
+            sourceBalItem?.chainKey ||
+            (GATEWAY_DOMAINS[selectedChain] !== undefined ? selectedChain : 'Arc_Testnet')
 
           const gatewayRes = await transferFromGateway({
             provider,
@@ -760,16 +1023,20 @@ export default function SendModal({
           })
 
           const txHash = gatewayRes.mintTxHash || ''
-          setIsSending(false)
 
-          const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
+          const explorerUrl = txHash ? getExplorerTxUrl(selectedChain, txHash) : undefined
 
+          const isSameDomain =
+            GATEWAY_DOMAINS[effectiveSourceChain] === GATEWAY_DOMAINS[selectedChain]
           setSuccessReceipt({
             txHash,
             explorerUrl,
-            gasFee: 'Zero Extra Gateway Fee',
+            gasFee: isSameDomain
+              ? '0% Gateway transfer fee (same-domain)'
+              : `0.005% Gateway transfer fee ≈ ${(sendAmt * 0.00005).toFixed(6)} USDC (max fee buffer reserved)`,
             blockNumber: 'Instant Gateway Finalized',
           })
+          setIsSending(false)
 
           updateBroadcast(broadcastId, {
             type: 'send',
@@ -793,7 +1060,8 @@ export default function SendModal({
             txHash,
             amount,
             tokenSymbol: 'USDC',
-            sourceChain: selectedChain,
+            sourceChain: effectiveSourceChain,
+            destChain: selectedChain,
             recipient,
             userAddress: connectedAddress,
             status: 'success',
@@ -806,8 +1074,6 @@ export default function SendModal({
             selectedChain === 'Arc_Testnet' && activeToken === 'USDC' && memoText.trim().length > 0
 
           if (isArcMemoActive) {
-            await new Promise((r) => setTimeout(r, 600))
-
             const memoResult = await sendUsdcWithMemo(
               provider,
               recipient,
@@ -817,9 +1083,8 @@ export default function SendModal({
               speedTier
             )
             const txHash = memoResult.txHash
-            setIsSending(false)
 
-            const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
+            const explorerUrl = txHash ? getExplorerTxUrl(selectedChain, txHash) : undefined
             const actualFee = await resolveArcActualFeeUsdc(txHash)
 
             setSuccessReceipt({
@@ -834,6 +1099,7 @@ export default function SendModal({
               memoText: memoResult.memoText,
               memoId: memoResult.memoId,
             })
+            setIsSending(false)
 
             updateBroadcast(broadcastId, {
               type: 'send',
@@ -868,25 +1134,26 @@ export default function SendModal({
             })
             onSuccess?.(amount, txHash)
           } else {
-            await new Promise((r) => setTimeout(r, 1000))
-
             const result = await sendToken(provider, selectedChain, activeToken, recipient, amount)
             const txHash = result.txHash || ''
-            setIsSending(false)
 
-            const explorerUrl = getExplorerTxUrl(selectedChain, txHash)
-            const actualFee = selectedChain === 'Arc_Testnet'
-              ? await resolveArcActualFeeUsdc(txHash)
-              : { feeUsdcExact: null }
+            const explorerUrl = txHash ? getExplorerTxUrl(selectedChain, txHash) : undefined
+            const gasFeeText = await buildActualFeeDisplay({
+              chainKey: selectedChain,
+              txHash,
+              arcFallback: estimatedFee || arcTransferFeeFallbackUsdc(activeToken),
+              nativeFallback: estimatedFee
+                ? `~${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'native gas'} (estimate, fee not yet resolved)`
+                : undefined,
+            })
 
             setSuccessReceipt({
               txHash,
               explorerUrl,
-              gasFee: actualFee.feeUsdcExact
-                ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee as any)}`
-                : `${estimatedFee ? `~${estimatedFee}` : arcTransferFeeFallbackUsdc(activeToken)} USDC (estimate, receipt unavailable)`,
+              gasFee: gasFeeText,
               blockNumber: 'Instant BFT Finalized',
             })
+            setIsSending(false)
 
             updateBroadcast(broadcastId, {
               type: 'send',
@@ -919,7 +1186,7 @@ export default function SendModal({
             onSuccess?.(amount, txHash)
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('[SendModal] Token transfer failed:', err)
         const normalized = normalizeAppError(err)
         const isCanceled = normalized.isCanceled
@@ -947,7 +1214,7 @@ export default function SendModal({
             tokenIcon: sendMode === 'gateway' ? TOKEN_ICONS.USDC : tokenIcon,
             recipient,
             network: selectedChain,
-            memo: selectedChain === 'Arc_Testnet' && memoText.trim() ? memoText.trim() : undefined,
+            memo: isMemoContext && memoText.trim() ? memoText.trim() : undefined,
           },
         })
       }
@@ -972,21 +1239,26 @@ export default function SendModal({
     }
   }
 
-  // Quick percentage handler
+  // Quick percentage handler (truncated, gas-reserve aware)
   const handleQuickPercentage = (pct: number) => {
-    const bal = parseFloat(activeBalance)
-    if (isNaN(bal) || bal <= 0) return
-    const calculated = (bal * pct) / 100
-    setAmount(calculated.toFixed(token === 'cirBTC' ? 5 : 2))
+    if (!Number.isFinite(spendableBalance) || spendableBalance <= 0) return
+    const calculated = (spendableBalance * pct) / 100
+    setAmount(truncateToDecimal(calculated, amountDecimals))
   }
 
-  // Token list for selector modal
+  // Token list for selector modal (includes the chain's native asset when it is
+  // a distinct token from the listed stablecoins; custom ERC-20 import is offered
+  // by the modal itself).
   const tokenList: TokenItem[] = useMemo(() => {
     const list: TokenItem[] = [
       { symbol: 'USDC', name: 'USD Coin', icon: TOKEN_ICONS.USDC, balance: usdcWalletBalance },
       { symbol: 'EURC', name: 'Euro Coin', icon: TOKEN_ICONS.EURC, balance: eurcWalletBalance },
       { symbol: 'cirBTC', name: 'Circle Bitcoin', icon: TOKEN_ICONS.cirBTC, balance: cirbtcWalletBalance },
     ]
+    const nativeInfo = CHAIN_NATIVE_MAP[selectedChain]
+    if (nativeInfo && nativeInfo.symbol !== 'USDC') {
+      list.push({ symbol: 'NATIVE', name: `Native ${nativeInfo.name}`, balance: nativeBalance })
+    }
     return list
   }, [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, nativeBalance, selectedChain])
 
@@ -1045,8 +1317,7 @@ export default function SendModal({
       {
         label: 'Network Fee',
         tooltip: 'Blockchain transaction gas fee paid in USDC on Arc or native gas on destination.',
-        value: sendMode === 'gateway' ? (
-          'Free (Gateway Unified)'
+        value: sendMode === 'gateway' ? (            '0% same-domain / 0.005% cross-domain (Gateway)'
         ) : estimatedFee ? (
           `${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
         ) : selectedChain === 'Arc_Testnet' ? (
@@ -1090,7 +1361,7 @@ export default function SendModal({
     ]
 
     return items
-  }, [sendMode, estimatedFee, speedTier, selectedChain, amount, tokenSymbol])
+  }, [sendMode, estimatedFee, speedTier, selectedChain, amount, token, tokenSymbol])
 
   // Dynamic Button State
   const ctaButtonState = useMemo(() => {
@@ -1100,11 +1371,20 @@ export default function SendModal({
     if (!amount || parseFloat(amount) <= 0) {
       return { disabled: true, text: 'ENTER AN AMOUNT', loading: false }
     }
+    if (!isValidAmountInput(amount, sendMode === 'gateway' ? 6 : amountDecimals)) {
+      return { disabled: true, text: 'INVALID AMOUNT FORMAT', loading: false }
+    }
     if (!recipient) {
       return { disabled: true, text: 'ENTER RECIPIENT ADDRESS', loading: false }
     }
     if (!recipientIsValid) {
       return { disabled: true, text: 'INVALID RECIPIENT FORMAT', loading: false }
+    }
+    if (isCustom && isInspectingCustomToken) {
+      return { disabled: true, text: 'INSPECTING TOKEN...', loading: true }
+    }
+    if (isCustom && !customTokenResult) {
+      return { disabled: true, text: 'VERIFY TOKEN CONTRACT', loading: false }
     }
     if (isInsufficient) {
       return { disabled: true, text: `INSUFFICIENT ${tokenSymbol} BALANCE`, loading: false }
@@ -1224,6 +1504,10 @@ export default function SendModal({
             setAmount('')
             setRecipient('')
             setRecipientError(null)
+            setMemoText('')
+            setCustomMemoId('')
+            setSelectedPresetId(null)
+            setShowMemoPanel(false)
           }}
           onClose={onClose}
         />
@@ -1270,7 +1554,7 @@ export default function SendModal({
             onSelectToken={sendMode === 'direct' ? () => setShowTokenModal(true) : undefined}
             tokenListAvailable={sendMode === 'direct'}
             balance={activeBalance}
-            onMaxClick={() => setAmount(activeBalance)}
+            onMaxClick={() => setAmount(truncateToDecimal(spendableBalance, amountDecimals))}
             quickPercentages={[25, 50, 75, 100]}
             onSelectPercentage={handleQuickPercentage}
             fiatEstimate={formatFiatEstimate(amount, tokenSymbol, tokenPrices)}
@@ -1293,6 +1577,7 @@ export default function SendModal({
                 : '0x....'
             }
             isValid={recipientIsValid}
+            onBlur={handleRecipientBlur}
             error={recipientError}
             disabled={isSending}
           />
@@ -1439,17 +1724,20 @@ export default function SendModal({
         </form>
       )}
 
-      {/* Token Selector Modal */}
-      <TokenSelectorModal
-        isOpen={showTokenModal}
-        onClose={() => setShowTokenModal(false)}
-        tokens={tokenList}
-        selectedToken={token}
-        onSelectToken={(sym) => {
-          setToken(sym)
-          setIsCustom(false)
-        }}
-      />
+      {/* Token Selector Modal */}        <TokenSelectorModal
+          isOpen={showTokenModal}
+          onClose={() => setShowTokenModal(false)}
+          tokens={tokenList}
+          selectedToken={token}
+          onSelectToken={(sym) => {
+            setToken(sym)
+            setIsCustom(false)
+          }}
+          onSelectCustom={() => {
+            setIsCustom(true)
+            setToken('USDC')
+          }}
+        />
 
       {/* Network Selector Modal */}
       <ChainSelectorModal
@@ -1460,6 +1748,12 @@ export default function SendModal({
         onSelectChain={(chainKey) => {
           setSelectedChain(chainKey)
           setRecipientError(null)
+          // Ask the wallet extension to switch networks immediately (with the
+          // wallet_addEthereumChain fallback for unregistered testnets) so the
+          // send never dies on a stale-network error later.
+          if (provider && authSource !== 'ucw') {
+            ensureNetwork(chainKey, provider).catch(() => {})
+          }
         }}
         getChainIconId={getChainIconId}
       />
@@ -1541,9 +1835,26 @@ export default function SendModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-        {content}
-      </div>
+      {createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) onClose()
+          }}
+        >
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Send tokens"
+            tabIndex={-1}
+            className="w-full max-w-[540px] outline-none"
+          >
+            {content}
+          </div>
+        </div>,
+        document.body
+      )}
       {settingsModalWindow}
     </>
   )
