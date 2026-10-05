@@ -16,6 +16,7 @@ vi.mock('../rpc', () => ({
 // Mock modular wallet to return null so it doesn't take MSCA path
 vi.mock('../modularWalletService', () => ({
   getActiveSmartAccount: vi.fn(() => null),
+  restoreSmartAccount: vi.fn(async () => null),
   sendModularUserOperation: vi.fn(),
 }))
 
@@ -45,7 +46,7 @@ describe('Swap UCW Execution Tests', () => {
     })
 
     expect(result.status).toBe('FAILED')
-    expect(result.errorMessage).toContain('Circle UCW cüzdanları şu anda yalnızca Arc Testnet içi takasları desteklemektedir')
+    expect(result.errorMessage).toContain('Circle UCW wallets currently support Arc Testnet swaps only')
     expect(mockExecuteUcw).not.toHaveBeenCalled()
   })
 

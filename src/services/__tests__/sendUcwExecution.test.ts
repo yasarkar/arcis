@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import {
-  normalizeCircleBlockchain,
-  resolveUcwTokenAddress,
-} from '../../components/SendModal'
+import { resolveUcwTokenAddress } from '../../components/SendModal'
+import { normalizeCircleBlockchain } from '../../utils/circleBlockchain'
 import { USDC_ADDRESSES, EURC_ADDRESSES } from '../../config/gatewayConfig'
 import { mapChainKeyToCircleBlockchain } from '../gatewayUcwService'
 import { getExplorerTxUrl } from '../../config/sendConfig'

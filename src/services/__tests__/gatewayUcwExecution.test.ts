@@ -60,8 +60,13 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       expect(mapChainKeyToCircleBlockchain('Avalanche_Fuji')).toBe('AVAX-FUJI')
     })
 
-    it('defaults unknown chains safely to ARC-TESTNET', () => {
-      expect(mapChainKeyToCircleBlockchain('Unknown_Chain')).toBe('ARC-TESTNET')
+    it('fails closed for unknown chains instead of defaulting to ARC-TESTNET', () => {
+      // Regression: the old `|| 'ARC-TESTNET'` fallback silently signed
+      // transfers for Sei/Sonic/Unichain/... on the wrong blockchain.
+      expect(() => mapChainKeyToCircleBlockchain('Unknown_Chain')).toThrow(/not supported/i)
+      expect(() => mapChainKeyToCircleBlockchain('Sei_Testnet')).toThrow(/not supported/i)
+      expect(() => mapChainKeyToCircleBlockchain('Unichain_Sepolia')).toThrow(/not supported/i)
+      expect(() => mapChainKeyToCircleBlockchain('')).toThrow(/network selection/i)
     })
   })
 
@@ -81,7 +86,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           signTypedData: mockSign,
           executeUcwContract: mockExecute,
         })
-      ).rejects.toThrow('Circle UCW cüzdan adresi bulunamadı')
+      ).rejects.toThrow('Circle UCW wallet address was not found')
     })
 
     it('throws error when unsupported chain is passed', async () => {
@@ -97,7 +102,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           signTypedData: mockSign,
           executeUcwContract: mockExecute,
         })
-      ).rejects.toThrow('Desteklenmeyen ağ seçildi')
+      ).rejects.toThrow('Unsupported network selected')
     })
 
     it('throws error when the unified balance cannot cover value + estimated fee', async () => {
@@ -124,7 +129,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           signTypedData: mockSign,
           executeUcwContract: mockExecute,
         })
-      ).rejects.toThrow('Circle Gateway birleşik bakiyeniz yetersiz')
+      ).rejects.toThrow('Circle Gateway unified balance is insufficient')
 
       expect(mockSign).not.toHaveBeenCalled()
       expect(mockExecute).not.toHaveBeenCalled()
@@ -358,7 +363,7 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
           signTypedData: mockSign,
           executeUcwContract: mockExecute,
         })
-      ).rejects.toThrow('Circle Gateway birleşik bakiyeniz yetersiz')
+      ).rejects.toThrow('Circle Gateway unified balance is insufficient')
 
       expect(mockSign).not.toHaveBeenCalled()
       expect(mockExecute).not.toHaveBeenCalled()
