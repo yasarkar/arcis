@@ -60,6 +60,8 @@ export interface InlineExecutionReceipt {
   fromChain?: string
   toChain?: string
   recipient?: string
+  userAddress?: string
+  sender?: string
   memo?: string
   gasUsdc: number
   /** Actual Arc receipt gas cost in USDC; null/undefined when it could not be verified. */

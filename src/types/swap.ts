@@ -21,6 +21,9 @@ export interface SwapExecuteParams {
   tokenOut: SwapSupportedToken
   amountIn: string
   sourceAdapter?: any
+  /** The wallet that signs & pays for the swap. Allowance/ceiling reads must use this address,
+   *  never `recipientAddress` (which only decides where output is delivered). */
+  senderAddress?: string
   recipientAddress?: string
   slippageTolerance?: number
   speedTier?: 'standard' | 'fast' | 'turbo'
@@ -55,6 +58,8 @@ export interface SwapQuoteResult {
 
 export interface SwapExecutionStatus {
   status: 'PENDING' | 'DONE' | 'FAILED' | 'NOT_FOUND'
+  /** Which step the pending hash belongs to: the ERC-20 approval or the swap itself. */
+  pendingStage?: 'approve' | 'swap'
   sourceTxHash?: string
   destinationTxHash?: string
   errorMessage?: string
