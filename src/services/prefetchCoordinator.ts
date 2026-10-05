@@ -1,7 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { prefetchPoolsData, prefetchUserWalletPoolsData } from '../hooks/usePoolsData'
-import { fetchGatewayBalancesData } from '../hooks/useGatewayBalance'
-import { fetchWalletTestnetBalancesData } from '../hooks/useWalletTestnetBalances'
+import { fetchGatewayBalancesData, gatewayBalancesQueryKey } from '../hooks/useGatewayBalance'
+import {
+  fetchWalletTestnetBalancesData,
+  walletTestnetBalancesQueryKey,
+} from '../hooks/useWalletTestnetBalances'
 import { prefetchHistory } from '../utils/history'
 import { getLivePortfolioSnapshot } from './portfolioContextService'
 
@@ -25,8 +28,8 @@ export async function prefetchGlobalData(queryClient: QueryClient): Promise<void
 
 /**
  * Prefetches all wallet-dependent data across multi-chain & DeFi systems:
- * - Circle Gateway unified balances (13+ supported domains)
- * - Native & token testnet balances across 13+ chains
+ * - Circle Gateway unified balances (12+ supported domains)
+ * - Native & token testnet balances across 12+ chains
  * - User Arc liquidity pool & vault positions
  * - Transaction history from explorer/indexer
  * - Live portfolio snapshot (Ask Arcis Copilot AI context)
@@ -45,16 +48,17 @@ export async function prefetchAllWalletData(
       console.warn('[prefetchCoordinator] History prefetch failed:', err)
     }),
 
-    // 2. Gateway unified cross-chain balances
+    // 2. Gateway unified cross-chain balances (same key/normalization as `useGatewayBalance`)
     queryClient.prefetchQuery({
-      queryKey: ['gatewayBalances', normalizedAddress],
+      queryKey: gatewayBalancesQueryKey(normalizedAddress),
       queryFn: () => fetchGatewayBalancesData(normalizedAddress),
       staleTime: 10_000,
     }),
 
-    // 3. Multi-chain testnet balances
+    // 3. Multi-chain testnet balances (same key/normalization as `useWalletTestnetBalances`, so
+    // the deposit panel can reuse this record instead of re-reading every chain)
     queryClient.prefetchQuery({
-      queryKey: ['walletTestnetBalances', normalizedAddress],
+      queryKey: walletTestnetBalancesQueryKey(normalizedAddress),
       queryFn: () => fetchWalletTestnetBalancesData(normalizedAddress),
       staleTime: 15_000,
     }),

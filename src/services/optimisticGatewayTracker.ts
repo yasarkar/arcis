@@ -10,6 +10,16 @@ interface OptimisticDelta {
   baselineRaw: number
   timestamp: number
   expiresAt: number
+  /** Chain the pending action originated from; drives honest per-chain "pending" attribution. */
+  chainKey?: string
+}
+
+/** An unexpired, not-yet-indexed delta as exposed to attribution consumers. */
+export interface ActiveOptimisticDelta {
+  chainKey?: string
+  delta: number
+  baselineRaw: number
+  expiresAt: number
 }
 
 const STORAGE_KEY = 'arcis:optimistic:deltas:v1'
@@ -40,19 +50,27 @@ function saveStoredDeltas(deltas: OptimisticDelta[]) {
   }
 }
 
+export interface RecordOptimisticDeltaOptions {
+  /** Defaults to 'gateway-settlement-pool'. */
+  poolId?: string
+  /** Chain the action originated from, used for per-chain pending attribution. */
+  chainKey?: string
+}
+
 /**
  * Records an optimistic balance change for a specific wallet and pool.
  * @param walletAddress The user's wallet address
  * @param delta Number of tokens (+ for deposit, - for withdraw)
  * @param baselineRaw Current raw balance before the action
- * @param poolId Defaults to 'gateway-settlement-pool'
+ * @param options Optional pool id and originating chain key
  */
 export function recordOptimisticDelta(
   walletAddress: string,
   delta: number,
   baselineRaw = 0,
-  poolId = 'gateway-settlement-pool'
+  options: RecordOptimisticDeltaOptions = {}
 ) {
+  const { poolId = 'gateway-settlement-pool', chainKey } = options
   if (!walletAddress || isNaN(delta) || delta === 0) return
   const normalized = walletAddress.toLowerCase()
   const deltas = getStoredDeltas()
@@ -65,28 +83,31 @@ export function recordOptimisticDelta(
     baselineRaw,
     timestamp: now,
     expiresAt: now + DEFAULT_TTL_MS,
+    chainKey,
   })
 
   saveStoredDeltas(deltas)
-  console.log(`[OptimisticTracker] Recorded delta ${delta > 0 ? '+' : ''}${delta} for ${poolId} (${normalized})`)
+  console.log(
+    `[OptimisticTracker] Recorded delta ${delta > 0 ? '+' : ''}${delta} for ${poolId}${chainKey ? ` on ${chainKey}` : ''} (${normalized})`
+  )
 }
 
 /**
- * Gets the total net optimistic delta for a given wallet and pool.
- * If rawCurrent shows that Circle's off-chain indexer has already caught up,
- * the delta is cleared automatically.
+ * Gets the active (unexpired and not yet indexed by Circle) deltas for a wallet/pool.
+ * When rawCurrent shows that Circle's off-chain indexer has already caught up, the
+ * corresponding record is cleared automatically — same reconciliation as before.
  */
-export function getOptimisticDelta(
+export function getActiveOptimisticDeltas(
   walletAddress: string,
   rawCurrent?: number,
   poolId = 'gateway-settlement-pool'
-): number {
-  if (!walletAddress) return 0
+): ActiveOptimisticDelta[] {
+  if (!walletAddress) return []
   const normalized = walletAddress.toLowerCase()
   const deltas = getStoredDeltas()
   const now = Date.now()
 
-  let netDelta = 0
+  const active: ActiveOptimisticDelta[] = []
   let hasChanges = false
 
   for (let i = deltas.length - 1; i >= 0; i--) {
@@ -114,14 +135,36 @@ export function getOptimisticDelta(
       }
     }
 
-    netDelta += item.delta
+    active.push({
+      chainKey: item.chainKey,
+      delta: item.delta,
+      baselineRaw: item.baselineRaw,
+      expiresAt: item.expiresAt,
+    })
   }
 
   if (hasChanges) {
     saveStoredDeltas(deltas)
   }
 
-  return netDelta
+  // Iteration walks backwards for safe splicing; restore insertion order for callers.
+  return active.reverse()
+}
+
+/**
+ * Gets the total net optimistic delta for a given wallet and pool.
+ * If rawCurrent shows that Circle's off-chain indexer has already caught up,
+ * the delta is cleared automatically.
+ */
+export function getOptimisticDelta(
+  walletAddress: string,
+  rawCurrent?: number,
+  poolId = 'gateway-settlement-pool'
+): number {
+  return getActiveOptimisticDeltas(walletAddress, rawCurrent, poolId).reduce(
+    (sum, item) => sum + item.delta,
+    0
+  )
 }
 
 /**

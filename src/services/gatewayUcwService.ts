@@ -14,8 +14,16 @@ import {
 import { IS_TESTNET } from '../config/arcChain'
 import { getNetwork } from '../config/networks/networkRegistry'
 import { getResilientPublicClient } from './rpc'
-import { getGatewayBalances, verifyDestinationUsdcMint } from './gatewayService'
+import {
+  getGatewayBalances,
+  verifyDestinationUsdcMint,
+  gatewayTransferFeeCeiling,
+  estimateGatewayMaxFee,
+  MAX_BLOCK_HEIGHT,
+  type GatewayTransferSpecPayload,
+} from './gatewayService'
 import { getExplorerTxUrl } from '../config/sendConfig'
+import { normalizeCircleBlockchain } from '../utils/circleBlockchain'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,95 +91,8 @@ function randomHex32(): `0x${string}` {
 // ── Gateway burn-intent fee policy ───────────────────────────────────────────
 // Circle's estimate is authoritative. Cross-chain signing fails closed when the
 // endpoint cannot provide a quote; a local approximation must never authorize a burn.
-/**
- * The forwarding fee quote is dynamic: Circle's own `/estimate?enableForwarder=true`
- * value was a couple of subunits short in live testing ("Insufficient total maxFee
- * across intents to cover forwarding fee. Required additional: 0.000002").
- * Always apply a small safety buffer on top of the estimate.
- */
-const FORWARDING_FEE_BUFFER_BPS = 500n // +5%
-const FORWARDING_FEE_BUFFER_DENOMINATOR = 10_000n
-const FORWARDING_FEE_MIN_BUFFER_UNITS = 2_000n // or +0.002 USDC, whichever is larger
-const MAX_BLOCK_HEIGHT = 2n ** 256n - 1n
-
-export interface GatewayTransferSpecPayload {
-  version: number
-  sourceDomain: number
-  destinationDomain: number
-  sourceContract: string
-  destinationContract: string
-  sourceToken: string
-  destinationToken: string
-  sourceDepositor: string
-  destinationRecipient: string
-  sourceSigner: string
-  destinationCaller: string
-  value: bigint
-  salt: string
-  hookData: string
-}
-
-/**
- * Asks Circle's Gateway `/estimate` endpoint for the canonical `maxFee` and
- * `maxBlockHeight` that must be encoded in the burn intent.
- *
- * With `useForwarder = true` the returned `maxFee` already covers the gas fee,
- * the 0.005% transfer fee and the forwarding fee, plus a small safety buffer
- * (the quote is dynamic and Circle's own value can be a few subunits short).
- *
- * Returns `null` when the endpoint is unreachable so the caller can fail closed
- * without signing an intent based on an unverified local estimate.
- */
-export async function estimateGatewayMaxFee(
-  spec: GatewayTransferSpecPayload,
-  useForwarder: boolean = false
-): Promise<{ maxFee: bigint; maxBlockHeight: bigint } | null> {
-  try {
-    const response = await fetch(
-      `${ACTIVE_GATEWAY_API}/estimate?enableForwarder=${useForwarder ? 'true' : 'false'}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify([{ spec }], (_key, value) =>
-          typeof value === 'bigint' ? value.toString() : value
-        ),
-      }
-    )
-
-    if (!response.ok) {
-      console.warn(
-        `[executeUcwGatewayTransfer] /estimate returned HTTP ${response.status}; refusing to sign without a fee quote.`
-      )
-      return null
-    }
-
-    const payload: any = await response.json()
-    const item = Array.isArray(payload) ? payload[0] : payload?.body?.[0]
-    const burnIntent = item?.burnIntent
-    if (!burnIntent?.maxFee) {
-      console.warn('[executeUcwGatewayTransfer] /estimate response did not contain maxFee; refusing to sign without a fee quote.')
-      return null
-    }
-
-    let maxFee = BigInt(burnIntent.maxFee)
-    const maxBlockHeight = burnIntent.maxBlockHeight ? BigInt(burnIntent.maxBlockHeight) : MAX_BLOCK_HEIGHT
-    if (maxFee <= 0n || maxBlockHeight <= 0n) return null
-    if (useForwarder) {
-      const percentBuffer = (maxFee * FORWARDING_FEE_BUFFER_BPS) / FORWARDING_FEE_BUFFER_DENOMINATOR
-      const buffer =
-        percentBuffer > FORWARDING_FEE_MIN_BUFFER_UNITS ? percentBuffer : FORWARDING_FEE_MIN_BUFFER_UNITS
-      maxFee += buffer
-    }
-
-    return {
-      maxFee,
-      maxBlockHeight,
-    }
-  } catch (err) {
-    console.warn('[executeUcwGatewayTransfer] /estimate request failed; refusing to sign without a fee quote:', err)
-    return null
-  }
-}
+// The quote itself lives in gatewayService.estimateGatewayMaxFee (imported below)
+// so the UCW and injected-wallet paths sign the exact same value.
 
 /**
  * Polls `GET /v1/transfer/{id}` until the Forwarding Service reaches a terminal
@@ -206,7 +127,7 @@ export async function pollForwardedGatewayTransfer(
           const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` })
           if (receipt.status !== 'success' || receipt.transactionHash.toLowerCase() !== txHash.toLowerCase()) return { status: 'pending' }
 
-          const hasExactMint = await verifyDestinationUsdcMint(destChain, txHash, recipient, amount)
+          const hasExactMint = await verifyDestinationUsdcMint(destChain, txHash, recipient, amount, gatewayTransferFeeCeiling(amount))
           return hasExactMint ? { status: lastStatus, txHash } : { status: 'pending' }
         }
 
@@ -233,26 +154,18 @@ export async function pollForwardedGatewayTransfer(
 
 /**
  * Maps project internal network keys to Circle's ContractExecutionBlockchain identifier.
+ *
+ * Fails closed: an unknown chain throws instead of silently falling back to
+ * ARC-TESTNET. A substituted identifier makes Circle UCW sign the challenge on
+ * the wrong blockchain, so the transfer would be burned on the wrong chain.
  */
 export function mapChainKeyToCircleBlockchain(chainKey: string): string {
-  const map: Record<string, string> = {
-    Arc_Testnet: 'ARC-TESTNET',
-    Arc: 'ARC',
-    Base_Sepolia: 'BASE-SEPOLIA',
-    Base: 'BASE',
-    Ethereum_Sepolia: 'ETH-SEPOLIA',
-    Ethereum: 'ETH',
-    Arbitrum_Sepolia: 'ARB-SEPOLIA',
-    Arbitrum: 'ARB',
-    Optimism_Sepolia: 'OP-SEPOLIA',
-    Optimism: 'OP',
-    Avalanche_Fuji: 'AVAX-FUJI',
-    Avalanche: 'AVAX',
-    Polygon_Amoy: 'MATIC-AMOY',
-    Polygon_Amoy_Testnet: 'MATIC-AMOY',
-    Polygon: 'MATIC',
+  if (!chainKey || !chainKey.trim()) {
+    throw new Error(
+      'Circle UCW transfers require a network selection. Select a supported network and try again.'
+    )
   }
-  return map[chainKey] || 'ARC-TESTNET'
+  return normalizeCircleBlockchain(chainKey)
 }
 
 /**
@@ -289,20 +202,26 @@ export async function executeUcwGatewayTransfer(
   }
 
   if (!connectedAddress) {
-    throw new Error('Circle UCW cüzdan adresi bulunamadı. Lütfen oturumunuzu kontrol edin.')
+    throw new Error('Circle UCW wallet address was not found. Please check your session.')
   }
 
   const sourceDomain = GATEWAY_DOMAINS[sourceChain]
   const destinationDomain = GATEWAY_DOMAINS[destChain]
   if (sourceDomain === undefined || destinationDomain === undefined) {
-    throw new Error(`Desteklenmeyen ağ seçildi: ${sourceChain} veya ${destChain}`)
+    throw new Error(`Unsupported network selected: ${sourceChain} or ${destChain}`)
   }
 
   const sourceUsdc = USDC_ADDRESSES[sourceChain]
   const destUsdc = USDC_ADDRESSES[destChain]
   if (!sourceUsdc || !destUsdc) {
-    throw new Error(`${sourceChain} veya ${destChain} için USDC sözleşme adresi yapılandırılmamış.`)
+    throw new Error(`USDC contract address is not configured for ${sourceChain} or ${destChain}.`)
   }
+
+  // Resolve both Circle UCW blockchain identifiers BEFORE any signature or
+  // Gateway API submission. Unsupported chains must fail closed here: a guessed
+  // identifier would sign the burn intent for the wrong blockchain.
+  const sourceBlockchainCircle = mapChainKeyToCircleBlockchain(sourceChain)
+  const destBlockchainCircle = mapChainKeyToCircleBlockchain(destChain)
 
   const gatewayWallet = ACTIVE_GATEWAY_CONTRACTS.gatewayWallet
   const gatewayMinter = ACTIVE_GATEWAY_CONTRACTS.gatewayMinter
@@ -368,18 +287,17 @@ export async function executeUcwGatewayTransfer(
 
       if (sourceBalanceUnits < requiredUnits) {
         throw new Error(
-          `Circle Gateway birleşik bakiyeniz yetersiz. ` +
-          `Mevcut: ${sourceItem.balance} USDC. ` +
-          `Gereken: ${(Number(requiredUnits) / 1e6).toFixed(6)} USDC ` +
-          `(${amount} USDC transfer + ${(Number(maxFee) / 1e6).toFixed(6)} USDC Gateway ücreti). ` +
-          `Lütfen Gateway sekmesinden ${sourceChain} ağına bakiye yükleyip tekrar deneyin.`
+          `Circle Gateway unified balance is insufficient. ` +
+          `Available: ${sourceItem.balance} USDC. ` +
+          `Required: ${(Number(requiredUnits) / 1e6).toFixed(6)} USDC ` +
+          `(${amount} USDC transfer + ${(Number(maxFee) / 1e6).toFixed(6)} USDC Gateway fee). ` +
+          `Deposit to the ${sourceChain} network from the Gateway tab and try again.`
         )
       }
-    } else {
-      throw new Error(
-        `Circle Gateway üzerinde ${sourceChain} ağı için yatırılmış birleşik bakiye bulunamadı. ` +
-        `Gateway Fast transferi yapabilmek için önce Gateway sekmesinden bakiye yatırabilir veya Direct CCTP ile köprüleme yapabilirsiniz.`
-      )
+    } else {        throw new Error(
+          `No deposited unified Gateway balance was found for the ${sourceChain} network. ` +
+          `To use Gateway Fast transfer, first deposit a balance from the Gateway tab, or bridge with Direct CCTP instead.`
+        )
     }
   } catch (checkErr: any) {
     if (checkErr.message?.includes('Circle Gateway')) {
@@ -411,7 +329,6 @@ export async function executeUcwGatewayTransfer(
 
   // Step 3: Sign BurnIntent via Circle UCW Challenge
   onStepProgress?.('signing')
-  const sourceBlockchainCircle = mapChainKeyToCircleBlockchain(sourceChain)
   console.log(`[executeUcwGatewayTransfer] Requesting signTypedData challenge on ${sourceBlockchainCircle}...`)
 
   const signRes = await signTypedData({
@@ -421,7 +338,7 @@ export async function executeUcwGatewayTransfer(
   })
 
   if (!signRes.success || !signRes.signature) {
-    throw new Error(signRes.error || 'Gateway transfer imza yetkilendirmesi başarısız oldu.')
+    throw new Error(signRes.error || 'Gateway transfer signature authorization failed.')
   }
 
   const signature = signRes.signature
@@ -450,7 +367,7 @@ export async function executeUcwGatewayTransfer(
       errorDetail = await apiResponse.text().catch(() => '')
     }
 
-    throw new Error(`Circle Gateway API isteği başarısız oldu (${apiResponse.status}): ${errorDetail}`)
+    throw new Error(`Circle Gateway API request failed (${apiResponse.status}): ${errorDetail}`)
   }
 
   const apiPayload = (await apiResponse.json()) as {
@@ -459,8 +376,6 @@ export async function executeUcwGatewayTransfer(
     transferId?: string
   }
 
-  const destBlockchainCircle = mapChainKeyToCircleBlockchain(destChain)
-
   // ── Step 5a: Forwarding Service path ──────────────────────────────────────
   // Circle mints on the destination chain itself, so the UCW user needs neither a
   // wallet nor a native gas balance on the destination chain.
@@ -468,7 +383,7 @@ export async function executeUcwGatewayTransfer(
     const transferId = apiPayload.transferId
     if (!transferId) {
       throw new Error(
-        'Circle Gateway forwarding yanıtı transferId içermiyor. Lütfen işlemi tekrar deneyin.'
+        'Circle Gateway forwarding response did not include a transferId. Please retry the transfer.'
       )
     }
 
@@ -483,7 +398,7 @@ export async function executeUcwGatewayTransfer(
 
     if (forwarded.status === 'failed' || forwarded.status === 'expired') {
       throw new Error(
-        `Gateway Forwarding Service tamamlanamadı (${forwarded.status}): ${forwarded.failureReason || 'bilinmeyen neden'}`
+        `Gateway Forwarding Service could not complete (${forwarded.status}): ${forwarded.failureReason || 'unknown reason'}`
       )
     }
 
@@ -513,7 +428,7 @@ export async function executeUcwGatewayTransfer(
   // ── Step 5b: Client-side mint path (self-funded destination wallet) ────────
   const { attestation, signature: mintSignature } = apiPayload
   if (!attestation || !mintSignature) {
-    throw new Error('Circle Gateway yanıtı attestation veya mint imzası içermiyor.')
+    throw new Error('Circle Gateway response did not include an attestation or mint signature.')
   }
 
   console.log('[executeUcwGatewayTransfer] Gateway API returned attestation & mintSignature.')
@@ -529,7 +444,7 @@ export async function executeUcwGatewayTransfer(
   })
 
   if (!mintRes.success) {
-    throw new Error(mintRes.error || 'Hedef zincirde Gateway mint işlemi gerçekleştirilemedi.')
+    throw new Error(mintRes.error || 'Gateway mint could not be executed on the destination chain.')
   }
 
   let mintTxHash = mintRes.txHash || ''
@@ -564,7 +479,7 @@ export async function executeUcwGatewayTransfer(
   }
 
   if (!/^0x[0-9a-fA-F]{64}$/.test(mintTxHash)) throw new Error('Gateway mint challenge did not return a valid destination transaction hash.')
-  if (!await verifyDestinationUsdcMint(destChain, mintTxHash, destRecipient, amount)) {
+  if (!await verifyDestinationUsdcMint(destChain, mintTxHash, destRecipient, amount, gatewayTransferFeeCeiling(amount))) {
     throw new Error('Gateway mint receipt did not prove the exact USDC delivery to the requested recipient.')
   }
   onStepProgress?.('completed')

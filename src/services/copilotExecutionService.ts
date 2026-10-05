@@ -159,7 +159,8 @@ function verifyArcTokenTransferReceipt(
   })
 }
 
-async function verifyArcSwapReceipt(
+// Exported so the Swap success receipt can verify the real received amount (audit fix #8).
+export async function verifyArcSwapReceipt(
   hash: Hex,
   recipient: string,
   tokenIn: string,
@@ -354,7 +355,7 @@ export async function executeDirectCopilotAction(
         if (onProgress) onProgress('routing')
         const quote = await getSwapEstimate({
           fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: amountIn.toString(),
-          slippageTolerance, authSource: 'ucw', recipientAddress: activeWallet,
+          slippageTolerance, authSource: 'ucw', senderAddress: activeWallet, recipientAddress: activeWallet,
           executeUcwContract: ucwHandlers.executeUcwContract,
         })
         const quoteValue = Number(quote.estimatedOutput)
@@ -363,7 +364,7 @@ export async function executeDirectCopilotAction(
         if (onProgress) onProgress('broadcasting')
         const execution = await executeSwap({
           fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: amountIn.toString(),
-          slippageTolerance, authSource: 'ucw', recipientAddress: activeWallet,
+          slippageTolerance, authSource: 'ucw', senderAddress: activeWallet, recipientAddress: activeWallet,
           executeUcwContract: ucwHandlers.executeUcwContract,
         })
         if (execution.status === 'PENDING') {
@@ -494,7 +495,7 @@ export async function executeDirectCopilotAction(
           paymaster: true,
         })
         if (!userOpRes.success || !userOpRes.txHash) {
-          throw new Error(userOpRes.error || 'Arc Testnet üzerinde havuz takası onaylanamadı.')
+          throw new Error(userOpRes.error || 'The pool swap could not be confirmed on Arc Testnet.')
         }
         realTxHash = userOpRes.txHash
       }
@@ -579,7 +580,7 @@ export async function executeDirectCopilotAction(
         gasUsdc: 0,
         settlementLatencyMs: Date.now() - startTime,
         timestamp: Date.now(),
-        errorMessage: 'İşlem adaptörü oluşturulamadı. Lütfen cüzdanınızı bağlayın veya Passkey ile giriş yapın.',
+        errorMessage: 'Could not create the transaction adapter. Please connect your wallet or sign in with Passkey.',
       }
     }
 
@@ -615,6 +616,9 @@ export async function executeDirectCopilotAction(
         sourceAdapter,
         slippageTolerance,
         allowanceStrategy: 'approve',
+        // Explicit 'evm' routing: a warm passkey MSCA cache must never sign this EOA swap.
+        authSource: 'evm',
+        senderAddress: activeWallet,
         recipientAddress: activeWallet,
       })
 

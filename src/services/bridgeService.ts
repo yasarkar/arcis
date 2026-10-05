@@ -1,6 +1,10 @@
 import { AppKit, type ChainDefinition } from '@circle-fin/app-kit'
+import { formatUnits } from 'viem'
 import type { BridgeExecuteParams, BridgeStepProgress, BridgeStepName } from '../types/bridge'
 import { watchArcToken } from './tokenAssetService'
+import { getResilientPublicClient } from './rpc'
+import { resolveArcActualFeeUsdc } from './arcGasService'
+import { CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 
 // Create a single instance of AppKit to manage CCTP transfers
 const kit = new AppKit()
@@ -171,9 +175,10 @@ export async function executeBridge(
   // Subscribe to all App Kit events
   kit.on('*', handler)
 
+  let result: any = null
   try {
     const bridgeParams = buildBridgeParams(params)
-    const result: any = await kit.bridge(bridgeParams)
+    result = await kit.bridge(bridgeParams)
 
     if (!result) {
       throw new Error('Bridge execution returned an empty response.')
@@ -206,6 +211,13 @@ export async function executeBridge(
 
     return result
   } catch (err) {
+    // Preserve the partial step state on the thrown error so callers can recover
+    // from the exact CCTP step that failed. Without it, a transfer that failed
+    // AFTER the source burn would look like a plain failure and a "retry" would
+    // burn the user's funds a second time.
+    if (result && err && typeof err === 'object' && !(err as any).bridgeResult) {
+      ;(err as any).bridgeResult = sanitizeBridgeResult(result)
+    }
     console.error('[bridgeService] Bridge execution failed:', err)
     throw err
   } finally {
@@ -278,5 +290,45 @@ export async function retryFailedBridge(
   } finally {
     // Safely unsubscribe the event listener once the promise resolves or rejects
     kit.off('*', handler)
+  }
+}
+
+/**
+ * Resolves the ACTUAL network fee paid for the source-chain bridge transaction
+ * (gasUsed × effectiveGasPrice read from its mined receipt) — never an estimate:
+ * substituting a guess for a paid amount is exactly what the receipt must not do.
+ *
+ * Arc pays gas in native USDC, so the exact value ArcScan displays is returned;
+ * other chains report the amount in their native gas token. Returns `undefined`
+ * whenever the fee cannot be verified, so the receipt can omit the Network Fee
+ * row entirely instead of showing an approximation.
+ */
+export async function resolveBridgeNetworkFee(
+  sourceChain: string,
+  txHash?: string | null
+): Promise<string | undefined> {
+  if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) return undefined
+
+  try {
+    if (sourceChain === 'Arc_Testnet') {
+      const actual = await resolveArcActualFeeUsdc(txHash)
+      return actual.feeUsdcExact ? `${actual.feeUsdcExact} USDC` : undefined
+    }
+
+    const client: any = getResilientPublicClient(sourceChain)
+    const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` })
+    const gasUsed: unknown = receipt?.gasUsed
+    const gasPrice: unknown = receipt?.effectiveGasPrice
+    if (typeof gasUsed !== 'bigint' || typeof gasPrice !== 'bigint') return undefined
+
+    const native = CHAIN_NATIVE_MAP[sourceChain]
+    const value = Number(formatUnits(gasUsed * gasPrice, native?.decimals ?? 18))
+    if (!Number.isFinite(value) || value < 0) return undefined
+
+    const display =
+      value === 0 ? '0' : value.toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
+    return `${display} ${native?.symbol ?? 'NATIVE'}`
+  } catch {
+    return undefined
   }
 }

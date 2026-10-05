@@ -104,6 +104,89 @@ export const CCTP_TOKEN_MESSENGER_ABI = [
   },
 ] as const
 
+// ABI for CCTP TokenMessengerV2 depositForBurnWithHook (8 parameters).
+// The extra hookData parameter carries the Circle Forwarding Service request
+// ("cctp-forward"), which makes Circle submit the destination mint itself.
+export const CCTP_TOKEN_MESSENGER_HOOK_ABI = [
+  {
+    type: 'function',
+    name: 'depositForBurnWithHook',
+    inputs: [
+      { name: 'amount', type: 'uint256' },
+      { name: 'destinationDomain', type: 'uint32' },
+      { name: 'mintRecipient', type: 'bytes32' },
+      { name: 'burnToken', type: 'address' },
+      { name: 'destinationCaller', type: 'bytes32' },
+      { name: 'maxFee', type: 'uint256' },
+      { name: 'minFinalityThreshold', type: 'uint32' },
+      { name: 'hookData', type: 'bytes' },
+    ],
+    outputs: [{ name: '_nonce', type: 'uint64' }],
+    stateMutability: 'nonpayable',
+  },
+] as const
+
+/**
+ * Circle Forwarding Service hook (version 0, no extra data). Circle's
+ * infrastructure watches for this marker in the burn's hookData and broadcasts
+ * the destination mint, so the sender does not need a funded wallet on the
+ * destination chain.
+ */
+export const CCTP_FORWARD_HOOK_DATA: Hex =
+  '0x636374702d666f72776172640000000000000000000000000000000000000000'
+const CCTP_FORWARD_HOOK_PREFIX = '0x636374702d666f7277617264' // "cctp-forward"
+
+/** True when a decoded Iris message body was burned through the Forwarding Service. */
+export function isForwardedCctpMessageBody(body: any): boolean {
+  return (
+    typeof body?.hookData === 'string' &&
+    body.hookData.toLowerCase().startsWith(CCTP_FORWARD_HOOK_PREFIX)
+  )
+}
+
+/**
+ * Decides whether a decoded Iris message body carries the transfer the user
+ * submitted for `amountUnits`.
+ *
+ * A plain self-mint burn records the user's amount directly. A burn submitted
+ * through the Forwarding Service (App Kit's `useForwarder`, and the UCW direct
+ * bridge) instead reserves the CCTP protocol fee AND the forwarding fee on top
+ * of the amount, so the message records `amount + maxFee` while the destination
+ * mint delivers the requested amount (or the reserved fee's remainder).
+ *
+ * Correlating only the raw burn amount made every forwarded transfer stay
+ * "Bridge Pending" forever even after its mint had already landed — the exact
+ * bug this predicate fixes.
+ */
+export function cctpMessageAmountMatches(body: any, amountUnits: bigint): boolean {
+  if (typeof body?.amount !== 'string' || !/^\d+$/.test(body.amount)) return false
+  const burnAmount = BigInt(body.amount)
+  if (burnAmount === amountUnits) return true
+
+  if (!isForwardedCctpMessageBody(body)) return false
+
+  const maxFee = parseSubunitAmount(body.maxFee)
+  // Reserved fees burned on top of the user's amount (live App Kit behavior:
+  // message amount = user amount + maxFee, feeExecuted = maxFee).
+  if (maxFee !== null && burnAmount === amountUnits + maxFee) return true
+
+  const feeExecuted = parseSubunitAmount(body.feeExecuted)
+  // Fee deducted from the transfer instead of reserved on top.
+  if (feeExecuted !== null && burnAmount > feeExecuted && burnAmount - feeExecuted === amountUnits) {
+    return true
+  }
+  return false
+}
+
+function parseSubunitAmount(value: unknown): bigint | null {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
+  try {
+    return BigInt(value)
+  } catch {
+    return null
+  }
+}
+
 // Minimal ABI for CCTP MessageTransmitterV2 receiveMessage function
 export const CCTP_MESSAGE_TRANSMITTER_ABI = [
   {
@@ -123,6 +206,150 @@ export const CCTP_IRIS_API = {
   mainnet: 'https://iris-api.circle.com/v1/attestations',
 } as const
 
+/** Circle Iris V2 REST base — the fee and message endpoints live under /v2. */
+export const CCTP_IRIS_V2_BASE = IS_TESTNET
+  ? 'https://iris-api-sandbox.circle.com'
+  : 'https://iris-api.circle.com'
+
+/**
+ * Reads Circle's live Fast Transfer fee for a route (in basis points) from
+ * `GET /v2/burn/USDC/fees/{sourceDomain}/{destDomain}`.
+ *
+ * Circle explicitly says "Do not hardcode fee values. Fees can change at any
+ * time" — so every place that needs a CCTP fee (burn maxFee, UI estimates)
+ * quotes this endpoint first. Returns `null` whenever the quote is unavailable
+ * so callers can fall back to their static estimate instead of failing.
+ */
+export async function fetchCctpFastFeeBps(
+  sourceChain: string,
+  destChain: string
+): Promise<number | null> {
+  const sourceDomain = GATEWAY_DOMAINS[sourceChain]
+  const destDomain = GATEWAY_DOMAINS[destChain]
+  if (sourceDomain === undefined || destDomain === undefined) return null
+
+  try {
+    const response = await fetch(
+      `${CCTP_IRIS_V2_BASE}/v2/burn/USDC/fees/${sourceDomain}/${destDomain}`,
+      { signal: AbortSignal.timeout(8000) }
+    )
+    if (!response.ok) return null
+
+    const payload: any = await response.json()
+    const fees = Array.isArray(payload) ? payload : payload?.fees
+    const minimumFee = Number(fees?.[0]?.minimumFee)
+    if (!Number.isFinite(minimumFee) || minimumFee < 0) return null
+    return minimumFee
+  } catch (err) {
+    console.warn('[bridgeUcwService] CCTP fast-fee quote unavailable:', err)
+    return null
+  }
+}
+
+/**
+ * Converts a quoted fee (basis points) into USDC subunits for `maxFee`, with the
+ * 20% buffer Circle recommends so a small fee fluctuation cannot revert the burn.
+ */
+export function cctpFastFeeSubunits(amountUnits: bigint, feeBps: number): bigint {
+  if (amountUnits <= 0n || !Number.isFinite(feeBps) || feeBps <= 0) return 0n
+  const protocolFee = (amountUnits * BigInt(Math.round(feeBps * 100))) / 1_000_000n
+  return (protocolFee * 120n) / 100n
+}
+
+export interface CctpForwardQuote {
+  finalityThreshold: number
+  /** Live CCTP Fast Transfer fee for the route, in basis points (0 = Standard). */
+  minimumFeeBps: number
+  /** Forwarding Service fee in USDC subunits (6 decimals), covering destination gas. */
+  forwardFeeSubunits: bigint
+}
+
+/**
+ * Reads Circle's live Forwarding Service quote for a route from
+ * `GET /v2/burn/USDC/fees/{sourceDomain}/{destDomain}?forward=true`.
+ *
+ * The response carries per-finality entries with `minimumFee` (CCTP protocol
+ * fee, bps) and `forwardFee` (destination gas + service fee, USDC subunits).
+ * A missing `forwardFee` means the route cannot be forwarded, so callers can
+ * fail closed before burning funds that nothing would mint on the destination.
+ */
+export async function fetchCctpForwardQuote(
+  sourceChain: string,
+  destChain: string,
+  finalityThreshold: number = 1000
+): Promise<CctpForwardQuote | null> {
+  const sourceDomain = GATEWAY_DOMAINS[sourceChain]
+  const destDomain = GATEWAY_DOMAINS[destChain]
+  if (sourceDomain === undefined || destDomain === undefined) return null
+
+  try {
+    const response = await fetch(
+      `${CCTP_IRIS_V2_BASE}/v2/burn/USDC/fees/${sourceDomain}/${destDomain}?forward=true`,
+      { signal: AbortSignal.timeout(8000) }
+    )
+    if (!response.ok) return null
+
+    const payload: any = await response.json()
+    const fees = Array.isArray(payload) ? payload : payload?.fees
+    if (!Array.isArray(fees) || fees.length === 0) return null
+
+    const numeric = (value: unknown): number | null => {
+      const n = Number(value)
+      return Number.isFinite(n) && n >= 0 ? n : null
+    }
+
+    const entry =
+      fees.find((f: any) => numeric(f?.finalityThreshold) === finalityThreshold) ?? fees[0]
+    if (!entry || typeof entry !== 'object') return null
+
+    const minimumFeeBps = numeric(entry.minimumFee) ?? 0
+    const forwardFee = entry.forwardFee
+    const forwardFeeRaw =
+      numeric(forwardFee?.med) ?? numeric(forwardFee?.low) ?? numeric(forwardFee?.high)
+    if (forwardFeeRaw === null || !Number.isInteger(forwardFeeRaw)) return null
+    const forwardFeeSubunits = BigInt(forwardFeeRaw)
+    if (forwardFeeSubunits <= 0n) return null
+
+    return {
+      finalityThreshold: numeric(entry.finalityThreshold) ?? finalityThreshold,
+      minimumFeeBps,
+      forwardFeeSubunits,
+    }
+  } catch (err) {
+    console.warn('[bridgeUcwService] CCTP forwarding quote unavailable:', err)
+    return null
+  }
+}
+
+/**
+ * Lookback (in destination blocks) used as the floor when scanning for the
+ * MessageReceived event. The mint cannot be emitted before this poll starts,
+ * so a single floor captured on the first attempt keeps every later attempt
+ * from rescanning the whole destination chain, while the buffer still covers
+ * blocks that were already mined when the poll began.
+ */
+export const CCTP_DEST_SCAN_LOOKBACK_BLOCKS = 2000n
+
+/**
+ * Parses the CCTP message nonce returned by Circle's Iris API.
+ *
+ * Circle documents the nonce as a decimal string ("569"), but the live API
+ * returns a 0x-prefixed 32-byte hex string ("0xb89321…") for current CCTP V2
+ * messages — correlation that only accepted decimal digits silently never
+ * matched, leaving bridges stuck on "Bridge Pending" forever. Both shapes
+ * encode the same bytes32 nonce, so either is accepted; anything else
+ * returns null so a malformed payload can never correlate (fail-closed).
+ */
+export function parseCctpMessageNonce(nonce: unknown): bigint | null {
+  if (typeof nonce !== 'string' || !/^(?:0x[0-9a-fA-F]+|\d+)$/.test(nonce)) return null
+  try {
+    const value = BigInt(nonce)
+    return value >= 0n && value < 2n ** 256n ? value : null
+  } catch {
+    return null
+  }
+}
+
 export interface UcwBridgeParams {
   amount: string
   sourceChain: string
@@ -132,6 +359,12 @@ export interface UcwBridgeParams {
   destinationCaller?: Hex
   maxFee?: bigint
   minFinalityThreshold?: number
+  /**
+   * Route the burn through Circle's Forwarding Service (default true) so
+   * Circle submits the destination mint. Without it nothing mints on the
+   * destination and the transfer stays pending forever.
+   */
+  useForwarder?: boolean
   executeUcwContract: (params: {
     contractAddress: string
     abiFunctionSignature?: string
@@ -151,6 +384,8 @@ export interface UcwBridgeResult {
   amount: string
   mintRecipient: string
   challengeId?: string
+  /** True when the burn carried the Circle Forwarding Service hook. */
+  forwarded?: boolean
 }
 
 /**
@@ -194,9 +429,11 @@ export async function checkUcwAllowanceSufficient(
  * 1. Validates source and destination chains, resolving destination CCTP domain ID.
  * 2. Formats recipient address into left-padded 32-byte (bytes32) hex string.
  * 3. Resolves source chain USDC address, CCTP TokenMessengerV2, and Circle blockchain code.
- * 4. Checks existing allowance; if insufficient, executes an approve challenge on source USDC.
- * 5. Executes a depositForBurn challenge on CCTP TokenMessengerV2 for the specific blockchain.
- * 6. Returns transaction hash and block explorer URLs.
+ * 4. Resolves the Forwarding Service fee quote (fail-closed when unavailable) so
+ *    Circle submits the destination mint.
+ * 5. Checks existing allowance; if insufficient, executes an approve challenge on source USDC.
+ * 6. Executes a depositForBurnWithHook challenge on CCTP TokenMessengerV2 for the specific blockchain.
+ * 7. Returns transaction hash and block explorer URLs.
  */
 export async function executeUcwBridgeTransfer(
   params: UcwBridgeParams
@@ -258,6 +495,51 @@ export async function executeUcwBridgeTransfer(
   const tokenMessenger = getCctpTokenMessenger(sourceChain)
   const sourceUsdc = getSourceUsdcAddress(sourceChain)
   const circleBlockchain = mapChainKeyToCircleBlockchain(sourceChain)
+
+  const finalityThreshold = minFinalityThreshold ?? 1000
+  const useForwarder = params.useForwarder ?? true
+
+  // ── Step 0: Resolve the Forwarding Service intent and burn fee ────────────
+  // Done BEFORE any approval challenge so a route that cannot be forwarded
+  // never prompts the user and never burns funds that nothing would mint on
+  // the destination. A plain depositForBurn (destinationCaller = 0) has no
+  // relayer: the destination would stay pending until someone manually calls
+  // receiveMessage, which is exactly the stuck state being fixed here.
+  let forwardingHookData: Hex | null = null
+  let maxFeeUnits = maxFee ?? 0n
+  if (useForwarder) {
+    const forwardQuote = await fetchCctpForwardQuote(sourceChain, destChain, finalityThreshold)
+    if (!forwardQuote) {
+      throw new Error(
+        'Circle Forwarding Service is unavailable for this route right now, so the destination mint cannot be guaranteed. No funds were burned — please retry shortly.'
+      )
+    }
+    if (maxFee === undefined) {
+      // `maxFee` must cover the CCTP protocol fee AND the Forwarding Service
+      // fee; Circle degrades to a Standard Transfer when it is too low.
+      const protocolFee = cctpFastFeeSubunits(amountUnits, forwardQuote.minimumFeeBps)
+      maxFeeUnits = protocolFee + forwardQuote.forwardFeeSubunits
+    }
+    forwardingHookData = CCTP_FORWARD_HOOK_DATA
+    console.log(
+      `[bridgeUcwService] Forwarding Service enabled for ${sourceChain}→${destChain}: maxFee=${maxFeeUnits} subunits (threshold ${finalityThreshold})`
+    )
+  } else if (maxFee === undefined && finalityThreshold <= 1000) {
+    // Fast transfers (finalityThreshold <= 1000) revert on the SOURCE chain when
+    // the live Circle fee exceeds the signed maxFee, so signing maxFee = 0 only
+    // works while the route's fee happens to be zero. Quote the current fee
+    // (plus Circle's recommended 20% buffer) instead of hardcoding a guess; when
+    // the quote is unavailable keep the previous maxFee = 0 behavior.
+    const feeBps = await fetchCctpFastFeeBps(sourceChain, destChain)
+    if (feeBps !== null) {
+      maxFeeUnits = cctpFastFeeSubunits(amountUnits, feeBps)
+      console.log(
+        `[bridgeUcwService] Quoted CCTP fast fee ${feeBps} bps → maxFee=${maxFeeUnits} subunits`
+      )
+    } else {
+      console.warn('[bridgeUcwService] CCTP fee quote unavailable; signing depositForBurn with maxFee=0.')
+    }
+  }
 
   // ── Step 1: Check & Approve TokenMessengerV2 ──────────────────────────────
   const isAllowanceSufficient = await checkUcwAllowanceSufficient(
@@ -328,26 +610,30 @@ export async function executeUcwBridgeTransfer(
     console.log(`[bridgeUcwService] Existing allowance is sufficient on ${sourceChain}. Skipping approve step.`)
   }
 
-  // ── Step 2: Call depositForBurn on TokenMessengerV2 ────────────────────────
-  console.log(`[bridgeUcwService] Initiating UCW depositForBurn challenge on ${sourceChain} (${circleBlockchain})...`)
+  // ── Step 2: Burn on TokenMessengerV2 (with Forwarding Service hook) ───────
+  console.log(
+    `[bridgeUcwService] Initiating UCW ${forwardingHookData ? 'depositForBurnWithHook' : 'depositForBurn'} challenge on ${sourceChain} (${circleBlockchain})...`
+  )
   onStepProgress?.('burning')
 
   const destinationCallerBytes32 = (destinationCaller || '0x0000000000000000000000000000000000000000000000000000000000000000') as Hex
-  const maxFeeUnits = maxFee ?? 0n
-  const finalityThreshold = minFinalityThreshold ?? 1000
+
+  const burnArgs = [
+    amountUnits.toString(),
+    Number(destDomain),
+    mintRecipientBytes32,
+    sourceUsdc,
+    destinationCallerBytes32,
+    maxFeeUnits.toString(),
+    finalityThreshold,
+  ]
 
   const burnRes = await executeUcwContract({
     contractAddress: tokenMessenger,
-    abiFunctionSignature: 'depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)',
-    abiParameters: [
-      amountUnits.toString(),
-      Number(destDomain),
-      mintRecipientBytes32,
-      sourceUsdc,
-      destinationCallerBytes32,
-      maxFeeUnits.toString(),
-      finalityThreshold,
-    ],
+    abiFunctionSignature: forwardingHookData
+      ? 'depositForBurnWithHook(uint256,uint32,bytes32,address,bytes32,uint256,uint32,bytes)'
+      : 'depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)',
+    abiParameters: forwardingHookData ? [...burnArgs, forwardingHookData] : burnArgs,
     blockchain: circleBlockchain,
   })
 
@@ -422,6 +708,7 @@ export async function executeUcwBridgeTransfer(
     amount,
     mintRecipient: trimmedRecipient,
     challengeId,
+    forwarded: Boolean(forwardingHookData),
   }
 }
 
@@ -488,6 +775,17 @@ export async function pollCctpDestinationTx(
     console.warn(`[pollCctpDestinationTx] Could not initialize publicClient for ${destChain}:`, err)
   }
 
+  // Destination block floor captured once on the first attempt; see
+  // CCTP_DEST_SCAN_LOOKBACK_BLOCKS for why a bounded window is safe here.
+  let scanFromBlock: bigint | null = null
+  // Attempts where Iris answered with a non-OK status (message not indexed
+  // yet, transient errors). Reported in the exhaustion warning so a stuck
+  // pending state is diagnosable instead of silent.
+  let irisMisses = 0
+  // Attempts where the destination log scan itself failed (RPC error/misuse).
+  // Counted separately from "no mint found" so a broken scan is visible.
+  let scanFailures = 0
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     if (signal?.aborted) return { status: 'aborted' }
     try {
@@ -496,6 +794,7 @@ export async function pollCctpDestinationTx(
       const irisRes = await fetch(irisUrl, { signal: signal ?? AbortSignal.timeout(8000) })
       let correlatedMessage: any = null
       if (!irisRes.ok) {
+        irisMisses++
         if (signal?.aborted) return { status: 'aborted' }
         await new Promise((r) => setTimeout(r, intervalMs))
         continue
@@ -508,38 +807,69 @@ export async function pollCctpDestinationTx(
         const body = decoded?.decodedMessageBody
         // Circle Iris API V2 response does not have root sourceTxHash; if present, it must match burnTxHash
         const matchesSourceTx = !data?.sourceTxHash || data.sourceTxHash.toLowerCase() === burnTxHash.toLowerCase()
-        return matchesSourceTx &&
+        const matchesEnvelope =
+          matchesSourceTx &&
           candidate.cctpVersion === 2 && candidate.status === 'complete' &&
           decoded?.sourceDomain === String(sourceDomain) &&
           decoded?.destinationDomain === String(destDomain) &&
-          typeof decoded?.nonce === 'string' && /^\d+$/.test(decoded.nonce) &&
+          parseCctpMessageNonce(decoded?.nonce) !== null &&
           typeof decoded?.messageBody === 'string' && /^0x[0-9a-fA-F]+$/.test(decoded.messageBody) &&
           body?.mintRecipient?.toLowerCase() === cleanRecipient.toLowerCase() &&
-          body?.burnToken?.toLowerCase() === sourceUsdc.toLowerCase() &&
-          typeof body?.amount === 'string' && /^\d+$/.test(body.amount) && BigInt(body.amount) === amountUnits
+          body?.burnToken?.toLowerCase() === sourceUsdc.toLowerCase()
+        if (!matchesEnvelope) return false
+        // Amount correlation accepts both self-mint burns (amount == user amount)
+        // and Forwarding Service burns (amount == user amount + reserved fees).
+        return cctpMessageAmountMatches(body, amountUnits)
       })
       if (!correlatedMessage) {
         await new Promise((r) => setTimeout(r, intervalMs))
         continue
       }
-      const messageNonce = BigInt(correlatedMessage.decodedMessage.nonce)
-      console.log(`[pollCctpDestinationTx] Matched Iris CCTP message nonce=${messageNonce} (attempt ${attempt}/${maxAttempts})`)
+      const messageNonce = parseCctpMessageNonce(correlatedMessage.decodedMessage?.nonce)
+      if (messageNonce === null) {
+        await new Promise((r) => setTimeout(r, intervalMs))
+        continue
+      }
+      // The correlated Iris message is the ground truth for the burn: for a
+      // forwarded transfer it records the user's amount PLUS the reserved
+      // protocol/forwarding fees, so the destination mint must be verified
+      // against this gross amount — comparing against the user's amount made
+      // every forwarded mint invisible and the receipt stuck on "Pending".
+      const correlatedBurnAmount = BigInt(
+        correlatedMessage.decodedMessage.decodedMessageBody.amount
+      )
+      console.log(
+        `[pollCctpDestinationTx] Matched Iris CCTP message nonce=0x${messageNonce.toString(16)} (attempt ${attempt}/${maxAttempts})`
+      )
 
       // Step B: require the destination MessageTransmitterV2 MessageReceived event to match
       // this exact Iris message nonce/domain/body, then require a successful destination receipt.
       if (destPublicClient && destUsdc) {
         try {
           const latestBlock = await destPublicClient.getBlockNumber()
-          // The nonce topic narrows this query to one exact CCTP message; scan the full chain
-          // so slow attestations do not disappear after an arbitrary 100-block lookback.
+          // The nonce topic narrows this query to one exact CCTP message. The
+          // MessageReceived event can only be emitted after this poll started,
+          // so the scan window is a bounded lookback captured on the first
+          // attempt instead of a full-chain rescan on every poll cycle.
+          if (scanFromBlock === null) {
+            scanFromBlock =
+              latestBlock > CCTP_DEST_SCAN_LOOKBACK_BLOCKS
+                ? latestBlock - CCTP_DEST_SCAN_LOOKBACK_BLOCKS
+                : 0n
+          }
           const transmitter = getCctpMessageTransmitter(destChain)
+          // viem's getLogs accepts a SINGLE AbiEvent here. Passing the ABI array
+          // made every real scan throw AbiEventNotFoundError, which the catch
+          // below swallowed as a warning — so a mint that had already landed on
+          // the destination never confirmed and the receipt stayed "Pending".
           const receivedLogs = await destPublicClient.getLogs({
             address: transmitter,
-            event: CCTP_MESSAGE_RECEIVED_ABI,
+            event: CCTP_MESSAGE_RECEIVED_ABI[0],
             args: {
               nonce: `0x${messageNonce.toString(16).padStart(64, '0')}` as Hex,
             },
-            fromBlock: 0n, toBlock: latestBlock,
+            fromBlock: scanFromBlock,
+            toBlock: latestBlock,
           })
           for (const entry of receivedLogs) {
             if (!entry.transactionHash || entry.args?.messageBody?.toLowerCase() !== correlatedMessage.decodedMessage.messageBody.toLowerCase()) continue
@@ -553,7 +883,7 @@ export async function pollCctpDestinationTx(
               try {
                 const decoded = decodeEventLog({ abi: CCTP_BURN_RECEIVED_ABI, data: log.data, topics: log.topics })
                 return String((decoded.args as any).mintRecipient).toLowerCase() === cleanRecipient &&
-                  BigInt((decoded.args as any).amount) + BigInt((decoded.args as any).feeCollected || 0n) === amountUnits &&
+                  BigInt((decoded.args as any).amount) + BigInt((decoded.args as any).feeCollected || 0n) === correlatedBurnAmount &&
                   String((decoded.args as any).mintToken).toLowerCase() === destUsdc.toLowerCase()
               } catch {
                 return false
@@ -567,7 +897,7 @@ export async function pollCctpDestinationTx(
                   const args = decodedMint.args as any
                   if (
                     String(args.mintRecipient).toLowerCase() === cleanRecipient &&
-                    BigInt(args.amount) + BigInt(args.feeCollected || 0n) === amountUnits &&
+                    BigInt(args.amount) + BigInt(args.feeCollected || 0n) === correlatedBurnAmount &&
                     String(args.mintToken).toLowerCase() === destUsdc.toLowerCase()
                   ) {
                     return { status: 'confirmed', destTxHash: receipt.transactionHash, receivedAmount: formatUnits(BigInt(args.amount), 6) }
@@ -579,6 +909,7 @@ export async function pollCctpDestinationTx(
             }
           }
         } catch (logErr) {
+          scanFailures++
           console.warn(`[pollCctpDestinationTx] Log query notice on attempt ${attempt}:`, logErr)
         }
       }
@@ -589,6 +920,15 @@ export async function pollCctpDestinationTx(
     await new Promise((r) => setTimeout(r, intervalMs))
   }
 
+  // Exhausting the budget without a confirmed mint is an expected outcome for
+  // the single-attempt pre-check (maxAttempts: 1) but a real failure for a
+  // background poll — log it so a stranded pending receipt can be diagnosed.
+  if (maxAttempts > 1) {
+    console.warn(
+      `[pollCctpDestinationTx] Destination mint still unconfirmed after ${maxAttempts} attempts for burn ${burnTxHash} ` +
+        `(Iris HTTP misses: ${irisMisses}/${maxAttempts}, destination scan failures: ${scanFailures}/${maxAttempts}); returning pending.`
+    )
+  }
   return { status: 'pending' }
 }
 

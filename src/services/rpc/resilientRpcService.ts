@@ -320,7 +320,9 @@ export async function resilientReadContract<
   maxRetries: number = 3
 ): Promise<ReadContractReturnType<abi, functionName, args>> {
   const chainId = client.chain?.id || 'unknown'
-  const dedupeKey = `read:${chainId}:${params.address}:${params.functionName}:${JSON.stringify(
+  const blockContext = (params as any).blockNumber != null ? `b:${(params as any).blockNumber}` : `tag:${(params as any).blockTag || 'latest'}`
+  const accountContext = (params as any).account ? `acc:${typeof (params as any).account === 'string' ? (params as any).account : (params as any).account.address}` : ''
+  const dedupeKey = `read:${chainId}:${params.address}:${params.functionName}:${blockContext}:${accountContext}:${JSON.stringify(
     params.args,
     (_k, v) => (typeof v === 'bigint' ? v.toString() : v)
   )}`
@@ -396,7 +398,8 @@ export async function resilientGetBalance(
   params: GetBalanceParameters
 ): Promise<bigint> {
   const chainId = client.chain?.id || 'unknown'
-  const dedupeKey = `bal:${chainId}:${params.address}:${params.blockTag || 'latest'}`
+  const blockContext = params.blockNumber != null ? `b:${params.blockNumber}` : `tag:${params.blockTag || 'latest'}`
+  const dedupeKey = `bal:${chainId}:${params.address}:${blockContext}`
 
   // 1. Check Micro-cache
   const cached = getFromMicroCache<bigint>(dedupeKey)

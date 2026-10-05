@@ -5,24 +5,54 @@ import {
   parseUnits,
   formatUnits,
   encodeFunctionData,
-  maxUint256,
   zeroAddress,
   type Hex,
   type Address,
 } from 'viem'
 import { arcTestnet, IS_TESTNET } from '../config/arcChain'
-import { POOL_CONTRACTS, STABLE_SWAP_ABI, ERC20_ABI, ARCIS_SWAP_ROUTER_ABI } from '../config/poolsConfig'
-import { sendModularUserOperation, getActiveSmartAccount } from './modularWalletService'
+import {
+  POOL_CONTRACTS,
+  STABLE_SWAP_ABI,
+  ERC20_ABI,
+  ARCIS_SWAP_ROUTER_ABI,
+  poolSlippageBps,
+  STABLE_SWAP_AMP,
+  STABLE_SWAP_ANN_MULTIPLIER,
+  STABLE_SWAP_LP_FEE_BPS,
+  CONSTANT_PRODUCT_LP_FEE_BPS,
+} from '../config/poolsConfig'
+import { getNetwork } from '../config/networks/networkRegistry'
+import { sendModularUserOperation, getActiveSmartAccount, restoreSmartAccount } from './modularWalletService'
 import { getDynamicArcGasOptions, ARC_GAS_LIMITS } from '../config/feeTiers'
 import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import type { SwapExecuteParams, SwapQuoteResult, SwapExecutionStatus } from '../types/swap'
-import { SWAP_SUPPORTED_TOKENS } from '../types/swap'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
-import { DEFAULT_SLIPPAGE_BPS } from '../config/constants'
-import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
+import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils'
 import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
 
 const kit = new AppKit()
+
+/**
+ * Clamps a caller-provided tolerance (a fraction, e.g. 0.005 = 0.5%) into the pool-safe
+ * [10, 1000] bps band used by the rest of the app (fix #5). Without this, a custom value ≥ 100%
+ * produced `10000 - slippageBps <= 0` and therefore a negative minOut / negative stop-limit.
+ * Undefined or invalid input falls back to the protocol default (50 bps).
+ */
+function clampSlippageBps(slippageTolerance?: number): number {
+  return poolSlippageBps(slippageTolerance === undefined || !Number.isFinite(slippageTolerance) ? NaN : slippageTolerance * 100)
+}
+
+/**
+ * Bounded approval amount (audit #11): never grant an unlimited (maxUint256) allowance.
+ * Mirrors sendService's SAFE_CEILING_CAP convention — a large but finite 10M-token ceiling
+ * (or the requested amount when that is larger), so a compromised pool/router could only ever
+ * move a capped amount instead of the entire wallet balance.
+ */
+const SAFE_APPROVAL_CAP_TOKENS = 10_000_000n
+function boundedApprovalAmount(amountInUnits: bigint, decimals: number): bigint {
+  const cap = SAFE_APPROVAL_CAP_TOKENS * 10n ** BigInt(decimals)
+  return cap > amountInUnits ? cap : amountInUnits
+}
 
 // ─────────────────────────────────────────────────────────────
 // ARC NATIVE DEX ROUTING & CURVE ENGINE
@@ -38,11 +68,11 @@ interface ArcRoute {
   feeBps: bigint
 }
 
-function getCurveD(x: bigint, y: bigint, A: bigint = 100n): bigint {
+function getCurveD(x: bigint, y: bigint, A: bigint = STABLE_SWAP_AMP): bigint {
   const s = x + y
   if (s === 0n) return 0n
   let d = s
-  const Ann = A * 4n
+  const Ann = A * STABLE_SWAP_ANN_MULTIPLIER
   for (let i = 0; i < 255; i++) {
     let dP = d
     dP = (dP * d) / (x * 2n)
@@ -56,8 +86,8 @@ function getCurveD(x: bigint, y: bigint, A: bigint = 100n): bigint {
   return d
 }
 
-function getCurveY(x: bigint, d: bigint, A: bigint = 100n): bigint {
-  const Ann = A * 4n
+function getCurveY(x: bigint, d: bigint, A: bigint = STABLE_SWAP_AMP): bigint {
+  const Ann = A * STABLE_SWAP_ANN_MULTIPLIER
   let c = d
   c = (c * d) / (x * 2n)
   c = (c * d) / (Ann * 2n)
@@ -83,7 +113,7 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
       tokenOutAddr: (tIn === 'USDC' ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.USDC) as Address,
       decIn: 6,
       decOut: 6,
-      feeBps: 12n, // 0.12%
+      feeBps: STABLE_SWAP_LP_FEE_BPS, // 0.12%
     }
   }
 
@@ -101,15 +131,40 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
       tokenOutAddr: (isUsdcIn ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.USDC) as Address,
       decIn: isUsdcIn ? 6 : 8,
       decOut: isUsdcIn ? 8 : 6,
-      feeBps: 25n, // 0.25%
+      feeBps: CONSTANT_PRODUCT_LP_FEE_BPS, // 0.25%
     }
   }
 
   return null
 }
 
+/**
+ * Resolves a token symbol to its on-chain address for AppKit's address-based retry (audit #10).
+ * The old stub returned the symbol itself, which made `tokenInAddr !== params.tokenIn` always
+ * false and the address retry dead code. Unknown tokens (and NATIVE) keep the symbol.
+ */
 function resolveTokenAddr(chain: string, symbol: string): string {
-  return symbol
+  const key = String(symbol || '').trim()
+  if (!key || key.toUpperCase() === 'NATIVE') return symbol
+
+  const network = getNetwork(chain)
+  const tokens = (network?.tokens || {}) as Record<string, string | undefined>
+  const exact = tokens[key]
+  if (exact) return exact
+
+  const match = Object.keys(tokens).find((k) => k.toUpperCase() === key.toUpperCase())
+  return match ? tokens[match]! : symbol
+}
+
+/**
+ * Mainnet chains must never be swapped from this build (audit #10): the old `!IS_TESTNET`
+ * guard only protected a mainnet-configured build from *everything*, while a testnet build
+ * happily routed a mainnet chain through AppKit with real funds.
+ */
+function isMainnetSwapChain(chain?: string): boolean {
+  if (!chain) return false
+  const network = getNetwork(chain)
+  return Boolean(network && network.testnet === false)
 }
 
 /**
@@ -161,6 +216,12 @@ export function getSupportedSwapChains(isTestnet?: boolean): ChainDefinition[] {
  * Estimates the output, slippage stop-limit, and fees for a swap transaction.
  */
 export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQuoteResult> {
+  // Audit #10: a testnet build must refuse mainnet chains explicitly (IS_TESTNET only protects
+  // a mainnet-configured build, it does not stop someone quoting a mainnet pool here).
+  if (isMainnetSwapChain(params.fromChain) || isMainnetSwapChain(params.toChain)) {
+    throw new Error('Mainnet swaps are disabled until deployments and signing routes are verified.')
+  }
+
   // Check if this is an internal Arc Testnet swap
   const isArcNative = params.fromChain === 'Arc_Testnet' && (!params.toChain || params.toChain === 'Arc_Testnet')
   const arcRoute = isArcNative ? resolveArcNativeRoute(params.tokenIn, params.tokenOut) : null
@@ -222,7 +283,7 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
       }
 
       const estimatedOutput = formatUnits(amountOutUnits, arcRoute.decOut)
-      const slippageBps = params.slippageTolerance !== undefined ? Math.round(params.slippageTolerance * 10000) : DEFAULT_SLIPPAGE_BPS
+      const slippageBps = clampSlippageBps(params.slippageTolerance)
       const minOutUnits = (amountOutUnits * BigInt(10000 - slippageBps)) / 10000n
       const stopLimit = formatUnits(minOutUnits, arcRoute.decOut)
       const amountInNum = parseFloat(params.amountIn)
@@ -270,7 +331,7 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
   }
 
   if (params.slippageTolerance !== undefined) {
-    config.slippageBps = Math.round(params.slippageTolerance * 10000)
+    config.slippageBps = clampSlippageBps(params.slippageTolerance)
   }
 
   if (params.customFee && params.customFee.percentageBps > 0 && params.customFee.recipientAddress) {
@@ -358,6 +419,13 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       errorMessage: 'Mainnet execution is disabled until deployments and signing routes are verified.',
     }
   }
+  // Audit #10: same protection for a testnet build selecting a mainnet chain.
+  if (isMainnetSwapChain(params.fromChain) || isMainnetSwapChain(params.toChain)) {
+    return {
+      status: 'FAILED',
+      errorMessage: 'Mainnet swaps are disabled until deployments and signing routes are verified.',
+    }
+  }
   let submittedTxHash: string | undefined = undefined
   try {
     const isArcNative = params.fromChain === 'Arc_Testnet' && (!params.toChain || params.toChain === 'Arc_Testnet')
@@ -368,7 +436,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     // ─────────────────────────────────────────────────────────────
     if (arcRoute) {
       const amountInUnits = parseUnits(params.amountIn, arcRoute.decIn)
-      const slippageBps = params.slippageTolerance !== undefined ? Math.round(params.slippageTolerance * 10000) : DEFAULT_SLIPPAGE_BPS
+      const slippageBps = clampSlippageBps(params.slippageTolerance)
 
       const arcPublicClient = getArcPublicClient()
 
@@ -431,7 +499,24 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       const minOutUnits = (amountOutUnits * BigInt(10000 - slippageBps)) / 10000n
 
       // A. Modular Smart Account (Passkey / MSCA) Execution
-      const smartAccount = getActiveSmartAccount()
+      // Explicit signer routing by authSource (fix #3): a passkey user MUST execute through the
+      // MSCA. When the module cache is cold (page reload) we rebuild it from the stored credential
+      // instead of silently falling into the UCW challenge flow or window.ethereum. ucw/evm auth
+      // never signs through a stale MSCA cache.
+      let mscaAccount = getActiveSmartAccount()
+      if (params.authSource === 'passkey') {
+        if (!mscaAccount) {
+          mscaAccount = await restoreSmartAccount()
+        }
+        if (!mscaAccount) {
+          throw new Error(
+            'Passkey smart account could not be loaded. Please sign in with your passkey again and retry the swap.'
+          )
+        }
+      } else if (params.authSource === 'ucw' || params.authSource === 'evm') {
+        mscaAccount = null
+      }
+      const smartAccount = mscaAccount
       if (smartAccount) {
         const calls: Array<{ to: Hex; data: Hex }> = []
         let mscaAllowance = 0n
@@ -457,7 +542,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             data: encodeFunctionData({
               abi: ERC20_ABI,
               functionName: 'approve',
-              args: [arcRoute.poolAddress, maxUint256],
+              args: [arcRoute.poolAddress, boundedApprovalAmount(amountInUnits, arcRoute.decIn)],
             }),
           })
         }
@@ -490,7 +575,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         })
 
         if (!userOpRes.success || !userOpRes.txHash) {
-          throw new Error(userOpRes.error || 'Arc Testnet üzerinde Modular UserOp takas işlemi onaylanamadı.')
+          throw new Error(userOpRes.error || 'The Modular UserOperation swap could not be confirmed on Arc Testnet.')
         }
 
         // Elevate ceiling upon successful UserOperation
@@ -498,24 +583,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           setSpendingCeiling(smartAccount.address, params.tokenIn, mscaCeiling.suggestedCeiling, userOpRes.txHash)
         }
 
-        // Track 24h pool volume and dispatch reactive event
+        // Track 24h pool volume and dispatch reactive event (single FX source: DEFAULT_TOKEN_PRICES)
         try {
-          const inUpper = params.tokenIn.toUpperCase()
-          const outUpper = params.tokenOut.toUpperCase()
-          const isCirBtc = inUpper === 'CIRBTC' || inUpper === 'BTC' || outUpper === 'CIRBTC' || outUpper === 'BTC'
-          const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
-          let volUsd = 0
-          const inAmt = parseFloat(params.amountIn) || 0
-          if (inUpper === 'USDC') {
-            volUsd = inAmt
-          } else if (inUpper === 'EURC') {
-            volUsd = inAmt * 1.08
-          } else if (inUpper === 'CIRBTC' || inUpper === 'BTC') {
-            volUsd = inAmt * 78500
-          }
-          if (volUsd > 0) {
-            recordClientSwapVolume(poolId, volUsd, userOpRes.txHash)
-          }
+          recordClientSwapVolumeForPair(params.tokenIn, params.tokenOut, params.amountIn, userOpRes.txHash)
         } catch (volErr) {
           console.warn('[swapService] Volume tracking error:', volErr)
         }
@@ -528,10 +598,22 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       }
 
       // B. Circle User-Controlled Wallet (UCW) Execution
-      if ((params.authSource === 'ucw' || !params.sourceAdapter) && params.executeUcwContract) {
-        const userAddress = (params.recipientAddress || '') as Address
+      // evm-authenticated users are never routed into the UCW challenge flow just because their
+      // EOA adapter is missing; that fallback only applies when auth is ucw or unspecified.
+      const wantsUcw =
+        params.authSource === 'ucw' ||
+        (params.authSource !== 'evm' && !params.sourceAdapter && Boolean(params.executeUcwContract))
+      const executeUcwContract = wantsUcw ? params.executeUcwContract : undefined
+      if (wantsUcw && !executeUcwContract) {
+        throw new Error('Circle UCW execution handler is missing. Please refresh the app or re-authenticate.')
+      }
+      if (executeUcwContract) {
+        // Fix #2: allowance/ceiling checks are scoped to the SENDER. recipientAddress only decides
+        // where the output lands (and ArcisSwapRouter always delivers to msg.sender), so reading it
+        // as the token owner would check/approve the wrong wallet.
+        const userAddress = (params.senderAddress || params.recipientAddress || '') as Address
         if (!userAddress || !userAddress.startsWith('0x')) {
-          throw new Error('Circle UCW cüzdan adresi bulunamadı.')
+          throw new Error('Circle UCW wallet address could not be resolved.')
         }
 
         const routerAddress = POOL_CONTRACTS.ARCIS_SWAP_ROUTER
@@ -555,10 +637,10 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         // 2. Request ERC-20 approval via Circle UCW challenge if allowance is insufficient
         if (requiresApprove) {
           console.log('[swapService UCW] Insufficient allowance. Initiating approve challenge on ARC-TESTNET...')
-          const approveRes = await params.executeUcwContract({
+          const approveRes = await executeUcwContract({
             contractAddress: arcRoute.tokenInAddr,
             abiFunctionSignature: 'approve(address,uint256)',
-            abiParameters: [routerAddress, maxUint256.toString()],
+            abiParameters: [routerAddress, boundedApprovalAmount(amountInUnits, arcRoute.decIn).toString()],
             blockchain: 'ARC-TESTNET',
           })
 
@@ -567,13 +649,13 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
               approveRes.error?.toLowerCase().includes('cancel') ||
               approveRes.error?.toLowerCase().includes('iptal') ||
               approveRes.error?.toLowerCase().includes('closed')
-            const err: any = new Error(approveRes.error || 'Token onay işlemi kullanıcı tarafından iptal edildi.')
+            const err: any = new Error(approveRes.error || 'Token approval canceled by user.')
             if (isCanceled) err.isCanceled = true
             throw err
           }
 
           if (!approveRes.txHash || !/^0x[0-9a-fA-F]{64}$/.test(approveRes.txHash)) {
-            return { status: 'PENDING', errorMessage: 'Token approval was submitted but its transaction hash is not available yet.' }
+            return { status: 'PENDING', pendingStage: 'approve', errorMessage: 'Token approval was submitted but its transaction hash is not available yet.' }
           }
           const approvalReceipt = await resilientWaitForReceipt(arcPublicClient, approveRes.txHash as Hex, 'UCW Token approval')
           if (
@@ -583,7 +665,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             throw new Error('Token approval receipt did not match the submitted transaction.')
           }
           if (approvalReceipt.status === 'unknown') {
-            return { status: 'PENDING', sourceTxHash: approveRes.txHash, errorMessage: 'Token approval is awaiting on-chain confirmation.' }
+            return { status: 'PENDING', pendingStage: 'approve', sourceTxHash: approveRes.txHash, errorMessage: 'Token approval is awaiting on-chain confirmation.' }
           }
           if (approvalReceipt.status === 'reverted') throw new Error('Token approval reverted on Arc Testnet.')
           setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling, approveRes.txHash)
@@ -596,7 +678,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         const feeBps = BigInt(params.customFee?.percentageBps || 0)
 
         console.log('[swapService UCW] Requesting swapWithFee challenge on ARC-TESTNET...')
-        const swapRes = await params.executeUcwContract({
+        const swapRes = await executeUcwContract({
           contractAddress: routerAddress,
           abiFunctionSignature: 'swapWithFee(address,address,address,uint256,uint256,address,uint256)',
           abiParameters: [
@@ -616,7 +698,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             swapRes.error?.toLowerCase().includes('cancel') ||
             swapRes.error?.toLowerCase().includes('iptal') ||
             swapRes.error?.toLowerCase().includes('closed')
-          const err: any = new Error(swapRes.error || 'Takas işlemi kullanıcı tarafından iptal edildi.')
+          const err: any = new Error(swapRes.error || 'Swap canceled by user.')
           if (isCanceled) err.isCanceled = true
           throw err
         }
@@ -634,24 +716,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           throw new Error('Swap receipt did not match the submitted transaction.')
         }
 
-        // 4. Track 24h pool volume and dispatch reactive event
+        // 4. Track 24h pool volume and dispatch reactive event (single FX source: DEFAULT_TOKEN_PRICES)
         try {
-          const inUpper = params.tokenIn.toUpperCase()
-          const outUpper = params.tokenOut.toUpperCase()
-          const isCirBtc = inUpper === 'CIRBTC' || inUpper === 'BTC' || outUpper === 'CIRBTC' || outUpper === 'BTC'
-          const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
-          let volUsd = 0
-          const inAmt = parseFloat(params.amountIn) || 0
-          if (inUpper === 'USDC') {
-            volUsd = inAmt
-          } else if (inUpper === 'EURC') {
-            volUsd = inAmt * 1.08
-          } else if (inUpper === 'CIRBTC' || inUpper === 'BTC') {
-            volUsd = inAmt * 78500
-          }
-          if (volUsd > 0 && realTxHash) {
-            recordClientSwapVolume(poolId, volUsd, realTxHash)
-          }
+          recordClientSwapVolumeForPair(params.tokenIn, params.tokenOut, params.amountIn, realTxHash)
         } catch (volErr) {
           console.warn('[swapService UCW] Volume tracking error:', volErr)
         }
@@ -664,9 +731,15 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       }
 
       // C. EOA Wallet Execution (MetaMask, Rainbow, Viem)
-      const provider =
-        params.sourceAdapter?.provider ||
-        (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
+      // No window.ethereum fallback (fix #3): signing must come from the adapter the caller
+      // explicitly connected — never from whatever injected wallet happens to be present.
+      const provider = params.sourceAdapter?.provider || null
+
+      if (!provider) {
+        throw new Error(
+          'No active Web3 wallet signer is available for this swap. Please reconnect your wallet and try again.'
+        )
+      }
 
       if (provider) {
         let account: Address | undefined
@@ -677,7 +750,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           account = accounts[0] as Address
         }
 
-        if (!account) throw new Error('Cüzdan hesabı bulunamadı.')
+        if (!account) throw new Error('Wallet account could not be found.')
 
         const walletClient = createWalletClient({
           account,
@@ -685,14 +758,20 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           transport: custom(provider),
         })
 
-        // Check on-chain allowance against ArcisSwapRouter
+        // Check on-chain allowance against ArcisSwapRouter (audit #12: a failed read must not
+        // abort the swap — fall back to 0 so the approval flow runs instead).
         const routerAddress = POOL_CONTRACTS.ARCIS_SWAP_ROUTER
-        const currentAllowance = await resilientReadContract(arcPublicClient, {
-          address: arcRoute.tokenInAddr,
-          abi: ERC20_ABI,
-          functionName: 'allowance',
-          args: [account, routerAddress],
-        })
+        let currentAllowance = 0n
+        try {
+          currentAllowance = await resilientReadContract(arcPublicClient, {
+            address: arcRoute.tokenInAddr,
+            abi: ERC20_ABI,
+            functionName: 'allowance',
+            args: [account, routerAddress],
+          })
+        } catch (readErr) {
+          console.warn('[swapService EOA] Allowance read error:', readErr)
+        }
 
         // Dynamically resolve Arc L1 gas parameters enforcing 20 Gwei floor & EWMA base fee
         const gasOptions = await getDynamicArcGasOptions(
@@ -711,7 +790,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [routerAddress, maxUint256],
+            args: [routerAddress, boundedApprovalAmount(amountInUnits, arcRoute.decIn)],
             chain: arcTestnet,
             account,
             maxFeePerGas: gasOptions.maxFeePerGas,
@@ -761,24 +840,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           throw new Error('Swap is not confirmed with a matching receipt.')
         }
 
-        // Track 24h pool volume and dispatch reactive event
+        // Track 24h pool volume and dispatch reactive event (single FX source: DEFAULT_TOKEN_PRICES)
         try {
-          const inUpper = params.tokenIn.toUpperCase()
-          const outUpper = params.tokenOut.toUpperCase()
-          const isCirBtc = inUpper === 'CIRBTC' || inUpper === 'BTC' || outUpper === 'CIRBTC' || outUpper === 'BTC'
-          const poolId = isCirBtc ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
-          let volUsd = 0
-          const inAmt = parseFloat(params.amountIn) || 0
-          if (inUpper === 'USDC') {
-            volUsd = inAmt
-          } else if (inUpper === 'EURC') {
-            volUsd = inAmt * 1.08
-          } else if (inUpper === 'CIRBTC' || inUpper === 'BTC') {
-            volUsd = inAmt * 78500
-          }
-          if (volUsd > 0) {
-            recordClientSwapVolume(poolId, volUsd, swapTx)
-          }
+          recordClientSwapVolumeForPair(params.tokenIn, params.tokenOut, params.amountIn, swapTx)
         } catch (volErr) {
           console.warn('[swapService] Volume tracking error:', volErr)
         }
@@ -796,12 +860,12 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     // ─────────────────────────────────────────────────────────────
     if (params.authSource === 'ucw') {
       throw new Error(
-        'Circle UCW cüzdanları şu anda yalnızca Arc Testnet içi takasları desteklemektedir. Cross-chain takas işlemleri için lütfen MetaMask veya Circle Modular Wallet (Passkey) bağlayın.'
+        'Circle UCW wallets currently support Arc Testnet swaps only. For cross-chain swaps, connect MetaMask or a Circle Modular Wallet (Passkey).'
       )
     }
 
     if (!params.sourceAdapter) {
-      throw new Error('Cross-chain takas işlemi için aktif bir Web3 cüzdan bağlantısı gereklidir.')
+      throw new Error('An active Web3 wallet connection is required for cross-chain swaps.')
     }
 
     const from = {
@@ -928,36 +992,3 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
   }
 }
 
-/**
- * Helper to return swap-eligible tokens for a given blockchain context.
- */
-export function getSupportedSwapTokens(chain: string): string[] {
-  if (chain === 'Arc_Testnet') {
-    return ['USDC', 'EURC', 'cirBTC']
-  }
-
-  const NETWORK_TOKENS: Record<string, string[]> = {
-    Ethereum_Sepolia: ['USDC', 'EURC', 'USDT', 'DAI', 'NATIVE'],
-    Base_Sepolia: ['USDC', 'EURC', 'USDT', 'DAI', 'NATIVE'],
-    Arbitrum_Sepolia: ['USDC', 'USDT', 'NATIVE'],
-    Optimism_Sepolia: ['USDC', 'USDT', 'NATIVE'],
-    Polygon_Amoy_Testnet: ['USDC', 'USDT', 'NATIVE'],
-    Avalanche_Fuji: ['USDC', 'USDT', 'NATIVE'],
-    HyperEVM_Testnet: ['USDC', 'USDT', 'NATIVE'],
-    Sei_Testnet: ['USDC', 'USDT', 'NATIVE'],
-    Solana_Devnet: ['USDC', 'USDT', 'NATIVE'],
-    Sonic_Testnet: ['USDC', 'USDT', 'NATIVE'],
-    Unichain_Sepolia: ['USDC', 'USDT', 'NATIVE'],
-    World_Chain_Sepolia: ['USDC', 'USDT', 'NATIVE'],
-    // Mainnets
-    Base: ['USDC', 'EURC', 'USDT', 'DAI', 'NATIVE'],
-    Ethereum: ['USDC', 'USDT', 'DAI', 'WBTC', 'WETH', 'NATIVE'],
-    Solana: ['USDC', 'USDT', 'WSOL', 'NATIVE'],
-    Arbitrum: ['USDC', 'USDT', 'NATIVE'],
-    Avalanche: ['USDC', 'USDT', 'NATIVE'],
-    Optimism: ['USDC', 'USDT', 'NATIVE'],
-    Polygon: ['USDC', 'USDT', 'NATIVE']
-  }
-
-  return NETWORK_TOKENS[chain] || [...SWAP_SUPPORTED_TOKENS]
-}

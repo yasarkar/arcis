@@ -1,12 +1,14 @@
 import { AppKit, Blockchain } from '@circle-fin/app-kit'
 import { createViemAdapterFromProvider, createViemAdapterFromPrivateKey } from '@circle-fin/adapter-viem-v2'
-import { createPublicClient, createWalletClient, defineChain, http, erc20Abi, maxUint256 } from 'viem'
+import { createPublicClient, createWalletClient, defineChain, http, erc20Abi, maxUint256, formatUnits } from 'viem'
 import type { SendParams } from '@circle-fin/app-kit'
 import { arcTestnet, ARC_METADATA, IS_TESTNET } from '../config/arcChain'
 import { CHAIN_DEFS } from '../config/chainMeta'
 import { getResilientPublicClient, resilientReadContract } from './rpc'
 import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
+import { ensureNetwork } from './chainSwitchService'
 import { USDC_ADDRESSES } from '../config/gatewayConfig'
+import { CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 
 // Single instance of AppKit to be used for Send operations
 const kit = new AppKit()
@@ -82,8 +84,24 @@ export function resolveViemChainAndRpc(chain: any): { viemChain: any; rpcUrl: st
  * Prevents throwing "wallet_switchEthereumChain does not exist / is not available"
  * when using node JSON-RPC transports (such as private key / headless session keys) or custom providers.
  */
-export function patchViemAdapterChainSwitch(adapter: any): any {
+export function patchViemAdapterChainSwitch(adapter: any, walletProvider?: any): any {
   if (!adapter) return adapter
+
+  /**
+   * Resilient fallback for real switch failures: retries through the centralized
+   * chainSwitchService, which prompts the wallet extension and auto-adds unknown
+   * chains (wallet_addEthereumChain on 4902) instead of surfacing a dead error.
+   */
+  const tryResilientSwitch = async (chain: any): Promise<boolean> => {
+    try {
+      const chainId = Number(chain?.chainId ?? chain?.id)
+      if (!Number.isFinite(chainId) || chainId <= 0) return false
+      const res = await ensureNetwork(chainId, walletProvider)
+      return !!res.success
+    } catch {
+      return false
+    }
+  }
 
   const originalSwitchToChain = adapter.switchToChain?.bind(adapter)
 
@@ -110,6 +128,9 @@ export function patchViemAdapterChainSwitch(adapter: any): any {
             console.warn('[ViemAdapter] Bypassed unsupported wallet_switchEthereumChain on RPC node')
             return
           }
+          // Real switch failure (e.g. unregistered testnet) — ask the wallet
+          // extension directly before giving up.
+          if (await tryResilientSwitch(chain)) return
           throw switchErr
         }
       }
@@ -125,6 +146,7 @@ export function patchViemAdapterChainSwitch(adapter: any): any {
         console.warn('[ViemAdapter] Safely bypassed chain switch RPC error')
         return
       }
+      if (await tryResilientSwitch(chain)) return
       throw err
     }
   }
@@ -148,6 +170,7 @@ export function patchViemAdapterChainSwitch(adapter: any): any {
         console.warn('[ViemAdapter] Safely bypassed ensureChain RPC error')
         return
       }
+      if (await tryResilientSwitch(targetChain)) return
       throw err
     }
   }
@@ -366,7 +389,18 @@ export async function createViemAdapter(provider: any): Promise<any> {
     },
   })
 
-  return patchViemAdapterAllowanceCeiling(patchViemAdapterChainSwitch(adapter))
+  const patched = patchViemAdapterAllowanceCeiling(patchViemAdapterChainSwitch(adapter, provider))
+  // Expose the EIP-1193 provider so downstream signers (e.g. swapService's Arc-native EOA path)
+  // can build a wallet client from the exact provider the user connected — instead of reaching
+  // for window.ethereum.
+  if (!patched?.provider) {
+    try {
+      patched.provider = provider
+    } catch {
+      // Adapter may expose a read-only provider property; signing then relies on the adapter itself.
+    }
+  }
+  return patched
 }
 
 /**
@@ -415,4 +449,56 @@ export async function sendToken(
     token: token as any
   }
   return kit.send(sendParams)
+}
+
+export interface NativeActualFeeResult {
+  /** Exact unrounded fee in the chain's native currency, or null when unavailable. */
+  feeExact: string | null
+  /** Native currency symbol (ETH, AVAX, POL, …). */
+  symbol: string
+  /** Native currency decimals used for formatting. */
+  decimals: number
+  /** Gas actually consumed by the transaction (decimal string). */
+  gasUsed: string | null
+  /** Effective per-gas price charged, in wei (decimal string). */
+  effectiveGasPriceWei: string | null
+}
+
+/**
+ * Resolves the actual fee paid for a mined transaction on any EVM chain from its
+ * receipt: gasUsed × effectiveGasPrice (gasPrice as fallback), formatted in the
+ * chain's native currency. Fail-closed — returns feeExact null on any gap.
+ */
+export async function resolveNativeActualFee(
+  txHash?: string,
+  chainKey?: string
+): Promise<NativeActualFeeResult> {
+  const nativeInfo = CHAIN_NATIVE_MAP[chainKey || '']
+  const symbol = nativeInfo?.symbol || 'NATIVE'
+  const decimals = nativeInfo?.decimals ?? 18
+  const empty: NativeActualFeeResult = {
+    feeExact: null,
+    symbol,
+    decimals,
+    gasUsed: null,
+    effectiveGasPriceWei: null,
+  }
+  if (!txHash || !String(txHash).startsWith('0x')) return empty
+  try {
+    const client = getResilientPublicClient(chainKey || 'Arc_Testnet') as any
+    if (typeof client?.getTransactionReceipt !== 'function') return empty
+    const receipt = await client.getTransactionReceipt({ hash: txHash as `0x${string}` })
+    const gasUsed = receipt?.gasUsed as bigint | undefined
+    const effectiveGasPrice = (receipt?.effectiveGasPrice ?? receipt?.gasPrice) as bigint | undefined
+    if (gasUsed == null || effectiveGasPrice == null) return empty
+    return {
+      feeExact: formatUnits(gasUsed * effectiveGasPrice, decimals),
+      symbol,
+      decimals,
+      gasUsed: String(gasUsed),
+      effectiveGasPriceWei: String(effectiveGasPrice),
+    }
+  } catch {
+    return empty
+  }
 }

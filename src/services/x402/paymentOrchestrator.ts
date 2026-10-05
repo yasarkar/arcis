@@ -59,7 +59,14 @@ function failure(statusCode: number, error: string, requirements?: X402PaymentRe
 export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402ExecutionReceipt> {
   const startedAt = performance.now()
   const { manifest, provider } = input
-  const requirementsFallback: X402PaymentRequirements = { x402Version: 2, accepts: manifest.accepts.map((accept) => ({ ...accept, payTo: accept.payTo as `0x${string}` })) }
+  const requirementsFallback: X402PaymentRequirements = {
+    x402Version: 2,
+    accepts: manifest.accepts.map((accept) => ({
+      ...accept,
+      payTo: accept.payTo as `0x${string}`,
+      domain: accept.domain ? { ...accept.domain, verifyingContract: accept.domain.verifyingContract as `0x${string}` } : undefined,
+    })),
+  }
   const address = input.payer?.kind === 'session_eoa' ? '' : (input.payer?.address || input.walletAddress || '')
   if (!provider || !isAddress(address)) {
     return failure(503, 'Paid x402 calls require a connected external EOA. No authorization or charge was created; Circle passkey/MSCA and autonomous session signers are unsupported.', requirementsFallback)
