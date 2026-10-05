@@ -83,7 +83,7 @@ export default function HomePage({
         silhouetteType: 'usdc',
       },
       {
-        value: '13+ Chains',
+        value: '12+ Chains',
         label: 'Liquidity',
         desc: 'One unified balance across major networks',
         color: '#38bdf8',
@@ -268,7 +268,7 @@ export default function HomePage({
   const corePillars = [
     {
       id: 'unified',
-      title: 'One Unified Balance across 13+ Chains',
+      title: 'One Unified Balance across 12+ Chains',
       headline: 'Your USDC everywhere, without fragmented wallets or bridging hassle',
       description:
         'Stop juggling balances across different networks. Arcis pools your USDC across Ethereum, Solana, Base, Arbitrum, and Arc into a single balance you can spend or transfer instantly anywhere.',
@@ -319,14 +319,14 @@ export default function HomePage({
     },
     {
       id: 'real-yield',
-      title: 'Zero-Slippage FX & Real USDC Yield',
-      headline: '90% of protocol fees distributed directly to vault depositors',
+      title: 'Deep Liquidity FX & Real USDC Yield',
+      headline: 'Protocol fees distributed to vault depositors via smart contracts',
       description:
-        'Swap stablecoins like USDC and EURC at true 1:1 rates with zero slippage. Deposit into the Arcis Vault to earn real, compounding yields paid purely in USDC never in volatile or inflationary reward tokens.',
+        'Swap USDC and EURC using live pool quotes; exchange rates, fees, and slippage apply. Deposit into the Arcis Vault to earn real, compounding yields paid purely in USDC rather than inflationary reward tokens.',
       bullets: [
-        '1:1 Zero-Slippage Swaps: Trade stable pairs with exact price parity and no slippage loss.',
+        'Live Pool Quotes: Trade stable pairs with curve-optimized pricing and configurable slippage.',
         '100% Real Yield: Earnings come exclusively from actual transaction fees and protocol volume.',
-        'Auto-Compounding Vault: Your USDC compounds automatically in an audited ERC-4626 standard vault.',
+        'Auto-Compounding Vault: Your USDC compounds automatically in an ERC-4626 standard vault.',
       ],
       ctaText: 'Explore Pools & Vault',
       actionTab: 'pools' as TabType,
@@ -385,7 +385,7 @@ export default function HomePage({
     {
       feature: 'Cross-Chain Liquidity',
       legacy: 'Fragmented pools, wrapped tokens, slow bridging',
-      arcis: '13+ Chains unified balance via Circle Gateway (<500ms)',
+      arcis: '12+ Chains unified balance via Circle Gateway (<500ms)',
     },
     {
       feature: 'Wallet Onboarding',
@@ -424,7 +424,7 @@ export default function HomePage({
     },
     {
       q: 'Where does the yield in the Arcis Vault come from?',
-      a: 'All returns come from real protocol economic activity. 90% of fees collected across stablecoin FX swaps, transfers, and cross-chain volume are directed into the vault as auto-compounding USDC dividends—with zero token inflation.'
+      a: 'All returns come from real protocol economic activity. Protocol fees collected across stable FX swaps, transfers, and volume are directed into the vault as auto-compounding USDC distributions—with zero token inflation.'
     },
     {
       q: 'How can I get testnet funds to explore Arcis?',

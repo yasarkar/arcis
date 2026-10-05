@@ -66,7 +66,7 @@
   -webkit-text-fill-color: transparent;
 }
 
-/* Crypto Raindrop Shower Animation for 13+ Chains card */
+/* Crypto Raindrop Shower Animation for 12+ Chains card */
 @keyframes cryptoRainDrop {
   0% {
     transform: translate3d(0, -44px, 0) scale(0.85);
@@ -603,6 +603,22 @@
   box-shadow: 0 0 12px rgba(1, 208, 98, 0.08);
 }
 
+/* ── Pending (waiting for Circle's indexer) badge ── */
+.ub-pending-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-app);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 99px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
 /* ── Live ECG Heartbeat Waveform ── */
 .ub-ecg-svg {
   display: inline-block;
@@ -805,10 +821,11 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   clip-path: circle(50% at 50% 50%);
-  background: transparent;
 }
 
 .ub-chain-icon svg,
@@ -823,6 +840,8 @@
 
 .ub-asset-row:hover .ub-chain-icon {
   transform: scale(1.08);
+  border-color: rgba(172, 198, 233, 0.25);
+  box-shadow: 0 0 10px rgba(172, 198, 233, 0.08);
 }
 
 /* ── Percentage Badge ── */
@@ -892,90 +911,6 @@
   100% { background-position: -200% 0; }
 }
 
-/* ── Error Tooltip (Breakdown Design Standard) ── */
-.ub-error-tooltip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #f87171;
-  font-family: var(--fonts--space-mono);
-  font-size: 10px;
-  cursor: help;
-}
-
-.ub-error-tooltip::after {
-  content: attr(data-tip);
-  position: absolute;
-  right: 0;
-  top: calc(100% + 7px);
-  background: rgba(12, 15, 30, 0.95);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  color: #f1f5f9;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-  border-radius: 12px;
-  padding: 8px 12px;
-  font-family: var(--font-app, system-ui, sans-serif);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.35;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease, transform 0.15s ease;
-  transform: translateY(2px);
-  z-index: 9999999;
-}
-
-.ub-error-tooltip::before {
-  content: '';
-  position: absolute;
-  right: 12px;
-  top: calc(100% + 1px);
-  border-width: 4px;
-  border-style: solid;
-  border-color: transparent transparent #0c0f1e transparent;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-  z-index: 10000000;
-}
-
-.ub-error-tooltip:hover {
-  z-index: 9999999;
-}
-
-.ub-error-tooltip:hover::after {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.ub-error-tooltip:hover::before {
-  opacity: 1;
-}
-
-/* ── Chain Icon Ring ── */
-.ub-chain-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.ub-asset-row:hover .ub-chain-icon {
-  border-color: rgba(172, 198, 233, 0.25);
-  box-shadow: 0 0 10px rgba(172, 198, 233, 0.08);
-}
-
 /* ── Empty State ── */
 .ub-empty-state {
   text-align: center;
@@ -993,6 +928,163 @@
   font-size: 12px;
   letter-spacing: 1px;
   color: var(--primary-colors--white);
+}
+
+/* ── Quick Action Primary State ── */
+.ub-action-btn-primary {
+  background: rgba(152, 150, 255, 0.18);
+  border-color: rgba(152, 150, 255, 0.45);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(152, 150, 255, 0.18);
+}
+
+/* ── Deposit Form Controls ── */
+.ub-form-label {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-app);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--fp-3);
+}
+
+.ub-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(11, 13, 24, 0.75);
+  color: #fff;
+  font-family: var(--font-app);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease-out-smooth), box-shadow 0.2s var(--ease-out-smooth);
+}
+
+.ub-select-trigger:hover:not(:disabled) {
+  border-color: rgba(152, 150, 255, 0.35);
+}
+
+.ub-select-trigger[aria-expanded='true'] {
+  border-color: rgba(152, 150, 255, 0.5);
+  box-shadow: 0 0 16px rgba(152, 150, 255, 0.2);
+}
+
+.ub-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ub-select-menu {
+  /* Fixed row height keeps the "exactly six rows" cap deterministic. */
+  --ub-select-row-height: 44px;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  padding: 6px;
+  /* At most 5 rows are visible (5 rows + menu padding + borders); the rest scrolls. */
+  max-height: calc(5 * var(--ub-select-row-height) + 12px + 2px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(152, 150, 255, 0.45) transparent;
+  z-index: 200;
+  background: rgba(15, 18, 32, 0.96);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(152, 150, 255, 0.25);
+  border-radius: 16px;
+  box-shadow: 0 24px 48px -8px rgba(0, 0, 0, 0.7), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.ub-select-option {
+  width: 100%;
+  min-height: var(--ub-select-row-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fp-3);
+  font-family: var(--font-app);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.ub-select-option:hover:not(:disabled),
+.ub-select-option:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.ub-select-option[aria-selected='true'] {
+  background: rgba(152, 150, 255, 0.15);
+  border-color: rgba(152, 150, 255, 0.3);
+  color: #fff;
+}
+
+.ub-select-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ub-amount-input {
+  width: 100%;
+  background: rgba(11, 13, 24, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 12px 50px 12px 16px;
+  font-size: 16px;
+  color: #fff;
+  font-family: var(--fonts--space-grotesk);
+  font-weight: 500;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ub-amount-input:focus {
+  border-color: rgba(152, 150, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(152, 150, 255, 0.16);
+}
+
+.ub-amount-input[aria-invalid='true'] {
+  border-color: #ef4444;
+}
+
+.ub-amount-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Keyboard Focus Visibility (Unified Balance) ── */
+.ub-screen button:focus-visible,
+.ub-screen a:focus-visible,
+.ub-screen [role='option']:focus-visible {
+  outline: 2px solid rgba(152, 150, 255, 0.75);
+  outline-offset: 2px;
+}
+
+/* ── Reduced Motion (Unified Balance) ── */
+@media (prefers-reduced-motion: reduce) {
+  .ub-screen,
+  .ub-screen * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── APS Golden Orbit & Morphing Privacy Button ── */

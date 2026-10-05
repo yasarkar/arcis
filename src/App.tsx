@@ -23,6 +23,7 @@ import { BroadcastProvider } from './components/BroadcastNotification'
 import ArcCopilotDrawer from './components/copilot/ArcCopilotDrawer'
 import PortfolioDrawer from './components/PortfolioDrawer'
 import { prefetchGlobalData, prefetchAllWalletData } from './services/prefetchCoordinator'
+import { SectionErrorBoundary } from './components/common/GlobalErrorBoundary'
 
 function AutoChainSwitchWatcher() {
   useAutoSwitchArcChain()
@@ -34,7 +35,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'unified' | 'pools' | 'send' | 'swap' | 'bridge' | 'ai-services' | 'history'>('home')
   
   // Controlled dev test hook for GlobalErrorBoundary verification (?testCrash=true)
-  if (typeof window !== 'undefined' && window.location.search.includes('testCrash=true')) {
+  if (import.meta.env.DEV && typeof window !== 'undefined' && window.location.search.includes('testCrash=true')) {
     throw new Error('SimulationFault: Synthetic UI Render Exception triggered for ErrorBoundary verification.')
   }
   
@@ -87,10 +88,19 @@ export default function App() {
   const [isPortfolioOpen, setIsPortfolioOpen] = useState<boolean>(false)
 
   useEffect(() => {
+    let active = true
     if (connector) {
-      connector.getProvider().then(setConnectedProvider).catch(console.error)
+      connector
+        .getProvider()
+        .then((p) => {
+          if (active) setConnectedProvider(p)
+        })
+        .catch(console.error)
     } else {
       setConnectedProvider(null)
+    }
+    return () => {
+      active = false
     }
   }, [connector])
 
@@ -210,7 +220,7 @@ export default function App() {
   return (
     <BroadcastProvider>
       <AutoChainSwitchWatcher />
-      <div className="min-h-screen flex flex-col selection:bg-indigo-500/30">
+      <div className="min-h-screen flex flex-col selection:bg-indigo-500/30 overflow-x-hidden w-full max-w-full relative">
         {/* Background ambient light */}
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-brand-primary/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
         <div className="absolute top-0 right-1/4 w-96 h-96 bg-brand-secondary/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
@@ -253,7 +263,8 @@ export default function App() {
         >
           
           {/* Workspace Content */}
-          <section className="flex-1 min-w-0 flex flex-col min-h-[calc(100vh-60px)] pb-12">
+          <SectionErrorBoundary title="This workspace section encountered an error">
+            <section className="flex-1 min-w-0 flex flex-col min-h-[calc(100vh-60px)] pb-12">
 
             {/* Arcis Homepage / Overview Tab */}
             {activeTab === 'home' && (
@@ -270,7 +281,6 @@ export default function App() {
             {activeTab === 'unified' && (
               <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
                 <UnifiedBalance
-                  onNavigate={(tab) => setActiveTab(tab)}
                   connector={connector}
                   connectedAddress={walletAddress}
                   walletConnected={walletConnected}
@@ -316,7 +326,6 @@ export default function App() {
                   onClose={() => {}}
                   connectedAddress={walletAddress}
                   provider={connectedProvider}
-                  currentChainId={5042002}
                   authSource={activeAuthSource}
                   executeUcwTransfer={executeUcwTransfer}
                   onSuccess={() => {
@@ -372,7 +381,8 @@ export default function App() {
               </div>
             )}
 
-          </section>
+            </section>
+          </SectionErrorBoundary>
         </main>
 
         {/* Global Floating Cybernetic Robot Widget (Bottom-Left) */}
@@ -383,23 +393,24 @@ export default function App() {
         />
 
         {/* Arcis AI Copilot Side Drawer */}
-        <ArcCopilotDrawer
-          isOpen={copilot.isOpen}
-          onClose={() => copilot.setIsOpen(false)}
-          messages={copilot.messages}
-          currentSteps={copilot.currentSteps}
-          isAnalyzing={copilot.isAnalyzing}
-          sessionConfig={copilot.sessionConfig}
-          walletAddress={walletAddress || ucwAddress}
-          onSendMessage={copilot.executeQuery}
-          onClearChat={copilot.clearChat}
-          onActivateSession={copilot.activateSession}
-          onRevokeSession={copilot.revokeSession}
-          onToggleAutoExecute={copilot.toggleAutoExecute}
-          onExecuteInline={copilot.executeInlineAction}
-          onNavigateToTab={(tab) => setActiveTab(tab as any)}
-          onOpenFaucet={() => setIsFaucetOpen(true)}
-        />
+        <SectionErrorBoundary title="Arco AI Copilot is temporarily unavailable">
+          <ArcCopilotDrawer
+            isOpen={copilot.isOpen}
+            onClose={() => copilot.setIsOpen(false)}
+            messages={copilot.messages}
+            currentSteps={copilot.currentSteps}
+            isAnalyzing={copilot.isAnalyzing}
+            sessionConfig={copilot.sessionConfig}
+            walletAddress={walletAddress || ucwAddress}
+            onSendMessage={copilot.executeQuery}
+            onClearChat={copilot.clearChat}
+            onActivateSession={copilot.activateSession}
+            onRevokeSession={copilot.revokeSession}
+            onToggleAutoExecute={copilot.toggleAutoExecute}
+            onExecuteInline={copilot.executeInlineAction}
+            onNavigateToTab={(tab) => setActiveTab(tab as any)}
+          />
+        </SectionErrorBoundary>
 
         {/* Global Professional Footer */}
         <Footer

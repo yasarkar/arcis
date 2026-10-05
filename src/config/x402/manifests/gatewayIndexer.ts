@@ -13,7 +13,7 @@ export const gatewayIndexerManifest: ServiceManifest = {
   id: 'arc-cross-chain-gateway-flow-indexer',
   version: '1.0.0',
   name: 'Cross-Chain Gateway Flow Indexer',
-  tagline: 'Real-Time Institutional USDC Liquidity Migration Flowing into Arc L1 from 13+ Chains',
+  tagline: 'Real-Time Institutional USDC Liquidity Migration Flowing into Arc L1 from 12+ Chains',
   category: 'Cross-Chain Gateway',
   engine: 'native',
   description: 'Tracks real-time net USDC inflows and outflows between Circle Gateway-supported chains (Ethereum, Base, Arbitrum, Solana) and Arc L1. Delivers early signals on institutional capital movements and whale migrations.',
