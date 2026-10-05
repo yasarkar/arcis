@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { normalizeAppError } from '../errorNormalizer'
+import { MIN_DIRECT_BRIDGE_AMOUNT } from '../../config/constants'
 
 describe('errorNormalizer', () => {
   it('correctly maps Viem rate-limited revert error to RPC_LIMIT_EXCEEDED instead of CONTRACT_REVERT', () => {
@@ -100,6 +101,6 @@ describe('errorNormalizer', () => {
     expect(normalized.category).toBe('VALIDATION')
     expect(normalized.title).toBe('Bridge Amount Below CCTP Fee')
     expect(normalized.message).toContain('must be greater than the CCTP forwarder fee')
-    expect(normalized.actionHint).toContain('at least 2 USDC')
+    expect(normalized.actionHint).toContain(`at least ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC`)
   })
 })
