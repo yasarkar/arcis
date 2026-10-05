@@ -22,6 +22,8 @@ export interface SwapSuccessReceiptProps {
   slippage?: string
   speedTier?: string
   fee?: string
+  /** Exact network fee read from the mined receipt (gasUsed × effectiveGasPrice). */
+  networkFee?: string
 }
 
 export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
@@ -45,6 +47,7 @@ export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
   slippage,
   speedTier,
   fee,
+  networkFee,
 }) => {
   return (
     <UnifiedSuccessReceipt
@@ -69,6 +72,7 @@ export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
       slippage={slippage}
       speedTier={speedTier}
       fee={fee}
+      networkFee={networkFee}
     />
   )
 }

@@ -1,10 +1,14 @@
 import React from 'react'
 import { ChevronDown } from 'lucide-react'
+import { clampDecimalInput } from '../../utils/swapAmountUtils'
 
 interface AssetInputPanelProps {
   label: string
   amount: string
   onAmountChange?: (val: string) => void
+  /** Maximum fractional digits accepted (token on-chain decimals). Without it, excess
+   *  precision reaches `parseUnits` and the raw error surfaces in the UI (audit #13). */
+  maxDecimals?: number
   readOnly?: boolean
   placeholder?: string
   tokenSymbol: string
@@ -29,6 +33,7 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
   label,
   amount,
   onAmountChange,
+  maxDecimals,
   readOnly = false,
   placeholder = '0.00',
   tokenSymbol,
@@ -90,8 +95,10 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
               readOnly={readOnly}
               disabled={disabled}
               onChange={(e) => {
-                const val = e.target.value.replace(/,/g, '.')
-                if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                // Format, validate and clamp in one step: same rules as before, plus a limit on
+                // fractional digits so parseUnits can never throw on the typed value.
+                const val = clampDecimalInput(e.target.value, maxDecimals)
+                if (val !== null) {
                   onAmountChange?.(val)
                 }
               }}

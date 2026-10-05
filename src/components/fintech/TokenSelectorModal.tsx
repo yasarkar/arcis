@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
-import { Search, X, Check } from 'lucide-react'
+import { Search, X, Check, Plus } from 'lucide-react'
 
 export interface TokenItem {
   symbol: string
@@ -16,6 +16,8 @@ interface TokenSelectorModalProps {
   tokens: TokenItem[]
   selectedToken: string
   onSelectToken: (symbol: string) => void
+  /** Shows an "import custom ERC-20" entry that activates custom-token mode. */
+  onSelectCustom?: () => void
   title?: string
 }
 
@@ -25,6 +27,7 @@ export const TokenSelectorModal: React.FC<TokenSelectorModalProps> = ({
   tokens,
   selectedToken,
   onSelectToken,
+  onSelectCustom,
   title = 'Select a token',
 }) => {
   const [search, setSearch] = useState('')
@@ -104,6 +107,21 @@ export const TokenSelectorModal: React.FC<TokenSelectorModalProps> = ({
             className="w-full rounded-xl pl-9.5 pr-4 py-2.5 text-xs text-white bg-white/[0.04] hover:bg-white/[0.06] focus:bg-white/[0.08] border border-white/[0.08] focus:border-indigo-500/50 focus:outline-none transition-all"
           />
         </div>
+
+        {/* Custom ERC-20 import entry */}
+        {onSelectCustom && (
+          <button
+            type="button"
+            onClick={() => {
+              onSelectCustom()
+              onClose()
+            }}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-dashed border-white/[0.12] hover:border-indigo-500/40 hover:bg-white/[0.04] text-[11px] text-slate-400 hover:text-indigo-300 transition-all cursor-pointer flex items-center gap-2"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Import custom ERC-20 contract…
+          </button>
+        )}
 
         {/* Token List */}
         <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1">

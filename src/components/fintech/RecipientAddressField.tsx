@@ -10,6 +10,7 @@ interface RecipientAddressFieldProps {
   isValid?: boolean
   disabled?: boolean
   onPaste?: () => void
+  onBlur?: () => void
   onClear?: () => void
   rightBadge?: React.ReactNode
   className?: string
@@ -24,6 +25,7 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
   isValid = false,
   disabled = false,
   onPaste,
+  onBlur,
   onClear,
   rightBadge,
   className = '',
@@ -109,6 +111,7 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
           onChange={(e) => onChange(e.target.value.trim())}
           placeholder={placeholder}
           disabled={disabled}
+          onBlur={onBlur}
           autoComplete="off"
           autoCorrect="off"
           spellCheck="false"

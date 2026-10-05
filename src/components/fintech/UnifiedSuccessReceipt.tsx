@@ -35,6 +35,13 @@ export interface UnifiedSuccessReceiptProps {
 
   // Header & Controls
   title?: string
+  /**
+   * Optional second headline line rendered directly beneath `title` with the
+   * SAME headline styling, so a two-line pending state (e.g. "Bridge Pending" /
+   * "Destination Confirmation Required") reads as one main title instead of a
+   * long single line.
+   */
+  titleSubline?: string
   subtitle?: string
   status?: ReceiptVisualStatus
   onActionAgain: () => void
@@ -81,6 +88,8 @@ export interface UnifiedSuccessReceiptProps {
 
   // Fees & Operational Metrics
   fee?: string
+  /** Platform fee for the chosen speed tier (e.g. Arcis) shown as its own row, separate from gas. */
+  platformFee?: string
   gasFee?: string
   rate?: string
   slippage?: string
@@ -96,11 +105,33 @@ export interface UnifiedSuccessReceiptProps {
 
   /** Verified on-chain network fee in USDC (gasUsed × effectiveGasPrice), pre-formatted. */
   actualGasUsdc?: string
+
+  // Real network fees read from the mined receipt (gasUsed × effectiveGasPrice).
+  /** Exact fee the network charged for the primary transaction, pre-formatted with its currency. */
+  networkFee?: string
+  /**
+   * Verified gas fee the destination chain charged for the bridge mint,
+   * pre-formatted in that chain's native currency (e.g. ETH on Base, USDC on
+   * Arc), read from the mint transaction's receipt — bridge receipts only.
+   */
+  destinationFee?: string
+  /**
+   * True when the source leg is an off-chain EIP-712 authorization (a Gateway
+   * burn intent): no transaction is submitted on the source chain, so there is
+   * no source gas to read from a receipt. Renders the source fee row as
+   * 0.00 (gasless) instead of hiding it.
+   */
+  sourceFeeGasless?: boolean
+  /** Exact fee the network charged for a separate approval transaction, when one was needed. */
+  approvalFee?: string
+  /** True when the gas was paid by a sponsorer (Circle Gas Station) instead of the user. */
+  feeSponsored?: boolean
 }
 
 export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
   type,
   title,
+  titleSubline,
   subtitle,
   status = 'success',
   onActionAgain,
@@ -145,7 +176,9 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
   // Metrics
   fee,
+  platformFee,
   gasFee,
+  rate,
   slippage,
   speedTier,
   netReceived,
@@ -153,6 +186,11 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
   // Verified on-chain fee + split
   actualGasUsdc,
+  networkFee,
+  destinationFee,
+  sourceFeeGasless = false,
+  approvalFee,
+  feeSponsored = false,
 
   // Extra type-specific payload
   apy,
@@ -318,6 +356,18 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               ? Droplets
               : Sparkles
 
+  // Source fee row: a real receipt-read gas value whenever one exists. A Gateway
+  // route has no source-side transaction at all (off-chain EIP-712 burn intent),
+  // so the row states 0.00 (gasless) with the reason instead of disappearing.
+  const showSourceFeeRow = Boolean(networkFee) || (sourceFeeGasless && type === 'bridge')
+  const sourceFeeLabel = type === 'bridge' ? 'Source Network Fee:' : 'Network Fee:'
+  const sourceFeeValue = networkFee ?? '0.00 USDC'
+  const sourceFeeTooltip = networkFee
+    ? type === 'bridge'
+      ? 'Actual gas paid for the source-chain bridge transaction, read from its mined receipt (gasUsed × effectiveGasPrice).'
+      : 'Exact fee charged by the network for this transaction, read from the mined receipt (gasUsed × effectiveGasPrice) — matches the block explorer.'
+    : 'Gateway Fast Transfer authorizes the source burn with an off-chain EIP-712 burn intent: your wallet never submits a source-chain transaction, so you pay no source gas. The mint gas actually paid on the destination chain is shown as the Destination Network Fee.'
+
   return (
     <div
       className="flex flex-col flex-1 justify-between animate-fade-in text-center py-2"
@@ -335,7 +385,10 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
         {/* Title & Subtitle */}
         <div>
-          <h3 className="text-2xl font-semibold text-white tracking-wide">{defaultTitle}</h3>
+          <h3 className="text-2xl font-semibold text-white tracking-wide">
+            {defaultTitle}
+            {titleSubline && <span className="block mt-1">{titleSubline}</span>}
+          </h3>
           <p className="text-sm text-slate-400 mt-1">{defaultSubtitle}</p>
         </div>
 
@@ -623,6 +676,14 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             </div>
           )}
 
+          {/* Exchange Rate (Swap) — was declared as a prop but never rendered (fix #8) */}
+          {type === 'swap' && rate && (
+            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+              <span>Exchange Rate:</span>
+              <span className="text-slate-200 font-mono text-[11px]">{rate}</span>
+            </div>
+          )}
+
           {/* Slippage Tolerance (Swap) */}
           {slippage && (
             <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
@@ -631,10 +692,15 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             </div>
           )}
 
-          {/* Fee / Gas Fee / Speed Tier */}
-          {feeDisplay ? (
+          {/* Protocol Fee (non-bridge receipts only) / Gas Fee / Speed Tier */}
+          {/* Bridge receipts never render a protocol-fee row: Circle's CCTP fee is
+              already reflected in Net Received, and the Bridge Fee row was removed
+              from the receipt per product decision. A bridge receipt shows at most
+              Platform Fee, the source-chain Network Fee, and the verified
+              Destination Network Fee read from the destination mint. */}
+          {type !== 'bridge' && feeDisplay ? (
             <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
-              <span>{type === 'bridge' ? 'Bridge Fee:' : 'Protocol Fee:'}</span>
+              <span>Protocol Fee:</span>
               <span className="text-slate-200 font-mono text-[11px]">{feeDisplay}</span>
             </div>
           ) : gasFee ? (
@@ -649,6 +715,17 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             </div>
           ) : null}
 
+          {/* Platform fee — its own stacked row, matching every other receipt.
+              A Gateway Fast bridge never carries one: it is a route Circle and Arc
+              provide end to end, so the row is suppressed here no matter which
+              caller renders the receipt. */}
+          {platformFee && !isGatewayBridge && (
+            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+              <span>Platform Fee:</span>
+              <span className="text-slate-200 font-mono text-[11px]">{platformFee}</span>
+            </div>
+          )}
+
           {/* Actual on-chain network fee (Copilot receipts) */}
           {actualGasUsdc != null && (
             <div
@@ -659,6 +736,54 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                 <span>Network Fee:</span>
                 <span className="text-slate-200 font-mono text-[11px]">{actualGasUsdc} USDC</span>
               </div>
+            </div>
+          )}
+
+          {/* Network fee — exact fee for receipt-verified sends; bridge receipts
+              carry the real gas paid on the source transaction (resolved from its
+              mined receipt), never an estimate. */}
+          {showSourceFeeRow ? (
+            <div
+              className="text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              title={sourceFeeTooltip}
+            >
+              <div className="flex items-center justify-between">
+                <span>{sourceFeeLabel}</span>
+                <span className="text-slate-200 font-mono text-[11px]">{sourceFeeValue}</span>
+              </div>
+            </div>
+          ) : feeSponsored ? (
+            <div
+              className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              title="Gas for this deposit was paid by the sponsorer (Circle Gas Station paymaster), so nothing was deducted from your wallet."
+            >
+              <span>Network Fee:</span>
+              <span className="text-emerald-300 font-medium">Sponsored</span>
+            </div>
+          ) : null}
+
+          {/* Destination-chain fee — the real gas charged for the destination
+              mint, in the destination chain's native token, resolved from the
+              mined mint receipt exactly like the source Network Fee. Shown only
+              once the mint is verified; never an estimate. */}
+          {destinationFee && (
+            <div
+              className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              title="Actual gas the destination chain charged for the mint transaction, read from its mined receipt (gasUsed × effectiveGasPrice). Forwarded transfers have this mint submitted and paid by Circle's Forwarding Service."
+            >
+              <span>Destination Network Fee:</span>
+              <span className="text-slate-200 font-mono text-[11px]">{destinationFee}</span>
+            </div>
+          )}
+
+          {/* Real network fee paid by the separate ERC-20 approval transaction */}
+          {approvalFee && (
+            <div
+              className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              title="Exact fee charged by the network for the token approval transaction, read from its mined receipt."
+            >
+              <span>Approval Fee:</span>
+              <span className="text-slate-200 font-mono text-[11px]">{approvalFee}</span>
             </div>
           )}
 
@@ -688,10 +813,10 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                     rel="noreferrer"
                     className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
                   >
-                    <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-300 transition-colors">
+                    <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-400 transition-colors">
                       {destExplorerName}
                     </span>
-                    <ArrowUpRightFromSquare className="w-3 h-3 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                    <ArrowUpRightFromSquare className="w-3 h-3 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                   </a>
                 </div>
               ) : (
@@ -714,15 +839,12 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                       href={effectiveSourceExplorerUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
+                      className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
                     >
-                      <span className="font-mono text-[11px] text-cyan-400 group-hover:text-cyan-300 font-semibold transition-colors">
-                        {primaryTxHash.slice(0, 8)}...{primaryTxHash.slice(-6)}
+                      <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-400 transition-colors">
+                        {sourceExplorerName}
                       </span>
-                      <span className="font-medium text-[11px] text-slate-400 group-hover:text-indigo-300 transition-colors">
-                        ({sourceExplorerName})
-                      </span>
-                      <ArrowUpRightFromSquare className="w-3 h-3 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                      <ArrowUpRightFromSquare className="w-3 h-3 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                     </a>
                   </div>
                 </div>
@@ -748,15 +870,12 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                         href={effectiveDestExplorerUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="group flex items-center gap-1.5 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
+                        className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
                       >
-                        <span className="font-mono text-[11px] text-cyan-400 group-hover:text-cyan-300 font-semibold transition-colors">
-                          {secondaryTxHash.slice(0, 8)}...{secondaryTxHash.slice(-6)}
+                        <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-400 transition-colors">
+                          {destExplorerName}
                         </span>
-                        <span className="font-medium text-[11px] text-slate-400 group-hover:text-indigo-300 transition-colors">
-                          ({destExplorerName})
-                        </span>
-                        <ArrowUpRightFromSquare className="w-3 h-3 group-hover:text-indigo-300 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                        <ArrowUpRightFromSquare className="w-3 h-3 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                       </a>
                     </div>
                   ) : (

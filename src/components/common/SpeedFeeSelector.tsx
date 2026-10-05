@@ -6,7 +6,7 @@ import { SPEED_TIERS, type SpeedTier } from '../../config/feeTiers'
 import {
   PROTOCOL_FEE_RATES,
   getSwapProtocolFeePercent,
-  getBridgeProtocolFee,
+  getBridgePlatformFeeDisplay,
 } from '../../config/treasuryConfig'
 
 interface SpeedFeeSelectorProps {
@@ -43,10 +43,14 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
 
   const getFeeInfo = (tier: SpeedTier) => {
     if (context === 'bridge') {
-      const fee = getBridgeProtocolFee(tier)
+      // Single source of truth: show the per-speed platform fee the Bridge tab
+      // actually charges for THIS tier (BRIDGE_CUSTOM_FEE_CONFIG ladder). The
+      // published per-tier rate schedule is never collected, and the Gateway
+      // (turbo) row reports "Free" because that route charges no platform fee.
+      const { amount, description } = getBridgePlatformFeeDisplay(tier)
       return {
-        amount: `${fee.toFixed(2)} USDC`,
-        desc: PROTOCOL_FEE_RATES.bridge[tier]?.description || 'Bridge fee',
+        amount,
+        desc: description,
       }
     }
     if (context === 'swap') {
