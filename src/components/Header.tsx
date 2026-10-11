@@ -406,7 +406,7 @@ export default function Header({
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('ucw')
                   setIsCircleMenuOpen((prev) => !prev)
                 }}
-                className="ub-action-btn ub-action-btn-primary w-40"
+                className="ub-action-btn primary w-40"
               >
                 <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
                   <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />

@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Ban,
   ChevronDown,
+  Save,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
@@ -43,11 +44,13 @@ import {
   getChainDisplayName,
   getChainIconId,
   BRIDGE_SELECTABLE_CHAINS,
+  resolveCanonicalChainKey,
 } from '../config/bridgeConfig'
 import {
   getBridgeFeeRecipient,
   isBridgePlatformFeeCharged,
   getBridgePlatformFeeValue,
+  BRIDGE_CUSTOM_FEE_CONFIG,
 } from '../config/treasuryConfig'
 import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants'
 import { formatFeeDecimals, CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
@@ -74,6 +77,8 @@ interface BridgeModalProps {
   provider: any // Injected EIP-1193 provider
   currentChainId: number
   authSource?: 'passkey' | 'ucw' | 'evm' | null
+  initialSourceChain?: string
+  initialChainNonce?: number
   executeUcwContract?: (params: {
     contractAddress: string
     abiFunctionSignature?: string
@@ -105,6 +110,8 @@ export default function BridgeModal({
   connectedAddress,
   provider,
   authSource,
+  initialSourceChain,
+  initialChainNonce,
   executeUcwContract,
   signTypedData,
   onSuccess,
@@ -133,8 +140,37 @@ export default function BridgeModal({
     setBridgeMode('direct')
   }
 
-  const [sourceChain, setSourceChain] = useState('Arc_Testnet')
-  const [destChain, setDestChain] = useState('Base_Sepolia')
+  const [sourceChain, setSourceChain] = useState(() => {
+    if (initialSourceChain) {
+      return resolveCanonicalChainKey(initialSourceChain)
+    }
+    return 'Arc_Testnet'
+  })
+  const [destChain, setDestChain] = useState(() => {
+    if (initialSourceChain) {
+      const canonical = resolveCanonicalChainKey(initialSourceChain)
+      if (canonical !== 'Arc_Testnet') {
+        return 'Arc_Testnet'
+      }
+    }
+    return 'Base_Sepolia'
+  })
+
+  // Sync sourceChain and destChain when initialSourceChain updates (e.g. from Portfolio quick action)
+  useEffect(() => {
+    if (initialSourceChain) {
+      const canonical = resolveCanonicalChainKey(initialSourceChain)
+      setSourceChain(canonical)
+      if (canonical === 'Arc_Testnet') {
+        // If bridging out of Arc Testnet, default destination to Base Sepolia
+        setDestChain('Base_Sepolia')
+      } else {
+        // If bridging from any external network (Base Sepolia, Ethereum Sepolia, etc.), destination is Arc Testnet
+        setDestChain('Arc_Testnet')
+      }
+    }
+  }, [initialSourceChain, initialChainNonce])
+
   const [amount, setAmount] = useState('')
   const [recipient, setRecipient] = useState('')
 
@@ -171,12 +207,10 @@ export default function BridgeModal({
 
   const activeBalance = bridgeMode === 'direct' ? sourceWalletBalance : sourceGatewayBalance
 
-  // Custom Platform Fee configuration from Arcis Treasury Fee Engine
-  // (.env: VITE_BRIDGE_FEE_ENABLED + the per-speed ladder VITE_BRIDGE_FEE_VALUE_STANDARD /
-  // _FAST / _TURBO, falling back to the flat VITE_BRIDGE_FEE_VALUE). Every charge
-  // surface below (requiredDebit, MAX reserve, App Kit customFee, breakdown, receipt)
-  // reads this one tiered value, so what is shown and what is debited cannot diverge.
-  const platformFeeAmount = getBridgePlatformFeeValue(speedTier)
+  // Dynamic Platform Fee configuration from Arcis Treasury Fee Engine
+  // (VITE_BRIDGE_FEE_BPS + VITE_BRIDGE_FEE_MIN_USDC + VITE_BRIDGE_FEE_MAX_USDC).
+  // Calculates volume-based fee with floor & ceiling: clamp(amount * bps / 10000, min, max).
+  const platformFeeAmount = getBridgePlatformFeeValue(amount)
   // One policy, one source: the fee is only charged — and only enforced against
   // the balance — where the execution path can actually collect it (Direct CCTP
   // via App Kit; never for UCW or the Gateway paths).
@@ -189,12 +223,10 @@ export default function BridgeModal({
   // What execution will debit on top of the entered amount. MAX and the
   // percentage chips must reserve both, otherwise clicking MAX is rejected as
   // INSUFFICIENT the moment it fills the field:
-  //   • Direct CCTP adds the flat platform fee to the debit.
-  //   • Gateway pre-flight requires balance ≥ amount + maxFee (1.0 USDC floor),
-  //     so the reserve is computed from the full balance — maxFee grows with the
-  //     amount, which never exceeds the balance.
+  //   • Direct CCTP reserves the platform fee calculated for the active balance.
+  //   • Gateway pre-flight requires balance ≥ amount + maxFee (1.0 USDC floor).
   const amountReserves = {
-    platformFeeUsdc: platformFeeCharged ? platformFeeAmount : 0,
+    platformFeeUsdc: platformFeeCharged ? getBridgePlatformFeeValue(activeBalance) : 0,
     gatewayMaxFeeUsdc:
       bridgeMode === 'gateway' ? gatewayMaxFeeUsdc(parseFloat(activeBalance) || 0) : 0,
   }
@@ -1226,12 +1258,12 @@ export default function BridgeModal({
           bridgeMode === 'gateway'
             ? '0.00 USDC'
             : sourceChain === 'Arc_Testnet'
-              ? '~0.000021 USDC'
+              ? `~${((150000 * SPEED_TIERS[speedTier].arcGas.maxFeePerGasGwei) / 1_000_000_000).toFixed(4)} USDC`
               : `< 0.001 ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}`,
       },
       {
         label: 'Platform Fee',
-        tooltip: 'Arcis platform routing fee for cross-chain transaction management.',
+        tooltip: `Arcis platform routing fee: ${(BRIDGE_CUSTOM_FEE_CONFIG.percentageBps / 100).toFixed(2)}% (Min ${BRIDGE_CUSTOM_FEE_CONFIG.minUsdc.toFixed(2)} USDC, Max ${BRIDGE_CUSTOM_FEE_CONFIG.maxUsdc.toFixed(2)} USDC cap). 90% supports Arcis treasury, 10% Arc ecosystem.`,
         value:
           platformFeeCharged && platformFeeAmount
             ? `${formatFeeDecimals(platformFeeAmount)} USDC`
@@ -1641,7 +1673,7 @@ export default function BridgeModal({
           setError(null)
           setIsCanceledError(false)
           if (c === destChain) {
-            const alternate = BRIDGE_SELECTABLE_CHAINS.find((sc) => sc !== c) || ''
+            const alternate = c === 'Arc_Testnet' ? 'Base_Sepolia' : 'Arc_Testnet'
             setDestChain(alternate)
           }
         }}
@@ -1660,7 +1692,7 @@ export default function BridgeModal({
           setError(null)
           setIsCanceledError(false)
           if (c === sourceChain) {
-            const alternate = BRIDGE_SELECTABLE_CHAINS.find((sc) => sc !== c) || ''
+            const alternate = c === 'Arc_Testnet' ? 'Base_Sepolia' : 'Arc_Testnet'
             setSourceChain(alternate)
           }
         }}
@@ -1698,7 +1730,7 @@ export default function BridgeModal({
                     <h3 className="text-base font-semibold text-white tracking-wide">
                       Bridge Settings
                     </h3>
-                    <p className="text-[11px] text-slate-400">Speed & fee preferences</p>
+                    <p className="text-[11px] text-slate-400">Execution speed and network gas priority</p>
                   </div>
                 </div>
                 <button
@@ -1724,9 +1756,10 @@ export default function BridgeModal({
               <button
                 type="button"
                 onClick={() => setShowSettings(false)}
-                className="w-full py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
               >
-                Save Settings
+                <Save className="w-4 h-4" />
+                <span>Save Settings</span>
               </button>
             </div>
           </div>,

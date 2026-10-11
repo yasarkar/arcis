@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
+import { useMultiChainWallet } from '../hooks/useMultiChainWallet'
 import {
   X,
   ArrowRightLeft,
   AlertTriangle,
   Settings,
-  Wallet,
-  Clipboard,
-  Edit3,
   ChevronDown,
   Ban,
   Clock,
+  Save,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -43,6 +42,7 @@ import {
 } from '../config/treasuryConfig'
 import {
   poolSlippageBps,
+  POOL_MAX_SLIPPAGE_BPS,
   STABLE_SWAP_LP_FEE_BPS,
   CONSTANT_PRODUCT_LP_FEE_BPS,
 } from '../config/poolsConfig'
@@ -59,6 +59,8 @@ import {
   TransactionBreakdown,
   FintechActionButton,
   SwapSuccessReceipt,
+  RecipientAddressField,
+  SwapPriceChartCard,
   type TokenItem,
   type BreakdownItem,
 } from './fintech'
@@ -79,6 +81,8 @@ interface SwapModalProps {
   provider: any
   currentChainId: number
   authSource?: 'passkey' | 'ucw' | 'evm' | null
+  initialChainKey?: string
+  initialChainNonce?: number
   executeUcwContract?: (params: {
     contractAddress: string
     abiFunctionSignature?: string
@@ -100,16 +104,30 @@ export default function SwapModal({
   connectedAddress,
   provider,
   authSource,
+  initialChainKey,
+  initialChainNonce,
   executeUcwContract,
   onSuccess,
 }: SwapModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
+  const { solana, injective } = useMultiChainWallet()
   const queryClient = useQueryClient()
   const [isPrivateSwap, setIsPrivateSwap] = useState(false)
 
   // Dynamic Chain Selector
-  const [selectedChain, setSelectedChain] = useState('Arc_Testnet')
+  const [selectedChain, setSelectedChain] = useState(initialChainKey || 'Arc_Testnet')
   const [showChainModal, setShowChainModal] = useState(false)
+
+  // Sync selectedChain when initialChainKey updates (e.g. from Portfolio quick action)
+  useEffect(() => {
+    if (initialChainKey) {
+      if (authSource === 'ucw' && initialChainKey !== 'Arc_Testnet') {
+        setSelectedChain('Arc_Testnet')
+      } else {
+        setSelectedChain(initialChainKey)
+      }
+    }
+  }, [initialChainKey, initialChainNonce, authSource])
 
   // Enforce Arc Testnet when UCW wallet is connected
   useEffect(() => {
@@ -127,6 +145,7 @@ export default function SwapModal({
 
   // Routing State
   const fromChain = selectedChain
+  const isArcNativeSwap = fromChain === 'Arc_Testnet'
 
   const [tokenIn, setTokenIn] = useState('USDC')
   const [tokenOut, setTokenOut] = useState('EURC')
@@ -136,23 +155,11 @@ export default function SwapModal({
   // Settings & Slippage
   const [showSettings, setShowSettings] = useState(false)
   const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>('0.5')
+  const lastPresetSlippageRef = useRef<'0.1' | '0.5' | '1.0'>('0.5')
   const [customSlippage, setCustomSlippage] = useState('')
 
-  // Custom Recipient Address
-  const [useCustomRecipient, setUseCustomRecipient] = useState(false)
-  const [customRecipient, setCustomRecipient] = useState('')
-  const [recipientError, setRecipientError] = useState<string | null>(null)
-  const [isEditingRecipient, setIsEditingRecipient] = useState(false)
-  const recipientInputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (isEditingRecipient) {
-      const timer = setTimeout(() => {
-        recipientInputRef.current?.focus()
-      }, 50)
-      return () => clearTimeout(timer)
-    }
-  }, [isEditingRecipient])
+  // Recipient Address (Matching BridgeModal exactly)
+  const [recipient, setRecipient] = useState('')
 
   const formatAddress = (addr: string) => (addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : '')
 
@@ -189,13 +196,10 @@ export default function SwapModal({
   // Systematic input and state clearing on wallet disconnect
   const resetFormInputs = useCallback(() => {
     setAmountIn('')
-    setCustomRecipient('')
-    setRecipientError(null)
+    setRecipient('')
     setStopLimit('')
     setCustomSlippage('')
     setSelectedSlippageType('0.5')
-    setUseCustomRecipient(false)
-    setIsEditingRecipient(false)
     setEstimatedOutput('')
     setRate('')
     setQuoteFees([])
@@ -217,7 +221,7 @@ export default function SwapModal({
     }
   }, [connectedAddress, resetFormInputs])
 
-  // Slippage tolerance calculation — clamped to the pool-safe [0.1%, 10%] band (fix #5) so a
+  // Slippage tolerance calculation — clamped to the pool-safe [0.1%, 2%] band (O3) so a
   // custom value can never produce a negative min-out. Invalid/empty input falls back to 0.5%.
   const slippageTolerance = useMemo(() => {
     const percent =
@@ -225,7 +229,8 @@ export default function SwapModal({
     return poolSlippageBps(percent) / 10000
   }, [selectedSlippageType, customSlippage])
 
-  const isHighSlippageWarning = selectedSlippageType === 'custom' && parseFloat(customSlippage) > 5.0
+  const isHighSlippageWarning =
+    selectedSlippageType === 'custom' && parseFloat(customSlippage) > POOL_MAX_SLIPPAGE_BPS / 100 * 0.75
 
   // Speed & Network Execution Priority
   const [speedTier, setSpeedTier] = useState<SpeedTier>('fast')
@@ -254,13 +259,23 @@ export default function SwapModal({
     return formatFeeDecimals(rawPlatformFeeNum, 2)
   }, [rawPlatformFeeNum, tokenIn])
 
-  // Validation
+  // Address Validation (Matching BridgeModal exactly)
   const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
-  const recipientIsValid = useCustomRecipient ? isValidEvmAddress(customRecipient) : false
-  const recipientIsOwnAddress =
-    useCustomRecipient && connectedAddress && customRecipient.toLowerCase() === connectedAddress.toLowerCase()
+  const isValidSolanaAddress = (addr: string): boolean =>
+    !addr.startsWith('0x') && addr.length >= 32 && addr.length <= 44
+  const isValidInjectiveAddress = (addr: string): boolean =>
+    addr.startsWith('inj1') && addr.length >= 38
 
-  const effectiveRecipient = useCustomRecipient && recipientIsValid ? customRecipient : connectedAddress
+  const isDestSolana = selectedChain.toLowerCase().includes('solana')
+  const isDestInjective = selectedChain.toLowerCase().includes('injective')
+
+  const recipientIsValid = useMemo(() => {
+    if (!recipient) return false
+    if (isDestSolana) return isValidSolanaAddress(recipient)
+    if (isDestInjective) return isValidInjectiveAddress(recipient)
+    return isValidEvmAddress(recipient)
+  }, [recipient, isDestSolana, isDestInjective])
+
   const supportedChains = useMemo(() => getSupportedSwapChains(), [])
 
   // When UCW wallet is connected: Arc Testnet is prioritized at the top and selected,
@@ -306,10 +321,7 @@ export default function SwapModal({
       setSpeedTier('fast')
       setSelectedSlippageType('0.5')
       setCustomSlippage('')
-      setIsEditingRecipient(false)
-      setUseCustomRecipient(false)
-      setCustomRecipient('')
-      setRecipientError(null)
+      setRecipient('')
       setSelectedChain('Arc_Testnet')
       setShowChainModal(false)
     }
@@ -327,20 +339,6 @@ export default function SwapModal({
     }
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showSettings])
-
-  const handlePasteCustomRecipient = async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (text) {
-        const trimmed = text.trim()
-        setCustomRecipient(trimmed)
-        setUseCustomRecipient(isValidEvmAddress(trimmed))
-        setRecipientError(null)
-      }
-    } catch (err) {
-      console.error('[SwapModal] Failed to read clipboard:', err)
-    }
-  }
 
   // Load wallet balances
   const { walletBalances, refetch: refetchWalletBalances } = useWalletTestnetBalances(connectedAddress)
@@ -374,7 +372,6 @@ export default function SwapModal({
   const flooredBalance = floorToPlaces(parseFloat(tokenInBalance), tokenInPlaces)
   const maxSpendable = computeMaxSpendable(tokenInBalance, tokenInPlaces, reservesGasBuffer)
 
-  const isArcNativeSwap = fromChain === 'Arc_Testnet'
   const amountInNum = parseFloat(amountIn)
   const isInsufficient = amountIn ? amountInNum > maxSpendable + 1e-9 : false
   // Distinguishes "you tried to swap your entire balance" from a plain insufficient balance so
@@ -451,7 +448,7 @@ export default function SwapModal({
           tokenOut,
           amountIn,
           sourceAdapter,
-          recipientAddress: effectiveRecipient,
+          recipientAddress: recipient || connectedAddress,
           slippageTolerance,
           allowanceStrategy,
           authSource,
@@ -499,7 +496,8 @@ export default function SwapModal({
     speedTier,
     platformFeeBps,
     platformFeeEnabled,
-    effectiveRecipient,
+    recipient,
+    connectedAddress,
   ])
 
   // ── Receipt enrichment (fix #8): read the real received amount and the exact network fee
@@ -530,7 +528,16 @@ export default function SwapModal({
       try {
         const fee = await resolveArcActualFeeUsdc(txHash)
         if (fee?.feeUsdc != null && Number.isFinite(fee.feeUsdc)) {
-          actuals.networkFee = `${fee.feeUsdc} USDC`
+          const feeVal = fee.feeUsdc
+          const formattedFee =
+            feeVal > 0 && feeVal < 0.00001
+              ? '< 0.00001'
+              : parseFloat(feeVal.toFixed(5)).toString()
+          const safeFeeStr =
+            formattedFee.includes('.') && formattedFee.split('.')[1].length < 2
+              ? Number(formattedFee).toFixed(2)
+              : formattedFee
+          actuals.networkFee = `${safeFeeStr} USDC`
         }
       } catch (feeErr) {
         console.warn('[SwapModal] Actual network fee lookup failed:', feeErr)
@@ -590,7 +597,7 @@ export default function SwapModal({
               : undefined,
             slippage: `${(slippageTolerance * 100).toFixed(1)}%`,
             speedTier: speedTier.charAt(0).toUpperCase() + speedTier.slice(1),
-            fee: platformFeeAmount ? `${platformFeeAmount} ${p.tokenIn}` : undefined,
+            fee: platformFeeAmount ? `${platformFeeAmount} ${p.tokenIn} (${platformFeePercent})` : undefined,
           })
           updateBroadcast(pending.broadcastId, {
             type: 'swap',
@@ -729,6 +736,23 @@ export default function SwapModal({
     setIsCanceledError(false)
     setSuccessData(null)
 
+    const targetRecipient = recipient.trim()
+    if (!targetRecipient) {
+      setError('Please enter a recipient address')
+      return
+    }
+
+    if (!recipientIsValid) {
+      if (isDestSolana) {
+        setError('Please enter a valid Solana recipient address (Base58)')
+      } else if (isDestInjective) {
+        setError('Please enter a valid Injective recipient address (inj1...)')
+      } else {
+        setError('Please enter a valid EVM recipient address (0x...)')
+      }
+      return
+    }
+
     if (tokenIn === tokenOut) {
       setError('Source and destination tokens must be different for same-chain swaps.')
       setIsCanceledError(false)
@@ -740,23 +764,6 @@ export default function SwapModal({
       setError('Please enter a valid amount')
       setIsCanceledError(false)
       return
-    }
-
-    if (useCustomRecipient) {
-      if (!isValidEvmAddress(customRecipient)) {
-        setRecipientError('Please enter a valid EVM address (0x followed by 40 hex characters).')
-        return
-      }
-      if (recipientIsOwnAddress) {
-        setRecipientError('This address is identical to your connected wallet. Please specify a different recipient.')
-        return
-      }
-      // ArcisSwapRouter / StableSwapPool deliver the output to the caller (msg.sender) — there is
-      // no recipient parameter. Refuse the swap instead of showing a recipient that would be ignored.
-      if (isArcNativeSwap && recipientIsValid && !recipientIsOwnAddress) {
-        setError('Arc Testnet pool swaps always deliver the output to the connected wallet — the on-chain router has no recipient parameter. Clear the custom recipient, or use your own address as the destination.')
-        return
-      }
     }
 
     setIsSwapping(true)
@@ -810,7 +817,7 @@ export default function SwapModal({
         amountIn,
         sourceAdapter,
         senderAddress: connectedAddress,
-        recipientAddress: effectiveRecipient,
+        recipientAddress: targetRecipient,
         slippageTolerance,
         allowanceStrategy,
         speedTier,
@@ -833,7 +840,7 @@ export default function SwapModal({
           tokenOut,
           txHash: finalStatus.sourceTxHash,
           destTxHash: finalStatus.destinationTxHash,
-          recipient: effectiveRecipient,
+          recipient: targetRecipient,
           rate: rate
             ? `1 ${tokenIn} = ${rate} ${tokenOut}`
             : amountIn && estimatedOutput
@@ -841,7 +848,7 @@ export default function SwapModal({
             : undefined,
           slippage: `${(slippageTolerance * 100).toFixed(1)}%`,
           speedTier: speedTier.charAt(0).toUpperCase() + speedTier.slice(1),
-          fee: platformFeeAmount ? `${platformFeeAmount} ${tokenIn}` : undefined,
+          fee: platformFeeAmount ? `${platformFeeAmount} ${tokenIn} (${platformFeePercent})` : undefined,
         })
 
         updateBroadcast(broadcastId, {
@@ -875,7 +882,7 @@ export default function SwapModal({
           amount: amountIn,
           tokenSymbol: tokenIn,
           sourceChain: fromChain,
-          recipient: effectiveRecipient,
+          recipient: targetRecipient,
           userAddress: connectedAddress,
           status: 'success',
           amountIn,
@@ -893,7 +900,7 @@ export default function SwapModal({
           amountIn,
           tokenIn,
           tokenOut,
-          recipient: effectiveRecipient,
+          recipient: targetRecipient,
         }).then((actuals) => {
           if (!actuals.actualAmountOut && !actuals.networkFee) return
           setSuccessData((prev: any) =>
@@ -930,7 +937,7 @@ export default function SwapModal({
               amountOut: estimatedOutput,
               tokenIn,
               tokenOut,
-              recipient: effectiveRecipient,
+              recipient: targetRecipient,
             },
           })
           pendingPollCancelRef.current = false
@@ -970,7 +977,7 @@ export default function SwapModal({
             amount: amountIn,
             tokenSymbol: tokenIn,
             sourceChain: fromChain,
-            recipient: effectiveRecipient,
+            recipient: targetRecipient,
             userAddress: connectedAddress,
             status: 'pending',
             amountIn,
@@ -990,7 +997,7 @@ export default function SwapModal({
             stage: pendingStage,
             message: pendingMessage,
             broadcastId,
-            payload: { amountIn, amountOut: estimatedOutput, tokenIn, tokenOut, recipient: effectiveRecipient },
+            payload: { amountIn, amountOut: estimatedOutput, tokenIn, tokenOut, recipient: targetRecipient },
           })
         }
       } else {
@@ -1090,10 +1097,14 @@ export default function SwapModal({
         ? '< 500 ms (Instant)'
         : `${tierConfig.timeEstimate.swap} (${tierConfig.label})`
 
-    const networkFeeValue =
+    const rawNetworkFeeValue =
       fromChain === 'Arc_Testnet'
         ? `~${tierConfig.arcGas?.estimatedCostUsdc || '0.00053'} USDC`
         : '< 0.001 ETH'
+    const networkFeeValue = rawNetworkFeeValue.replace(/(\d+)\.(\d{6,})/g, (_m, intPart, decPart) => {
+      const rounded = (Math.round(parseFloat(`${intPart}.${decPart}`) * 1e5) / 1e5).toFixed(5)
+      return parseFloat(rounded).toString()
+    })
 
     const items: BreakdownItem[] = [
       {
@@ -1105,8 +1116,6 @@ export default function SwapModal({
         label: 'Min. Received',
         tooltip: 'The guaranteed minimum amount you will receive after maximum slippage tolerance.',
         value: `${stopLimit} ${tokenOut}`,
-        highlight: true,
-        highlightColor: 'text-indigo-400',
       },
       {
         label: 'Slippage Tolerance',
@@ -1195,8 +1204,11 @@ export default function SwapModal({
     if (estimateError) {
       return { disabled: true, text: 'SWAP ROUTE UNAVAILABLE', loading: false }
     }
-    if (useCustomRecipient && (!isValidEvmAddress(customRecipient) || recipientIsOwnAddress)) {
-      return { disabled: true, text: 'ENTER VALID DESTINATION', loading: false }
+    if (!recipient) {
+      return { disabled: true, text: 'ENTER RECIPIENT ADDRESS', loading: false }
+    }
+    if (!recipientIsValid) {
+      return { disabled: true, text: 'INVALID RECIPIENT ADDRESS', loading: false }
     }
     if (isSwapping) {
       return {
@@ -1223,13 +1235,58 @@ export default function SwapModal({
     isShortOnlyByGasBuffer,
     isEstimating,
     estimateError,
-    useCustomRecipient,
-    customRecipient,
-    recipientIsOwnAddress,
+    recipient,
+    recipientIsValid,
     isSwapping,
   ])
 
   if (!isOpen && !isInline) return null
+
+  // Quick fill recipient badges (Matching BridgeModal exactly)
+  const recipientBadge = (
+    <div className="flex items-center gap-1.5">
+      {isDestSolana && solana.isConnected && solana.address && (
+        <button
+          type="button"
+          onClick={() => {
+            setRecipient(solana.address)
+            setError(null)
+          }}
+          className="text-[10px] text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition select-none"
+        >
+          <NetworkIcon name="solana" size={11} variant="branded" />
+          <span>Solana ({solana.address.slice(0, 4)}...{solana.address.slice(-4)})</span>
+        </button>
+      )}
+
+      {isDestInjective && injective.isConnected && injective.address && (
+        <button
+          type="button"
+          onClick={() => {
+            setRecipient(injective.address)
+            setError(null)
+          }}
+          className="text-[10px] text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition select-none"
+        >
+          <NetworkIcon name="injective" size={11} variant="branded" />
+          <span>Injective ({injective.address.slice(0, 6)}...{injective.address.slice(-4)})</span>
+        </button>
+      )}
+
+      {!isDestSolana && !isDestInjective && connectedAddress && !recipient && (
+        <button
+          type="button"
+          onClick={() => {
+            setRecipient(connectedAddress)
+            setError(null)
+          }}
+          className="text-[10px] text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition select-none"
+        >
+          <span>Use Connected Wallet</span>
+        </button>
+      )}
+    </div>
+  )
 
   // Header Actions (Network Selector Pill + Privacy + Settings + Close)
   const headerActions = (
@@ -1442,95 +1499,26 @@ export default function SwapModal({
             />
           </div>
 
-          {/* Destination Address Pill & Collapsible Field */}
-          <div className="rounded-xl bg-[#101323]/50 border border-white/[0.04] p-2.5 transition-all">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1.5 text-slate-400">
-                <Wallet className="w-3.5 h-3.5 text-slate-400" />
-                <span className="text-[12px]">To:</span>
-                <span className="font-mono text-slate-200 text-[12px]">
-                  {useCustomRecipient && recipientIsValid
-                    ? formatAddress(customRecipient)
-                    : formatAddress(connectedAddress) || 'Connected Wallet'}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsEditingRecipient((prev) => !prev)}
-                className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer transition-colors"
-              >
-                <Edit3 className="w-3 h-3" />
-                <span>{isEditingRecipient ? 'Hide' : 'Change'}</span>
-              </button>
-            </div>
-
-            {/* Custom Recipient Expanded Drawer */}
-            {isEditingRecipient && (
-              <div className="mt-2.5 pt-2 border-t border-white/[0.06] space-y-1.5 animate-fade-in">
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  {customRecipient && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCustomRecipient('')
-                        setUseCustomRecipient(false)
-                        setRecipientError(null)
-                      }}
-                      className="text-slate-500 hover:text-slate-300 cursor-pointer"
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-
-                <div className="relative flex items-center">
-                  <input
-                    ref={recipientInputRef}
-                    type="text"
-                    placeholder="0x..."
-                    value={customRecipient}
-                    onChange={(e) => {
-                      const val = e.target.value.trim()
-                      setCustomRecipient(val)
-                      setUseCustomRecipient(isValidEvmAddress(val))
-                      setRecipientError(null)
-                    }}
-                    className={`w-full rounded-xl pl-3 pr-14 py-2 text-xs text-white font-mono focus:outline-none transition-all ${
-                      recipientError
-                        ? 'bg-rose-500/10 border border-rose-500/40'
-                        : recipientIsValid
-                        ? 'bg-white/[0.04] border border-emerald-500/50'
-                        : 'bg-white/[0.04] border border-white/[0.08] focus:border-indigo-500/50'
-                    }`}
-                  />
-                  <div className="absolute right-2 flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={handlePasteCustomRecipient}
-                      className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
-                      title="Paste from clipboard"
-                    >
-                      <Clipboard className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {recipientError && (
-                  <p className="text-[10px] text-rose-400">{recipientError}</p>
-                )}
-
-                {isArcNativeSwap && (
-                  <p className="text-[10px] text-amber-400/90 leading-relaxed flex items-start gap-1.5">
-                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-                    <span>
-                      Arc Testnet pool swaps deliver the output to the connected wallet (the on-chain router has no
-                      recipient parameter), so a custom recipient will be rejected.
-                    </span>
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Recipient Address Field */}
+          <RecipientAddressField
+            value={recipient}
+            onChange={(val) => {
+              setRecipient(val)
+              setError(null)
+              setIsCanceledError(false)
+            }}
+            label="RECIPIENT ADDRESS"
+            placeholder={
+              isDestSolana
+                ? '9WzD....'
+                : isDestInjective
+                ? 'inj1....'
+                : '0x....'
+            }
+            isValid={recipientIsValid}
+            disabled={isSwapping || !!pendingSwap}
+            rightBadge={recipientBadge}
+          />
 
           {/* Live Quote & Fee Breakdown Accordion */}
           {breakdownItems.length > 0 && (
@@ -1628,7 +1616,7 @@ export default function SwapModal({
                   </div>
                   <div>
                     <h3 className="text-base font-semibold text-white tracking-wide">
-                      Transaction Settings
+                      Swap Settings
                     </h3>
                     <p className="text-[11px] text-slate-400">Slippage and execution preferences</p>
                   </div>
@@ -1662,6 +1650,7 @@ export default function SwapModal({
                         key={type}
                         type="button"
                         onClick={() => {
+                          lastPresetSlippageRef.current = type
                           setSelectedSlippageType(type)
                           setCustomSlippage('')
                         }}
@@ -1676,7 +1665,14 @@ export default function SwapModal({
                     ))}
                     <button
                       type="button"
-                      onClick={() => setSelectedSlippageType('custom')}
+                      onClick={() => {
+                        if (selectedSlippageType === 'custom') {
+                          setSelectedSlippageType(lastPresetSlippageRef.current)
+                          setCustomSlippage('')
+                        } else {
+                          setSelectedSlippageType('custom')
+                        }
+                      }}
                       className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
                         selectedSlippageType === 'custom'
                           ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm'
@@ -1694,8 +1690,8 @@ export default function SwapModal({
                           type="number"
                           step="0.1"
                           min="0.01"
-                          max="50"
-                          placeholder="e.g. 2.5"
+                          max={POOL_MAX_SLIPPAGE_BPS / 100}
+                          placeholder="e.g. 1.5"
                           value={customSlippage}
                           onChange={(e) => setCustomSlippage(e.target.value)}
                           autoFocus
@@ -1730,9 +1726,10 @@ export default function SwapModal({
               <button
                 type="button"
                 onClick={() => setShowSettings(false)}
-                className="w-full py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
               >
-                Save Settings
+                <Save className="w-4 h-4" />
+                <span>Save Settings</span>
               </button>
             </div>
           </div>,
@@ -1743,16 +1740,32 @@ export default function SwapModal({
   if (isInline) {
     return (
       <>
-        {content}
+        <div className="flex flex-col xl:flex-row items-center xl:items-start justify-center gap-6 w-full max-w-7xl mx-auto px-2 sm:px-4">
+          <SwapPriceChartCard
+            tokenIn={tokenIn}
+            tokenOut={tokenOut}
+            isInline={isInline}
+          />
+          {content}
+        </div>
         {settingsModalWindow}
       </>
     )
   }
 
+  if (!isOpen) return null
+
   return (
     <>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-        {content}
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md overflow-y-auto">
+        <div className="flex flex-col xl:flex-row items-center xl:items-start justify-center gap-6 w-full max-w-7xl mx-auto my-auto py-4">
+          <SwapPriceChartCard
+            tokenIn={tokenIn}
+            tokenOut={tokenOut}
+            isInline={false}
+          />
+          {content}
+        </div>
       </div>
       {settingsModalWindow}
     </>

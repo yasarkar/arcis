@@ -19,6 +19,10 @@ import {
   ChevronRight,
   FileText,
   Bot,
+  PlusCircle,
+  MinusCircle,
+  Coins,
+  Layers,
 } from 'lucide-react'
 import {
   getHistory,
@@ -353,7 +357,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
   const [isLoading, setIsLoading] = useState<boolean>(() =>
     Boolean(activeWalletAddress && !isHistoryLoaded(activeWalletAddress))
   )
-  const [filter, setFilter] = useState<'all' | 'send' | 'swap' | 'bridge' | 'deposit' | 'memo'>('all')
+  const [filter, setFilter] = useState<'all' | 'send' | 'swap' | 'bridge' | 'deposit' | 'pool' | 'add_liquidity' | 'remove_liquidity' | 'harvest' | 'memo'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [hoveredRecipient, setHoveredRecipient] = useState<string | null>(null)
@@ -594,18 +598,20 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
   const getAmountDetail = (item: HistoryItem) => {
     if (globalPrivate || item.isPrivate) {
       return (
-        <Tooltip content="APS Encrypted Transaction" position="top">
-          <span className="font-mono text-white tracking-wider font-semibold cursor-help">
-            <span>{settings.maskSymbol}</span>
-          </span>
-        </Tooltip>
+        <div className="flex items-center justify-center">
+          <Tooltip content="APS Encrypted Transaction" position="top">
+            <span className="font-mono text-white tracking-wider font-semibold cursor-help">
+              <span>{settings.maskSymbol}</span>
+            </span>
+          </Tooltip>
+        </div>
       )
     }
 
     switch (item.type) {
       case 'send':
         return (
-          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
             <span>{formatAmountDisplay(item.amount)}</span>
             <RenderTokenIcon symbol={item.tokenSymbol} />
           </span>
@@ -613,7 +619,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
       case 'swap':
         if (item.amountIn && item.amountOut) {
           return (
-            <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+            <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
               <span>{formatAmountDisplay(item.amountIn)}</span>
               <RenderTokenIcon symbol={item.tokenIn} />
               <span className="text-[var(--secondary-colors--sky-sync)] text-[10px]">{"→"}</span>
@@ -623,28 +629,28 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
           )
         }
         return (
-          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
             <span>{formatAmountDisplay(item.amount)}</span>
             <RenderTokenIcon symbol={item.tokenSymbol} />
           </span>
         )
       case 'bridge':
         return (
-          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
             <span>{formatAmountDisplay(item.amount)}</span>
             <RenderTokenIcon symbol={item.tokenSymbol} />
           </span>
         )
       case 'deposit':
         return (
-          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
             <span>{formatAmountDisplay(item.amount)}</span>
             <RenderTokenIcon symbol={item.tokenSymbol} />
           </span>
         )
       case 'ai_service':
         return (
-          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center gap-1.5">
+          <span className="font-bold text-white font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
             <span>{formatAmountDisplay(item.amount)}</span>
             <RenderTokenIcon symbol="USDC" />
             {item.serviceName && (
@@ -654,30 +660,120 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
             )}
           </span>
         )
+      case 'add_liquidity':
+        if (item.amountB && item.tokenB) {
+          return (
+            <div className="flex flex-col items-center justify-center text-center">
+              <span className="font-bold text-emerald-400 font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1">
+                <span>+{formatAmountDisplay(item.amount)}</span>
+                <RenderTokenIcon symbol={item.tokenSymbol} />
+                <span className="text-slate-400 font-normal text-[11px]">+</span>
+                <span>{formatAmountDisplay(item.amountB)}</span>
+                <RenderTokenIcon symbol={item.tokenB} />
+              </span>
+              {item.poolName && (
+                <span className="text-[10px] text-emerald-300/80 font-mono font-medium truncate max-w-[140px] text-center">
+                  {item.poolName}
+                </span>
+              )}
+            </div>
+          )
+        }
+        return (
+          <div className="flex flex-col items-center justify-center text-center">
+            <span className="font-bold text-emerald-400 font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
+              <span>+{formatAmountDisplay(item.amount)}</span>
+              <RenderTokenIcon symbol={item.tokenSymbol} />
+            </span>
+            {item.poolName && (
+              <span className="text-[10px] text-emerald-300/80 font-mono font-medium truncate max-w-[140px] text-center">
+                {item.poolName}
+              </span>
+            )}
+          </div>
+        )
+      case 'remove_liquidity':
+        return (
+          <div className="flex flex-col items-center justify-center text-center">
+            <span className="font-bold text-rose-400 font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
+              <span>-{formatAmountDisplay(item.amount)}</span>
+              <RenderTokenIcon symbol={item.tokenSymbol} />
+            </span>
+            {item.poolName && (
+              <span className="text-[10px] text-rose-300/80 font-mono font-medium truncate max-w-[140px] text-center">
+                {item.poolName}
+              </span>
+            )}
+          </div>
+        )
+      case 'harvest':
+        return (
+          <div className="flex flex-col items-center justify-center text-center">
+            <span className="font-bold text-amber-300 font-[var(--fonts--space-grotesk)] flex items-center justify-center gap-1.5">
+              <span>+{formatAmountDisplay(item.amount)}</span>
+              <RenderTokenIcon symbol={item.tokenSymbol || 'USDC'} />
+            </span>
+            {item.poolName && (
+              <span className="text-[10px] text-amber-400/80 font-mono font-medium truncate max-w-[140px] text-center">
+                {item.poolName}
+              </span>
+            )}
+          </div>
+        )
     }
   }
 
   const getRecipientTarget = (item: HistoryItem) => {
     if (globalPrivate || item.isPrivate) {
-      return <span className="font-mono text-white tracking-wider font-semibold w-1/5 px-8 py-3.5 truncate">*****</span>
+      return (
+        <div className="flex items-center justify-center">
+          <span className="font-mono text-white tracking-wider font-semibold truncate">*****</span>
+        </div>
+      )
+    }
+    if (item.poolName && (item.type === 'add_liquidity' || item.type === 'remove_liquidity' || item.type === 'harvest')) {
+      const targetChain = item.sourceChain || 'Arc_Testnet'
+      const explorerUrl = item.recipient ? getAddressExplorerLink(item.recipient, targetChain) : undefined
+      return (
+        <div className="flex items-center justify-center">
+          <a
+            href={explorerUrl || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-lg font-mono text-xs text-slate-300 hover:text-white hover:bg-white/[0.08] hover:border-white/20 border border-transparent transition-all group/recip cursor-pointer truncate max-w-full"
+            title={explorerUrl}
+          >
+            <span className="truncate max-w-[130px] font-sans font-medium text-slate-200">{item.poolName}</span>
+            <ExternalLink className="w-3 h-3 text-slate-500 group-hover/recip:text-[var(--purple-1)] transition-colors opacity-70 group-hover/recip:opacity-100 shrink-0" />
+          </a>
+        </div>
+      )
     }
     if (item.type === 'bridge' && item.destChain && !item.recipient) {
       return (
-        <span className="bg-[rgba(47,87,140,0.3)] text-[var(--secondary-colors--sky-sync)] border border-[rgba(172,198,233,0.3)] text-[10px] font-bold px-2 py-0.5 rounded font-[var(--fonts--space-mono)]">
-          {formatChain(item.destChain)}
-        </span>
+        <div className="flex items-center justify-center">
+          <span className="bg-[rgba(47,87,140,0.3)] text-[var(--secondary-colors--sky-sync)] border border-[rgba(172,198,233,0.3)] text-[10px] font-bold px-2 py-0.5 rounded font-[var(--fonts--space-mono)]">
+            {formatChain(item.destChain)}
+          </span>
+        </div>
       )
     }
 
     if (!item.recipient) {
       if (item.destChain) {
         return (
-          <span className="bg-[rgba(47,87,140,0.3)] text-[var(--secondary-colors--sky-sync)] border border-[rgba(172,198,233,0.3)] text-[10px] font-bold px-2 py-0.5 rounded font-[var(--fonts--space-mono)]">
-            {formatChain(item.destChain)}
-          </span>
+          <div className="flex items-center justify-center">
+            <span className="bg-[rgba(47,87,140,0.3)] text-[var(--secondary-colors--sky-sync)] border border-[rgba(172,198,233,0.3)] text-[10px] font-bold px-2 py-0.5 rounded font-[var(--fonts--space-mono)]">
+              {formatChain(item.destChain)}
+            </span>
+          </div>
         )
       }
-      return <span className="text-slate-500 font-mono text-xs">-</span>
+      return (
+        <div className="flex items-center justify-center">
+          <span className="text-slate-500 font-mono text-xs">-</span>
+        </div>
+      )
     }
 
     const normRecipient = item.recipient.toLowerCase()
@@ -686,22 +782,24 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
     const explorerUrl = getAddressExplorerLink(item.recipient, targetChain)
 
     return (
-      <a
-        href={explorerUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        onMouseEnter={() => setHoveredRecipient(normRecipient)}
-        onMouseLeave={() => setHoveredRecipient(null)}
-        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-mono text-xs transition-all duration-300 select-none group/recip cursor-pointer ${
-          isMatch
-            ? 'text-white bg-[rgba(152,150,255,0.3)] border border-[rgba(152,150,255,0.65)] shadow-[0_0_14px_rgba(152,150,255,0.5)] ring-1 ring-[rgba(152,150,255,0.4)] scale-105 font-bold'
-            : 'text-slate-300 hover:text-white hover:bg-white/[0.08] hover:border-white/20 border border-transparent'
-        }`}
-        title={explorerUrl}
-      >
-        <span>{formatAddress(item.recipient)}</span>
-        <ExternalLink className="w-3 h-3 text-slate-500 group-hover/recip:text-[var(--purple-1)] transition-colors opacity-70 group-hover/recip:opacity-100 shrink-0" />
-      </a>
+      <div className="flex items-center justify-center">
+        <a
+          href={explorerUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onMouseEnter={() => setHoveredRecipient(normRecipient)}
+          onMouseLeave={() => setHoveredRecipient(null)}
+          className={`inline-flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-lg font-mono text-xs transition-all duration-300 select-none group/recip cursor-pointer ${
+            isMatch
+              ? 'text-white bg-[rgba(152,150,255,0.3)] border border-[rgba(152,150,255,0.65)] shadow-[0_0_14px_rgba(152,150,255,0.5)] ring-1 ring-[rgba(152,150,255,0.4)] scale-105 font-bold'
+              : 'text-slate-300 hover:text-white hover:bg-white/[0.08] hover:border-white/20 border border-transparent'
+          }`}
+          title={explorerUrl}
+        >
+          <span>{formatAddress(item.recipient)}</span>
+          <ExternalLink className="w-3 h-3 text-slate-500 group-hover/recip:text-[var(--purple-1)] transition-colors opacity-70 group-hover/recip:opacity-100 shrink-0" />
+        </a>
+      </div>
     )
   }
 
@@ -818,6 +916,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
 
     if (filter === 'memo') {
       if (!item.memo) return false
+    } else if (filter === 'pool') {
+      if (item.type !== 'add_liquidity' && item.type !== 'remove_liquidity' && item.type !== 'harvest') return false
     } else if (filter !== 'all' && item.type !== filter) {
       return false
     }
@@ -830,7 +930,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
       const matchesRecipient = item.recipient?.toLowerCase().includes(term)
       const matchesMemo = item.memo?.toLowerCase().includes(term)
       const matchesMemoId = item.memoId?.toLowerCase().includes(term)
-      if (!matchesHash && !matchesRecipient && !matchesMemo && !matchesMemoId) return false
+      const matchesPool = item.poolName?.toLowerCase().includes(term)
+      if (!matchesHash && !matchesRecipient && !matchesMemo && !matchesMemoId && !matchesPool) return false
     }
 
     if (activeTimeFilter) {
@@ -915,7 +1016,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
         }}
       >
         <div className="overflow-x-auto flex flex-col justify-between min-h-[300px]">
-          <table className="w-full table-fixed text-left border-collapse">
+          <table className="w-full table-fixed text-center border-collapse">
             <thead>
                 <tr
                   className="border-b border-white/[0.08] text-xs font-semibold text-slate-400"
@@ -924,11 +1025,15 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     fontFamily: 'var(--font-app)',
                   }}
                 >
-                  <th className="w-1/5 px-5 py-3.5">TX HASH</th>
+                  <th className="w-1/5 px-4 py-3.5 text-center">
+                    <div className="flex items-center justify-center">
+                      <span>TX HASH</span>
+                    </div>
+                  </th>
 
                   {/* TYPE Column Header with Filter Icon & Popover Modal */}
-                  <th className="w-1/5 px-10 py-3.5 relative filter-popover-container">
-                    <div className="flex items-center gap-1.5">
+                  <th className="w-1/5 px-4 py-3.5 text-center relative filter-popover-container">
+                    <div className="flex items-center justify-center gap-1.5">
                       <span>TYPE</span>
                       <button
                         type="button"
@@ -953,7 +1058,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     {/* Type Filter Popover Modal */}
                     {showTypeFilter && (
                       <div
-                        className="absolute left-0 top-full mt-2 z-50 w-76 rounded-2xl p-4 shadow-2xl space-y-3 text-left font-sans normal-case tracking-normal backdrop-blur-2xl"
+                        className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 w-76 rounded-2xl p-4 shadow-2xl space-y-3 text-left font-sans normal-case tracking-normal backdrop-blur-2xl"
                         style={{
                           background: 'rgba(15, 18, 32, 0.98)',
                           border: '1px solid rgba(152, 150, 255, 0.25)',
@@ -972,14 +1077,18 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                           </button>
                         </div>
 
-                        {/* Options - Horizontal row of compact buttons */}
-                        <div className="grid grid-cols-5 gap-1.5">
+                        {/* Options - Grid of buttons */}
+                        <div className="grid grid-cols-4 gap-1.5">
                           {[
                             { id: 'all', label: 'All', icon: null },
                             { id: 'send', label: 'Send', icon: ArrowUpRight },
                             { id: 'swap', label: 'Swap', icon: ArrowRightLeft },
                             { id: 'bridge', label: 'Bridge', icon: Globe },
                             { id: 'deposit', label: 'Deposit', icon: ArrowDownToLine },
+                            { id: 'pool', label: 'All Pools', icon: Layers },
+                            { id: 'add_liquidity', label: '+ Liquidity', icon: PlusCircle },
+                            { id: 'remove_liquidity', label: '- Liquidity', icon: MinusCircle },
+                            { id: 'harvest', label: 'Harvest', icon: Coins },
                           ].map(t => {
                             const Icon = t.icon
                             const isSelected = filter === t.id
@@ -991,7 +1100,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                                   setFilter(t.id as any)
                                   setShowTypeFilter(false)
                                 }}
-                                className={`flex-1 flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${isSelected
+                                className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${isSelected
                                     ? 'bg-[rgba(152,150,255,0.25)] text-white border border-[rgba(152,150,255,0.45)] shadow-sm'
                                     : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
                                   }`}
@@ -1007,8 +1116,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                   </th>
 
                   {/* AMOUNT Column Header with Filter Icon & Popover Modal */}
-                  <th className="w-1/5 px-1 py-3.5 relative filter-popover-container">
-                    <div className="flex items-center gap-1.5">
+                  <th className="w-1/5 px-4 py-3.5 text-center relative filter-popover-container">
+                    <div className="flex items-center justify-center gap-1.5">
                       <span>AMOUNT</span>
                       <button
                         type="button"
@@ -1033,7 +1142,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     {/* Amount Filter Popover Modal */}
                     {showAmountFilter && (
                       <div
-                        className="absolute left-0 top-full mt-2 z-50 w-80 rounded-2xl p-4 shadow-2xl space-y-3.5 text-left font-sans normal-case tracking-normal backdrop-blur-2xl"
+                        className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 w-80 rounded-2xl p-4 shadow-2xl space-y-3.5 text-left font-sans normal-case tracking-normal backdrop-blur-2xl"
                         style={{
                           background: 'rgba(15, 18, 32, 0.98)',
                           border: '1px solid rgba(152, 150, 255, 0.25)',
@@ -1141,8 +1250,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                   </th>
 
                   {/* RECIPIENT Column Header with Filter Icon & Popover Modal */}
-                  <th className="w-1/5 px-3 py-3.5 relative filter-popover-container">
-                    <div className="flex items-center gap-1.5">
+                  <th className="w-1/5 px-4 py-3.5 text-center relative filter-popover-container">
+                    <div className="flex items-center justify-center gap-1.5">
                       <span>RECIPIENT</span>
                       <button
                         type="button"
@@ -1167,7 +1276,7 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     {/* Recipient Filter Popover Modal */}
                     {showRecipientFilter && (
                       <div
-                        className="absolute left-0 top-full mt-2 z-50 w-80 rounded-2xl p-4 shadow-2xl space-y-3.5 text-left font-sans normal-case tracking-normal backdrop-blur-2xl"
+                        className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 w-80 rounded-2xl p-4 shadow-2xl space-y-3.5 text-left font-sans normal-case tracking-normal backdrop-blur-2xl"
                         style={{
                           background: 'rgba(15, 18, 32, 0.98)',
                           border: '1px solid rgba(152, 150, 255, 0.25)',
@@ -1241,8 +1350,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                   </th>
 
                   {/* TIME / UTC TIME Column Header with Filter Icon & Popover Modal */}
-                  <th className="w-1/5 px-5 py-3.5 relative filter-popover-container">
-                    <div className="flex items-center gap-1.5">
+                  <th className="w-1/5 px-4 py-3.5 text-center relative filter-popover-container">
+                    <div className="flex items-center justify-center gap-1.5">
                       <Tooltip content="Click to toggle between Relative Time and UTC Time" position="top">
                         <button
                           type="button"
@@ -1446,30 +1555,30 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     {Array.from({ length: 5 }).map((_, idx) => (
                       <tr key={`history-skeleton-${idx}`} className="h-[52px] animate-pulse">
                         {/* Tx Hash Skeleton */}
-                        <td className="w-1/5 px-5 py-3">
-                          <div className="flex items-center gap-2">
+                        <td className="w-1/5 px-4 py-3 text-center">
+                          <div className="flex items-center justify-center gap-2">
                             <div className="h-4 w-28 bg-white/[0.08] rounded-md" />
                             <div className="h-4 w-4 bg-white/[0.04] rounded-md" />
                           </div>
                         </td>
                         {/* Type Skeleton */}
-                        <td className="w-1/5 px-10 py-3">
-                          <div className="flex items-center gap-2.5">
+                        <td className="w-1/5 px-4 py-3 text-center">
+                          <div className="flex items-center justify-center gap-2.5">
                             <div className="w-7 h-7 rounded-xl bg-white/[0.08]" />
                             <div className="h-4 w-12 bg-white/[0.08] rounded-md" />
                           </div>
                         </td>
                         {/* Amount Skeleton */}
-                        <td className="w-1/5 px-1 py-3.5">
-                          <div className="h-4 w-24 bg-white/[0.08] rounded-md" />
+                        <td className="w-1/5 px-4 py-3.5 text-center">
+                          <div className="h-4 w-24 bg-white/[0.08] rounded-md mx-auto" />
                         </td>
                         {/* Recipient Skeleton */}
-                        <td className="w-1/5 px-1 py-3.5">
-                          <div className="h-4 w-28 bg-white/[0.08] rounded-md" />
+                        <td className="w-1/5 px-4 py-3.5 text-center">
+                          <div className="h-4 w-28 bg-white/[0.08] rounded-md mx-auto" />
                         </td>
                         {/* Time Skeleton */}
-                        <td className="w-1/5 px-5 py-3.5">
-                          <div className="flex items-center gap-1.5">
+                        <td className="w-1/5 px-4 py-3.5 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
                             <div className="w-3.5 h-3.5 rounded-full bg-white/[0.06]" />
                             <div className="h-4 w-16 bg-white/[0.08] rounded-md" />
                           </div>
@@ -1486,8 +1595,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     className="hover:bg-white/[0.04] transition-colors group h-[52px]"
                   >
                     {/* Tx Hash */}
-                    <td className="w-1/5 px-5 py-3">
-                      <div className="flex items-center gap-2 font-mono">
+                    <td className="w-1/5 px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2 font-mono">
                         <a
                           href={getExplorerLink(historyDisplayTxHash(item), historyDisplayChain(item))}
                           target="_blank"
@@ -1526,35 +1635,41 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                     </td>
 
                     {/* Type */}
-                    <td className="w-1/5 px-10 py-3">
-                      <div className="flex items-center gap-2.5">
+                    <td className="w-1/5 px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2.5">
                         <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
                           {item.type === 'send' && <ArrowUpRight className="w-3.5 h-3.5 text-indigo-300" />}
                           {item.type === 'swap' && <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-300" />}
                           {item.type === 'bridge' && <Globe className="w-3.5 h-3.5 text-indigo-300" />}
                           {item.type === 'deposit' && <ArrowDownToLine className="w-3.5 h-3.5 text-emerald-300" />}
                           {item.type === 'ai_service' && <Bot className="w-3.5 h-3.5 text-cyan-400" />}
+                          {item.type === 'add_liquidity' && <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />}
+                          {item.type === 'remove_liquidity' && <MinusCircle className="w-3.5 h-3.5 text-rose-400" />}
+                          {item.type === 'harvest' && <Coins className="w-3.5 h-3.5 text-amber-400" />}
                         </div>
                         <span className="font-semibold text-white uppercase text-xs" style={{ fontFamily: 'var(--font-app)' }}>
-                          {item.type === 'ai_service' ? 'x402 AI' : item.type}
+                          {item.type === 'ai_service' ? 'x402 AI' :
+                           item.type === 'add_liquidity' ? '+ Liquidity' :
+                           item.type === 'remove_liquidity' ? '- Liquidity' :
+                           item.type === 'harvest' ? 'Harvest' : item.type}
                         </span>
                       </div>
                     </td>
 
                     {/* Amount / Detail */}
-                    <td className="w-1/5 px-1 py-3.5 truncate">
+                    <td className="w-1/5 px-4 py-3.5 text-center truncate">
                       {getAmountDetail(item)}
                     </td>
 
                     {/* Recipient*/}
-                    <td className="w-1/5 px-1 py-3.5 truncate">
+                    <td className="w-1/5 px-4 py-3.5 text-center truncate">
                       {getRecipientTarget(item)}
                     </td>
 
                     {/* Time */}
-                    <td className="w-1/5 px-5 py-3.5 text-slate-400" style={{ fontFamily: 'var(--font-app)' }}>
+                    <td className="w-1/5 px-4 py-3.5 text-slate-400 text-center" style={{ fontFamily: 'var(--font-app)' }}>
                       <div
-                        className="flex items-center gap-1.5 select-none"
+                        className="flex items-center justify-center gap-1.5 select-none"
                         title={timeFormat === 'utc' ? `Relative: ${getRelativeTime(item.timestamp)}` : `UTC: ${formatUtcTime(item.timestamp)}`}
                       >
                         <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />

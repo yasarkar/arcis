@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Ban,
   Shield,
+  Save,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -73,22 +74,6 @@ const TOKEN_ICONS: Record<string, string> = {
 }
 
 /**
- * Formats the exact base + priority fee split of a resolved actual fee — the same
- * breakdown ArcScan displays under "Transaction fee". Returns '' when the split
- * could not be resolved so the receipt stays honest.
- */
-function formatFeeSplit(fee: {
-  baseFeeUsdcExact?: string | null
-  priorityFeeUsdcExact?: string | null
-}): string {
-  if (!fee?.baseFeeUsdcExact || !fee?.priorityFeeUsdcExact) return ''
-  const base = Number(fee.baseFeeUsdcExact)
-  const priority = Number(fee.priorityFeeUsdcExact)
-  if (!Number.isFinite(base) || !Number.isFinite(priority)) return ''
-  return ` (Base: ${base.toFixed(5)} + Priority: ${priority.toFixed(5)})`
-}
-
-/**
  * Composes the receipt "Network Fee" display: the actual paid fee whenever it can
  * be resolved — Arc in USDC (same ArcScan model), every other EVM chain in its
  * native currency from its own receipt (gasUsed × effectiveGasPrice) — with
@@ -104,7 +89,7 @@ export async function buildActualFeeDisplay(opts: {
   if (opts.chainKey === 'Arc_Testnet') {
     const actualFee = await resolveArcActualFeeUsdc(opts.txHash)
     return actualFee.feeUsdcExact
-      ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee)}`
+      ? `${actualFee.feeUsdcExact} USDC`
       : `~${opts.arcFallback} USDC (estimate, receipt unavailable)`
   }
   const nativeFee = await resolveNativeActualFee(opts.txHash, opts.chainKey)
@@ -232,6 +217,8 @@ interface SendModalProps {
   connectedAddress: string
   provider: Eip1193ProviderLike | null
   authSource?: 'passkey' | 'ucw' | 'evm' | null
+  initialChainKey?: string
+  initialChainNonce?: number
   executeUcwTransfer?: (params: {
     destinationAddress: string
     amount: string
@@ -240,7 +227,14 @@ interface SendModalProps {
     tokenSymbol?: string
     blockchain?: string
     feeLevel?: 'LOW' | 'MEDIUM' | 'HIGH'
-  }) => Promise<{ success: boolean; txHash?: string; error?: string }>
+  }) => Promise<{
+    success: boolean
+    txHash?: string
+    /** Challenge executed, but Circle has not published the broadcast hash yet. */
+    hashPending?: boolean
+    challengeId?: string
+    error?: string
+  }>
   onSuccess?: (amount?: string, txHash?: string) => void
 }
 
@@ -251,6 +245,8 @@ export default function SendModal({
   connectedAddress,
   provider,
   authSource,
+  initialChainKey,
+  initialChainNonce,
   executeUcwTransfer,
   onSuccess,
 }: SendModalProps) {
@@ -273,8 +269,19 @@ export default function SendModal({
   const [amount, setAmount] = useState('')
 
   // Dynamic Chain Selector
-  const [selectedChain, setSelectedChain] = useState('Arc_Testnet')
+  const [selectedChain, setSelectedChain] = useState(initialChainKey || 'Arc_Testnet')
   const [showChainModal, setShowChainModal] = useState(false)
+
+  // Sync selectedChain when initialChainKey updates (e.g. from Portfolio quick action)
+  useEffect(() => {
+    if (initialChainKey && SUPPORTED_SEND_CHAINS.some((c) => c.chain === initialChainKey)) {
+      if (authSource === 'ucw' && initialChainKey.toLowerCase().includes('solana')) {
+        setSelectedChain('Arc_Testnet')
+      } else {
+        setSelectedChain(initialChainKey)
+      }
+    }
+  }, [initialChainKey, initialChainNonce, authSource])
 
   // Fallback to Arc Testnet if UCW wallet is connected and an unsupported non-EVM chain is selected
   useEffect(() => {
@@ -471,7 +478,7 @@ export default function SendModal({
 
   const feeReserve = feeInSentAsset
     ? parseFloat(
-        estimatedFee ||
+        (estimatedFee || '').replace('<', '') ||
           (selectedChain === 'Arc_Testnet' ? arcTransferFeeFallbackUsdc(token, false, speedTier) : '0')
       ) || 0
     : gatewayFeeReserve
@@ -622,7 +629,7 @@ export default function SendModal({
                 amount || '1'
               )
               const feeNum = engineQuote?.fee ? parseFloat(formatUnits(BigInt(engineQuote.fee), 18)) : 0
-              if (feeNum > 0) quoted = feeNum.toFixed(5)
+              if (feeNum > 0) quoted = feeNum < 0.00001 ? '<0.00001' : feeNum.toFixed(5)
             } catch {
               // Engine quote unavailable — fall through to the dynamic base-fee estimate.
             }
@@ -650,7 +657,13 @@ export default function SendModal({
             const decimals = nativeInfo?.decimals ?? 18
             const formatted = formatUnits(BigInt(gasRes.fee), decimals)
             const feeNum = parseFloat(formatted)
-            setEstimatedFee(feeNum > 0 ? feeNum.toFixed(5) : null)
+            setEstimatedFee(
+              feeNum > 0
+                ? feeNum < 0.00001
+                  ? '<0.00001'
+                  : feeNum.toFixed(5)
+                : null
+            )
           }
         }
       } catch (err) {
@@ -856,7 +869,31 @@ export default function SendModal({
         if (!ucwResult.success) {
           throw new Error(ucwResult.error || 'Transfer authorization was canceled or failed.')
         }
-        const txHash = ucwResult.txHash || ''
+        if (!ucwResult.txHash) {
+          // The challenge was submitted but Circle has not published an on-chain hash yet. Reporting
+          // success here would record a transfer with no verifiable hash and a fake explorer link.
+          const pendingText =
+            'Transfer submitted to your Circle wallet, but the on-chain transaction hash is not ' +
+            'available yet. Check your transaction history before retrying — it may still settle.'
+          setError(pendingText)
+          setIsSending(false)
+          updateBroadcast(broadcastId, {
+            type: 'send',
+            title: 'Transfer Submitted — Confirmation Pending',
+            status: 'pending',
+            badgeText: 'Pending',
+            message: pendingText,
+            details: {
+              amount,
+              tokenSymbol: displayToken,
+              tokenIcon,
+              recipient,
+              network: selectedChain,
+            },
+          })
+          return
+        }
+        const txHash = ucwResult.txHash
 
         const explorerUrl = txHash ? getExplorerTxUrl(selectedChain, txHash) : undefined
         const gasFeeText = await buildActualFeeDisplay({
@@ -1091,7 +1128,7 @@ export default function SendModal({
               txHash,
               explorerUrl,
               gasFee: actualFee.feeUsdcExact
-                ? `${actualFee.feeUsdcExact} USDC${formatFeeSplit(actualFee)}`
+                ? `${actualFee.feeUsdcExact} USDC`
                 : memoResult.gasFeeUsdc
                   ? `${memoResult.gasFeeUsdc} USDC`
                   : `~${arcTransferFeeFallbackUsdc('USDC', true)} USDC (estimate, receipt unavailable)`,
@@ -1290,20 +1327,15 @@ export default function SendModal({
         tooltip: 'The blockchain network where the recipient will receive the assets.',
         value: (
           <div className="flex items-center gap-1.5 font-medium text-slate-200">
-            <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+            <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
               <NetworkIcon
                 name={chainIconId}
                 variant={chainIconId === 'solana' ? 'branded' : 'background'}
-                size={14}
+                size={16}
                 className="rounded-full"
               />
             </div>
             <span>{chainDisplayName}</span>
-            {sendMode === 'gateway' && (
-              <span className="text-[11px] font-mono text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1 py-0.2 rounded">
-                Gateway
-              </span>
-            )}
           </div>
         ),
       },
@@ -1311,25 +1343,28 @@ export default function SendModal({
         label: 'Recipient Gets',
         tooltip: 'The exact net amount that will be delivered to the recipient address.',
         value: `${amount && amtNum > 0 ? amount : '0.00'} ${tokenSymbol}`,
-        highlight: true,
-        highlightColor: 'text-indigo-400',
       },
       {
         label: 'Network Fee',
-        tooltip: 'Blockchain transaction gas fee paid in USDC on Arc or native gas on destination.',
-        value: sendMode === 'gateway' ? (            '0% same-domain / 0.005% cross-domain (Gateway)'
-        ) : estimatedFee ? (
-          `${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
-        ) : selectedChain === 'Arc_Testnet' ? (
-          `~${estimatedFee || arcTransferFeeFallbackUsdc(token, false, speedTier)} USDC`
-        ) : (
-          `<0.001 ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
-        ),
+        tooltip:
+          sendMode === 'gateway'
+            ? 'Zero network fee with instant (<1 sec) finality powered by Circle Gateway Unified Balance.'
+            : 'Dynamic pre-flight gas estimate based on real-time network base fees, priority tips, and simulation. Final gas fee is determined upon on-chain execution.',
+        value:
+          sendMode === 'gateway' ? (
+            '0.00 USDC'
+          ) : estimatedFee ? (
+            `${estimatedFee} ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
+          ) : selectedChain === 'Arc_Testnet' ? (
+            `~${estimatedFee || arcTransferFeeFallbackUsdc(token, false, speedTier)} USDC`
+          ) : (
+            `<0.001 ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
+          ),
       },
       {
         label: 'Platform Fee',
         tooltip: 'Arcis charges 0% platform fee for standard wallet-to-wallet transfers.',
-        value: '0.00 USDC (Free)',
+        value: '0.00 USDC',
       },
       {
         label: 'Estimated Arrival',
@@ -1348,7 +1383,7 @@ export default function SendModal({
             return `${amount} ${tokenSymbol}`
           }
           const gasCost = estimatedFee
-            ? parseFloat(estimatedFee)
+            ? parseFloat(estimatedFee.replace('<', ''))
             : selectedChain === 'Arc_Testnet'
             ? parseFloat(arcTransferFeeFallbackUsdc(token, false, speedTier))
             : 0.0005
@@ -1814,9 +1849,10 @@ export default function SendModal({
               <button
                 type="button"
                 onClick={() => setShowSettings(false)}
-                className="w-full py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
               >
-                Save Settings
+                <Save className="w-4 h-4" />
+                <span>Save Settings</span>
               </button>
             </div>
           </div>,

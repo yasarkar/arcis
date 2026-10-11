@@ -33,6 +33,14 @@ function AutoChainSwitchWatcher() {
 export default function App() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'home' | 'unified' | 'pools' | 'send' | 'swap' | 'bridge' | 'ai-services' | 'history'>('home')
+  const [chainPrefill, setChainPrefill] = useState<{ chainKey: string; timestamp: number } | null>(null)
+
+  const handleNavigateToTab = (tab: string, chainKey?: string) => {
+    if (chainKey) {
+      setChainPrefill({ chainKey, timestamp: Date.now() })
+    }
+    setActiveTab(tab as any)
+  }
   
   // Controlled dev test hook for GlobalErrorBoundary verification (?testCrash=true)
   if (import.meta.env.DEV && typeof window !== 'undefined' && window.location.search.includes('testCrash=true')) {
@@ -327,6 +335,8 @@ export default function App() {
                   connectedAddress={walletAddress}
                   provider={connectedProvider}
                   authSource={activeAuthSource}
+                  initialChainKey={chainPrefill?.chainKey}
+                  initialChainNonce={chainPrefill?.timestamp}
                   executeUcwTransfer={executeUcwTransfer}
                   onSuccess={() => {
                     refreshBalances()
@@ -346,6 +356,8 @@ export default function App() {
                   provider={connectedProvider}
                   currentChainId={5042002}
                   authSource={activeAuthSource}
+                  initialChainKey={chainPrefill?.chainKey}
+                  initialChainNonce={chainPrefill?.timestamp}
                   executeUcwContract={executeUcwContract}
                   onSuccess={() => {
                     refreshBalances()
@@ -365,6 +377,8 @@ export default function App() {
                   provider={connectedProvider}
                   currentChainId={5042002}
                   authSource={activeAuthSource}
+                  initialSourceChain={chainPrefill?.chainKey}
+                  initialChainNonce={chainPrefill?.timestamp}
                   executeUcwContract={executeUcwContract}
                   signTypedData={executeUcwSignTypedData}
                   onSuccess={() => {
@@ -457,7 +471,7 @@ export default function App() {
           onClose={() => setIsPortfolioOpen(false)}
           walletAddress={walletAddress || ucwAddress || ''}
           authSource={activeAuthSource}
-          onNavigateToTab={(tab) => setActiveTab(tab as any)}
+          onNavigateToTab={(tab, chainKey) => handleNavigateToTab(tab, chainKey)}
           onOpenFaucet={() => setIsFaucetOpen(true)}
         />
       </div>

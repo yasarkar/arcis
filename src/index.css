@@ -1281,5 +1281,22 @@
   border-color: rgba(152, 150, 255, 0.8) !important;
 }
 
+/* ── Ask Arco Rotate-CCW Dynamic Spin Animation ── */
+@keyframes spinCcwPulse {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  45% {
+    transform: rotate(-180deg) scale(1.18);
+  }
+  100% {
+    transform: rotate(-360deg) scale(1);
+  }
+}
+
+.animate-spin-ccw {
+  animation: spinCcwPulse 0.65s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 
 

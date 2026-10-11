@@ -189,7 +189,7 @@ export default function UnifiedBalance({
             <span className="arc-eyebrow" style={{ fontSize: 18, color: 'var(--base-colors--white)', fontWeight: 600 }}>
               UNIFIED BALANCE
             </span>
-            <span className="ub-live-badge" title="Live Gateway balance, refreshed automatically every 10 seconds" aria-hidden="true">
+            <span className="ub-live-badge" aria-hidden="true">
               <svg className="ub-ecg-svg" viewBox="0 0 35 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-bg" />
                 <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-pulse" />
@@ -198,7 +198,6 @@ export default function UnifiedBalance({
             {walletAddress && pendingDelta > 0 && (
               <span
                 className="ub-pending-badge"
-                title={`Circle Gateway is still indexing ${formatUsdcAmount(pendingDelta)} USDC. This usually takes 20–30 seconds.`}
               >
                 +{formatUsdcAmount(pendingDelta)} PENDING
               </span>
@@ -225,7 +224,6 @@ export default function UnifiedBalance({
                 disabled={isSyncing}
                 className="ub-action-btn"
                 aria-label={syncSucceeded ? 'Balances synced' : 'Sync balances'}
-                title={syncSucceeded ? 'Balances synced' : 'Sync balances'}
                 style={{
                   opacity: isSyncing ? 0.6 : 1,
                   cursor: isSyncing ? 'not-allowed' : 'pointer',

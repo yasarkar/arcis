@@ -174,9 +174,23 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
                     {renderTokenIcon(item.tokenOut)}
                   </div>
                 </div>
+              ) : item.type === 'add_liquidity' && item.amountB && item.tokenB ? (
+                <div className="flex items-center justify-center gap-2 text-xl font-bold text-emerald-400 font-[var(--fonts--space-grotesk)]">
+                  <div className="flex items-center gap-1.5">
+                    <span>+{item.amount}</span>
+                    {renderTokenIcon(item.tokenSymbol)}
+                  </div>
+                  <span className="text-slate-400 text-sm">+</span>
+                  <div className="flex items-center gap-1.5">
+                    <span>{item.amountB}</span>
+                    {renderTokenIcon(item.tokenB)}
+                  </div>
+                </div>
               ) : (
                 <div className="flex items-center justify-center gap-2 text-2xl font-bold text-white font-[var(--fonts--space-grotesk)]">
-                  <span>{item.amount}</span>
+                  <span className={item.type === 'add_liquidity' ? 'text-emerald-400' : item.type === 'remove_liquidity' ? 'text-rose-400' : item.type === 'harvest' ? 'text-amber-300' : 'text-white'}>
+                    {item.type === 'add_liquidity' || item.type === 'harvest' ? `+${item.amount}` : item.type === 'remove_liquidity' ? `-${item.amount}` : item.amount}
+                  </span>
                   {renderTokenIcon(item.tokenSymbol)}
                   <span className="text-sm font-semibold text-slate-300">{item.tokenSymbol}</span>
                 </div>
@@ -253,6 +267,42 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
               border: '1px solid rgba(255, 255, 255, 0.07)',
             }}
           >
+            {/* Operation Type */}
+            <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
+              <span className="text-slate-400">Operation</span>
+              <span className="text-white font-medium capitalize">
+                {item.type === 'add_liquidity' ? 'Add Liquidity' :
+                 item.type === 'remove_liquidity' ? 'Remove Liquidity' :
+                 item.type === 'harvest' ? 'Yield Harvest' :
+                 item.type === 'ai_service' ? 'x402 AI Service' :
+                 item.type === 'deposit' ? 'Gateway Deposit' : item.type}
+              </span>
+            </div>
+
+            {/* Pool / Vault Name if present */}
+            {item.poolName && (
+              <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
+                <span className="text-slate-400">Pool / Vault</span>
+                <span className="text-white font-medium">{item.poolName}</span>
+              </div>
+            )}
+
+            {/* LP Shares Minted if present */}
+            {item.lpMinted && (
+              <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
+                <span className="text-slate-400">LP Tokens Minted</span>
+                <span className="text-emerald-400 font-mono font-medium">{item.lpMinted}</span>
+              </div>
+            )}
+
+            {/* Pool Share if present */}
+            {item.poolShare !== undefined && item.poolShare > 0 && (
+              <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
+                <span className="text-slate-400">Pool Share</span>
+                <span className="text-indigo-300 font-mono font-medium">{item.poolShare}%</span>
+              </div>
+            )}
+
             {/* Network */}
             <div className="flex justify-between items-center py-1 border-b border-white/[0.05]">
               <span className="text-slate-400">Chain</span>

@@ -10,6 +10,9 @@ import {
   Search,
   Filter,
   Wallet,
+  Globe,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { NetworkIcon, TokenIcon } from '@web3icons/react/dynamic'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
@@ -23,7 +26,7 @@ interface PortfolioDrawerProps {
   onClose: () => void
   walletAddress: string
   authSource?: 'passkey' | 'ucw' | 'evm' | null
-  onNavigateToTab?: (tab: string) => void
+  onNavigateToTab?: (tab: string, chainKey?: string) => void
   onOpenFaucet?: () => void
 }
 
@@ -55,6 +58,31 @@ function getNativeGasPrice(symbol?: string, prices?: Record<string, number> | nu
   return prices?.[s] || 0
 }
 
+// Helper to render high-fidelity web3 icons for any token or native currency
+function renderAssetIcon(symbol: string) {
+  const s = symbol.toLowerCase()
+  if (s === 'usdc') return <img src={UsdcIcon} alt="USDC" className="w-full h-full object-contain" />
+  if (s === 'eurc') return <img src={EurcIcon} alt="EURC" className="w-full h-full object-contain" />
+  if (s === 'cirbtc') return <img src={CirBtcIcon} alt="cirBTC" className="w-full h-full object-contain" />
+  if (s === 'usyc') return <img src={UsycIcon} alt="USYC" className="w-full h-full object-contain" />
+  if (s === 'weth' || s === 'eth') {
+    return <TokenIcon symbol="eth" variant="branded" size={24} className="w-full h-full object-contain" />
+  }
+  if (s === 'pol' || s === 'matic') {
+    return <TokenIcon symbol="pol" variant="branded" size={24} className="w-full h-full object-contain" />
+  }
+  if (s === 'avax') {
+    return <TokenIcon symbol="avax" variant="branded" size={24} className="w-full h-full object-contain" />
+  }
+  if (s === 'sei') {
+    return <TokenIcon symbol="sei" variant="branded" size={24} className="w-full h-full object-contain" />
+  }
+  if (s === 's' || s === 'sonic') {
+    return <NetworkIcon name="sonic" variant="background" size={28} className="rounded-full overflow-hidden" />
+  }
+  return <TokenIcon symbol={s} variant="branded" size={24} className="w-full h-full object-contain" />
+}
+
 export default function PortfolioDrawer({
   isOpen,
   onClose,
@@ -63,17 +91,77 @@ export default function PortfolioDrawer({
 }: PortfolioDrawerProps) {
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [onlyNonZero, setOnlyNonZero] = useState<boolean>(false)
-  const [hoveredChainKey, setHoveredChainKey] = useState<string | null>(null)
-  const [expandedChainKey, setExpandedChainKey] = useState<string | null>(null)
+  const [allocationFilter, setAllocationFilter] = useState<'all' | 'balance'>('all')
+  // Privacy mode: hide/mask balances across entire portfolio
+  const [hideBalances, setHideBalances] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('arcis_portfolio_hide_balances') === 'true'
+    }
+    return false
+  })
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('arcis_portfolio_hide_balances', String(hideBalances))
+    }
+  }, [hideBalances])
+
+  // Set of expanded chain keys for click-to-toggle accordion
+  const [expandedChains, setExpandedChains] = useState<Record<string, boolean>>({})
+
+  const toggleChain = (chainKey: string) => {
+    setExpandedChains((prev) => ({
+      ...prev,
+      [chainKey]: !prev[chainKey],
+    }))
+  }
 
   // Drawer container ref for keyboard navigation & focus
   const drawerRef = useRef<HTMLDivElement>(null)
 
+  // Smooth slide-over entry and exit animation state
+  const [shouldRender, setShouldRender] = useState(isOpen)
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    if (isOpen) {
+      setExpandedChains({})
+      setShouldRender(true)
+      let frame2: number
+      const frame1 = requestAnimationFrame(() => {
+        frame2 = requestAnimationFrame(() => {
+          setIsVisible(true)
+        })
+      })
+      return () => {
+        cancelAnimationFrame(frame1)
+        if (frame2) cancelAnimationFrame(frame2)
+      }
+    } else {
+      setIsVisible(false)
+      const timer = setTimeout(() => {
+        setShouldRender(false)
+        setExpandedChains({})
+      }, 350)
+      return () => clearTimeout(timer)
+    }
+  }, [isOpen])
+
   // Fetch all multi-chain balances for the user address
-  const { walletBalances, loading, isFetching, refetch } = useWalletTestnetBalances(walletAddress)
+  const { walletBalances, loading, isFetching: isFetchingBalances, refetch: refetchBalances } = useWalletTestnetBalances(walletAddress)
 
   // Live prices for fiat conversions
-  const { data: prices } = useLiveTokenPrices()
+  const { data: prices, refetch: refetchPrices, isFetching: isFetchingPrices } = useLiveTokenPrices()
+
+  const isRefreshing = isFetchingBalances || isFetchingPrices
+
+  const handleRefresh = async () => {
+    try {
+      await Promise.allSettled([refetchBalances(), refetchPrices()])
+    } catch (err) {
+      console.warn('[PortfolioDrawer] Refresh error:', err)
+    }
+  }
 
   // Close on Escape key
   useEffect(() => {
@@ -89,7 +177,7 @@ export default function PortfolioDrawer({
 
   // Prevent body scroll when drawer is open
   useEffect(() => {
-    if (isOpen) {
+    if (shouldRender) {
       document.body.style.overflow = 'hidden'
     } else {
       document.body.style.overflow = ''
@@ -97,7 +185,7 @@ export default function PortfolioDrawer({
     return () => {
       document.body.style.overflow = ''
     }
-  }, [isOpen])
+  }, [shouldRender])
 
   // Calculate aggregated portfolio metrics
   const portfolioStats = useMemo(() => {
@@ -108,6 +196,7 @@ export default function PortfolioDrawer({
     let totalUsyc = 0
     let totalNativeUsd = 0
     let chainsWithBalance = 0
+    const nativeAmounts: Record<string, { amount: number; networkCount: number }> = {}
 
     ORDERED_CHAIN_KEYS.forEach((chainKey) => {
       const item = walletBalances[chainKey] || walletBalances[chainKey.replace('_Testnet', '')]
@@ -127,6 +216,12 @@ export default function PortfolioDrawer({
       if (!isNaN(wethVal)) totalWeth += wethVal
       if (!isNaN(usycVal)) totalUsyc += usycVal
       if (!isNaN(nativeVal) && nativeVal > 0) {
+        const sym = (item.nativeSymbol || 'ETH').toUpperCase()
+        if (!nativeAmounts[sym]) {
+          nativeAmounts[sym] = { amount: 0, networkCount: 0 }
+        }
+        nativeAmounts[sym].amount += nativeVal
+        nativeAmounts[sym].networkCount++
         totalNativeUsd += nativeVal * getNativeGasPrice(item.nativeSymbol, prices)
       }
 
@@ -155,44 +250,196 @@ export default function PortfolioDrawer({
       totalWeth,
       totalUsyc,
       totalNativeUsd,
+      nativeAmounts,
       totalUsd,
       chainsWithBalance,
     }
   }, [walletBalances, prices])
 
-  // Asset-level USD valuation and percentage allocations
-  const assetMetrics = useMemo(() => {
+  // Measure unmasked width of Total Estimated Portfolio Value to prevent eye icon jumping/layout shift
+  const unmaskedTotalRef = useRef<HTMLSpanElement>(null)
+  const [unmaskedTotalWidth, setUnmaskedTotalWidth] = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (unmaskedTotalRef.current) {
+      const w = unmaskedTotalRef.current.offsetWidth
+      if (w > 0) setUnmaskedTotalWidth(w)
+    }
+  }, [portfolioStats.totalUsd, shouldRender])
+
+  // Comprehensive multi-chain breakdown across ALL coins present in the network dropdowns
+  const aggregatedAssets = useMemo(() => {
     const eurcPrice = prices?.EURC || 1.08
     const btcPrice = prices?.cirBTC || prices?.BTC || 85000
     const wethPrice = prices?.WETH || prices?.ETH || 2500
     const usycPrice = prices?.USYC || 1.05
 
-    const usdcUsd = portfolioStats.totalUsdc * 1.0
-    const eurcUsd = portfolioStats.totalEurc * eurcPrice
-    const cirbtcUsd = portfolioStats.totalCirbtc * btcPrice
-    const wethUsd = portfolioStats.totalWeth * wethPrice
-    const usycUsd = portfolioStats.totalUsyc * usycPrice
+    let usdcNetworks = 0
+    let eurcNetworks = 0
+    let cirbtcNetworks = 0
+    let wethNetworks = 0
+    let usycNetworks = 0
+
+    ORDERED_CHAIN_KEYS.forEach((chainKey) => {
+      usdcNetworks++
+      if (EURC_ADDRESSES[chainKey]) eurcNetworks++
+      if (CIRBTC_ADDRESSES[chainKey]) cirbtcNetworks++
+      if (WETH_ADDRESSES[chainKey]) wethNetworks++
+      if (USYC_ADDRESSES[chainKey]) usycNetworks++
+    })
+
     const totalUsd = portfolioStats.totalUsd
+    const nativeAmounts = portfolioStats.nativeAmounts
 
-    const usdcPct = totalUsd > 0 ? (usdcUsd / totalUsd) * 100 : 0
-    const eurcPct = totalUsd > 0 ? (eurcUsd / totalUsd) * 100 : 0
-    const cirbtcPct = totalUsd > 0 ? (cirbtcUsd / totalUsd) * 100 : 0
-    const wethPct = totalUsd > 0 ? (wethUsd / totalUsd) * 100 : 0
-    const usycPct = totalUsd > 0 ? (usycUsd / totalUsd) * 100 : 0
+    // Define all known ecosystem tokens that exist across dropdown lists
+    const assets = [
+      {
+        key: 'USDC',
+        symbol: 'USDC',
+        name: 'USD Coin',
+        amount: portfolioStats.totalUsdc,
+        formattedAmount: `${portfolioStats.totalUsdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`,
+        usdValue: portfolioStats.totalUsdc * 1.0,
+        price: 1.0,
+        isNative: false,
+      },
+      {
+        key: 'EURC',
+        symbol: 'EURC',
+        name: 'Euro Coin',
+        amount: portfolioStats.totalEurc,
+        formattedAmount: `${portfolioStats.totalEurc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EURC`,
+        usdValue: portfolioStats.totalEurc * eurcPrice,
+        price: eurcPrice,
+        isNative: false,
+      },
+      {
+        key: 'ETH',
+        symbol: 'ETH',
+        name: 'Ethereum',
+        amount: nativeAmounts['ETH']?.amount || 0,
+        formattedAmount: `${(nativeAmounts['ETH']?.amount || 0).toFixed(4)} ETH`,
+        usdValue: (nativeAmounts['ETH']?.amount || 0) * (prices?.WETH || prices?.ETH || 2500),
+        price: prices?.WETH || prices?.ETH || 2500,
+        isNative: true,
+      },
+      {
+        key: 'cirBTC',
+        symbol: 'cirBTC',
+        name: 'Circle Bitcoin',
+        amount: portfolioStats.totalCirbtc,
+        formattedAmount: `${portfolioStats.totalCirbtc.toFixed(5)} cirBTC`,
+        usdValue: portfolioStats.totalCirbtc * btcPrice,
+        price: btcPrice,
+        isNative: false,
+      },
+      {
+        key: 'WETH',
+        symbol: 'WETH',
+        name: 'Wrapped Ether',
+        amount: portfolioStats.totalWeth,
+        formattedAmount: `${portfolioStats.totalWeth.toFixed(4)} WETH`,
+        usdValue: portfolioStats.totalWeth * wethPrice,
+        price: wethPrice,
+        isNative: false,
+      },
+      {
+        key: 'USYC',
+        symbol: 'USYC',
+        name: 'Hashnote USYC',
+        amount: portfolioStats.totalUsyc,
+        formattedAmount: `${portfolioStats.totalUsyc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USYC`,
+        usdValue: portfolioStats.totalUsyc * usycPrice,
+        price: usycPrice,
+        isNative: false,
+      },
+      {
+        key: 'POL',
+        symbol: 'POL',
+        name: 'Polygon',
+        amount: nativeAmounts['POL']?.amount || 0,
+        formattedAmount: `${(nativeAmounts['POL']?.amount || 0).toFixed(4)} POL`,
+        usdValue: (nativeAmounts['POL']?.amount || 0) * getNativeGasPrice('POL', prices),
+        price: getNativeGasPrice('POL', prices),
+        isNative: true,
+      },
+      {
+        key: 'AVAX',
+        symbol: 'AVAX',
+        name: 'Avalanche',
+        amount: nativeAmounts['AVAX']?.amount || 0,
+        formattedAmount: `${(nativeAmounts['AVAX']?.amount || 0).toFixed(4)} AVAX`,
+        usdValue: (nativeAmounts['AVAX']?.amount || 0) * getNativeGasPrice('AVAX', prices),
+        price: getNativeGasPrice('AVAX', prices),
+        isNative: true,
+      },
+      {
+        key: 'SEI',
+        symbol: 'SEI',
+        name: 'Sei Network',
+        amount: nativeAmounts['SEI']?.amount || 0,
+        formattedAmount: `${(nativeAmounts['SEI']?.amount || 0).toFixed(4)} SEI`,
+        usdValue: (nativeAmounts['SEI']?.amount || 0) * getNativeGasPrice('SEI', prices),
+        price: getNativeGasPrice('SEI', prices),
+        isNative: true,
+      },
+      {
+        key: 'S',
+        symbol: 'S',
+        name: 'Sonic',
+        amount: nativeAmounts['S']?.amount || 0,
+        formattedAmount: `${(nativeAmounts['S']?.amount || 0).toFixed(4)} S`,
+        usdValue: (nativeAmounts['S']?.amount || 0) * getNativeGasPrice('S', prices),
+        price: getNativeGasPrice('S', prices),
+        isNative: true,
+      },
+    ]
 
-    return {
-      usdcUsd,
-      usdcPct,
-      eurcUsd,
-      eurcPct,
-      cirbtcUsd,
-      cirbtcPct,
-      wethUsd,
-      wethPct,
-      usycUsd,
-      usycPct,
+    // Catch any other native token if present in walletBalances
+    Object.entries(nativeAmounts).forEach(([sym, data]) => {
+      if (!['ETH', 'POL', 'AVAX', 'SEI', 'S'].includes(sym)) {
+        const p = getNativeGasPrice(sym, prices)
+        assets.push({
+          key: sym,
+          symbol: sym,
+          name: sym,
+          amount: data.amount,
+          formattedAmount: `${data.amount.toFixed(4)} ${sym}`,
+          usdValue: data.amount * p,
+          price: p,
+          isNative: true,
+        })
+      }
+    })
+
+    // Compute percentage allocations and sort
+    const withPercentages = assets.map((a) => ({
+      ...a,
+      percentage: totalUsd > 0 ? (a.usdValue / totalUsd) * 100 : 0,
+    }))
+
+    // Priority order for secondary tie-break
+    const priority = ['USDC', 'EURC', 'ETH', 'cirBTC', 'WETH', 'USYC', 'POL', 'AVAX', 'SEI', 'S']
+    return withPercentages.sort((a, b) => {
+      if (Math.abs(b.usdValue - a.usdValue) > 0.001) {
+        return b.usdValue - a.usdValue
+      }
+      if (Math.abs(b.amount - a.amount) > 0.00001) {
+        return b.amount - a.amount
+      }
+      const idxA = priority.indexOf(a.symbol)
+      const idxB = priority.indexOf(b.symbol)
+      return (idxA !== -1 ? idxA : 99) - (idxB !== -1 ? idxB : 99)
+    })
+  }, [walletBalances, prices, portfolioStats])
+
+  // Filtered assets based on the allocation filter (all vs positive balance only)
+  const displayedAssets = useMemo(() => {
+    if (allocationFilter === 'balance') {
+      return aggregatedAssets.filter((a) => a.amount > 0)
     }
-  }, [portfolioStats, prices])
+    return aggregatedAssets
+  }, [aggregatedAssets, allocationFilter])
 
   // Helper to compute a chain's total USD valuation across all supported tokens (USDC, EURC, cirBTC, WETH, USYC, Native Gas)
   const getChainTotalUsd = (chainKey: string): number => {
@@ -275,13 +522,20 @@ export default function PortfolioDrawer({
     })
   }, [walletBalances, searchQuery, onlyNonZero, prices])
 
-  if (!isOpen) return null
+  if (!shouldRender) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex justify-end" aria-modal="true" role="dialog">
+    <div
+      className="fixed inset-0 z-[50000] flex justify-end overflow-hidden"
+      style={{ zIndex: 50000 }}
+      aria-modal="true"
+      role="dialog"
+    >
       {/* Dimmed Backdrop with Blur */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 animate-fade-in"
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ease-out ${
+          isVisible ? 'opacity-100' : 'opacity-0'
+        }`}
         onClick={onClose}
         aria-hidden="true"
       />
@@ -289,9 +543,13 @@ export default function PortfolioDrawer({
       {/* Slide-over Drawer Panel */}
       <div
         ref={drawerRef}
-        className="relative w-full max-w-[550px] h-full flex flex-col bg-[#0c0f1d] border-l border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.85)] z-10 transition-transform duration-300 ease-out animate-slide-in-right"
+        className={`relative w-full max-w-[550px] h-full flex flex-col bg-[#0c0f1d] border-l border-white/10 shadow-[-16px_0_48px_rgba(0,0,0,0.85)] z-10 transform transition-transform duration-350 ${
+          isVisible ? 'translate-x-0' : 'translate-x-full'
+        }`}
         style={{
           background: 'linear-gradient(180deg, #0e1224 0%, #080a14 100%)',
+          transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'transform',
         }}
       >
         {/* Subtle Ambient Radial Light */}
@@ -315,11 +573,13 @@ export default function PortfolioDrawer({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => refetch()}
-              disabled={isFetching}
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              title="Bakiyeleri ve Fiyatları Yenile"
+              aria-label="Bakiyeleri ve Fiyatları Yenile"
               className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer disabled:opacity-50"
             >
-              <RotateCw size={16} className={isFetching ? 'animate-spin text-blue-400' : ''} />
+              <RotateCw size={16} className={isRefreshing ? 'animate-spin text-blue-400' : ''} />
             </button>
             <button
               type="button"
@@ -348,129 +608,75 @@ export default function PortfolioDrawer({
               </span>
             </div>
 
-            <div className="mt-2.5 flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold tracking-tight text-white font-mono">
-                ${portfolioStats.totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-              <span className="text-[15px] font-semibold text-indigo-300">USD</span>
+            {/* Hidden off-screen metric ruler to accurately measure the natural unmasked width */}
+            <span
+              ref={unmaskedTotalRef}
+              aria-hidden="true"
+              className="invisible fixed -top-[9999px] -left-[9999px] pointer-events-none text-3xl font-extrabold tracking-tight font-mono select-none"
+            >
+              ${portfolioStats.totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+
+            <div className="mt-2.5 flex items-center gap-3">
+              <div className="flex items-baseline gap-2">
+                <span
+                  style={unmaskedTotalWidth ? { minWidth: `${unmaskedTotalWidth}px`, display: 'inline-block' } : undefined}
+                  className="text-3xl font-extrabold tracking-tight text-white font-mono"
+                >
+                  {hideBalances
+                    ? '$••••••'
+                    : `$${portfolioStats.totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                </span>
+                <span className="text-[18px] font-semibold text-white">USD</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setHideBalances((prev) => !prev)}
+                title={hideBalances ? 'Bakiyeleri Göster' : 'Bakiyeleri Gizle'}
+                aria-label={hideBalances ? 'Bakiyeleri Göster' : 'Bakiyeleri Gizle'}
+                className="p-1.5 rounded-xl text-white hover:text-white/80 hover:bg-white/[0.08] transition-all cursor-pointer flex items-center justify-center shrink-0"
+              >
+                {hideBalances ? <EyeOff size={20} className="text-white" /> : <Eye size={20} className="text-white" />}
+              </button>
             </div>
 
-            {/* Asset Allocation Breakdown */}
-            <div className="pt-3.5 space-y-2">
-              {/* USDC */}
-              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <img src={UsdcIcon} alt="USDC" className="w-full h-full object-contain" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-s font-bold text-white tracking-wide">USDC</span>
-                    </div>
-                    <div className="text-[13px] text-slate-400 font-mono mt-0.5">
-                      ≈ ${assetMetrics.usdcUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
+            {/* Aggregated Coins List (Sorted by USD value descending) */}
+            <div className="space-y-2 max-h-[380px] overflow-y-auto custom-scrollbar pr-1 mt-4">
+              {displayedAssets.length === 0 ? (
+                <div className="py-6 text-center text-xs text-slate-500 bg-white/[0.02] border border-white/[0.05] rounded-xl">
+                  No assets with positive balance found.
                 </div>
+              ) : (
+                displayedAssets.map((asset) => (
+                  <div
+                    key={asset.key}
+                    className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-indigo-500/30 transition-all flex items-center justify-between group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-12 h-12 shrink-0 flex items-center justify-center rounded-xl p-1.5 group-hover:scale-105 transition-transform overflow-hidden shadow-inner">
+                        {renderAssetIcon(asset.symbol)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-s font-bold text-white tracking-wide">{asset.symbol}</span>
+                        </div>
+                      </div>
+                    </div>
 
-                <div className="text-right shrink-0 pl-3">
-                  <div className="font-mono text-s font-bold text-white tracking-tight">
-                    {portfolioStats.totalUsdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </div>
-
-              {/* EURC */}
-              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <img src={EurcIcon} alt="EURC" className="w-full h-full object-contain" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-s font-bold text-white tracking-wide">EURC</span>
-                    </div>
-                    <div className="text-[13px] text-slate-400 font-mono mt-0.5">
-                      ≈ ${assetMetrics.eurcUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <div className="text-right shrink-0 pl-3">
+                      <div className="font-mono text-s font-bold text-white tracking-tight">
+                        {hideBalances ? '••••••' : asset.formattedAmount}
+                      </div>
+                      <div className="text-[12px] text-slate-400 font-mono mt-0.5">
+                        {hideBalances
+                          ? '≈ $••••••'
+                          : `≈ $${asset.usdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      </div>
                     </div>
                   </div>
-                </div>
-
-                <div className="text-right shrink-0 pl-3">
-                  <div className="font-mono text-s font-bold text-white tracking-tight">
-                    {portfolioStats.totalEurc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </div>
-
-              {/* cirBTC */}
-              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <img src={CirBtcIcon} alt="cirBTC" className="w-full h-full object-contain" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-s font-bold text-white tracking-wide">cirBTC</span>
-                    </div>
-                    <div className="text-[13px] text-slate-400 font-mono mt-0.5">
-                      ≈ ${assetMetrics.cirbtcUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0 pl-3">
-                  <div className="font-mono text-s font-bold text-white tracking-tight">
-                    {portfolioStats.totalCirbtc.toFixed(5)}
-                  </div>
-                </div>
-              </div>
-
-              {/* WETH */}
-              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <TokenIcon symbol="eth" variant="branded" size={26} className="w-full h-full object-contain" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-s font-bold text-white tracking-wide">WETH</span>
-                    </div>
-                    <div className="text-[13px] text-slate-400 font-mono mt-0.5">
-                      ≈ ${assetMetrics.wethUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0 pl-3">
-                  <div className="font-mono text-s font-bold text-white tracking-tight">
-                    {portfolioStats.totalWeth.toFixed(4)}
-                  </div>
-                </div>
-              </div>
-
-              {/* USYC */}
-              <div className="p-2.5 rounded-2xl bg-white/[0.035] hover:bg-white/[0.06] border border-white/[0.06] hover:border-blue-500/30 transition-all flex items-center justify-between group">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <img src={UsycIcon} alt="USYC" className="w-full h-full object-contain" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-s font-bold text-white tracking-wide">USYC</span>
-                    </div>
-                    <div className="text-[13px] text-slate-400 font-mono mt-0.5">
-                      ≈ ${assetMetrics.usycUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0 pl-3">
-                  <div className="font-mono text-s font-bold text-white tracking-tight">
-                    {portfolioStats.totalUsyc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -523,8 +729,7 @@ export default function PortfolioDrawer({
                 const hasWeth = Boolean(WETH_ADDRESSES[chainKey])
                 const hasUsyc = Boolean(USYC_ADDRESSES[chainKey])
 
-                const isHovered = hoveredChainKey === chainKey
-                const isExpanded = expandedChainKey === chainKey || isHovered
+                const isExpanded = Boolean(expandedChains[chainKey])
 
                 const usdcAmount = chainData?.usdc || '0.00'
                 const eurcAmount = chainData?.eurc || (hasEurc ? '0.00' : undefined)
@@ -538,11 +743,7 @@ export default function PortfolioDrawer({
                 return (
                   <div
                     key={chainKey}
-                    onMouseEnter={() => setHoveredChainKey(chainKey)}
-                    onMouseLeave={() => setHoveredChainKey(null)}
-                    onClick={() => {
-                      setExpandedChainKey((prev) => (prev === chainKey ? null : chainKey))
-                    }}
+                    onClick={() => toggleChain(chainKey)}
                     className={`group relative rounded-2xl transition-all duration-300 border cursor-pointer select-none overflow-hidden ${isExpanded
                       ? 'bg-white/[0.07] border-white/20 shadow-lg'
                       : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/10'
@@ -552,8 +753,8 @@ export default function PortfolioDrawer({
                     <div className="p-3.5 flex items-center justify-between">
                       {/* Left: Chain Icon & Name */}
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="relative w-10 h-10 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform overflow-hidden shadow-inner">
-                          <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center shrink-0 shadow-sm">
+                        <div className="relative w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform overflow-hidden shadow-inner">
+                          <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center shrink-0 shadow-sm">
                             <NetworkIcon
                               name={iconId}
                               variant={iconId === 'solana' ? 'branded' : 'background'}
@@ -577,7 +778,9 @@ export default function PortfolioDrawer({
                         <div>
                           <div className="flex items-baseline justify-end gap-1">
                             <span className="font-mono text-[18px] font-bold text-white tracking-tight">
-                              ${chainTotalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {hideBalances
+                                ? '$••••••'
+                                : `$${chainTotalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                             </span>
                             <span className="text-[12px] font-bold text-white">USD</span>
                           </div>
@@ -591,8 +794,9 @@ export default function PortfolioDrawer({
                       </div>
                     </div>
 
-                    {/* ── Sub-Tokens Accordion (Revealed on Hover / Click) ── */}
+                    {/* ── Sub-Tokens Accordion (Revealed on Click) ── */}
                     <div
+                      onClick={(e) => e.stopPropagation()}
                       className={`transition-all duration-300 ease-out border-t border-white/[0.06] bg-[#070912]/80 backdrop-blur-md px-3.5 overflow-hidden ${isExpanded
                         ? 'max-h-[760px] py-3 opacity-100'
                         : 'max-h-0 py-0 opacity-0 pointer-events-none'
@@ -624,10 +828,12 @@ export default function PortfolioDrawer({
 
                             <div className="text-right">
                               <div className="font-mono text-s font-bold text-white">
-                                {nativeAmount} {nativeSymbol}
+                                {hideBalances ? '••••••' : `${nativeAmount} ${nativeSymbol}`}
                               </div>
                               <div className="text-[12px] text-slate-400 font-mono">
-                                {formatFiatEstimate(nativeAmount, nativeSymbol, prices) || `≈ $${(parseFloat(nativeAmount || '0') * getNativeGasPrice(nativeSymbol, prices)).toFixed(2)} USD`}
+                                {hideBalances
+                                  ? '≈ $••••••'
+                                  : formatFiatEstimate(nativeAmount, nativeSymbol, prices) || `≈ $${(parseFloat(nativeAmount || '0') * getNativeGasPrice(nativeSymbol, prices)).toFixed(2)} USD`}
                               </div>
                             </div>
                           </div>
@@ -646,10 +852,12 @@ export default function PortfolioDrawer({
 
                           <div className="text-right">
                             <div className="font-mono text-s font-bold text-white">
-                              {usdcAmount} USDC
+                              {hideBalances ? '••••••' : `${usdcAmount} USDC`}
                             </div>
                             <div className="text-[12px] text-slate-400 font-mono">
-                              {formatFiatEstimate(usdcAmount, 'USDC', prices) || `≈ $${parseFloat(usdcAmount || '0').toFixed(2)} USD`}
+                              {hideBalances
+                                ? '≈ $••••••'
+                                : formatFiatEstimate(usdcAmount, 'USDC', prices) || `≈ $${parseFloat(usdcAmount || '0').toFixed(2)} USD`}
                             </div>
                           </div>
                         </div>
@@ -666,10 +874,12 @@ export default function PortfolioDrawer({
 
                             <div className="text-right">
                               <div className="font-mono text-s font-bold text-slate-200">
-                                {eurcAmount} EURC
+                                {hideBalances ? '••••••' : `${eurcAmount} EURC`}
                               </div>
                               <div className="text-[12px] text-slate-400 font-mono">
-                                {formatFiatEstimate(eurcAmount, 'EURC', prices) || `≈ ${(parseFloat(eurcAmount || '0') * (prices?.EURC || 1.08)).toFixed(2)} USD`}
+                                {hideBalances
+                                  ? '≈ $••••••'
+                                  : formatFiatEstimate(eurcAmount, 'EURC', prices) || `≈ ${(parseFloat(eurcAmount || '0') * (prices?.EURC || 1.08)).toFixed(2)} USD`}
                               </div>
                             </div>
                           </div>
@@ -687,10 +897,12 @@ export default function PortfolioDrawer({
 
                             <div className="text-right">
                               <div className="font-mono text-s font-bold text-white">
-                                {cirbtcAmount} cirBTC
+                                {hideBalances ? '••••••' : `${cirbtcAmount} cirBTC`}
                               </div>
                               <div className="text-[12px] text-slate-400 font-mono">
-                                {formatFiatEstimate(cirbtcAmount, 'cirBTC', prices) || `≈ ${(parseFloat(cirbtcAmount || '0') * (prices?.cirBTC || prices?.BTC || 85000)).toFixed(2)} USD`}
+                                {hideBalances
+                                  ? '≈ $••••••'
+                                  : formatFiatEstimate(cirbtcAmount, 'cirBTC', prices) || `≈ ${(parseFloat(cirbtcAmount || '0') * (prices?.cirBTC || prices?.BTC || 85000)).toFixed(2)} USD`}
                               </div>
                             </div>
                           </div>
@@ -710,10 +922,12 @@ export default function PortfolioDrawer({
 
                             <div className="text-right">
                               <div className="font-mono text-s font-bold text-white">
-                                {wethAmount} WETH
+                                {hideBalances ? '••••••' : `${wethAmount} WETH`}
                               </div>
                               <div className="text-[12px] text-slate-400 font-mono">
-                                {formatFiatEstimate(wethAmount, 'WETH', prices) || `≈ ${(parseFloat(wethAmount || '0') * (prices?.WETH || prices?.ETH || 2500)).toFixed(2)} USD`}
+                                {hideBalances
+                                  ? '≈ $••••••'
+                                  : formatFiatEstimate(wethAmount, 'WETH', prices) || `≈ ${(parseFloat(wethAmount || '0') * (prices?.WETH || prices?.ETH || 2500)).toFixed(2)} USD`}
                               </div>
                             </div>
                           </div>
@@ -733,10 +947,12 @@ export default function PortfolioDrawer({
 
                             <div className="text-right">
                               <div className="font-mono text-s font-bold text-white">
-                                {usycAmount} USYC
+                                {hideBalances ? '••••••' : `${usycAmount} USYC`}
                               </div>
                               <div className="text-[12px] text-slate-400 font-mono">
-                                {formatFiatEstimate(usycAmount, 'USYC', prices) || `≈ ${(parseFloat(usycAmount || '0') * (prices?.USYC || 1.05)).toFixed(2)} USD`}
+                                {hideBalances
+                                  ? '≈ $••••••'
+                                  : formatFiatEstimate(usycAmount, 'USYC', prices) || `≈ ${(parseFloat(usycAmount || '0') * (prices?.USYC || 1.05)).toFixed(2)} USD`}
                               </div>
                             </div>
                           </div>
@@ -752,7 +968,7 @@ export default function PortfolioDrawer({
                               onClick={(e) => {
                                 e.stopPropagation()
                                 onClose()
-                                onNavigateToTab('swap')
+                                onNavigateToTab('swap', chainKey)
                               }}
                               className="px-2.5 py-1 rounded-xl text-[12px] font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-indigo-600/30 border border-white/[0.08] hover:border-indigo-500/40 transition-all flex items-center gap-1 cursor-pointer"
                             >
@@ -764,12 +980,24 @@ export default function PortfolioDrawer({
                               onClick={(e) => {
                                 e.stopPropagation()
                                 onClose()
-                                onNavigateToTab('send')
+                                onNavigateToTab('send', chainKey)
                               }}
                               className="px-2.5 py-1 rounded-xl text-[12px] font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-blue-600/30 border border-white/[0.08] hover:border-blue-500/40 transition-all flex items-center gap-1 cursor-pointer"
                             >
                               <ArrowUpRight size={12} />
                               <span>Send</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onClose()
+                                onNavigateToTab('bridge', chainKey)
+                              }}
+                              className="px-2.5 py-1 rounded-xl text-[12px] font-semibold text-slate-300 hover:text-white bg-white/[0.05] hover:bg-purple-600/30 border border-white/[0.08] hover:border-purple-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <Globe size={12} />
+                              <span>Bridge</span>
                             </button>
                           </>
                         )}

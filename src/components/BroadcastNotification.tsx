@@ -11,11 +11,7 @@ import {
   Repeat,
   Layers,
   ArrowUpRightFromSquare,
-  TrendingUp,
-  Zap,
   Sparkles,
-  Copy,
-  Check,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
