@@ -1,6 +1,7 @@
 // Client-side session limits remain wallet-scoped metadata; no local key is authorized for signing.
 import type { SessionKeyConfig, SessionActionType, SessionTimeRemaining } from '../types/sessionKey'
 import { getStoredMscaAddress } from './modularWalletService'
+import { sessionSpendSnapshot } from './sessionSpendLedger'
 
 const SESSION_META_STORAGE_PREFIX = 'arcis_session_meta_v3_'
 const LEGACY_STORAGE_KEY = 'arcis_autonomous_session_meta_v2'
@@ -148,10 +149,16 @@ export function getSessionKeyConfig(walletAddress?: string): SessionKeyConfig {
       // Never hydrate private key material into app state
       parsed.ephemeralPrivateKey = undefined
 
+      const budget = sessionSpendSnapshot(walletKey, parsed)
+      parsed.spentUsdc = budget.spentUsdc
+      parsed.reservedUsdc = budget.reservedUsdc
       return parsed
     }
   } catch (err) {
     console.error(`Failed to load session key config for wallet ${walletKey}:`, err)
+    const blocked = createInitialSessionConfig(walletKey)
+    blocked.reservedUsdc = Infinity // Corrupt/inaccessible accounting is not an empty wallet budget.
+    return blocked
   }
 
   // Return empty unconfigured state without writing anything to localStorage
@@ -255,7 +262,7 @@ const activeSpendReservations: Map<string, number> = new Map()
 
 export function getReservedSessionSpend(walletAddress?: string): number {
   const walletKey = resolveTargetWallet(walletAddress)
-  return activeSpendReservations.get(walletKey) || 0
+  return (getSessionKeyConfig(walletKey).reservedUsdc || 0) + (activeSpendReservations.get(walletKey) || 0)
 }
 
 export function reserveSessionSpend(amountUsdc: number, walletAddress?: string): boolean {
@@ -317,7 +324,7 @@ export function verifySessionLimits(
     }
   }
 
-  const reserved = activeSpendReservations.get(walletKey) || 0
+  const reserved = (config.reservedUsdc || 0) + (activeSpendReservations.get(walletKey) || 0)
   if (config.spentUsdc + reserved + amountUsdc > config.maxSpendUsdc) {
     const remaining = Math.max(0, config.maxSpendUsdc - (config.spentUsdc + reserved))
     return {

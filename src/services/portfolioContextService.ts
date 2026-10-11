@@ -203,7 +203,7 @@ export async function getLivePortfolioSnapshot(
     : 0
 
   const sessionBudgetLeftUsdc = sessionConfig.isActive
-    ? Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc)
+    ? Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc - (sessionConfig.reservedUsdc || 0))
     : 0
 
   const snapshot: PortfolioSnapshot = {

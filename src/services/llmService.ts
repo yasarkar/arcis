@@ -28,6 +28,9 @@ import {
 import { getSwapEstimate } from './swapService'
 import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from './arcGasService'
 import type { SwapQuoteResult } from '../types/swap'
+import { parseCopilotPromptAmount, numberToExactDecimal } from '../utils/copilotAmount'
+import { classifyCopilotIntent, copilotInstructionText, extractCopilotMemo, latestEditableCopilotDraft } from '../utils/copilotIntent'
+import { copilotSlippageBps, swapPercentToBps } from '../utils/swapSlippage'
 export { DEFAULT_COPILOT_SLIPPAGE }
 
 export interface LLMResult {
@@ -79,14 +82,13 @@ export function extractSlippageFromPrompt(
   prompt: string,
   fallbackSlippage: number = DEFAULT_COPILOT_SLIPPAGE
 ): number {
-  if (!prompt) return fallbackSlippage
+  const instruction = copilotInstructionText(prompt)
   const match =
-    prompt.match(/(?:slippage|kayma|tolerance|tolerans|slip)\s*(?:of|is|:|=|%)?\s*(\d+(?:\.\d+)?)\s*%?/i) ||
-    prompt.match(/(\d+(?:\.\d+)?)\s*%\s*(?:slippage|kayma|tolerans)/i)
-  if (match && match[1]) {
-    const val = parseFloat(match[1])
-    if (!isNaN(val) && val > 0 && val <= 50) return Number(val.toFixed(2))
-  }
+    instruction.match(/(?:slippage|kayma|tolerance|tolerans|slip)\s*(?:of|is|to|:|=)?\s*%?\s*([^\s%]+)\s*%?/i) ||
+    instruction.match(/([^\s%]+)\s*%\s*(?:slippage|kayma|tolerance|tolerans|slip)/i) ||
+    instruction.match(/%\s*([^\s%]+)\s*(?:slippage|kayma|tolerance|tolerans|slip)/i)
+  if (match) return swapPercentToBps(match[1]) / 100
+  if (/\b(?:slippage|kayma|tolerance|tolerans|slip)\b/i.test(instruction)) throw new Error('Please specify an explicit slippage percentage / Açık bir tolerans yüzdesi belirtin.')
   return fallbackSlippage
 }
 
@@ -164,21 +166,12 @@ export function setOpenAIApiKey(key: string): void {
 
 export function isExplicitTransactionCommand(prompt: string): boolean {
   if (!prompt) return false
-  const p = prompt.toLowerCase().trim()
-  if (p.includes('what is') || p.includes('how do') || p.includes('how does') || p.includes('explain') || p.includes('tell me about')) return false
-  const hasAddress = /0x[a-fA-F0-9]{40}/i.test(prompt)
-  const hasAmount = /\d+(?:\.\d+)?/.test(prompt)
-  const words = p.replace(/[^a-z0-9ğüşöçıİ ]/gi, ' ').split(/\s+/)
-  const hasAny = (...verbs: string[]) => verbs.some((verb) => words.includes(verb))
-  const hasSendVerb = hasAny('send', 'transfer', 'gönder', 'yolla', 'pay', 'öde')
-  const hasSwapVerb = hasAny('swap', 'takas', 'trade', 'convert', 'çevir', 'dönüştür', 'buy', 'sell', 'al', 'almak', 'sat', 'satmak') || p.includes('satın al')
-  const hasDepositVerb = hasAny('deposit', 'vault', 'yatır', 'stake', 'havuz')
-  const hasBridgeVerb = hasAny('bridge', 'gateway', 'köprü', 'aktar')
-  if (hasSendVerb && (hasAddress || hasAmount)) return true
-  if (hasSwapVerb && hasAmount) return true
-  if (hasDepositVerb && hasAmount) return true
-  if (hasBridgeVerb && hasAmount) return true
-  return false
+  const intent = classifyCopilotIntent(prompt)
+  if (intent.kind !== 'command') return false
+  const instruction = copilotInstructionText(prompt)
+  const hasAddress = /0x[a-fA-F0-9]{40}/i.test(instruction)
+  const amount = parseCopilotPromptAmount(instruction)
+  return intent.action === 'send' ? hasAddress || amount.status !== 'missing' : amount.status !== 'missing'
 }
 
 function ensureActionableTransactionResult(
@@ -201,8 +194,19 @@ export async function queryArcisLLM(
   chatHistory?: CopilotMessage[],
   portfolioSnapshot?: PortfolioSnapshot
 ): Promise<LLMResult> {
-  const customApiKey = getOpenAIApiKey()
   const startTime = Date.now()
+  const intent = classifyCopilotIntent(userPrompt)
+  if ('message' in intent) return { message: intent.message, source: 'local-nlp', executionTimeMs: Date.now() - startTime }
+  if (intent.kind === 'correction') {
+    const local = parseLocalIntentFallback(userPrompt, walletAddress, undefined, chatHistory, portfolioSnapshot)
+    const quoted = await attachLiveQuote(local, walletAddress, portfolioSnapshot)
+    return { ...quoted, source: 'local-nlp', executionTimeMs: Date.now() - startTime }
+  }
+  const promptAmount = parseCopilotPromptAmount(userPrompt)
+  if (promptAmount.status === 'ambiguous' || promptAmount.status === 'invalid') {
+    return { message: promptAmount.message, source: 'local-nlp', executionTimeMs: Date.now() - startTime }
+  }
+  const customApiKey = getOpenAIApiKey()
   const [livePrices, portfolio, liveMaxFeePerGas] = await Promise.all([
     getLiveTokenPrices(),
     portfolioSnapshot ? Promise.resolve(portfolioSnapshot) : getLivePortfolioSnapshot(walletAddress),
@@ -269,13 +273,20 @@ async function quoteResult<T extends { message: string; actionPayload?: CopilotA
 ): Promise<T> {
   // For clear transaction commands, local parsing is the authority for user-specified parameters.
   // The model may help with natural language, but must not alter amount, token, or recipient.
-  const authoritativeResult = isExplicitTransactionCommand(userPrompt)
+  const intent = classifyCopilotIntent(userPrompt)
+  const authoritativeResult = intent.kind === 'command' || intent.kind === 'correction'
     ? parseLocalIntentFallback(userPrompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas)
-    : result
+    : { message: result.message, actionPayload: undefined }
   const actionable = ensureActionableTransactionResult(
     authoritativeResult, userPrompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas
   )
-  const quoted = await attachLiveQuote(actionable, walletAddress, portfolio)
+  const promptAmount = parseCopilotPromptAmount(userPrompt)
+  const payload = actionable.actionPayload
+  const amountBound = promptAmount.status === 'valid' && payload &&
+    ['interactive_send', 'send', 'interactive_swap', 'trade', 'interactive_deposit', 'interactive_bridge', 'bridge'].includes(payload.type)
+    ? { ...actionable, actionPayload: { ...payload, data: { ...payload.data, amount: promptAmount.amount, amountDecimal: promptAmount.decimal } } }
+    : actionable
+  const quoted = await attachLiveQuote(amountBound, walletAddress, portfolio)
   return {
     ...result,
     message: quoted.message,
@@ -289,6 +300,13 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
   portfolio?: PortfolioSnapshot
 ): Promise<T> {
   const payload = result.actionPayload
+  if (payload && ['interactive_send', 'send', 'interactive_swap', 'trade', 'interactive_deposit', 'interactive_bridge', 'bridge'].includes(payload.type)) {
+    const token = payload.type === 'interactive_swap' || payload.type === 'trade'
+      ? String(payload.data?.fromToken || 'USDC')
+      : String(payload.data?.tokenSymbol || 'USDC')
+    const check = validateSendAmount(payload.data?.amount, token)
+    if (!check.ok) return { ...result, message: `<strong>Invalid amount / Geçersiz tutar.</strong>\n\n${check.error}`, actionPayload: undefined }
+  }
   const isSwap = payload?.type === 'interactive_swap' || payload?.type === 'trade'
   const isSend = payload?.type === 'interactive_send' || payload?.type === 'send'
   if (!payload || (!isSwap && !isSend)) return result
@@ -329,18 +347,20 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
     }
   }
 
-  const slippage = Number(data.slippage ?? DEFAULT_COPILOT_SLIPPAGE)
-  if (isSwap && (!Number.isFinite(slippage) || slippage <= 0 || slippage > 50)) {
-    return { ...result, message: '<strong>Invalid slippage.</strong><br/><br/>Choose a slippage tolerance greater than 0% and no more than 50%.', actionPayload: undefined }
+  let slippageBps: number | undefined
+  try {
+    if (isSwap) slippageBps = copilotSlippageBps(data, DEFAULT_COPILOT_SLIPPAGE)
+  } catch (error) {
+    return { ...result, message: String((error as Error).message), actionPayload: undefined }
   }
 
   let quote: SwapQuoteResult | undefined
   if (isSwap) {
     try {
       quote = await getSwapEstimate({
-        fromChain: 'Arc_Testnet', tokenIn: fromToken, tokenOut: toToken, amountIn: amount.toString(),
+        fromChain: 'Arc_Testnet', tokenIn: fromToken, tokenOut: toToken, amountIn: numberToExactDecimal(amount)!,
         recipientAddress: walletAddress,
-        slippageTolerance: slippage / 100,
+        slippageBps,
       })
       if (!Number.isFinite(Number(quote.estimatedOutput)) || Number(quote.estimatedOutput) <= 0 ||
         !Number.isFinite(Number(quote.stopLimit)) || Number(quote.stopLimit) <= 0 || Number(quote.stopLimit) > Number(quote.estimatedOutput)) quote = undefined
@@ -371,13 +391,13 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
     console.warn('[llmService] Live network fee unavailable:', error)
   }
 
-  const estimatedOut = quote ? Number(Number(quote.estimatedOutput).toFixed(8)) : undefined
-  const minReceived = quote ? Number(Number(quote.stopLimit).toFixed(8)) : undefined
+  const estimatedOut = quote?.estimatedOutput
+  const minReceived = quote?.stopLimit
   const rate = quote ? Number(quote.rate) : undefined
   const nextPayload: CopilotActionPayload = {
     ...payload,
     ...(isSwap && { title: `🔄 Confirm Swap: ${amount} ${fromToken}${estimatedOut === undefined ? '' : ` ➔ ${estimatedOut} ${toToken}`}` }),
-    data: { ...data, ...(isSwap && { estimatedOut, minReceived, rate }), estimatedFeeUsdc, feeEstimateSource },
+    data: { ...data, ...(isSwap && { slippage: undefined, slippageBps, estimatedOut, minReceived, rate }), estimatedFeeUsdc, feeEstimateSource },
   }
 
   // Structured details live in the action payload (rendered by the action card and the
@@ -470,13 +490,10 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       if (!isKnownCopilotToken(args.fromToken) || !isKnownCopilotToken(args.toToken) || !fromTok || !toTok || fromTok === toTok) {
         return { message: '<strong>Swap pair required.</strong>\\n\\nPlease specify both tokens, for example: "swap 25 USDC to EURC".' }
       }
-      const slippage = Number(args.slippage) || extractSlippageFromPrompt(userPrompt, DEFAULT_COPILOT_SLIPPAGE)
-      if (!Number.isFinite(slippage) || slippage <= 0 || slippage > 50) {
-        return { message: '<strong>Invalid slippage.</strong><br/><br/>Choose a slippage tolerance greater than 0% and no more than 50%.' }
-      }
+      const slippage = extractSlippageFromPrompt(userPrompt, DEFAULT_COPILOT_SLIPPAGE)
       return {
         message: `I have prepared your instant token swap on Arc Testnet. Review the details and confirm the trade below to execute on-chain.`,
-        actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${amount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount, slippage } },
+        actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${amount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount, slippageBps: swapPercentToBps(slippage) } },
       }
     }
     if (fnName === 'execute_deposit_yield') {
@@ -546,20 +563,54 @@ export function parseLocalIntentFallback(
   portfolio?: PortfolioSnapshot,
   liveMaxFeePerGas?: bigint
 ): { message: string; actionPayload?: CopilotActionPayload } {
-  const p = prompt.toLowerCase().trim()
-  const extractedPromptSlippage = extractSlippageFromPrompt(prompt, DEFAULT_COPILOT_SLIPPAGE)
-  const cleanedPromptForAmount = prompt.replace(/0x[a-fA-F0-9]{40}/gi, '')
-    .replace(/(?:slippage|kayma|tolerance|tolerans|slip)\s*(?:of|is|:|=|%)?\s*(\d+(?:\.\d+)?)\s*%?/gi, '')
-    .replace(/(\d+(?:\.\d+)?)\s*%\s*(?:slippage|kayma|tolerans)/gi, '')
-  const amountMatch = cleanedPromptForAmount.match(/(?:^|\s|\$)([\d,]+(?:\.\d+)?)(?:\s|$|\$|[a-zA-Z])/i)
-  const parsedAmount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 100
-  const lastActionMsg = [...(chatHistory || [])].reverse().find((m) => m.actionPayload && m.actionPayload.data)
-  const prevAction = lastActionMsg?.actionPayload
-  const isCorrection = p.includes('pardon') || p.includes('yerine') || p.includes('aslında') || p.includes('bunu') ||
-    p.includes('yap') || p.includes('değiştir') || p.includes('instead') || p.includes('actually') || p.includes('make it') ||
-    p.includes('change') || p.includes('slippage') || p.includes('kayma') ||
-    (amountMatch !== null && p.split(' ').length <= 4 && !p.includes('swap') && !p.includes('deposit') && !p.includes('bridge') && !p.includes('takas'))
-  if (isCorrection && prevAction) {
+  const intent = classifyCopilotIntent(prompt)
+  if ('message' in intent) return { message: intent.message }
+  let result: { message: string; actionPayload?: CopilotActionPayload }
+  try {
+    result = parseLocalIntent(prompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas)
+  } catch (error) {
+    return { message: (error as Error).message }
+  }
+  const payload = result.actionPayload
+  if (!payload) return result
+  const token = payload.type === 'interactive_swap' || payload.type === 'trade'
+    ? String(payload.data?.fromToken || 'USDC')
+    : String(payload.data?.tokenSymbol || 'USDC')
+  const check = validateSendAmount(payload.data?.amount, token)
+  if (!check.ok) return { message: `<strong>Invalid amount / Geçersiz tutar.</strong>\n\n${check.error}` }
+  return {
+    ...result,
+    actionPayload: {
+      ...payload,
+      draftId: intent.kind === 'correction' ? latestEditableCopilotDraft(chatHistory)?.draftId || crypto.randomUUID() : crypto.randomUUID(),
+      revision: intent.kind === 'correction' ? (latestEditableCopilotDraft(chatHistory)?.revision || 0) + 1 : 1,
+      data: { ...payload.data, amount: check.normalized, amountDecimal: numberToExactDecimal(check.normalized!) },
+    },
+  }
+}
+
+function parseLocalIntent(
+  prompt: string,
+  walletAddress?: string,
+  livePrices?: TokenPriceMap,
+  chatHistory?: CopilotMessage[],
+  portfolio?: PortfolioSnapshot,
+  liveMaxFeePerGas?: bigint
+): { message: string; actionPayload?: CopilotActionPayload } {
+  const intent = classifyCopilotIntent(prompt)
+  const p = copilotInstructionText(prompt).toLowerCase().trim()
+  const extractedPromptSlippage = intent.kind === 'command' && intent.action === 'swap'
+    ? extractSlippageFromPrompt(prompt, DEFAULT_COPILOT_SLIPPAGE) : DEFAULT_COPILOT_SLIPPAGE
+  const promptAmount = parseCopilotPromptAmount(prompt)
+  if (promptAmount.status === 'ambiguous' || promptAmount.status === 'invalid') return { message: promptAmount.message }
+  const amountMatch = promptAmount.status === 'valid' ? promptAmount.decimal : null
+  const parsedAmount = promptAmount.status === 'valid' ? promptAmount.amount : NaN
+  const prevAction = latestEditableCopilotDraft(chatHistory)
+  if (intent.kind === 'correction' && !prevAction) return { message: 'No editable draft / Düzenlenebilir taslak yok. Please write a complete new transaction command.' }
+  if (intent.kind === 'correction' && prevAction) {
+    if (!amountMatch && !/(?:slippage|kayma|tolerans|memo|reference|not\s*:|açıklama\s*:|0x[a-f0-9]{40}|usdc|eurc|weth|cirbtc|base|arbitrum|solana|sepolia)/i.test(prompt)) {
+      return { message: 'Please specify the draft field to change / Değiştirilecek alanı açıkça belirtin.' }
+    }
     const prevData = prevAction.data || {}
     if (prevAction.type === 'interactive_swap' || prevAction.type === 'trade') {
       const newAmount = amountMatch ? parsedAmount : (prevData.amount || 0)
@@ -571,10 +622,10 @@ export function parseLocalIntentFallback(
       else if (/\b(?:weth|eth|ethereum)\b/i.test(p)) toTok = 'WETH'
       else if (p.includes('eurc')) toTok = 'EURC'
       else if (p.includes('usdc')) fromTok = 'USDC'
-      const slippage = extractSlippageFromPrompt(prompt, prevData.slippage !== undefined ? Number(prevData.slippage) : DEFAULT_COPILOT_SLIPPAGE)
+      const slippage = extractSlippageFromPrompt(prompt, copilotSlippageBps(prevData, DEFAULT_COPILOT_SLIPPAGE) / 100)
       return {
         message: `I have updated your instant swap on Arc Testnet. Confirm below to execute this updated trade on Arc Testnet.`,
-        actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${newAmount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount: newAmount, slippage } },
+        actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${newAmount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount: newAmount, slippageBps: swapPercentToBps(slippage) } },
       }
     }
     if (prevAction.type === 'interactive_deposit') {
@@ -603,7 +654,7 @@ export function parseLocalIntentFallback(
       else if (/\b(?:weth|eth|ethereum)\b/i.test(p)) tokenSymbol = 'WETH'
       else if (!mentionsCirBtc(p) && (p.includes('wbtc') || p.includes('btc') || p.includes('bitcoin'))) return unsupportedBtcGuidance()
       else if (p.includes('usdc')) tokenSymbol = 'USDC'
-      const memo = prompt.match(/(?:memo|not|açıklama|reference)\s*[:=]?\s*["']?([^"',\n]+)["']?/i)?.[1]?.trim() || prevData.memo
+      const memo = extractCopilotMemo(prompt) || prevData.memo
       const amountCheck = validateSendAmount(newAmount, tokenSymbol)
       if (!amountCheck.ok) return { message: `<strong>Invalid amount.</strong>\n\n${amountCheck.error}` }
       if (!isValidEvmAddress(recipient)) return { message: `<strong>Recipient required.</strong>\n\nPlease provide a valid Arc (EVM) wallet address (0x...).` }
@@ -648,7 +699,7 @@ export function parseLocalIntentFallback(
   }
 
   const swapWords = p.replace(/[^a-z0-9ğüşöçıİ ]/gi, ' ').split(/\s+/)
-  const isSwap = swapWords.some((word) => ['swap', 'takas', 'trade', 'convert', 'buy', 'sell', 'al', 'almak', 'dönüştür', 'çevir', 'sat', 'satmak'].includes(word)) || p.includes('satın al')
+  const isSwap = intent.kind === 'command' && intent.action === 'swap'
   if (isSwap) {
     const tokenPattern = COPILOT_TOKEN_PATTERN
     const tokenMentions = p.match(new RegExp(tokenPattern, 'gi')) || []
@@ -663,11 +714,11 @@ export function parseLocalIntentFallback(
     const slippage = extractedPromptSlippage
     return {
       message: `I have prepared your instant swap on Arc Testnet. Confirm below to execute this trade on Arc Testnet.`,
-      actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${parsedAmount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount: parsedAmount, slippage } },
+      actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${parsedAmount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount: parsedAmount, slippageBps: swapPercentToBps(slippage) } },
     }
   }
 
-  const isDeposit = p.includes('deposit') || p.includes('vault') || p.includes('yatır') || p.includes('stake') || p.includes('havuz') || p.includes('yield') || p.includes('kazanç') || p.includes('faiz')
+  const isDeposit = intent.kind === 'command' && intent.action === 'deposit'
   if (isDeposit) {
     if (!amountMatch || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       return { message: '<strong>Valid amount required.</strong>\\n\\nPlease include a positive USDC amount to deposit.' }
@@ -676,9 +727,7 @@ export function parseLocalIntentFallback(
     return { message: `I have prepared your yield vault allocation. Click below to verify and lock in your deposit.`, actionPayload: { type: 'interactive_deposit', title: `🏦 Deposit ${parsedAmount} USDC into YieldVault (8.42% APY)`, data: { amount: parsedAmount, apy: '8.42%', estimatedYieldUsdcYearly: Number(yearlyReturn.toFixed(2)) } } }
   }
 
-  const isBridge = p.includes('bridge') || p.includes('gateway') || p.includes('köprü') || p.includes('aktar') ||
-    (amountMatch !== null && (p.includes('sepolia') || p.includes('base') || p.includes('arbitrum') || p.includes('solana'))) ||
-    ((p.includes('from') || p.includes('dan') || p.includes('den') || p.includes('tan') || p.includes('ten')) && (p.includes('to') || p.includes('ye') || p.includes('ya') || p.includes('e') || p.includes('a')))
+  const isBridge = intent.kind === 'command' && intent.action === 'bridge'
   if (isBridge) {
     if (!amountMatch || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       return { message: '<strong>Valid amount required.</strong>\\n\\nPlease include a positive USDC amount to bridge.' }
@@ -709,7 +758,7 @@ export function parseLocalIntentFallback(
   }
 
 
-  const isSend = p.includes('send') || p.includes('gönder') || p.includes('yolla') || p.includes('transfer') || p.includes('pay') || p.includes('öde') || /0x[a-fA-F0-9]{40}/i.test(prompt)
+  const isSend = intent.kind === 'command' && intent.action === 'send'
   if (isSend) {
     const recipient = prompt.match(/0x[a-fA-F0-9]{40}/i)?.[0] || ''
     let tokenSymbol = 'USDC'
@@ -717,7 +766,7 @@ export function parseLocalIntentFallback(
     else if (p.includes('eurc')) tokenSymbol = 'EURC'
     else if (p.includes('weth') || p.includes('eth')) tokenSymbol = 'WETH'
     else if (p.includes('wbtc') || p.includes('btc')) return unsupportedBtcGuidance()
-    const memo = prompt.match(/(?:memo|not|açıklama|reference)\s*[:=]?\s*["']?([^"',\n]+)["']?/i)?.[1]?.trim()
+    const memo = extractCopilotMemo(prompt)
     if (amountMatch === null) return { message: `<strong>Amount required.</strong>\n\nPlease include how much ${tokenSymbol} to send — e.g. "send 10 ${tokenSymbol} to 0x...".` }
     const amountCheck = validateSendAmount(parsedAmount, tokenSymbol)
     if (!amountCheck.ok) return { message: `<strong>Invalid amount.</strong>\n\n${amountCheck.error}` }
@@ -739,5 +788,5 @@ export function parseLocalIntentFallback(
       },
     }
   }
-  return { message: `I have analyzed your request: "${prompt}"\n\n<strong>Arcis Autonomous Intelligence:</strong>\nYou can issue direct commands like:\n• <strong>Swap:</strong> "Swap 250 USDC to WETH"\n• <strong>Yield:</strong> "Deposit 1,000 USDC into yield vault"\n• <strong>Bridge:</strong> "Bridge 500 USDC from Base"\n• <strong>Arbitrage:</strong> "Scan live Arc DEX pools for highest arbitrage"\n\nHow would you like to proceed?` }
+  return { message: `I have analyzed your request: "${prompt}"\n\n<strong>Arcis Autonomous Intelligence:</strong>\nYou can issue direct commands like:\n• <strong>Swap:</strong> "Swap 250 USDC to WETH"\n• <strong>Yield:</strong> "Deposit 1000 USDC into yield vault"\n• <strong>Bridge:</strong> "Bridge 500 USDC from Base"\n• <strong>Arbitrage:</strong> "Scan live Arc DEX pools for highest arbitrage"\n\nHow would you like to proceed?` }
 }

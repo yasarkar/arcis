@@ -232,6 +232,23 @@ export function getCachedTokenPrice(symbol: string): number {
 }
 
 /**
+ * Strict price getter: returns a verified positive USD price or null when the token has no
+ * known price at all (instead of silently pretending every token is worth $1).
+ */
+export function getUsdPriceOrNull(symbol: string): number | null {
+  const norm = normalizeTokenSymbol(symbol)
+  const price = memoryCache.prices[norm] ?? DEFAULT_TOKEN_PRICES[norm] ?? null
+  return typeof price === 'number' && Number.isFinite(price) && price > 0 ? price : null
+}
+
+/**
+ * Conservative USD ceiling applied to tokens with no known price. Session spend ceilings
+ * must fail closed: an unpriceable token is valued so high that any spend exceeds the
+ * ceiling, instead of being counted 1:1 and bypassing the limit.
+ */
+export const UNPRICED_TOKEN_USD_CEILING = 1_000_000
+
+/**
  * Converts a token amount into its USD value using the live price cache (with safe static
  * fallbacks). Session budgets/limits are denominated in USD, so a non-stable token such as cirBTC
  * must be valued rather than counted 1:1 — otherwise 1 cirBTC (~$84k) would count as 1 USDC
@@ -241,8 +258,12 @@ export function tokenAmountToUsd(tokenSymbol: string, amount: number): number {
   const safeAmount = Number.isFinite(amount) ? amount : 0
   const sym = (tokenSymbol || 'USDC').toUpperCase()
   if (sym === 'USDC') return safeAmount
-  const price = getCachedTokenPrice(tokenSymbol)
-  return Number.isFinite(price) && price > 0 ? safeAmount * price : safeAmount
+  const price = getUsdPriceOrNull(tokenSymbol)
+  if (price === null) {
+    // Fail closed: never value an unknown/zero-price token 1:1 in USD.
+    return safeAmount * UNPRICED_TOKEN_USD_CEILING
+  }
+  return safeAmount * price
 }
 
 /**

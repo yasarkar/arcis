@@ -10,7 +10,7 @@ import {
   isZeroAddress,
 } from '../../config/copilotTokens'
 import { parseLocalIntentFallback } from '../llmService'
-import { tokenAmountToUsd } from '../tokenPriceService'
+import { tokenAmountToUsd, UNPRICED_TOKEN_USD_CEILING } from '../tokenPriceService'
 
 const RECIPIENT = '0x5f8f4cC0403332fC9c22a23222DDb9B267BF2E70'
 const SELF = '0x1111111111111111111111111111111111111111'
@@ -104,5 +104,11 @@ describe('tokenAmountToUsd', () => {
 
   it('treats USDC as a 1:1 USD stablecoin', () => {
     expect(tokenAmountToUsd('USDC', 42)).toBe(42)
+  })
+
+  it('fails closed for tokens with no known price instead of counting them 1:1', () => {
+    // O4: an unpriceable token must be valued at the conservative ceiling so session
+    // spend ceilings can never be bypassed by a missing/zero price feed.
+    expect(tokenAmountToUsd('UNKNOWN-NO-PRICE-XYZ', 3)).toBe(3 * UNPRICED_TOKEN_USD_CEILING)
   })
 })

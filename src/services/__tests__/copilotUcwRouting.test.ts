@@ -15,8 +15,14 @@ import { deductSessionSpend } from '../sessionKeyService'
 import { addTransaction } from '../../utils/history'
 import { executeSwap, getSwapEstimate } from '../swapService'
 import { ARC_TOKENS } from '../../config/arcChain'
-import { POOL_CONTRACTS } from '../../config/poolsConfig'
-import { encodeAbiParameters, encodeEventTopics, parseUnits } from 'viem'
+import {
+  POOL_CONTRACTS,
+  STABLE_SWAP_ABI,
+  POOL_VERSION_V4,
+  POOL_DEFAULT_SLIPPAGE_BPS,
+  poolMinOut,
+} from '../../config/poolsConfig'
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, parseUnits, decodeFunctionData } from 'viem'
 import { getResilientPublicClient } from '../rpc'
 import { resolveArcNativeRoute } from '../swapService'
 
@@ -120,6 +126,7 @@ function mockConfirmedSwapOutput(amountOut: string) {
     [POOL_CONTRACTS.USDC, parseUnits('10', 6), parseUnits(amountOut, 6)]
   )
   vi.mocked(getResilientPublicClient).mockReturnValue({
+    readContract: vi.fn().mockResolvedValue(100_000_000_000n),
     waitForTransactionReceipt: vi.fn().mockResolvedValue({
       transactionHash: TX_HASH,
       status: 'success',
@@ -167,6 +174,7 @@ function mockConfirmedDeposit(amount = '1') {
 describe('Ask Arco → Circle UCW routing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getStoredMscaAddress).mockReturnValue('')
     vi.mocked(getModularPublicClient).mockReturnValue({
       getTransactionReceipt: vi.fn().mockResolvedValue({
         transactionHash: TX_HASH,
@@ -241,6 +249,49 @@ describe('Ask Arco → Circle UCW routing', () => {
     expect(sendModularUserOperation).not.toHaveBeenCalled()
   })
 
+  it.each([10, 50, 100, 200])('keeps %s bps and exact card minimum across UCW, EOA and passkey', async slippageBps => {
+    const minimum = ((9_500_000n * BigInt(10000 - slippageBps)) / 10000n).toString()
+    const minReceived = `${minimum.slice(0, -6)}.${minimum.slice(-6)}`
+    const action = { type: 'interactive_swap' as const, title: '', data: { fromToken: 'USDC', toToken: 'EURC', amount: 10, slippageBps, minReceived } }
+    for (const mode of ['ucw', 'evm', 'passkey'] as const) {
+      vi.mocked(executeSwap).mockClear()
+      vi.mocked(sendModularUserOperation).mockClear()
+      mockConfirmedSwapOutput('9.5')
+      vi.mocked(getSwapEstimate).mockResolvedValue({ estimatedOutput: '9.5', stopLimit: minReceived, rate: '0.95', fees: [] })
+      vi.mocked(executeSwap).mockResolvedValue({ status: 'DONE', sourceTxHash: TX_HASH })
+      vi.mocked(getStoredMscaAddress).mockReturnValue(mode === 'passkey' ? UCW_WALLET : '')
+      vi.mocked(sendModularUserOperation).mockResolvedValue({ success: true, txHash: TX_HASH })
+      const receipt = await executeDirectCopilotAction(action, UCW_WALLET, mode === 'evm' ? { request: vi.fn() } : undefined, undefined,
+        mode === 'ucw' ? { authSource: 'ucw', executeUcwContract: vi.fn() } : undefined)
+      expect(receipt.status).toBe('SUCCESS')
+      expect(getSwapEstimate).toHaveBeenCalledWith(expect.objectContaining({ slippageBps }))
+      if (mode === 'passkey') {
+        const call = vi.mocked(sendModularUserOperation).mock.calls[0][0].calls[1]
+        if (!call.data) throw new Error('Missing swap calldata')
+        const decoded = decodeFunctionData({ abi: STABLE_SWAP_ABI, data: call.data })
+        expect(decoded.args?.[3]).toBe(BigInt(minimum))
+        expect(executeSwap).not.toHaveBeenCalled()
+      } else {
+        expect(executeSwap).toHaveBeenCalledWith(expect.objectContaining({ slippageBps, minimumOutput: minReceived }))
+        expect(sendModularUserOperation).not.toHaveBeenCalled()
+      }
+    }
+  })
+
+  it.each(['ucw', 'evm', 'passkey'] as const)('rejects a worse refresh before %s signing', async mode => {
+    mockConfirmedSwapOutput('9.5')
+    vi.mocked(getSwapEstimate).mockResolvedValue({ estimatedOutput: '9', stopLimit: '8.91', rate: '0.9', fees: [] })
+    vi.mocked(getStoredMscaAddress).mockReturnValue(mode === 'passkey' ? UCW_WALLET : '')
+    const receipt = await executeDirectCopilotAction({ type: 'interactive_swap', title: '', data: {
+      fromToken: 'USDC', toToken: 'EURC', amount: 10, slippageBps: 100, minReceived: '9.405',
+    } }, UCW_WALLET, mode === 'evm' ? { request: vi.fn() } : undefined, undefined,
+      mode === 'ucw' ? { authSource: 'ucw', executeUcwContract: vi.fn() } : undefined)
+    expect(receipt.status).toBe('FAILED')
+    expect(receipt.errorMessage).toContain('approved minimum')
+    expect(executeSwap).not.toHaveBeenCalled()
+    expect(sendModularUserOperation).not.toHaveBeenCalled()
+  })
+
   it('reports the exact output from the matching successful on-chain swap event, not the quote', async () => {
     mockConfirmedSwapOutput('9.42')
     vi.mocked(getSwapEstimate).mockResolvedValue({
@@ -256,7 +307,7 @@ describe('Ask Arco → Circle UCW routing', () => {
       {
         type: 'interactive_swap',
         title: '',
-        data: { fromToken: 'USDC', toToken: 'EURC', amount: 10 },
+        data: { fromToken: 'USDC', toToken: 'EURC', amount: 10, slippageBps: 100, minReceived: '9.405' },
       },
       UCW_WALLET,
       undefined,
@@ -284,7 +335,7 @@ describe('Ask Arco → Circle UCW routing', () => {
     vi.mocked(executeSwap).mockResolvedValue({ status: 'DONE', sourceTxHash: TX_HASH })
 
     const receipt = await executeDirectCopilotAction(
-      { type: 'interactive_swap', title: '', data: { fromToken: 'USDC', toToken: 'EURC', amount: 10 } },
+      { type: 'interactive_swap', title: '', data: { fromToken: 'USDC', toToken: 'EURC', amount: 10, slippageBps: 100, minReceived: '9.405' } },
       UCW_WALLET,
       { request: vi.fn() }
     )
@@ -326,7 +377,7 @@ describe('Ask Arco → Circle UCW routing', () => {
     } as any)
 
     const receipt = await executeDirectCopilotAction(
-      { type: 'interactive_swap', title: '', data: { fromToken: 'USDC', toToken: 'EURC', amount: 10 } },
+      { type: 'interactive_swap', title: '', data: { fromToken: 'USDC', toToken: 'EURC', amount: 10, slippageBps: 100, minReceived: '9.405' } },
       UCW_WALLET,
       undefined,
       undefined,
@@ -431,8 +482,8 @@ describe('Ask Arco → Circle UCW routing', () => {
     expect(sendToken).not.toHaveBeenCalled()
   })
 
-  it('moves cirBTC as an ERC-20 (not native USDC) from the passkey/session wallet', async () => {
-    mockConfirmedTransfer('cirBTC', '0.0001')
+  it.each([['0.0001', 0.0001], ['0.00000001', 0.00000001]] as const)('moves %s cirBTC as exact ERC-20 units from the passkey wallet', async (decimal, amount) => {
+    mockConfirmedTransfer('cirBTC', decimal)
     vi.mocked(getStoredMscaAddress).mockReturnValue(UCW_WALLET)
     vi.mocked(sendModularUserOperation).mockResolvedValue({ success: true, txHash: TX_HASH })
 
@@ -440,7 +491,7 @@ describe('Ask Arco → Circle UCW routing', () => {
       {
         type: 'interactive_send',
         title: '',
-        data: { recipient: RECIPIENT, amount: 0.0001, tokenSymbol: 'cirBTC' },
+        data: { recipient: RECIPIENT, amount, tokenSymbol: 'cirBTC' },
       },
       UCW_WALLET
     )
@@ -451,6 +502,10 @@ describe('Ask Arco → Circle UCW routing', () => {
     expect(createModularUsdcTransferCall).not.toHaveBeenCalled()
     const [{ calls }] = vi.mocked(sendModularUserOperation).mock.calls[0]
     expect(calls[0].to).toBe(ARC_TOKENS.cirBTC)
+    expect(calls[0].data).toBe(encodeFunctionData({
+      abi: [{ type: 'function', name: 'transfer', stateMutability: 'nonpayable', inputs: [{ type: 'address', name: 'to' }, { type: 'uint256', name: 'value' }], outputs: [{ type: 'bool' }] }],
+      functionName: 'transfer', args: [RECIPIENT, parseUnits(decimal, 8)],
+    }))
   })
 
   it('refuses a zero-address and a self transfer before touching any signer', async () => {
@@ -549,11 +604,21 @@ describe('Ask Arco → Circle UCW routing', () => {
       abiParameters: [POOL_CONTRACTS.YIELD_VAULT, parseUnits('1', 6).toString()],
       blockchain: 'ARC-TESTNET',
     }))
-    // 2nd call: deposit into Yield Vault
+    // 2nd call: deposit into Yield Vault. On V4 this goes through the guarded entrypoint
+    // (H4): min-shares derived from the live previewDeposit quote (the mock returns
+    // 100_000_000_000n) with the clamped slippage band. The V3 fallback keeps the plain call.
     expect(executeUcwContract).toHaveBeenNthCalledWith(2, expect.objectContaining({
       contractAddress: POOL_CONTRACTS.YIELD_VAULT,
-      abiFunctionSignature: 'deposit(uint256,address)',
-      abiParameters: [parseUnits('1', 6).toString(), UCW_WALLET],
+      abiFunctionSignature: POOL_VERSION_V4
+        ? 'depositWithMinShares(uint256,address,uint256)'
+        : 'deposit(uint256,address)',
+      abiParameters: POOL_VERSION_V4
+        ? [
+            parseUnits('1', 6).toString(),
+            UCW_WALLET,
+            poolMinOut(100_000_000_000n, POOL_DEFAULT_SLIPPAGE_BPS).toString(),
+          ]
+        : [parseUnits('1', 6).toString(), UCW_WALLET],
       blockchain: 'ARC-TESTNET',
     }))
   })
@@ -599,7 +664,9 @@ describe('Ask Arco → Circle UCW routing', () => {
     expect(executeUcwContract).toHaveBeenCalledTimes(1)
     expect(executeUcwContract).toHaveBeenCalledWith(expect.objectContaining({
       contractAddress: POOL_CONTRACTS.YIELD_VAULT,
-      abiFunctionSignature: 'deposit(uint256,address)',
+      abiFunctionSignature: POOL_VERSION_V4
+        ? 'depositWithMinShares(uint256,address,uint256)'
+        : 'deposit(uint256,address)',
     }))
   })
 

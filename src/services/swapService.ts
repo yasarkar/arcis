@@ -15,7 +15,7 @@ import {
   STABLE_SWAP_ABI,
   ERC20_ABI,
   ARCIS_SWAP_ROUTER_ABI,
-  poolSlippageBps,
+  POOL_DEFAULT_SLIPPAGE_BPS,
   STABLE_SWAP_AMP,
   STABLE_SWAP_ANN_MULTIPLIER,
   STABLE_SWAP_LP_FEE_BPS,
@@ -30,16 +30,22 @@ import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
 import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils'
 import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
 
+import { validateSwapSlippageBps, swapFractionToBps, swapMinimumUnits, exactSwapOutputUnits } from '../utils/swapSlippage'
+
 const kit = new AppKit()
 
-/**
- * Clamps a caller-provided tolerance (a fraction, e.g. 0.005 = 0.5%) into the pool-safe
- * [10, 1000] bps band used by the rest of the app (fix #5). Without this, a custom value ≥ 100%
- * produced `10000 - slippageBps <= 0` and therefore a negative minOut / negative stop-limit.
- * Undefined or invalid input falls back to the protocol default (50 bps).
- */
-function clampSlippageBps(slippageTolerance?: number): number {
-  return poolSlippageBps(slippageTolerance === undefined || !Number.isFinite(slippageTolerance) ? NaN : slippageTolerance * 100)
+/** Legacy fractions normalize once; explicit invalid inputs never get a wider fallback. */
+function resolveSwapSlippageBps(params: SwapExecuteParams): number {
+  const legacy = params.slippageTolerance === undefined ? undefined : swapFractionToBps(params.slippageTolerance)
+  const bps = params.slippageBps === undefined ? legacy ?? POOL_DEFAULT_SLIPPAGE_BPS : validateSwapSlippageBps(params.slippageBps)
+  if (legacy !== undefined && legacy !== bps) throw new Error('Conflicting slippage values; no swap was signed.')
+  return bps
+}
+
+function executionMinimum(params: SwapExecuteParams, output: bigint, decimals: number, bps: number): bigint {
+  const minimum = params.minimumOutput === undefined ? swapMinimumUnits(output, bps) : exactSwapOutputUnits(params.minimumOutput, decimals)
+  if (minimum <= 0n || output < minimum) throw new Error('Quote moved below the approved minimum; prepare and confirm a new quote.')
+  return minimum
 }
 
 /**
@@ -216,6 +222,7 @@ export function getSupportedSwapChains(isTestnet?: boolean): ChainDefinition[] {
  * Estimates the output, slippage stop-limit, and fees for a swap transaction.
  */
 export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQuoteResult> {
+  const slippageBps = resolveSwapSlippageBps(params)
   // Audit #10: a testnet build must refuse mainnet chains explicitly (IS_TESTNET only protects
   // a mainnet-configured build, it does not stop someone quoting a mainnet pool here).
   if (isMainnetSwapChain(params.fromChain) || isMainnetSwapChain(params.toChain)) {
@@ -283,8 +290,7 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
       }
 
       const estimatedOutput = formatUnits(amountOutUnits, arcRoute.decOut)
-      const slippageBps = clampSlippageBps(params.slippageTolerance)
-      const minOutUnits = (amountOutUnits * BigInt(10000 - slippageBps)) / 10000n
+      const minOutUnits = swapMinimumUnits(amountOutUnits, slippageBps)
       const stopLimit = formatUnits(minOutUnits, arcRoute.decOut)
       const amountInNum = parseFloat(params.amountIn)
       const amountOutNum = parseFloat(estimatedOutput)
@@ -330,9 +336,8 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
     allowanceStrategy: params.allowanceStrategy || 'permit'
   }
 
-  if (params.slippageTolerance !== undefined) {
-    config.slippageBps = clampSlippageBps(params.slippageTolerance)
-  }
+  config.slippageBps = slippageBps
+  if (params.minimumOutput !== undefined) config.stopLimit = params.minimumOutput
 
   if (params.customFee && params.customFee.percentageBps > 0 && params.customFee.recipientAddress) {
     config.customFee = {
@@ -436,7 +441,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
     // ─────────────────────────────────────────────────────────────
     if (arcRoute) {
       const amountInUnits = parseUnits(params.amountIn, arcRoute.decIn)
-      const slippageBps = clampSlippageBps(params.slippageTolerance)
+      const slippageBps = resolveSwapSlippageBps(params)
 
       const arcPublicClient = getArcPublicClient()
 
@@ -496,7 +501,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         }
       }
 
-      const minOutUnits = (amountOutUnits * BigInt(10000 - slippageBps)) / 10000n
+      const minOutUnits = executionMinimum(params, amountOutUnits, arcRoute.decOut, slippageBps)
 
       // A. Modular Smart Account (Passkey / MSCA) Execution
       // Explicit signer routing by authSource (fix #3): a passkey user MUST execute through the
@@ -673,6 +678,12 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling)
         }
 
+        if (params.minimumOutput !== undefined) {
+          const refreshed = await getSwapEstimate(params)
+          if (exactSwapOutputUnits(refreshed.estimatedOutput, arcRoute.decOut) < minOutUnits) {
+            throw new Error('Quote moved below the approved minimum after approval; prepare and confirm a new quote.')
+          }
+        }
         // 3. Request swapWithFee challenge on ArcisSwapRouter via Circle UCW
         const treasuryRecipient = (params.customFee?.recipientAddress || zeroAddress) as Address
         const feeBps = BigInt(params.customFee?.percentageBps || 0)
@@ -810,6 +821,12 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           setSpendingCeiling(account, params.tokenIn, ceilingStatus.suggestedCeiling)
         }
 
+        if (params.minimumOutput !== undefined) {
+          const refreshed = await getSwapEstimate(params)
+          if (exactSwapOutputUnits(refreshed.estimatedOutput, arcRoute.decOut) < minOutUnits) {
+            throw new Error('Quote moved below the approved minimum after approval; prepare and confirm a new quote.')
+          }
+        }
         // 2. Execute atomic swapWithFee on ArcisSwapRouter in a single transaction
         const treasuryRecipient = (params.customFee?.recipientAddress || zeroAddress) as Address
         const feeBps = BigInt(params.customFee?.percentageBps || 0)
@@ -879,9 +896,8 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       allowanceStrategy: params.allowanceStrategy || 'permit'
     }
 
-    if (params.slippageTolerance !== undefined) {
-      config.slippageBps = Math.round(params.slippageTolerance * 10000)
-    }
+    config.slippageBps = resolveSwapSlippageBps(params)
+    if (params.minimumOutput !== undefined) config.stopLimit = params.minimumOutput
 
     if (params.customFee && params.customFee.percentageBps > 0 && params.customFee.recipientAddress) {
       config.customFee = {

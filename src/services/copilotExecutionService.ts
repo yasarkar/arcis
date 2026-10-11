@@ -12,10 +12,11 @@ import {
   WBTC_UNSUPPORTED_MESSAGE,
 } from '../config/copilotTokens'
 import { ARC_TOKENS, IS_TESTNET } from '../config/arcChain'
+import { numberToExactDecimal } from '../utils/copilotAmount'
 import { resolveArcActualFeeUsdc } from './arcGasService'
 import { getResilientPublicClient } from './rpc'
 import type { CopilotActionPayload } from '../types/marketplace'
-import type { InlineExecutionReceipt, ExecutionProgressState } from '../types/sessionKey'
+import type { InlineExecutionReceipt, ExecutionProgressState, SessionActionType } from '../types/sessionKey'
 import {
   verifySessionLimits,
   deductSessionSpend,
@@ -38,6 +39,8 @@ async function valueTokenAmountUsd(tokenSymbol: string, amount: number): Promise
 }
 import { createViemAdapter, sendToken } from './sendService'
 import { getSwapEstimate, executeSwap, resolveArcNativeRoute } from './swapService'
+import { copilotSlippageBps, approvedSwapMinimum } from '../utils/swapSlippage'
+import { admitSessionSpend, claimSessionSpend, updateSessionSpend, readSessionSpendLedger, outstandingSpendMicros, spendMicros } from './sessionSpendLedger'
 import { executeBridge } from './bridgeService'
 import { pollCctpDestinationTx } from './bridgeUcwService'
 import {
@@ -46,12 +49,20 @@ import {
   createModularUsdcTransferCall,
   arcTestnetChain,
 } from './modularWalletService'
-import { POOL_CONTRACTS, STABLE_SWAP_ABI, ARCIS_SWAP_ROUTER_ABI, ERC20_ABI, YIELD_VAULT_ABI } from '../config/poolsConfig'
+import {
+  POOL_CONTRACTS,
+  STABLE_SWAP_ABI,
+  ARCIS_SWAP_ROUTER_ABI,
+  ERC20_ABI,
+  YIELD_VAULT_ABI,
+  POOL_VERSION_V4,
+  POOL_DEFAULT_SLIPPAGE_BPS,
+  poolMinOut,
+} from '../config/poolsConfig'
 import { resolveCanonicalChainKey, getChainDisplayName } from '../config/chainMeta'
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { addTransaction } from '../utils/history'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
-import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
 import { tokenAmountToUsd } from './tokenPriceService'
 
 export interface CopilotUcwHandlers {
@@ -80,7 +91,7 @@ function isTransactionHash(value: unknown): value is Hex {
 function isPositiveTokenAmount(value: unknown, decimals: number): value is number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return false
   try {
-    const units = parseUnits(value.toString(), decimals)
+    const units = parseUnits(numberToExactDecimal(value)!, decimals)
     return units > 0n && Number(formatUnits(units, decimals)) === value
   } catch {
     return false
@@ -113,7 +124,7 @@ async function readArcSendBalance(tokenSymbol: string, wallet: string): Promise<
 }
 
 function tokenUnits(amount: number, tokenSymbol: string): bigint {
-  return parseUnits(amount.toString(), COPILOT_SEND_DECIMALS[tokenSymbol] ?? 6)
+  return parseUnits(numberToExactDecimal(amount)!, COPILOT_SEND_DECIMALS[tokenSymbol] ?? 6)
 }
 
 async function getVerifiedArcReceipt(hash: Hex, description: string) {
@@ -176,7 +187,7 @@ export async function verifyArcSwapReceipt(
     if (receipt.status === 'reverted') return { status: 'reverted' }
     if (receipt.status !== 'success') return { status: 'unknown' }
 
-    const expectedAmountIn = parseUnits(amountIn.toString(), route.decIn)
+    const expectedAmountIn = parseUnits(numberToExactDecimal(amountIn)!, route.decIn)
     for (const log of receipt.logs) {
       try {
         if (log.address.toLowerCase() === POOL_CONTRACTS.ARCIS_SWAP_ROUTER.toLowerCase()) {
@@ -235,15 +246,152 @@ function failedActionReceipt(
   }
 }
 
-/**
- * Main dispatcher for executing real on-chain actions directly from Copilot
- */
+/** Read-only evidence reconciliation; never re-enters a signer, even after reload. */
+export async function reconcileCopilotReservation(wallet: string, id: string): Promise<InlineExecutionReceipt | undefined> {
+  const record = readSessionSpendLedger(wallet).reservations[id]
+  if (!record || ['committed', 'released'].includes(record.state)) return record?.receipt
+  const hash = record.txHash
+  if (!isTransactionHash(hash)) return record.receipt
+  const data = record.action.data || {}
+  let confirmed = false
+  let reverted = false
+  let destinationHash: string | undefined
+  if (record.actionType === 'bridge' && record.phase !== 'approval') {
+    const result = await pollCctpDestinationTx({ sourceChain: resolveCanonicalChainKey(data.fromChain || 'Arc_Testnet'), destChain: resolveCanonicalChainKey(data.toChain || 'Ethereum_Sepolia'), burnTxHash: hash, recipientAddress: String(data.recipient || wallet), amount: numberToExactDecimal(Number(data.amount))!, maxAttempts: 1, intervalMs: 0 })
+    confirmed = result.status === 'confirmed' && isTransactionHash(result.destTxHash)
+    destinationHash = result.destTxHash
+  } else {
+    const chainReceipt = await getVerifiedArcReceipt(hash, 'Session budget reconciliation')
+    if (!chainReceipt) return record.receipt
+    reverted = chainReceipt.status === 'reverted'
+    if (chainReceipt.status === 'success' && record.phase !== 'approval') {
+      if (record.actionType === 'send') {
+        const token = resolveCopilotToken(data.tokenSymbol || data.token, 'USDC')
+        if (token) confirmed = verifyArcTokenTransferReceipt(chainReceipt, ARC_TOKENS[token as keyof typeof ARC_TOKENS], String(data.recipient || data.recipientAddress), Number(data.amount), COPILOT_SEND_DECIMALS[token], wallet)
+      } else if (record.actionType === 'swap') {
+        confirmed = (await verifyArcSwapReceipt(hash, wallet, String(data.fromToken), String(data.toToken), Number(data.amount))).status === 'success'
+      } else if (record.actionType === 'deposit') {
+        confirmed = chainReceipt.logs.some((log: any) => {
+          if (log.address.toLowerCase() !== POOL_CONTRACTS.YIELD_VAULT.toLowerCase()) return false
+          try {
+            const event = decodeEventLog({ abi: YIELD_VAULT_ABI, data: log.data, topics: log.topics })
+            const args = event.args as any
+            return event.eventName === 'Deposit' && String(args.owner).toLowerCase() === wallet.toLowerCase() && BigInt(args.assets) === parseUnits(numberToExactDecimal(Number(data.amount))!, 6) && BigInt(args.shares) > 0n
+          } catch { return false }
+        })
+      }
+    }
+  }
+  // A confirmed approval alone is not proof that the following spend was never submitted.
+  if (!confirmed && !reverted) return record.receipt
+  const receipt: InlineExecutionReceipt = { ...record.receipt, id: record.receipt?.id || `rcpt_${id}`, actionType: record.actionType, status: confirmed ? 'SUCCESS' : 'FAILED', title: confirmed ? 'Transaction Evidence Confirmed' : 'Transaction Reverted', txHash: destinationHash || hash, reservationId: id, reservationWallet: wallet, gasUsdc: record.receipt?.gasUsdc || 0, timestamp: Date.now(), settlementLatencyMs: 0 }
+  const settled = await updateSessionSpend(wallet, id, { state: confirmed ? 'committed' : 'released', receipt })
+  return settled.receipt
+}
+
+function budgetActionType(payload: CopilotActionPayload): SessionActionType | undefined {
+  if (['interactive_swap', 'trade'].includes(payload.type)) return 'swap'
+  if (['interactive_deposit', 'view_pool'].includes(payload.type)) return 'deposit'
+  if (['interactive_bridge', 'bridge'].includes(payload.type)) return 'bridge'
+  if (['interactive_send', 'send', 'interactive_batch_send'].includes(payload.type)) return 'send'
+  return undefined
+}
+
+/** Every hook/card/auto-execute caller passes through this gate before any signer. */
 export async function executeDirectCopilotAction(
+  actionPayload: CopilotActionPayload, walletAddress?: string, provider?: any,
+  onProgress?: (state: ExecutionProgressState) => void, ucwHandlers?: CopilotUcwHandlers
+): Promise<InlineExecutionReceipt> {
+  const wallet = walletAddress || getStoredMscaAddress()
+  const actionType = budgetActionType(actionPayload)
+  if (!wallet || !actionType || !IS_TESTNET) return executeCopilotActionUnreserved(actionPayload, walletAddress, provider, onProgress, ucwHandlers)
+  const started = Date.now()
+  let id: string | undefined
+  let claimed = false
+  let signerEntered = false
+  let phase: 'approval' | 'spend' | undefined
+  const persistSubmission = async (hash?: string) => {
+    if (id && (hash || userOpHash)) await updateSessionSpend(wallet, id, { state: 'pending', txHash: hash, userOpHash, phase })
+  }
+  let txHash: string | undefined
+  let userOpHash: string | undefined
+  const observedUcw: CopilotUcwHandlers | undefined = ucwHandlers && {
+    ...ucwHandlers,
+    executeUcwTransfer: ucwHandlers.executeUcwTransfer && (async params => {
+      phase = 'spend'; signerEntered = true
+      const result = await ucwHandlers.executeUcwTransfer!(params)
+      if (isTransactionHash(result.txHash)) txHash = result.txHash
+      await persistSubmission(txHash)
+      return result
+    }),
+    executeUcwContract: ucwHandlers.executeUcwContract && (async params => {
+      phase = params.abiFunctionSignature?.startsWith('approve') ? 'approval' : 'spend'; signerEntered = true
+      const result = await ucwHandlers.executeUcwContract!(params)
+      if (isTransactionHash(result.txHash)) txHash = result.txHash
+      await persistSubmission(txHash)
+      return result
+    }),
+  }
+  try {
+    const config = getSessionKeyConfig(wallet)
+    if (!config.isActive) {
+      // A revoke/reset does not make previously submitted principal disappear.
+      if (config.reservedUsdc === Infinity || (typeof localStorage !== 'undefined' && outstandingSpendMicros(readSessionSpendLedger(wallet)) > 0)) throw new Error('Unresolved wallet budget reservations require reconciliation before another transaction.')
+      return executeCopilotActionUnreserved(actionPayload, walletAddress, provider, onProgress, ucwHandlers)
+    }
+    const data = actionPayload.data || {}
+    const token = actionType === 'swap' ? String(data.fromToken || 'USDC') : actionType === 'send' ? String(data.tokenSymbol || data.token || 'USDC') : 'USDC'
+    const amount = Number(data.amount)
+    const usd = actionType === 'send' || actionType === 'swap' ? await valueTokenAmountUsd(token, amount) : amount
+    const fingerprint = JSON.stringify([actionType, token, data.toToken, data.amount, data.recipient || data.recipientAddress, data.fromChain, data.toChain, data.memo, data.slippageBps, data.minReceived])
+    id = `${actionPayload.draftId || fingerprint}:${actionPayload.revision || 1}`
+    const prior = await admitSessionSpend(wallet, () => getSessionKeyConfig(wallet), { id, actionType, amountMicros: spendMicros(usd), fingerprint, action: actionPayload })
+    const pendingReceipt = (): InlineExecutionReceipt => ({ id: `rcpt_reservation_${id}`, actionType, title: 'Transaction Reserved — Reconciliation Required', status: 'PENDING', txHash: prior.txHash || '', userOpHash: prior.userOpHash, reservationId: id, reservationWallet: wallet, gasUsdc: 0, timestamp: Date.now(), settlementLatencyMs: Date.now() - started, errorMessage: 'This intent already holds budget; no second signer was called.' })
+    if (prior.state === 'committed' || prior.state === 'released') return prior.receipt || failedActionReceipt(actionType, 'Intent Already Settled', 'Prepare a new draft to authorize a new transaction.', started)
+    if (!await claimSessionSpend(wallet, id)) return await reconcileCopilotReservation(wallet, id) || prior.receipt || pendingReceipt()
+    claimed = true
+    const actualProvider = provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
+    const observedProvider = actualProvider && { request: async (params: any) => {
+      if (['eth_sendTransaction', 'eth_sendRawTransaction', 'eth_signTransaction'].includes(params.method)) { signerEntered = true; phase = 'spend' }
+      const result = await actualProvider.request(params)
+      if (params.method === 'eth_sendTransaction' && isTransactionHash(result)) { txHash = result; await persistSubmission(txHash) }
+      return result
+    } }
+    const receipt = await executeCopilotActionUnreserved(actionPayload, wallet, observedProvider,
+      state => { if (state === 'broadcasting') signerEntered = true; onProgress?.(state) }, observedUcw, true,
+      evidence => { signerEntered = true; phase = evidence.phase; txHash = evidence.txHash || txHash; userOpHash = evidence.userOpHash || userOpHash })
+    let result: InlineExecutionReceipt = { ...receipt, reservationId: id, reservationWallet: wallet }
+    const canceled = !txHash && !userOpHash && (isUserCanceled({ message: result.errorMessage || '' }) || result.status === 'CANCELED')
+    const reverted = /confirmed.*reverted|swap reverted on arc|confirmed.*receipt.*revert/i.test(result.errorMessage || '')
+    const safePreflight = !signerEntered || (phase === 'approval' && /no swap|not submitted|no transaction|approved minimum/i.test(result.errorMessage || ''))
+    if ((result.status === 'FAILED' || result.status === 'CANCELED') && !canceled && !reverted && !safePreflight) {
+      result = { ...result, status: 'PENDING', title: 'Transaction Outcome Unknown — Budget Reserved', txHash: result.txHash || txHash || '', userOpHash, errorMessage: result.errorMessage || 'Signer outcome requires reconciliation; retry will not submit again.' }
+    }
+    await updateSessionSpend(wallet, id, { state: result.status === 'SUCCESS' ? 'committed' : result.status === 'PENDING' ? 'pending' : 'released', receipt: result, txHash: result.txHash || txHash, userOpHash: result.userOpHash || userOpHash, phase })
+    return result
+  } catch (error) {
+    const failed = failedActionReceipt(actionType, 'Session Budget Blocked', (error as Error).message, started)
+    if (!id || !claimed) return failed
+    const result: InlineExecutionReceipt = { ...failed, status: signerEntered && (!isUserCanceled(error) || Boolean(txHash || userOpHash)) ? 'PENDING' : 'FAILED', txHash: txHash || '', userOpHash, reservationId: id, reservationWallet: wallet }
+    try {
+      await updateSessionSpend(wallet, id, { state: result.status === 'PENDING' ? 'pending' : 'released', receipt: result, txHash, userOpHash, phase })
+    } catch {
+      // The pre-signing durable record remains held; never report a release that was not persisted.
+      return { ...result, status: 'PENDING', title: 'Budget Journal Unavailable — Reservation Retained' }
+    }
+    return result
+  }
+}
+
+/** Internal dispatcher; the exported gate owns all active-session accounting. */
+async function executeCopilotActionUnreserved(
   actionPayload: CopilotActionPayload,
   walletAddress?: string,
   provider?: any,
   onProgress?: (state: ExecutionProgressState) => void,
-  ucwHandlers?: CopilotUcwHandlers
+  ucwHandlers?: CopilotUcwHandlers,
+  budgetManaged = false,
+  onSubmission?: (evidence: { txHash?: string; userOpHash?: string; phase: 'approval' | 'spend' }) => void
 ): Promise<InlineExecutionReceipt> {
   const startTime = Date.now()
   const actType = actionPayload.type
@@ -295,7 +443,13 @@ export async function executeDirectCopilotAction(
     const amountIn = Number(data.amount)
     const fromTok = resolveCopilotToken(data.fromToken, 'USDC')
     const toTok = resolveCopilotToken(data.toToken, 'EURC')
-    const slippageTolerance = data.slippage == null ? undefined : Number(data.slippage)
+    let slippageBps: number
+    try {
+      slippageBps = copilotSlippageBps(data)
+    } catch (error) {
+      if (onProgress) onProgress('failed')
+      return failedActionReceipt('swap', 'Invalid Slippage', (error as Error).message, startTime)
+    }
     if (!fromTok || !toTok) {
       if (onProgress) onProgress('failed')
       return failedActionReceipt('swap', 'Unknown Token', 'The requested token is not recognized; no transaction was sent.', startTime)
@@ -318,7 +472,7 @@ export async function executeDirectCopilotAction(
     // Local caps are not chain-enforced and no session is active without module delegation.
     const spendUsdc = await valueTokenAmountUsd(fromTok, amountIn)
     const limitCheck = verifySessionLimits('swap', spendUsdc, activeWallet)
-    if (!limitCheck.allowed && sessionConfig.isActive) {
+    if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
         id: `rcpt_${Date.now()}`,
@@ -347,26 +501,25 @@ export async function executeDirectCopilotAction(
         if (onProgress) onProgress('failed')
         return failedActionReceipt('swap', 'Circle UCW Unavailable', 'Circle UCW contract challenge handler is missing; no fallback signer was used.', startTime)
       }
-      if (slippageTolerance !== undefined && (!Number.isFinite(slippageTolerance) || slippageTolerance <= 0 || slippageTolerance >= 1)) {
-        if (onProgress) onProgress('failed')
-        return failedActionReceipt('swap', 'Invalid Slippage', 'Slippage must be greater than 0 and less than 100%.', startTime)
-      }
       try {
         if (onProgress) onProgress('routing')
         const quote = await getSwapEstimate({
-          fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: amountIn.toString(),
-          slippageTolerance, authSource: 'ucw', senderAddress: activeWallet, recipientAddress: activeWallet,
+          fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: numberToExactDecimal(amountIn)!,
+          slippageBps, authSource: 'ucw', senderAddress: activeWallet, recipientAddress: activeWallet,
           executeUcwContract: ucwHandlers.executeUcwContract,
         })
         const quoteValue = Number(quote.estimatedOutput)
         if (!Number.isFinite(quoteValue) || quoteValue <= 0) throw new Error('Live swap quote is invalid; no transaction was sent.')
+        approvedSwapMinimum(data, swapRoute.decOut, quote.estimatedOutput)
         if (onProgress) onProgress('signing')
         if (onProgress) onProgress('broadcasting')
         const execution = await executeSwap({
-          fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: amountIn.toString(),
-          slippageTolerance, authSource: 'ucw', senderAddress: activeWallet, recipientAddress: activeWallet,
+          minimumOutput: data.minReceived !== undefined ? String(data.minReceived) : undefined,
+          fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: numberToExactDecimal(amountIn)!,
+          slippageBps, authSource: 'ucw', senderAddress: activeWallet, recipientAddress: activeWallet,
           executeUcwContract: ucwHandlers.executeUcwContract,
         })
+        onSubmission?.({ txHash: execution.destinationTxHash || execution.sourceTxHash, phase: execution.pendingStage === 'approve' ? 'approval' : 'spend' })
         if (execution.status === 'PENDING') {
           if (onProgress) onProgress('pending')
           return {
@@ -386,8 +539,8 @@ export async function executeDirectCopilotAction(
         }
         if (swapProof.status === 'reverted') throw new Error('Swap reverted on Arc Testnet.')
         const fee = await resolveArcActualFeeUsdc(hash)
-        deductSessionSpend(spendUsdc, activeWallet)
-        addTransaction({ type: 'swap', txHash: hash, amount: amountIn.toString(), tokenSymbol: fromTok, sourceChain: 'Arc_Testnet', recipient: activeWallet, userAddress: activeWallet, status: 'success', amountIn: amountIn.toString(), amountOut: swapProof.amountOut.toString(), tokenIn: fromTok, tokenOut: toTok })
+        if (!budgetManaged) deductSessionSpend(spendUsdc, activeWallet)
+        addTransaction({ type: 'swap', txHash: hash, amount: numberToExactDecimal(amountIn)!, tokenSymbol: fromTok, sourceChain: 'Arc_Testnet', recipient: activeWallet, userAddress: activeWallet, status: 'success', amountIn: numberToExactDecimal(amountIn)!, amountOut: swapProof.amountOut.toString(), tokenIn: fromTok, tokenOut: toTok })
         if (onProgress) onProgress('confirmed')
         return {
           id: `rcpt_${Date.now()}`, actionType: 'swap', title: 'Swap Completed Successfully', status: 'SUCCESS', txHash: hash,
@@ -413,7 +566,7 @@ export async function executeDirectCopilotAction(
       }
       let quote
       try {
-        quote = await getSwapEstimate({ fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: amountIn.toString(), slippageTolerance })
+        quote = await getSwapEstimate({ fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: numberToExactDecimal(amountIn)!, slippageBps })
       } catch (error: any) {
         if (onProgress) onProgress('failed')
         const cleanError = formatCopilotError(error)
@@ -429,8 +582,14 @@ export async function executeDirectCopilotAction(
       // Step 1: Check this input token balance in its own decimals; never compare it to native USDC.
       const decIn = arcRoute ? arcRoute.decIn : 6
       const decOut = arcRoute ? arcRoute.decOut : 6
-      const amountInUnits = parseUnits(amountIn.toString(), decIn)
-      const minOutUnits = (parseUnits(estimatedOutput, decOut) * 98n) / 100n // 2% slippage protection
+      const amountInUnits = parseUnits(numberToExactDecimal(amountIn)!, decIn)
+      let minOutUnits: bigint
+      try {
+        minOutUnits = approvedSwapMinimum(data, decOut, estimatedOutput)
+      } catch (error) {
+        if (onProgress) onProgress('failed')
+        return failedActionReceipt('swap', 'Quote Requires Confirmation', (error as Error).message, startTime)
+      }
 
       const resilientClient = getResilientPublicClient('Arc_Testnet')
       let effectiveBalUnits = 0n
@@ -494,6 +653,7 @@ export async function executeDirectCopilotAction(
           calls: [approveCall, swapCall],
           paymaster: true,
         })
+        onSubmission?.({ txHash: userOpRes.txHash, userOpHash: userOpRes.userOpHash, phase: 'spend' })
         if (!userOpRes.success || !userOpRes.txHash) {
           throw new Error(userOpRes.error || 'The pool swap could not be confirmed on Arc Testnet.')
         }
@@ -514,19 +674,19 @@ export async function executeDirectCopilotAction(
       const durationMs = Date.now() - startTime
 
       // Deduct session spend
-      deductSessionSpend(spendUsdc, activeWallet)
+      if (!budgetManaged) deductSessionSpend(spendUsdc, activeWallet)
 
       // Add to transaction history
       addTransaction({
         type: 'swap',
         txHash: realTxHash,
-        amount: amountIn.toString(),
+        amount: numberToExactDecimal(amountIn)!,
         tokenSymbol: fromTok,
         sourceChain: 'Arc_Testnet',
         recipient: activeWallet,
         userAddress: activeWallet,
         status: 'success',
-        amountIn: amountIn.toString(),
+        amountIn: numberToExactDecimal(amountIn)!,
         amountOut: swapProof.amountOut.toString(),
         tokenIn: fromTok,
         tokenOut: toTok,
@@ -592,9 +752,9 @@ export async function executeDirectCopilotAction(
         fromChain: 'Arc_Testnet',
         tokenIn: fromTok,
         tokenOut: toTok,
-        amountIn: amountIn.toString(),
+        amountIn: numberToExactDecimal(amountIn)!,
         sourceAdapter,
-        slippageTolerance,
+        slippageBps,
         allowanceStrategy: 'approve',
         recipientAddress: activeWallet,
       })
@@ -603,25 +763,27 @@ export async function executeDirectCopilotAction(
         throw new Error('Live swap quote is invalid; no transaction was sent.')
       }
 
+      approvedSwapMinimum(data, swapRoute.decOut, quote.estimatedOutput)
       // Step 2: Sign transaction
       if (onProgress) onProgress('signing')
 
       // Step 3: Broadcast transaction to Arc L1
       if (onProgress) onProgress('broadcasting')
       const finalStatus = await executeSwap({
+        minimumOutput: data.minReceived !== undefined ? String(data.minReceived) : undefined,
         fromChain: 'Arc_Testnet',
         tokenIn: fromTok,
         tokenOut: toTok,
-        amountIn: amountIn.toString(),
+        amountIn: numberToExactDecimal(amountIn)!,
         sourceAdapter,
-        slippageTolerance,
+        slippageBps,
         allowanceStrategy: 'approve',
         // Explicit 'evm' routing: a warm passkey MSCA cache must never sign this EOA swap.
         authSource: 'evm',
         senderAddress: activeWallet,
         recipientAddress: activeWallet,
       })
-
+      onSubmission?.({ txHash: finalStatus.destinationTxHash || finalStatus.sourceTxHash, phase: finalStatus.pendingStage === 'approve' ? 'approval' : 'spend' })
       if (finalStatus.status === 'PENDING') {
         const pendingHash = isTransactionHash(finalStatus.sourceTxHash) ? finalStatus.sourceTxHash : ''
         if (onProgress) onProgress('pending')
@@ -657,19 +819,19 @@ export async function executeDirectCopilotAction(
         const durationMs = Date.now() - startTime
 
         // Deduct session budget
-        deductSessionSpend(spendUsdc, activeWallet)
+        if (!budgetManaged) deductSessionSpend(spendUsdc, activeWallet)
 
         // Add real transaction to history & broadcast event
         addTransaction({
           type: 'swap',
           txHash: realTxHash,
-          amount: amountIn.toString(),
+          amount: numberToExactDecimal(amountIn)!,
           tokenSymbol: fromTok,
           sourceChain: 'Arc_Testnet',
           recipient: activeWallet,
           userAddress: activeWallet,
           status: 'success',
-          amountIn: amountIn.toString(),
+          amountIn: numberToExactDecimal(amountIn)!,
           amountOut: swapProof.amountOut.toString(),
           tokenIn: fromTok,
           tokenOut: toTok,
@@ -733,7 +895,7 @@ export async function executeDirectCopilotAction(
 
     // Limit check
     const limitCheck = verifySessionLimits('deposit', amount, activeWallet)
-    if (!limitCheck.allowed && sessionConfig.isActive) {
+    if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
         id: `rcpt_${Date.now()}`,
@@ -765,7 +927,7 @@ export async function executeDirectCopilotAction(
       if (onProgress) onProgress('failed')
       return failedActionReceipt('deposit', 'Balance Unavailable', 'Could not verify the USDC balance; no transaction was sent.', startTime)
     }
-    const reqWei = parseUnits(amount.toString(), 6)
+    const reqWei = parseUnits(numberToExactDecimal(amount)!, 6)
 
     if (onChainBalWei < reqWei) {
       if (onProgress) onProgress('failed')
@@ -788,7 +950,35 @@ export async function executeDirectCopilotAction(
     let realTxHash = ''
     const effectiveProvider = provider || (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
 
-    const amountUnits = parseUnits(amount.toString(), 6)
+    const amountUnits = parseUnits(numberToExactDecimal(amount)!, 6)
+
+    // H4: on V4 the vault deposit carries a min-shares guard so a share-price manipulation
+    // between quote and execution reverts instead of silently minting fewer shares.
+    let guardedDepositArgs: readonly [bigint, Hex, bigint] | null = null
+    if (POOL_VERSION_V4) {
+      try {
+        const expectedShares = (await resilientClient.readContract({
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'previewDeposit',
+          args: [amountUnits],
+        })) as bigint
+        if (expectedShares > 0n) {
+          guardedDepositArgs = [amountUnits, activeWallet as Hex, poolMinOut(expectedShares, POOL_DEFAULT_SLIPPAGE_BPS)]
+        }
+      } catch (previewErr) {
+        console.warn('[copilotExecutionService] vault previewDeposit failed:', previewErr)
+      }
+      if (!guardedDepositArgs) {
+        if (onProgress) onProgress('failed')
+        return failedActionReceipt(
+          'deposit',
+          'Deposit Guard Unavailable',
+          'Unable to compute a safe minimum-shares guard for the vault deposit; no transaction was sent.',
+          startTime
+        )
+      }
+    }
 
     // A. Circle UCW Execution (Email OTP / User-Controlled Wallet)
     if (ucwHandlers?.authSource === 'ucw') {
@@ -844,8 +1034,12 @@ export async function executeDirectCopilotAction(
         if (onProgress) onProgress('broadcasting')
         const depositRes = await ucwHandlers.executeUcwContract({
           contractAddress: POOL_CONTRACTS.YIELD_VAULT,
-          abiFunctionSignature: 'deposit(uint256,address)',
-          abiParameters: [amountUnits.toString(), activeWallet],
+          abiFunctionSignature: guardedDepositArgs
+            ? 'depositWithMinShares(uint256,address,uint256)'
+            : 'deposit(uint256,address)',
+          abiParameters: guardedDepositArgs
+            ? [amountUnits.toString(), activeWallet, guardedDepositArgs[2].toString()]
+            : [amountUnits.toString(), activeWallet],
           blockchain: 'ARC-TESTNET',
         })
         if (!depositRes.success) {
@@ -881,16 +1075,23 @@ export async function executeDirectCopilotAction(
         }
         const depositCall = {
           to: POOL_CONTRACTS.YIELD_VAULT as Hex,
-          data: encodeFunctionData({
-            abi: YIELD_VAULT_ABI,
-            functionName: 'deposit',
-            args: [amountUnits, activeWallet as Hex],
-          }),
+          data: guardedDepositArgs
+            ? encodeFunctionData({
+                abi: YIELD_VAULT_ABI,
+                functionName: 'depositWithMinShares',
+                args: guardedDepositArgs,
+              })
+            : encodeFunctionData({
+                abi: YIELD_VAULT_ABI,
+                functionName: 'deposit',
+                args: [amountUnits, activeWallet as Hex],
+              }),
         }
         const opRes = await sendModularUserOperation({
           calls: [approveCall, depositCall],
           paymaster: true,
         })
+        onSubmission?.({ txHash: opRes.txHash, userOpHash: opRes.userOpHash, phase: 'spend' })
         if (opRes.success && opRes.txHash) {
           realTxHash = opRes.txHash
         }
@@ -922,12 +1123,19 @@ export async function executeDirectCopilotAction(
         if (!approveRec || approveRec.transactionHash.toLowerCase() !== approveTx.toLowerCase()) throw new Error('Token approval is still pending; deposit was not submitted.')
         if (approveRec.status !== 'success') throw new Error('Token approval reverted on-chain.')
 
-        realTxHash = await walletClient.writeContract({
-          address: POOL_CONTRACTS.YIELD_VAULT,
-          abi: YIELD_VAULT_ABI,
-          functionName: 'deposit',
-          args: [amountUnits, activeWallet as Hex],
-        })
+        realTxHash = guardedDepositArgs
+          ? await walletClient.writeContract({
+              address: POOL_CONTRACTS.YIELD_VAULT,
+              abi: YIELD_VAULT_ABI,
+              functionName: 'depositWithMinShares',
+              args: guardedDepositArgs,
+            })
+          : await walletClient.writeContract({
+              address: POOL_CONTRACTS.YIELD_VAULT,
+              abi: YIELD_VAULT_ABI,
+              functionName: 'deposit',
+              args: [amountUnits, activeWallet as Hex],
+            })
         const depRec = await resilientClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err: unknown) => {
           console.warn('[copilotExecutionService] EOA vault deposit receipt warning:', err)
           return null
@@ -971,7 +1179,7 @@ export async function executeDirectCopilotAction(
       if (onProgress) onProgress('failed')
       return failedActionReceipt('deposit', 'Deposit Reverted', 'The confirmed vault deposit transaction reverted; no success history or session spend was recorded.', startTime)
     }
-    const expectedDepositAssets = parseUnits(amount.toString(), 6)
+    const expectedDepositAssets = parseUnits(numberToExactDecimal(amount)!, 6)
     let sharesReceived: bigint | null = null
     for (const log of depositReceipt.logs) {
       if (log.address.toLowerCase() !== POOL_CONTRACTS.YIELD_VAULT.toLowerCase()) continue
@@ -1003,12 +1211,12 @@ export async function executeDirectCopilotAction(
     }
     const fee = await resolveArcActualFeeUsdc(realTxHash)
     const durationMs = Date.now() - startTime
-    deductSessionSpend(amount, activeWallet)
+    if (!budgetManaged) deductSessionSpend(amount, activeWallet)
 
     addTransaction({
       type: 'send',
       txHash: realTxHash,
-      amount: amount.toString(),
+      amount: numberToExactDecimal(amount)!,
       tokenSymbol: 'USDC',
       sourceChain: 'Arc_Testnet',
       recipient: POOL_CONTRACTS.YIELD_VAULT, // Real-Yield Vault
@@ -1016,7 +1224,7 @@ export async function executeDirectCopilotAction(
       status: 'success',
     })
 
-    recordClientSwapVolume('usdc-yield-vault', amount, realTxHash)
+    // Phase 0: vault deposits are not trading volume.
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
@@ -1067,7 +1275,7 @@ export async function executeDirectCopilotAction(
     }
 
     const limitCheck = verifySessionLimits('bridge', amount, activeWallet)
-    if (!limitCheck.allowed && sessionConfig.isActive) {
+    if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
         id: `rcpt_${Date.now()}`,
@@ -1093,7 +1301,7 @@ export async function executeDirectCopilotAction(
       try {
         const ucwBridge = await import('./bridgeUcwService')
         const result = await ucwBridge.executeUcwBridgeTransfer({
-          amount: amount.toString(), sourceChain: sourceChainKey, destChain: destChainKey,
+          amount: numberToExactDecimal(amount)!, sourceChain: sourceChainKey, destChain: destChainKey,
           recipientAddress: bridgeRecipient, connectedAddress: activeWallet,
           executeUcwContract: ucwHandlers.executeUcwContract,
           onStepProgress: (step) => {
@@ -1167,7 +1375,7 @@ export async function executeDirectCopilotAction(
         {
           fromChain: sourceChainKey,
           toChain: destChainKey,
-          amount: amount.toString(),
+          amount: numberToExactDecimal(amount)!,
           sourceAdapter,
           recipientAddress: bridgeRecipient,
           useForwarder: true,
@@ -1201,7 +1409,7 @@ export async function executeDirectCopilotAction(
       }
       if (!destinationHash) {
         if (sourceHash) {
-          addTransaction({ type: 'bridge', txHash: sourceHash, amount: amount.toString(), tokenSymbol: 'USDC', sourceChain: sourceChainKey, destChain: destChainKey, recipient: bridgeRecipient, userAddress: activeWallet, status: 'pending' })
+          addTransaction({ type: 'bridge', txHash: sourceHash, amount: numberToExactDecimal(amount)!, tokenSymbol: 'USDC', sourceChain: sourceChainKey, destChain: destChainKey, recipient: bridgeRecipient, userAddress: activeWallet, status: 'pending' })
         }
         if (onProgress) onProgress('pending')
         return {
@@ -1228,7 +1436,7 @@ export async function executeDirectCopilotAction(
         destChain: destChainKey,
         burnTxHash: sourceHash,
         recipientAddress: bridgeRecipient,
-        amount: amount.toString(),
+        amount: numberToExactDecimal(amount)!,
         maxAttempts: 1,
         intervalMs: 0,
       })
@@ -1236,7 +1444,7 @@ export async function executeDirectCopilotAction(
         destinationSettlement.status !== 'confirmed' ||
         destinationSettlement.destTxHash?.toLowerCase() !== destinationHash.toLowerCase()
       ) {
-        if (sourceHash) addTransaction({ type: 'bridge', txHash: sourceHash, amount: amount.toString(), tokenSymbol: 'USDC', sourceChain: sourceChainKey, destChain: destChainKey, recipient: bridgeRecipient, userAddress: activeWallet, status: 'pending' })
+        if (sourceHash) addTransaction({ type: 'bridge', txHash: sourceHash, amount: numberToExactDecimal(amount)!, tokenSymbol: 'USDC', sourceChain: sourceChainKey, destChain: destChainKey, recipient: bridgeRecipient, userAddress: activeWallet, status: 'pending' })
         if (onProgress) onProgress('pending')
         return {
           id: `rcpt_pending_${Date.now()}`,
@@ -1263,12 +1471,12 @@ export async function executeDirectCopilotAction(
       const explorerUrl = getExplorerTxUrl(destChainKey, realTxHash)
       const durationMs = Date.now() - startTime
 
-      deductSessionSpend(amount, activeWallet)
+      if (!budgetManaged) deductSessionSpend(amount, activeWallet)
 
       addTransaction({
         type: 'bridge',
         txHash: realTxHash,
-        amount: amount.toString(),
+        amount: numberToExactDecimal(amount)!,
         tokenSymbol: 'USDC',
         sourceChain: sourceChainKey,
         destChain: destChainKey,
@@ -1381,7 +1589,7 @@ export async function executeDirectCopilotAction(
 
     const normalizedAmount = amountCheck.normalized
     const limitCheck = verifySessionLimits('send', tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
-    if (!limitCheck.allowed && sessionConfig.isActive) {
+    if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
       return {
         id: `rcpt_${Date.now()}`,
@@ -1423,7 +1631,7 @@ export async function executeDirectCopilotAction(
       const tokenAddress = tokenSymbol === 'USDC' ? '' : ARC_TOKENS[tokenSymbol as keyof typeof ARC_TOKENS]
       const transfer = await ucwHandlers.executeUcwTransfer({
         destinationAddress: recipient,
-        amount: normalizedAmount.toString(),
+        amount: numberToExactDecimal(normalizedAmount)!,
         tokenSymbol,
         tokenAddress,
         blockchain: 'ARC-TESTNET',
@@ -1459,8 +1667,8 @@ export async function executeDirectCopilotAction(
         return failedActionReceipt('send', 'Transfer Not Verified', 'The successful receipt contains no matching token Transfer event for this sender, recipient, token, and amount; no success history or session spend was recorded.', startTime)
       }
       const fee = await resolveArcActualFeeUsdc(transfer.txHash)
-      deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
-      addTransaction({ type: 'send', txHash: transfer.txHash, amount: normalizedAmount.toString(), tokenSymbol, sourceChain: 'Arc_Testnet', recipient, userAddress: activeWallet, status: 'success' })
+      if (!budgetManaged) deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
+      addTransaction({ type: 'send', txHash: transfer.txHash, amount: numberToExactDecimal(normalizedAmount)!, tokenSymbol, sourceChain: 'Arc_Testnet', recipient, userAddress: activeWallet, status: 'success' })
       if (onProgress) onProgress('confirmed')
       return {
         id: `rcpt_${Date.now()}`, actionType: 'send', title: 'Transfer Completed Successfully', status: 'SUCCESS',
@@ -1497,6 +1705,7 @@ export async function executeDirectCopilotAction(
           calls: [call],
           paymaster: true,
         })
+        onSubmission?.({ txHash: userOpRes.txHash, userOpHash: userOpRes.userOpHash, phase: 'spend' })
         if (!userOpRes.success || !userOpRes.txHash) {
           throw new Error(userOpRes.error || 'Transfer could not be confirmed on Arc Testnet.')
         }
@@ -1523,12 +1732,12 @@ export async function executeDirectCopilotAction(
       }
       const fee = await resolveArcActualFeeUsdc(realTxHash)
       const durationMs = Date.now() - startTime
-      deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
+      if (!budgetManaged) deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
 
       addTransaction({
         type: 'send',
         txHash: realTxHash,
-        amount: normalizedAmount.toString(),
+        amount: numberToExactDecimal(normalizedAmount)!,
         tokenSymbol,
         sourceChain: 'Arc_Testnet',
         recipient,
@@ -1595,10 +1804,11 @@ export async function executeDirectCopilotAction(
         'Arc_Testnet',
         tokenSymbol,
         recipient,
-        normalizedAmount.toString()
+        numberToExactDecimal(normalizedAmount)!
       )
 
       const realTxHash = (sendRes as any)?.txHash || (sendRes as any)?.transactionHash || ''
+      onSubmission?.({ txHash: realTxHash, phase: 'spend' })
       if (!isTransactionHash(realTxHash)) {
         if (onProgress) onProgress('failed')
         return failedActionReceipt('send', 'Transfer Not Confirmed', 'Send service did not return a valid transaction hash.', startTime)
@@ -1620,12 +1830,12 @@ export async function executeDirectCopilotAction(
       const fee = await resolveArcActualFeeUsdc(realTxHash)
       const durationMs = Date.now() - startTime
 
-      deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
+      if (!budgetManaged) deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
 
       addTransaction({
         type: 'send',
         txHash: realTxHash,
-        amount: normalizedAmount.toString(),
+        amount: numberToExactDecimal(normalizedAmount)!,
         tokenSymbol,
         sourceChain: 'Arc_Testnet',
         recipient,
