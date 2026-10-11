@@ -180,4 +180,16 @@ describe('CopilotSuccessReceipt adapter', () => {
     expect(html).not.toContain('Settlement:')
     expect(html).not.toContain('ARC-')
   })
+
+  it('renders tiny crypto amounts with subscript zero notation in success receipt (0.00000035 cirBTC -> 0.0₆35 cirBTC)', () => {
+    const html = render({
+      ...baseSend,
+      amountIn: 0.00000035,
+      fromToken: 'cirBTC',
+    })
+
+    expect(html).toContain('0.0₆35')
+    expect(html).toContain('cirBTC')
+  })
 })
+

@@ -3,11 +3,6 @@
 import React from 'react'
 import { Zap, Rocket, Gauge } from 'lucide-react'
 import { SPEED_TIERS, type SpeedTier } from '../../config/feeTiers'
-import {
-  PROTOCOL_FEE_RATES,
-  getSwapProtocolFeePercent,
-  getBridgePlatformFeeDisplay,
-} from '../../config/treasuryConfig'
 
 interface SpeedFeeSelectorProps {
   selectedTier: SpeedTier
@@ -43,57 +38,79 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
 
   const getFeeInfo = (tier: SpeedTier) => {
     if (context === 'bridge') {
-      // Single source of truth: show the per-speed platform fee the Bridge tab
-      // actually charges for THIS tier (BRIDGE_CUSTOM_FEE_CONFIG ladder). The
-      // published per-tier rate schedule is never collected, and the Gateway
-      // (turbo) row reports "Free" because that route charges no platform fee.
-      const { amount, description } = getBridgePlatformFeeDisplay(tier)
+      const tierConfig = SPEED_TIERS[tier]
+      const maxFeeGwei = tierConfig.arcGas.maxFeePerGasGwei
+      const priorityFeeGwei = tierConfig.arcGas.maxPriorityFeePerGasGwei
+      // CCTP Bridge contract interaction gas limit is ~150,000 gas on Arc L1
+      const gasCost = ((150000 * maxFeeGwei) / 1_000_000_000).toFixed(4)
+
+      let desc = 'Standard block inclusion with 20 Gwei base fee floor and 0 Gwei tip. Standard bridge confirmation.'
+      let tag = `${maxFeeGwei} Gwei (Base)`
+
+      if (tier === 'fast') {
+        desc = `Priority queue with +${priorityFeeGwei} Gwei validator tip for faster block inclusion and accelerated bridge attestation.`
+        tag = `${maxFeeGwei} Gwei (+${priorityFeeGwei} Tip)`
+      } else if (tier === 'turbo') {
+        desc = `Maximum priority with +${priorityFeeGwei} Gwei validator tip (50 Gwei max fee) for instant next-block bridge execution.`
+        tag = `${maxFeeGwei} Gwei (+${priorityFeeGwei} Tip)`
+      }
+
       return {
-        amount,
-        desc: description,
+        amount: `~${gasCost} USDC`,
+        desc,
+        tag,
       }
     }
     if (context === 'swap') {
-      const percent = getSwapProtocolFeePercent(tier)
+      const tierConfig = SPEED_TIERS[tier]
+      const maxFeeGwei = tierConfig.arcGas.maxFeePerGasGwei
+      const priorityFeeGwei = tierConfig.arcGas.maxPriorityFeePerGasGwei
+      // Swap contract interaction gas limit is ~120,000 gas on Arc L1
+      const gasCost = ((120000 * maxFeeGwei) / 1_000_000_000).toFixed(4)
+
+      let desc = 'Standard block inclusion with 20 Gwei base fee floor and 0 Gwei tip. Optimal during normal traffic.'
+      let tag = `${maxFeeGwei} Gwei (Base)`
+
+      if (tier === 'fast') {
+        desc = `Priority queue with +${priorityFeeGwei} Gwei validator tip for faster pool routing.`
+        tag = `${maxFeeGwei} Gwei (+${priorityFeeGwei} Tip)`
+      } else if (tier === 'turbo') {
+        desc = `Maximum priority with +${priorityFeeGwei} Gwei validator tip (50 Gwei max fee) for instant next-block swap execution.`
+        tag = `${maxFeeGwei} Gwei (+${priorityFeeGwei} Tip)`
+      }
+
       return {
-        amount: `${percent} Protocol Fee`,
-        desc: PROTOCOL_FEE_RATES.swap[tier]?.description || 'Swap routing fee',
+        amount: `~${gasCost} USDC`,
+        desc,
+        tag,
       }
     }
-    // For send:
-    const gasCost = SPEED_TIERS[tier].arcGas.estimatedCostUsdc
+    // For send: 0% Arcis platform fee; pure Arc L1 blockchain gas & validator priority tip
+    const tierConfig = SPEED_TIERS[tier]
+    const gasCost = tierConfig.arcGas.estimatedCostUsdc
+    const maxFeeGwei = tierConfig.arcGas.maxFeePerGasGwei
+    const priorityFeeGwei = tierConfig.arcGas.maxPriorityFeePerGasGwei
+
+    let desc = 'Standard block inclusion with 20 Gwei base fee floor and 0 Gwei tip. Optimal during normal traffic.'
+    let tag = `${maxFeeGwei} Gwei (Base)`
+
+    if (tier === 'fast') {
+      desc = `Priority queue with +${priorityFeeGwei} Gwei validator tip for faster inclusion during network traffic.`
+      tag = `${maxFeeGwei} Gwei (+${priorityFeeGwei} Tip)`
+    } else if (tier === 'turbo') {
+      desc = `Maximum priority with +${priorityFeeGwei} Gwei validator tip (50 Gwei max fee) for instant next-block execution.`
+      tag = `${maxFeeGwei} Gwei (+${priorityFeeGwei} Tip)`
+    }
+
     return {
       amount: `~${gasCost} USDC`,
-      desc: PROTOCOL_FEE_RATES.send[tier]?.description || 'Arc L1 native gas (0% platform fee)',
+      desc,
+      tag,
     }
   }
 
-  const TIER_COLORS = {
-    standard: {
-      text: 'text-cyan-400',
-      border: 'border-cyan-500/40',
-      shadow: 'shadow-[0_0_16px_rgba(6,182,212,0.18)]',
-      badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-[0_0_8px_rgba(6,182,212,0.3)]',
-      feeBorder: 'border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.08)]',
-    },
-    fast: {
-      text: 'text-indigo-400',
-      border: 'border-indigo-500/40',
-      shadow: 'shadow-[0_0_16px_rgba(99,102,241,0.18)]',
-      badge: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-[0_0_8px_rgba(99,102,241,0.3)]',
-      feeBorder: 'border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.08)]',
-    },
-    turbo: {
-      text: 'text-amber-400',
-      border: 'border-amber-500/40',
-      shadow: 'shadow-[0_0_16px_rgba(245,158,11,0.18)]',
-      badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.3)]',
-      feeBorder: 'border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.08)]',
-    },
-  } as const
-
   const getIcon = (tier: SpeedTier, isSelected: boolean) => {
-    const colorClass = isSelected ? TIER_COLORS[tier].text : 'text-slate-400'
+    const colorClass = isSelected ? 'text-indigo-400' : 'text-slate-400'
     switch (tier) {
       case 'standard':
         return <Gauge className={`w-4 h-4 ${colorClass}`} />
@@ -132,7 +149,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
               onClick={() => onSelectTier(tier)}
               className={`relative flex flex-col items-center justify-center py-3.5 px-3 rounded-xl transition-all duration-200 cursor-pointer text-center group ${
                 isSelected
-                  ? `bg-white/[0.09] border ${TIER_COLORS[tier].border} ${TIER_COLORS[tier].shadow} scale-[1.02]`
+                  ? 'bg-white/[0.09] border border-indigo-500/40 shadow-[0_0_16px_rgba(99,102,241,0.18)] scale-[1.02]'
                   : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] text-slate-400 hover:text-white'
               }`}
             >
@@ -141,7 +158,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
                 <span
                   className={`absolute -top-2.5 px-2 py-0.5 rounded-full font-bold tracking-wider uppercase border ${
                     isSelected
-                      ? TIER_COLORS[tier].badge
+                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-[0_0_8px_rgba(99,102,241,0.3)]'
                       : 'bg-white/[0.06] text-slate-400 border-white/10'
                   }`}
                   style={{ fontSize: '10px', lineHeight: '12px' }}
@@ -166,7 +183,7 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
               {/* Execution Time */}
               <span
                 className={`text-[11px] font-mono flex items-center gap-1 ${
-                  isSelected ? `${TIER_COLORS[tier].text} font-medium` : 'text-slate-400'
+                  isSelected ? 'text-indigo-400 font-medium' : 'text-slate-400'
                 }`}
               >
                 {getContextTime(tier)}
@@ -176,13 +193,13 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
         })}
       </div>
 
-      {/* Arcis Platform Fees Breakdown Section */}
+      {/* Fees Breakdown Section */}
       {showFeeBreakdown && (
         <div className="space-y-2 mb-5">
-          {/* Top Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-slate-300 ml-3 mt-5">
-              <span style={{ fontFamily: 'var(--font-app)' }}>ARCIS PLATFORM FEES</span>
+          {/* Section Header */}
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-slate-300 ml-2 mt-4">
+              <span style={{ fontFamily: 'var(--font-app)' }}>NETWORK GAS & PRIORITY (GWEI)</span>
             </div>
           </div>
 
@@ -194,41 +211,55 @@ export const SpeedFeeSelector: React.FC<SpeedFeeSelectorProps> = ({
             }}
           >
             <div className="space-y-2 text-[11px]">
-            {tiers.map((tier) => {
-              const feeInfo = getFeeInfo(tier)
-              const isSelected = selectedTier === tier
-              return (
-                <div
-                  key={tier}
-                  className={`flex items-start justify-between gap-2 p-2 rounded-xl border transition-all ${
-                    isSelected
-                      ? `bg-white/[0.05] border ${TIER_COLORS[tier].feeBorder}`
-                      : 'bg-transparent border-transparent text-slate-400'
-                  }`}
-                >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`font-semibold capitalize ${isSelected ? 'text-white' : 'text-slate-300'}`}>
-                        {tier}
-                      </span>
+              {tiers.map((tier) => {
+                const feeInfo = getFeeInfo(tier)
+                const isSelected = selectedTier === tier
+                return (
+                  <div
+                    key={tier}
+                    className={`flex items-start justify-between gap-2 px-3 py-3 rounded-xl border transition-all ${
+                      isSelected
+                        ? 'bg-white/[0.05] border-indigo-500/30 shadow-[0_0_10px_rgba(99,102,241,0.08)]'
+                        : 'bg-transparent border-transparent text-slate-400'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-semibold capitalize ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                          {tier}
+                        </span>
+                        {feeInfo.tag && (
+                          <span
+                            className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md border ${
+                              isSelected
+                                ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-[0_0_8px_rgba(99,102,241,0.3)]'
+                                : 'text-slate-400 bg-white/[0.04] border-white/[0.08]'
+                            }`}
+                          >
+                            {feeInfo.tag}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-[10.5px] leading-relaxed ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
+                        {feeInfo.desc}
+                      </p>
                     </div>
-                    <p className={`text-[10.5px] leading-relaxed ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
-                      {feeInfo.desc}
-                    </p>
+
+                    <span
+                      className={`font-mono font-semibold text-[12px] whitespace-nowrap text-right shrink-0 pt-0.5 ${
+                        isSelected ? 'text-indigo-400' : 'text-slate-400'
+                      }`}
+                    >
+                      {feeInfo.amount}
+                    </span>
                   </div>
-                  <span className={`font-mono font-semibold text-[12px] whitespace-nowrap text-right shrink-0 ${
-                    isSelected ? TIER_COLORS[tier].text : 'text-slate-400'
-                  }`}>
-                    {feeInfo.amount}
-                  </span>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
         </div>
-      </div>
-    )}
-  </div>
+      )}
+    </div>
   )
 }
 export default SpeedFeeSelector

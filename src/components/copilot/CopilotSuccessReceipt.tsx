@@ -15,6 +15,7 @@ import { getModularPublicClient } from '../../services/modularWalletService'
 
 interface CopilotSuccessReceiptProps {
   receipt: InlineExecutionReceipt
+  onActionAgain?: () => void
 }
 
 /** Pre-formats a verified USDC fee the same way the template prints amounts. */
@@ -42,9 +43,10 @@ interface ReceiptTemplateProps {
   feeProps: {
     actualGasUsdc?: string
   }
+  onActionAgain?: () => void
 }
 
-export default function CopilotSuccessReceipt({ receipt }: CopilotSuccessReceiptProps) {
+export default function CopilotSuccessReceipt({ receipt, onActionAgain }: CopilotSuccessReceiptProps) {
   // ── Verified on-chain fee (kept from the old inline card): resolved asynchronously
   // from the Arc receipt when the execution service could not verify it in time.
   const [asyncActualGasUsdc, setAsyncActualGasUsdc] = useState<number | null>(null)
@@ -133,8 +135,8 @@ export default function CopilotSuccessReceipt({ receipt }: CopilotSuccessReceipt
       // shrink-to-fit chat bubble around the card nor on any ancestor CSS `zoom`/transform.
       const width = measurerRef.current?.offsetWidth ?? 0
       if (width > 0) {
-        // +4px keeps the measured heading itself on a single line at sub-pixel widths.
-        setHeadingWidth(width + 4)
+        // Clamp to a balanced compact range for the Copilot drawer (between 290px and 330px)
+        setHeadingWidth(Math.max(290, Math.min(width + 24, 330)))
       }
     }
 
@@ -158,12 +160,12 @@ export default function CopilotSuccessReceipt({ receipt }: CopilotSuccessReceipt
       <span
         ref={measurerRef}
         aria-hidden="true"
-        className="pointer-events-none absolute invisible whitespace-nowrap text-2xl font-semibold tracking-wide"
+        className="pointer-events-none absolute invisible whitespace-nowrap text-base font-bold tracking-wide"
         style={{ top: 0, left: 0, fontFamily: 'var(--font-app)' }}
       >
         {receipt.title}
       </span>
-      <ReceiptTemplate receipt={receipt} feeProps={feeProps}/>
+      <ReceiptTemplate receipt={receipt} feeProps={feeProps} onActionAgain={onActionAgain} />
     </div>
   )
 }
@@ -172,7 +174,7 @@ export default function CopilotSuccessReceipt({ receipt }: CopilotSuccessReceipt
  * Per-action-type corporate template (the switch formerly inlined in the adapter):
  * swap | send | bridge | deposit | faucet | ai_service.
  */
-function ReceiptTemplate({ receipt, feeProps }: ReceiptTemplateProps) {
+function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplateProps) {
   // ── Explorer resolution (same chain heuristic the inline card used) ──
   const targetChain =
     receipt.actionType === 'bridge'
@@ -206,7 +208,7 @@ function ReceiptTemplate({ receipt, feeProps }: ReceiptTemplateProps) {
           destChain={receipt.toChain}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
-          onActionAgain={() => {}}
+          onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
         />
@@ -231,7 +233,7 @@ function ReceiptTemplate({ receipt, feeProps }: ReceiptTemplateProps) {
           destTxHash={receipt.destTxHash}
           sourceExplorerUrl={receipt.sourceTxHash ? getExplorerTxUrl(receipt.fromChain || 'Arc_Testnet', receipt.sourceTxHash) : explorerUrl}
           destExplorerUrl={receipt.destTxHash ? getExplorerTxUrl(receipt.toChain || 'Arc_Testnet', receipt.destTxHash) : undefined}
-          onActionAgain={() => {}}
+          onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
         />
@@ -247,7 +249,7 @@ function ReceiptTemplate({ receipt, feeProps }: ReceiptTemplateProps) {
           apy={receipt.apy}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
-          onActionAgain={() => {}}
+          onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
         />
@@ -263,7 +265,7 @@ function ReceiptTemplate({ receipt, feeProps }: ReceiptTemplateProps) {
           recipient={receipt.recipient ? shortenRecipient(receipt.recipient) : undefined}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
-          onActionAgain={() => {}}
+          onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
         />
@@ -280,7 +282,7 @@ function ReceiptTemplate({ receipt, feeProps }: ReceiptTemplateProps) {
           recipient={receipt.recipient ? shortenRecipient(receipt.recipient) : undefined}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
-          onActionAgain={() => {}}
+          onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
         />
@@ -299,7 +301,7 @@ function ReceiptTemplate({ receipt, feeProps }: ReceiptTemplateProps) {
           network="Arc_Testnet"
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
-          onActionAgain={() => {}}
+          onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
         />

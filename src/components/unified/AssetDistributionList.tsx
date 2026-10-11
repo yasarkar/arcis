@@ -82,7 +82,7 @@ export default function AssetDistributionList({
       <div className="ub-asset-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 12 }}>
-            <Layers size={16} style={{ color: 'var(--purple-1)' }} aria-hidden="true" />
+            <Layers size={18} style={{ color: 'var(--purple-1)' }} aria-hidden="true" />
             <span className="arc-eyebrow" style={{ fontSize: 15, color: 'var(--base-colors--white)', fontWeight: 600 }}>
               ASSET DISTRIBUTION
             </span>

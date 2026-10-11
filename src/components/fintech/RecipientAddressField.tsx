@@ -72,13 +72,16 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
           {label}
         </span>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          {rightBadge}
           {isValid && !error && (
-            <span className="text-[11px] text-indigo-300/90 font-medium flex items-center gap-1">
+            <span
+              className="text-[11px] text-indigo-300/90 font-medium flex items-center gap-1 animate-fade-in"
+              title="Verified Address"
+            >
               <Check className="w-3.5 h-3.5 text-indigo-400" />
             </span>
           )}
-          {rightBadge}
           {value ? (
             <button
               type="button"
@@ -87,8 +90,7 @@ export const RecipientAddressField: React.FC<RecipientAddressFieldProps> = ({
               title="Clear address"
               className="text-xs text-slate-400 hover:text-red-400 transition-colors flex items-center gap-1 cursor-pointer active:scale-95"
             >
-              <X className="w-3.5 h-3.5" />
-              <span>Clear</span>
+              <X className="w-4 h-4" />
             </button>
           ) : (
             <button

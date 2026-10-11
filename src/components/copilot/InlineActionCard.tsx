@@ -17,6 +17,9 @@ import {
 import type { CopilotMessage, CopilotActionPayload } from '../../types/marketplace'
 import { arcTransferFeeFallbackUsdc } from '../../services/arcGasService'
 import { CopilotTokenIcon, CopilotNetworkBadge } from './CopilotTokenIcon'
+import { NetworkIcon } from '@web3icons/react/dynamic'
+import ArcLogo from '../../assets/Arc-Icon.svg'
+import { getChainIconId } from '../../config/chainMeta'
 import { isCanceledReceipt } from '../../utils/errorUtils'
 import { playSound } from '../../services/soundService'
 import { getLiveTokenPrices, type TokenPriceMap } from '../../services/tokenPriceService'
@@ -25,6 +28,93 @@ import { getExplorerTxUrl, getExplorerName } from '../../config/sendConfig'
 import CopilotSuccessReceipt from './CopilotSuccessReceipt'
 import type { InlineExecutionReceipt } from '../../types/sessionKey'
 import { addTransaction } from '../../utils/history'
+import { formatSubscriptZero } from '../../utils/formatNumber'
+import { numberToExactDecimal } from '../../utils/copilotAmount'
+import { copilotSlippageBps } from '../../utils/swapSlippage'
+import { reconcileCopilotReservation } from '../../services/copilotExecutionService'
+
+/**
+ * Reconstructs the canonical chat command from a completed receipt or action payload
+ * so clicking "Send Again" (or action again) repeats the operation seamlessly.
+ */
+export function buildActionAgainCommand(
+  receipt?: InlineExecutionReceipt | null,
+  actionPayload?: CopilotActionPayload | null
+): string | null {
+  const actionType =
+    receipt?.actionType ||
+    (actionPayload?.type === 'interactive_swap'
+      ? 'swap'
+      : actionPayload?.type === 'interactive_bridge'
+        ? 'bridge'
+        : actionPayload?.type === 'interactive_deposit'
+          ? 'deposit'
+          : actionPayload?.type === 'interactive_send' || actionPayload?.type === 'interactive_batch_send'
+            ? 'send'
+            : undefined)
+
+  if (actionType === 'send') {
+    const amountValue = receipt?.amountIn ?? actionPayload?.data?.amount
+    const amount = typeof amountValue === 'number' && amountValue > 0 ? numberToExactDecimal(amountValue) : null
+    const token =
+      receipt?.fromToken ??
+      actionPayload?.data?.tokenSymbol ??
+      actionPayload?.data?.fromToken ??
+      'USDC'
+    const recipient = receipt?.recipient ?? actionPayload?.data?.recipient
+    const memo = receipt?.memo ?? actionPayload?.data?.memo
+
+    if (amount && recipient) {
+      return memo
+        ? `send ${amount} ${token} to ${recipient} with memo "${memo.replace(/"/g, '')}"`
+        : `send ${amount} ${token} to ${recipient}`
+    }
+    return null
+  }
+
+  if (actionType === 'swap') {
+    const amountValue = receipt?.amountIn ?? actionPayload?.data?.amount
+    const amount = typeof amountValue === 'number' && amountValue > 0 ? numberToExactDecimal(amountValue) : null
+    const fromTok = receipt?.fromToken ?? actionPayload?.data?.fromToken ?? 'USDC'
+    const toTok = receipt?.toToken ?? actionPayload?.data?.toToken ?? 'EURC'
+    if (amount) {
+      if (!actionPayload?.data) return `swap ${amount} ${fromTok} to ${toTok}`
+      try {
+        const bps = copilotSlippageBps(actionPayload.data)
+        return `swap ${amount} ${fromTok} to ${toTok} slippage ${bps / 100}%`
+      } catch {
+        return null
+      }
+    }
+    return null
+  }
+
+  if (actionType === 'bridge') {
+    const amountValue = receipt?.amountIn ?? actionPayload?.data?.amount
+    const amount = typeof amountValue === 'number' && amountValue > 0 ? numberToExactDecimal(amountValue) : null
+    const fromChain = receipt?.fromChain ?? actionPayload?.data?.fromChain ?? 'Arc Testnet'
+    const toChain = receipt?.toChain ?? actionPayload?.data?.toChain ?? 'Ethereum Sepolia'
+    if (amount) {
+      return `bridge ${amount} USDC from ${fromChain} to ${toChain}`
+    }
+    return null
+  }
+
+  if (actionType === 'deposit') {
+    const amountValue = receipt?.amountIn ?? actionPayload?.data?.amount
+    const amount = typeof amountValue === 'number' && amountValue > 0 ? numberToExactDecimal(amountValue) : null
+    if (amount) {
+      return `deposit ${amount} USDC`
+    }
+    return null
+  }
+
+  if (actionType === 'faucet') {
+    return 'claim faucet'
+  }
+
+  return null
+}
 
 interface InlineActionCardProps {
   message: CopilotMessage
@@ -32,6 +122,7 @@ interface InlineActionCardProps {
   onNavigateToTab?: (tab: string) => void
   onOpenSessionSettings?: () => void
   onCloseDrawer: () => void
+  onSendMessage?: (content: string) => Promise<void> | void
 }
 
 export default function InlineActionCard({
@@ -40,6 +131,7 @@ export default function InlineActionCard({
   onNavigateToTab,
   onOpenSessionSettings,
   onCloseDrawer,
+  onSendMessage,
 }: InlineActionCardProps) {
   const { actionPayload, receipt: initialReceipt, isExecutingInline, executionState } = message
   const [localReceipt, setLocalReceipt] = useState<InlineExecutionReceipt | null>(null)
@@ -122,6 +214,10 @@ export default function InlineActionCard({
           destTxHash: res.destTxHash,
           explorerUrl: destExplorerUrl,
           amountOut: Number(res.receivedAmount) || receipt.amountIn,
+        }
+        if (receipt.reservationId && receipt.reservationWallet) {
+          const settled = await reconcileCopilotReservation(receipt.reservationWallet, receipt.reservationId)
+          if (settled?.status !== 'SUCCESS') return
         }
         setLocalReceipt(updated)
         playSound('success')
@@ -320,13 +416,22 @@ export default function InlineActionCard({
     )
   }
 
+  const handleActionAgain = () => {
+    if (!onSendMessage) return
+    const command = buildActionAgainCommand(receipt, actionPayload)
+    if (command) {
+      playSound('send')
+      void onSendMessage(command)
+    }
+  }
+
   // ── 2. SUCCESSFUL INLINE EXECUTION RECEIPT CARD ──
   // Rendered through the shared corporate receipt template (the same UnifiedSuccessReceipt
   // the Send / Swap / Bridge tabs use) via the CopilotSuccessReceipt adapter.
   if (receipt && receipt.status === 'SUCCESS') {
     return (
       <div className="animate-fade-in">
-        <CopilotSuccessReceipt receipt={receipt} />
+        <CopilotSuccessReceipt receipt={receipt} onActionAgain={handleActionAgain} />
       </div>
     )
   }
@@ -357,12 +462,12 @@ export default function InlineActionCard({
         {actionPayload && (
           <button
             onClick={() => onExecuteInline(message.id, actionPayload)}
-            className={`w-full py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 select-none ${isCanceled
+            className={`w-full py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 select-none group ${isCanceled
               ? 'bg-slate-900 hover:bg-slate-850 border-slate-700/80 hover:border-amber-500/40 text-amber-300'
               : 'bg-rose-950/80 hover:bg-rose-900 border-rose-700/80 text-rose-200'
               }`}
           >
-            <RotateCw className="w-3.5 h-3.5" />
+            <RotateCw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" />
             <span>Try Again</span>
           </button>
         )}
@@ -389,8 +494,16 @@ export default function InlineActionCard({
         const hasFeeEstimate = Number.isFinite(estimatedFee) && estimatedFee > 0
         const fromFiat = formatFiatEstimate(data.amount, fromTok, tokenPrices)
         const toFiat = hasLiveQuote ? formatFiatEstimate(estimatedOut, toTok, tokenPrices) : undefined
-        const slippage = Number(data.slippage) || 0.5
-        const exchangeRate = hasValidAmount && hasLiveQuote ? (estimatedOut / amount).toFixed(4) : null
+        let slippageBps: number | undefined
+        try { slippageBps = copilotSlippageBps(data) } catch { /* Invalid legacy cards cannot be confirmed. */ }
+        const hasMinimum = typeof data.minReceived === 'string' && /^\d+(?:\.\d+)?$/.test(data.minReceived) && Number(data.minReceived) > 0
+        const rawRate = hasValidAmount && hasLiveQuote ? estimatedOut / amount : null
+        const exchangeRate =
+          rawRate != null
+            ? rawRate < 0.001
+              ? formatSubscriptZero(rawRate)
+              : rawRate.toFixed(4)
+            : null
 
         return (
           <ActionCardShell
@@ -404,16 +517,18 @@ export default function InlineActionCard({
               <div className="flex items-center justify-between gap-2 text-xs">
                 {/* Left: Pay */}
                 <div className="flex-1 min-w-0 select-text cursor-text">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1 select-text">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-2 select-text">
                     You Pay
                   </span>
                   <div className="font-bold text-white text-sm flex items-center gap-1.5 select-text">
-                    <span className="truncate">{hasValidAmount ? `${data.amount}` : '—'}</span>
+                    <span className="truncate" title={hasValidAmount ? String(data.amount) : undefined}>
+                      {hasValidAmount ? formatSubscriptZero(data.amount) : '—'}
+                    </span>
                     <span className="text-slate-300 font-normal">{fromTok}</span>
                     <CopilotTokenIcon symbol={fromTok} className="w-5 h-5 shrink-0" />
                   </div>
                   {fromFiat && (
-                    <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
+                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
                       {fromFiat}
                     </span>
                   )}
@@ -426,16 +541,18 @@ export default function InlineActionCard({
 
                 {/* Right: Receive */}
                 <div className="flex-1 min-w-0 text-right select-text cursor-text">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1 select-text">
-                    Estimated Receive
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-2 select-text">
+                    You Receive
                   </span>
-                  <div className="font-bold text-emerald-400 text-sm flex items-center justify-end gap-1.5 select-text">
-                    <span className="truncate">{hasLiveQuote ? `~${estimatedOut}` : 'Quote required'}</span>
-                    <span className="text-emerald-300/80 font-normal">{toTok}</span>
+                  <div className="font-bold text-slate-200 text-sm flex items-center justify-end gap-1.5 select-text">
+                    <span className="truncate" title={hasLiveQuote ? String(estimatedOut) : undefined}>
+                      {hasLiveQuote ? `~${formatSubscriptZero(estimatedOut)}` : 'Quote required'}
+                    </span>
+                    <span className="text-slate-300/80 font-normal">{toTok}</span>
                     <CopilotTokenIcon symbol={toTok} className="w-5 h-5 shrink-0" />
                   </div>
                   {toFiat && (
-                    <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
+                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
                       {toFiat}
                     </span>
                   )}
@@ -450,15 +567,15 @@ export default function InlineActionCard({
                     value={`1 ${fromTok} ≈ ${exchangeRate} ${toTok}`}
                   />
                 )}
-                {hasLiveQuote && Number.isFinite(Number(data.minReceived)) && (
+                {hasLiveQuote && hasMinimum && (
                   <DetailRow
                     label="Minimum Received"
-                    value={`${Number(data.minReceived)} ${toTok}`}
+                    value={`${data.minReceived} ${toTok}`}
                   />
                 )}
                 <DetailRow
                   label="Slippage Tolerance"
-                  value={`${slippage}%`}
+                  value={slippageBps === undefined ? 'Invalid — new quote required' : `${slippageBps / 100}%`}
                 />
                 <DetailRow
                   label="Network Fee"
@@ -472,14 +589,14 @@ export default function InlineActionCard({
               </>
             }
             primaryAction={{
-              label: !hasValidAmount ? 'Amount Required' : hasLiveQuote ? 'Confirm Swap' : 'Quote Required',
-              icon: <Zap className="w-3.5 h-3.5 text-cyan-200" />,
+              label: !hasValidAmount ? 'Amount Required' : hasLiveQuote && hasMinimum && slippageBps !== undefined ? 'Confirm Swap' : 'Quote Required',
+              icon: <ArrowRightLeft className="w-4 h-4" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
-              disabled: !hasLiveQuote || !hasValidAmount,
+              disabled: !hasLiveQuote || !hasValidAmount || !hasMinimum || slippageBps === undefined,
               title: !hasValidAmount
                 ? 'A valid explicit amount is required before confirming this swap.'
-                : !hasLiveQuote
-                  ? 'A live pool quote is required before confirming this swap.'
+                : !hasLiveQuote || !hasMinimum || slippageBps === undefined
+                  ? 'A live quote with exact minimum output and valid slippage is required before confirming this swap.'
                   : undefined,
               gradient: 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:brightness-110 text-white shadow-emerald-500/20',
             }}
@@ -517,12 +634,14 @@ export default function InlineActionCard({
                     Deposit Amount
                   </span>
                   <div className="font-bold text-white text-base flex items-center gap-1.5 select-text">
-                    <span>{hasValidDepositAmount ? `${data.amount}` : '—'}</span>
+                    <span title={hasValidDepositAmount ? String(data.amount) : undefined}>
+                      {hasValidDepositAmount ? formatSubscriptZero(data.amount) : '—'}
+                    </span>
                     <span className="text-xs text-slate-300 font-semibold">USDC</span>
                     <CopilotTokenIcon symbol="USDC" className="w-5 h-5 shrink-0" />
                   </div>
                   {fiat && (
-                    <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
+                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
                       {fiat}
                     </span>
                   )}
@@ -610,30 +729,28 @@ export default function InlineActionCard({
               subtitle: 'Circle Gateway • Instant Finality Route',
             }}
             hero={
-              <div className="space-y-1.5 select-text">
-                <div className="flex items-center justify-between select-text">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold block select-text">
+              <div className="flex items-center justify-between gap-2 select-text">
+                <div className="select-text">
+                  <span className="text-[12px] text-slate-400 uppercase font-semibold block select-text">
                     Bridge Amount
                   </span>
                 </div>
-                <div className="items-center justify-between select-text cursor-text">
-                  <div className="flex items-center gap-1.5 select-text">
-                    <span className="font-bold text-white text-base tracking-tight select-text">
-                      {hasValidBridgeAmount ? `${data.amount}` : 'Amount unavailable'}
+                <div className="text-right select-text cursor-text">
+                  <div className="flex items-center justify-end gap-1.5 select-text">
+                    <span
+                      className="font-bold text-white text-base tracking-tight select-text"
+                      title={hasValidBridgeAmount ? String(data.amount) : undefined}
+                    >
+                      {hasValidBridgeAmount ? formatSubscriptZero(data.amount) : 'Amount unavailable'}
                     </span>
-                    <span className="text-sm text-slate-300">USDC</span>
+                    <span className="text-xs font-semibold text-slate-300 select-text">USDC</span>
                     <CopilotTokenIcon symbol="USDC" className="w-5 h-5 shrink-0" />
                   </div>
                   {fiat && (
-                    <span className="text-[11px] font-mono text-slate-400 select-text">
+                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5 select-text">
                       {fiat}
                     </span>
                   )}
-                </div>
-                <div className="flex items-center justify-between select-text pt-2 border-t border-slate-800/80">
-                  <CopilotNetworkBadge chainName={fromChain} />
-                  <ArrowRight className="w-3.5 h-3.5 text-indigo-400 select-none flex-shrink-0" />
-                  <CopilotNetworkBadge chainName={toChain} />
                 </div>
               </div>
             }
@@ -641,23 +758,55 @@ export default function InlineActionCard({
               <>
                 <DetailRow
                   label="Bridge Route"
-                  value={`${fromChain} ➔ ${toChain}`}
+                  value={
+                    <span className="inline-flex items-center gap-1.5 select-text font-sans">
+                      <span className="inline-flex items-center gap-1 select-text">
+                        {fromChain.toLowerCase().includes('arc') ? (
+                          <img
+                            src={ArcLogo}
+                            alt={fromChain}
+                            className="w-3.5 h-3.5 object-contain shrink-0"
+                          />
+                        ) : (
+                          <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                            <NetworkIcon id={getChainIconId(fromChain)} className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                        <span>{fromChain}</span>
+                      </span>
+                      <span className="text-indigo-400 select-none">➔</span>
+                      <span className="inline-flex items-center gap-1 select-text">
+                        {toChain.toLowerCase().includes('arc') ? (
+                          <img
+                            src={ArcLogo}
+                            alt={toChain}
+                            className="w-3.5 h-3.5 object-contain shrink-0"
+                          />
+                        ) : (
+                          <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                            <NetworkIcon id={getChainIconId(toChain)} className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                        <span>{toChain}</span>
+                      </span>
+                    </span>
+                  }
                   valueClassName="text-slate-200"
                 />
                 <DetailRow
                   label="Protocol"
                   value="Circle Gateway"
-                  valueClassName="text-indigo-300"
+                  valueClassName="text-slate-300"
                 />
                 <DetailRow
                   label="Transfer Speed"
                   value="< 30s"
-                  valueClassName="text-emerald-400"
+                  valueClassName="text-slate-300"
                 />
                 <DetailRow
                   label="Protocol Fee"
                   value="0 USDC"
-                  valueClassName="text-emerald-400"
+                  valueClassName="text-slate-300"
                 />
               </>
             }
@@ -693,6 +842,8 @@ export default function InlineActionCard({
           ? `${fullRecipient.slice(0, 8)}...${fullRecipient.slice(-6)}`
           : fullRecipient
         const hasMemo = Boolean(data.memo && String(data.memo).trim().length > 0)
+        const networkName = String(data.network || data.chain || 'Arc Testnet')
+        const isArc = networkName.toLowerCase().includes('arc')
 
         const feeString = data.estimatedFeeUsdc
           ? String(data.estimatedFeeUsdc).startsWith('~')
@@ -709,24 +860,27 @@ export default function InlineActionCard({
               subtitle: 'Arc Testnet • Gas Abstracted Transfer',
             }}
             hero={
-              <div className="space-y-1 select-text">
-                <div className="flex items-center justify-between select-text">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold block select-text">
-                    Transfer Amount
+              <div className="flex items-center justify-between gap-2 select-text">
+                <div className="select-text">
+                  <span className="text-[12px] text-slate-400 uppercase font-semibold block select-text">
+                    Send Amount
                   </span>
                 </div>
-                <div className="items-baseline justify-between gap-2 pt-0.5 select-text">
-                  <div className="flex items-center gap-1.5 select-text cursor-text">
-                    <span className="font-bold text-white text-base tracking-tight select-text">
-                      {hasValidSendAmount ? `${data.amount}` : 'Amount unavailable'}
+                <div className="text-right select-text cursor-text">
+                  <div className="flex items-center justify-end gap-1.5 select-text">
+                    <span
+                      className="font-bold text-white text-base tracking-tight select-text"
+                      title={hasValidSendAmount ? String(data.amount) : undefined}
+                    >
+                      {hasValidSendAmount ? formatSubscriptZero(data.amount) : 'Amount unavailable'}
                     </span>
-                    <span className="text-xs font-semibold text-slate-300 select-text">
+                    <span className="text-[14px] font-semibold text-slate-300 select-text">
                       {tokenSymbol}
                     </span>
                     <CopilotTokenIcon symbol={tokenSymbol} className="w-5 h-5 shrink-0" />
                   </div>
                   {fiat && (
-                    <span className="text-[11px] font-mono text-slate-400 select-text">
+                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5 select-text">
                       {fiat}
                     </span>
                   )}
@@ -742,7 +896,7 @@ export default function InlineActionCard({
                   <div className="flex items-center gap-1.5 select-text">
                     <span
                       title={fullRecipient}
-                      className="font-mono text-slate-300 font-bold text-[11px] select-text cursor-text truncate max-w-[200px]"
+                      className="font-mono text-slate-300 font-bold text-[12px] select-text cursor-text truncate max-w-[200px]"
                     >
                       {displayRecipient || '—'}
                     </span>
@@ -778,8 +932,23 @@ export default function InlineActionCard({
                 )}
                 <DetailRow
                   label="Network"
-                  value="Arc Testnet"
-                  valueClassName="text-slate-200"
+                  value={
+                    <span className="inline-flex items-center gap-1.5 select-text">
+                      {isArc ? (
+                        <img
+                          src={ArcLogo}
+                          alt={networkName}
+                          className="w-4 h-4 object-contain shrink-0"
+                        />
+                      ) : (
+                        <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                          <NetworkIcon id={getChainIconId(networkName)} className="w-4 h-4" />
+                        </span>
+                      )}
+                      <span className='font-bold text-slate-300 text-[12px]'>{networkName}</span>
+                    </span>
+                  }
+                  valueClassName="text-slate-300"
                 />
                 <DetailRow
                   label="Network Fee"
@@ -789,13 +958,13 @@ export default function InlineActionCard({
                 <DetailRow
                   label="Finality"
                   value="Instant (< 1s)"
-                  valueClassName="text-emerald-400"
+                  valueClassName="text-slate-300"
                 />
               </>
             }
             primaryAction={{
               label: isExecutingInline ? 'Sending…' : hasValidSendAmount ? 'Confirm Transfer' : 'Amount Required',
-              icon: <ArrowUpRight className="w-3.5 h-3.5 text-cyan-200" />,
+              icon: <ArrowUpRight className="w-4 h-4" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: isExecutingInline || !hasValidSendAmount,
               gradient: 'bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-600 hover:brightness-110 text-white shadow-cyan-500/20',
@@ -820,45 +989,6 @@ export default function InlineActionCard({
             title: 'Session Key Authorization',
             subtitle: 'Smart Account Policy • Autonomous Limits',
           }}
-          hero={
-            <div className="space-y-1.5 select-text">
-              <div className="flex items-center justify-between select-text">
-                <span className="text-[10px] text-slate-400 uppercase font-semibold block select-text">
-                  Autonomous Execution
-                </span>
-                <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
-                  Zero-Popup
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed select-text">
-                Authorize an ephemeral ECDSA session key with custom spending caps to allow Copilot to execute pre-approved micro-actions without individual wallet prompts.
-              </p>
-            </div>
-          }
-          details={
-            <>
-              <DetailRow
-                label="Execution Mode"
-                value="Zero-Popup Autonomous"
-                valueClassName="text-amber-300"
-              />
-              <DetailRow
-                label="Gas Paymaster"
-                value="100% Circle Gas Station"
-                valueClassName="text-emerald-400"
-              />
-              <DetailRow
-                label="Spending Policy"
-                value="Per-Tx & Daily USDC Caps"
-                valueClassName="text-slate-200"
-              />
-              <DetailRow
-                label="Key Storage"
-                value="Client-Side Ephemeral"
-                valueClassName="text-slate-400"
-              />
-            </>
-          }
           primaryAction={{
             label: actionPayload.title || 'Open Session Settings',
             icon: <Settings className="w-3.5 h-3.5 text-slate-950" />,
@@ -905,8 +1035,8 @@ interface ActionCardShellProps {
     title: string
     subtitle: string
   }
-  hero: React.ReactNode
-  details: React.ReactNode
+  hero?: React.ReactNode
+  details?: React.ReactNode
   primaryAction: {
     label: string
     icon?: React.ReactNode
@@ -955,7 +1085,7 @@ function ActionCardShell({
 
   return (
     <div
-      className={`p-3.5 rounded-2xl bg-slate-950/95 border space-y-3 shadow-xl animate-fade-in select-text selection:bg-cyan-500/30 selection:text-white ${borderStyles[accentColor]}`}
+      className={`w-full max-w-[390px] mx-auto p-3.5 rounded-2xl bg-slate-950/95 border space-y-3 shadow-xl animate-fade-in select-text selection:bg-cyan-500/30 selection:text-white ${borderStyles[accentColor]}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-white/[0.06]">
@@ -977,14 +1107,18 @@ function ActionCardShell({
       </div>
 
       {/* Hero Panel */}
-      <div className="rounded-xl bg-slate-900/90 border border-slate-800/80 p-3 shadow-inner select-text">
-        {hero}
-      </div>
+      {hero && (
+        <div className="rounded-xl bg-slate-900/90 border border-slate-800/80 p-3 shadow-inner select-text">
+          {hero}
+        </div>
+      )}
 
       {/* Details Table */}
-      <div className="rounded-xl bg-slate-900/50 border border-slate-800/60 p-2.5 space-y-1.5 text-xs select-text">
-        {details}
-      </div>
+      {details && (
+        <div className="rounded-xl bg-slate-900/50 border border-slate-800/60 p-2.5 space-y-1.5 text-xs select-text">
+          {details}
+        </div>
+      )}
 
       {/* Action Footer */}
       <div

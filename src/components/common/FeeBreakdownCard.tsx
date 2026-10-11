@@ -121,7 +121,7 @@ export const FeeBreakdownCard: React.FC<FeeBreakdownCardProps> = ({
                       ? `${item.highlightColor} font-semibold`
                       : typeof item.value === 'string' && item.value.includes('Arcis Sponsored')
                       ? 'text-indigo-400 font-semibold'
-                      : item.label.toLowerCase().includes('net received') || item.label.toLowerCase().includes('recipient gets')
+                      : item.label.toLowerCase().includes('net received')
                       ? 'text-emerald-400 font-semibold'
                       : item.highlight
                       ? 'text-emerald-400 font-semibold'

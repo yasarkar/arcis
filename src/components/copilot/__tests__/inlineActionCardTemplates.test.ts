@@ -19,7 +19,7 @@ vi.mock('../../../services/tokenPriceService', async (importOriginal) => {
   }
 })
 
-import InlineActionCard from '../InlineActionCard'
+import InlineActionCard, { buildActionAgainCommand } from '../InlineActionCard'
 import type { CopilotMessage, CopilotActionPayload } from '../../../types/marketplace'
 
 function renderAction(actionPayload: CopilotActionPayload): string {
@@ -42,6 +42,29 @@ function renderAction(actionPayload: CopilotActionPayload): string {
 }
 
 describe('InlineActionCard Institutional Templates', () => {
+  it('preserves the approved tolerance when preparing Swap Again', () => {
+    expect(buildActionAgainCommand(undefined, { type: 'interactive_swap', title: '', data: {
+      amount: 10, fromToken: 'USDC', toToken: 'EURC', slippageBps: 10,
+    } })).toBe('swap 10 USDC to EURC slippage 0.1%')
+  })
+
+  it.each([10, 50, 100, 200])('shows canonical %s bps and the exact signed minimum', slippageBps => {
+    const html = renderAction({ type: 'interactive_swap', title: '', data: {
+      amount: 50, fromToken: 'USDC', toToken: 'cirBTC', estimatedOut: '0.00000123',
+      minReceived: '0.00000121', slippageBps,
+    } })
+    expect(html).toContain(`${slippageBps / 100}%`)
+    expect(html).toContain('0.00000121 cirBTC')
+    expect(html).not.toContain('disabled=""')
+  })
+
+  it.each([{ slippageBps: 1, minReceived: '45' }, { slippageBps: 100, minReceived: undefined },
+    { slippageBps: 100, slippage: 0.1, minReceived: '45' }])('disables unsafe or conflicting swap cards', fields => {
+    const html = renderAction({ type: 'interactive_swap', title: '', data: {
+      amount: 50, fromToken: 'USDC', toToken: 'EURC', estimatedOut: '46', ...fields,
+    } })
+    expect(html).toContain('disabled=""')
+  })
   it('renders a standardized Swap Order template with operation header, hero conversion and pool specs', () => {
     const html = renderAction({
       type: 'interactive_swap',
@@ -51,8 +74,8 @@ describe('InlineActionCard Institutional Templates', () => {
         fromToken: 'USDC',
         toToken: 'EURC',
         estimatedOut: 46.25,
-        minReceived: 45.8,
-        slippage: 0.5,
+        minReceived: '45.8',
+        slippageBps: 50,
         estimatedFeeUsdc: 0.00053,
       },
     })
@@ -61,10 +84,10 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('Token Swap')
     expect(html).toContain('Arc Testnet AMM')
 
-    // Hero Panel (You Pay -> Estimated Receive)
+    // Hero Panel (You Pay -> You Receive)
     expect(html).toContain('You Pay')
     expect(html).toContain('50')
-    expect(html).toContain('Estimated Receive')
+    expect(html).toContain('You Receive')
     expect(html).toContain('~46.25')
 
     // Details Rows
@@ -115,7 +138,7 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('Arc Testnet')
 
     // Hero Panel
-    expect(html).toContain('Transfer Amount')
+    expect(html).toContain('Send Amount')
     expect(html).toContain('25')
 
     // Details Rows
@@ -124,6 +147,8 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('<button')
     expect(html).toContain('Memo')
     expect(html).toContain('&quot;Invoice 1024&quot;')
+    expect(html).toContain('Network')
+    expect(html).toContain('alt="Arc Testnet"')
     expect(html).toContain('Network Fee')
     expect(html).toContain('Finality')
     expect(html).toContain('Instant (&lt; 1s)')
@@ -155,7 +180,8 @@ describe('InlineActionCard Institutional Templates', () => {
 
     // Details Rows
     expect(html).toContain('Bridge Route')
-    expect(html).toContain('Arc Testnet ➔ Base Sepolia')
+    expect(html).toContain('alt="Arc Testnet"')
+    expect(html).toContain('Base Sepolia')
     expect(html).toContain('Circle Gateway')
     expect(html).toContain('Transfer Speed')
     expect(html).toContain('&lt; 30s')
@@ -201,7 +227,7 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('Pool Page')
   })
 
-  it('renders a standardized Session Security Configuration template with policy rows and action button', () => {
+  it('renders a standardized Session Security Configuration template with header and action button', () => {
     const html = renderAction({
       type: 'configure_session',
       title: 'Configure Autonomous Session Policy',
@@ -212,19 +238,30 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('Session Key Authorization')
     expect(html).toContain('Smart Account Policy')
 
-    // Hero Panel
-    expect(html).toContain('Autonomous Execution')
-    expect(html).toContain('Zero-Popup')
-
-    // Details Rows
-    expect(html).toContain('Execution Mode')
-    expect(html).toContain('Zero-Popup Autonomous')
-    expect(html).toContain('Gas Paymaster')
-    expect(html).toContain('100% Circle Gas Station')
-    expect(html).toContain('Spending Policy')
-    expect(html).toContain('Per-Tx &amp; Daily USDC Caps')
+    // Omitted Hero and Details
+    expect(html).not.toContain('Authorize an ephemeral ECDSA session key')
+    expect(html).not.toContain('Execution Mode')
+    expect(html).not.toContain('Gas Paymaster')
+    expect(html).not.toContain('Spending Policy')
+    expect(html).not.toContain('Key Storage')
 
     // Button
     expect(html).toContain('Configure Autonomous Session Policy')
+  })
+
+  it('renders subscript zero notation for tiny crypto amounts like cirBTC (0.00000035 -> 0.0₆35)', () => {
+    const html = renderAction({
+      type: 'interactive_send',
+      title: 'Transfer 0.00000035 cirBTC',
+      data: {
+        amount: 0.00000035,
+        tokenSymbol: 'cirBTC',
+        recipient: '0x1234567890123456789012345678901234567890',
+        network: 'Arc Testnet',
+      },
+    })
+
+    expect(html).toContain('0.0₆35')
+    expect(html).toContain('cirBTC')
   })
 })

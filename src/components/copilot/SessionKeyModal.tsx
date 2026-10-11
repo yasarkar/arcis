@@ -164,7 +164,7 @@ export default function SessionKeyModal({
     void performSave()
   }
 
-  const remainingBudget = Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc)
+  const remainingBudget = Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc - (sessionConfig.reservedUsdc || 0))
   const spentPercent = sessionConfig.maxSpendUsdc > 0
     ? Math.min(100, Math.round((sessionConfig.spentUsdc / sessionConfig.maxSpendUsdc) * 100))
     : 0
@@ -391,8 +391,8 @@ export default function SessionKeyModal({
             onClick={onRevokeSession}
             className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3 py-2 rounded-xl hover:bg-rose-950/30"
           >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Clear Session</span>
+            <Trash2 className="w-4 h-4" />
+            <span>Revoke Session</span>
           </button>
 
           <div className="flex items-center gap-2">

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, ChevronDown, Check, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, ChevronDown, Check, CheckCircle2, Fingerprint, Droplets } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 
 // Visual Artwork Assets
@@ -566,7 +566,7 @@ export default function HomePage({
           </div>
 
           {/* Call To Action Button Group */}
-          <div className="flex flex-wrap items-center gap-3 pt-4">
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
               type="button"
               onClick={() => onNavigate('unified')}
@@ -575,6 +575,18 @@ export default function HomePage({
               <span>Launch App</span>
               <ArrowRight className="w-4 h-4" />
             </button>
+
+            {!walletConnected && onOpenCircleAuth && (
+              <button
+                type="button"
+                onClick={onOpenCircleAuth}
+                className="px-5 py-3.5 rounded-full text-sm font-semibold flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 text-white border border-white/10 hover:border-cyan-500/40 shadow-lg hover:shadow-cyan-500/10 transition-all cursor-pointer hover:scale-105 active:scale-95"
+              >
+                <Fingerprint className="w-4 h-4 text-cyan-400" />
+                <span>Sign in with Passkey</span>
+              </button>
+            )}
+
             <a
               href="#features-showcase"
               className="text-[13px] px-2 py-3.5 text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
@@ -812,9 +824,11 @@ export default function HomePage({
               {comparisonRows.map((row, idx) => (
                 <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
                   <td className="py-4 px-4 sm:px-6 font-medium text-white">{row.feature}</td>
-                  <td className="py-4 px-4 sm:px-6 text-slate-400 flex items-center gap-2">
-                    <span className="text-rose-400 font-bold">✕</span>
-                    <span>{row.legacy}</span>
+                  <td className="py-4 px-4 sm:px-6 text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-400 font-bold">✕</span>
+                      <span>{row.legacy}</span>
+                    </div>
                   </td>
                   <td className="py-4 px-4 sm:px-6 text-emerald-200 font-medium">
                     <div className="flex items-center gap-2">
@@ -859,8 +873,20 @@ export default function HomePage({
                   />
                 </button>
                 {isOpen && (
-                  <div className="px-6 pb-5 pt-1 text-xs sm:text-sm text-slate-300 leading-relaxed border-t border-white/5 animate-fade-in">
-                    {item.a}
+                  <div className="px-6 pb-5 pt-1 text-xs sm:text-sm text-slate-300 leading-relaxed border-t border-white/5 animate-fade-in flex flex-col gap-3">
+                    <div>{item.a}</div>
+                    {idx === 4 && onOpenFaucet && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={onOpenFaucet}
+                          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-sky-300 bg-sky-500/15 border border-sky-500/30 hover:bg-sky-500/25 transition-all cursor-pointer"
+                        >
+                          <Droplets className="w-3.5 h-3.5 text-sky-400" />
+                          <span>Request Testnet Tokens (Faucet)</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

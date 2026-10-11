@@ -19,6 +19,7 @@ import {
   Pencil,
   Volume2,
   VolumeX,
+  Settings,
 } from 'lucide-react'
 import { EXPLORE_TOPIC_CATEGORIES } from '../../hooks/useArcCopilot'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload } from '../../types/marketplace'
@@ -26,6 +27,7 @@ import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey
 import { getSessionTimeRemaining } from '../../services/sessionKeyService'
 import { playSound, soundService } from '../../services/soundService'
 import { sanitizeCopilotHtml, stripCopilotHtml } from '../../utils/sanitizeCopilotHtml'
+import { classifyCopilotIntent } from '../../utils/copilotIntent'
 import CopilotMessageContent from './CopilotMessageContent'
 import SessionKeyModal from './SessionKeyModal'
 import InlineActionCard from './InlineActionCard'
@@ -119,10 +121,24 @@ export default function ArcCopilotDrawer({
     setIsSoundEnabled(next)
   }
 
+  // Dynamic Spin & Reset State for Rotate-CCW
+  const [isResetting, setIsResetting] = useState<boolean>(false)
+
+  const handleResetChat = useCallback(() => {
+    if (isResetting) return
+    setIsResetting(true)
+    playSound('pop')
+    setSelectedTopicId(null)
+    onClearChat()
+    setTimeout(() => {
+      setIsResetting(false)
+    }, 650)
+  }, [isResetting, onClearChat])
+
   const handleSelectSlashCommand = async (cmd: SlashCommandItem) => {
     playSound('pop')
     if (cmd.directActionKey === 'clear') {
-      onClearChat()
+      handleResetChat()
       setInputText('')
       return
     }
@@ -297,9 +313,10 @@ export default function ArcCopilotDrawer({
 
   if (!isOpen) return null
 
+  const canSendInput = Boolean(inputText.trim()) && (!isAnalyzing || classifyCopilotIntent(inputText).kind === 'cancel')
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
-    if (!inputText.trim() || isAnalyzing) return
+    if (!canSendInput) return
     playSound('send')
     const text = inputText
     setInputText('')
@@ -344,7 +361,6 @@ export default function ArcCopilotDrawer({
       {/* ── TOP-LEFT RESIZE HANDLE ── */}
       <div
         onPointerDown={handlePointerDownResize}
-        title="Boyutu ayarlamak için sol üste doğru sürükleyin"
         aria-label="Resize copilot window"
         role="separator"
         aria-orientation="vertical"
@@ -375,58 +391,67 @@ export default function ArcCopilotDrawer({
             <div className="flex items-center gap-2">
               <h3 className="text-[14px] font-extrabold text-white tracking-wide">Ask Arco</h3>
             </div>
-            <p className="text-[12px] text-slate-400">Arcis AI Agent</p>
+            <p className="text-[12px] text-slate-400 flex items-center gap-1.5">
+              <span>Arcis Autonomous Intelligence</span>
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           {/* Session Settings */}
           <button
             onClick={() => setIsSessionKeyModalOpen(true)}
             aria-label="Session settings"
-            title="Session Settings"
-            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
+            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
               sessionConfig.isActive
                 ? 'bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 border-cyan-500/40 shadow-cyan-500/10'
                 : 'bg-slate-850 hover:bg-slate-800 text-slate-400 border-slate-700'
             }`}
           >
-            <Zap className={`w-3.5 h-3.5 ${sessionConfig.isActive ? 'text-cyan-400 animate-pulse' : 'text-slate-400'}`} />
-            <span className="hidden sm:inline">
-              Session Settings
-            </span>
+            <Settings className={`w-4 h-4 ${sessionConfig.isActive ? 'text-cyan-300' : 'text-slate-400'}`} />
           </button>
 
           {/* Sound FX Mute/Unmute Toggle */}
           <button
             onClick={handleToggleSound}
             aria-label={isSoundEnabled ? 'Disable sound effects' : 'Enable sound effects'}
-            title={isSoundEnabled ? 'Sesli Geri Bildirim: Açık (Kapatmak için tıklayın)' : 'Sesli Geri Bildirim: Sessiz (Açmak için tıklayın)'}
-            className={`p-1.5 rounded-lg transition cursor-pointer ${isSoundEnabled
-                ? 'text-cyan-300 hover:text-cyan-200 bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30'
-                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/80'
+            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${isSoundEnabled
+                ? 'bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 border-cyan-500/40 shadow-cyan-500/10'
+                : 'bg-slate-850 hover:bg-slate-800 text-slate-400 border-slate-700'
               }`}
           >
             {isSoundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
 
+          {/* Dynamic RotateCcw Reset / Clear Chat Button with Dynamic Visual Layer & Spin Effect */}
           <button
-            onClick={() => {
-              setSelectedTopicId(null)
-              onClearChat()
-            }}
-            aria-label="Clear chat history"
-            title="Sohbeti Yenile / Temizle"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
+            type="button"
+            onClick={handleResetChat}
+            disabled={isResetting}
+            aria-label={isResetting ? 'Sohbet sıfırlanıyor' : 'Sohbet geçmişini sıfırla'}
+            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
+              isResetting
+                ? 'bg-cyan-950/90 border-cyan-400/80 text-cyan-300 shadow-[0_0_18px_rgba(6,182,212,0.45)] ring-2 ring-cyan-400/40'
+                : 'bg-slate-900/85 hover:bg-slate-850 border-slate-700/80 hover:border-cyan-400/60 text-slate-300 hover:text-cyan-300 shadow-sm hover:shadow-[0_0_14px_rgba(6,182,212,0.3)]'
+            }`}
           >
-            <RotateCcw className="w-4 h-4" />
+            {/* Dynamic visual aura layer */}
+            <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-500/25 via-indigo-500/20 to-teal-500/25 opacity-0 group-hover:opacity-100 blur-xs transition-opacity duration-300 pointer-events-none" />
+            {isResetting && (
+              <span className="absolute inset-0 rounded-xl bg-cyan-400/20 animate-pulse pointer-events-none" />
+            )}
+            <RotateCcw
+              className={`w-4 h-4 relative z-10 transition-transform duration-300 ${
+                isResetting ? 'animate-spin-ccw text-cyan-300' : 'group-hover:-rotate-45'
+              }`}
+            />
           </button>
 
+          {/* Close copilot */}
           <button
             onClick={onClose}
             aria-label="Close copilot"
-            title="Kapat"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
+            className="px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-white border-slate-700 hover:border-slate-600"
           >
             <X className="w-4 h-4" />
           </button>
@@ -522,7 +547,6 @@ export default function ArcCopilotDrawer({
                         onClick={() => handleCopyMessage(msg.id, msg.content)}
                         aria-label={copiedMsgId === msg.id ? 'Message copied to clipboard' : 'Copy message'}
                         className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 transition cursor-pointer"
-                        title="Copy Message"
                       >
                         {copiedMsgId === msg.id ? (
                           <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -537,7 +561,6 @@ export default function ArcCopilotDrawer({
                         onClick={() => handleStartEdit(msg.id, msg.content)}
                         aria-label="Edit message"
                         className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 transition cursor-pointer"
-                        title="Edit Message"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
@@ -546,7 +569,7 @@ export default function ArcCopilotDrawer({
                 )
               ) : (
                 /* Assistant Bubble */
-                <div className={`rounded-2xl leading-relaxed max-w-[60%] shadow-md select-text cursor-text bg-slate-900/90 text-slate-200 border border-slate-800 rounded-tl-none ${msg.receipt ? 'p-2 sm:p-2.5' : 'p-3.5'}`}>
+                <div className={`rounded-2xl leading-relaxed ${msg.receipt || msg.actionPayload ? 'max-w-[425px]' : 'max-w-[60%]'} shadow-md select-text cursor-text bg-slate-900/90 text-slate-200 border border-slate-800 rounded-tl-none ${msg.receipt ? 'p-2 sm:p-2.5' : 'p-3.5'}`}>
                   {/* Fişlerin üstündeki hazırlık mesajı işlem sonuçlandığında (başarılı/başarısız fiş durumunda) gösterilmez */}
                   {!msg.receipt && (
                     <div className="relative">
@@ -617,6 +640,7 @@ export default function ArcCopilotDrawer({
                       onNavigateToTab={onNavigateToTab}
                       onOpenSessionSettings={() => setIsSessionKeyModalOpen(true)}
                       onCloseDrawer={onClose}
+                      onSendMessage={onSendMessage}
                     />
                   )}
                 </div>
@@ -626,7 +650,7 @@ export default function ArcCopilotDrawer({
             {/* Explore Topics Chips placed directly below the welcome bubble */}
             {index === 0 && msg.role === 'assistant' && (
               <div className="pl-9.5 space-y-3 select-text w-full max-w-[96%]">
-                <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-slate-400 select-text">
+                <div className="flex items-center gap-3 text-[10px] uppercase font-bold tracking-wider text-slate-400 select-text">
                   <span>EXPLORE TOPICS</span>
                 </div>
 
@@ -775,7 +799,6 @@ export default function ArcCopilotDrawer({
                 }
               }}
               placeholder="Type a command or open the quick menu with /"
-              disabled={isAnalyzing}
               className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition disabled:opacity-50"
             />
           </div>
@@ -783,7 +806,7 @@ export default function ArcCopilotDrawer({
           <button
             type="submit"
             aria-label="Send message"
-            disabled={!inputText.trim() || isAnalyzing}
+            disabled={!canSendInput}
             className="w-9 h-9 rounded-2xl bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-600 text-white flex items-center justify-center transition cursor-pointer disabled:cursor-not-allowed shadow-md shadow-cyan-600/30 flex-shrink-0"
           >
             <Send className="w-3.5 h-3.5" />
