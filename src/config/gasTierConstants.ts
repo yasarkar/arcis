@@ -41,6 +41,7 @@ export const SPEED_TIERS: Record<SpeedTier, SpeedTierConfig> = {
     label: 'Standard',
     shortLabel: 'Eco',
     iconName: 'car',
+    badge: "Base",
     timeEstimate: {
       arcL1: '1-2 sec',
       cctpBridge: '1-2 min',

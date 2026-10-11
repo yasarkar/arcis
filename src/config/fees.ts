@@ -16,10 +16,9 @@ const ENV_EVM_TREASURY = (typeof process !== 'undefined' && process.env && proce
 const ENV_SOLANA_TREASURY = (typeof process !== 'undefined' && process.env && process.env.VITE_SOLANA_TREASURY_ADDRESS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SOLANA_TREASURY_ADDRESS)
 const ENV_INJECTIVE_TREASURY = (typeof process !== 'undefined' && process.env && process.env.VITE_INJECTIVE_TREASURY_ADDRESS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_INJECTIVE_TREASURY_ADDRESS)
 const ENV_BRIDGE_FEE_ENABLED = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_ENABLED) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_ENABLED)
-const ENV_BRIDGE_FEE_VALUE = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_VALUE) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_VALUE)
-const ENV_BRIDGE_FEE_VALUE_STANDARD = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_VALUE_STANDARD) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_VALUE_STANDARD)
-const ENV_BRIDGE_FEE_VALUE_FAST = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_VALUE_FAST) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_VALUE_FAST)
-const ENV_BRIDGE_FEE_VALUE_TURBO = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_VALUE_TURBO) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_VALUE_TURBO)
+const ENV_BRIDGE_FEE_BPS = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_BPS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_BPS)
+const ENV_BRIDGE_FEE_MIN_USDC = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_MIN_USDC) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_MIN_USDC)
+const ENV_BRIDGE_FEE_MAX_USDC = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_MAX_USDC) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_MAX_USDC)
 const ENV_BRIDGE_FEE_RECIPIENT = (typeof process !== 'undefined' && process.env && process.env.VITE_BRIDGE_FEE_RECIPIENT) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BRIDGE_FEE_RECIPIENT)
 const ENV_SWAP_FEE_ENABLED = (typeof process !== 'undefined' && process.env && process.env.VITE_SWAP_FEE_ENABLED) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SWAP_FEE_ENABLED)
 const ENV_SWAP_FEE_BPS = (typeof process !== 'undefined' && process.env && process.env.VITE_SWAP_FEE_BPS) || (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_SWAP_FEE_BPS)
@@ -314,21 +313,21 @@ export const PROTOCOL_FEE_RATES: ModuleProtocolFeeConfig = {
   bridge: {
     standard: {
       bps: 5, // 0.05%
-      valueUsdc: 0.05,
-      label: '0.05% Platform Fee',
-      description: 'Eco CCTP bridge (Standard block confirmations)',
+      valueUsdc: 0.1,
+      label: '0.05% Dynamic Platform Fee',
+      description: 'Min 0.10 USDC, Max 1.00 USDC cap',
     },
     fast: {
-      bps: 10, // 0.10%
+      bps: 5, // 0.05%
       valueUsdc: 0.1,
-      label: '0.10% Platform Fee',
-      description: 'CCTP Fast Forwarding service acceleration',
+      label: '0.05% Dynamic Platform Fee',
+      description: 'Min 0.10 USDC, Max 1.00 USDC cap',
     },
     turbo: {
-      bps: 25, // 0.25%
-      valueUsdc: 0.25,
-      label: '0.25% Platform Fee',
-      description: 'Gateway instant pool (<500ms transfer)',
+      bps: 5, // 0.05%
+      valueUsdc: 0.1,
+      label: '0.05% Dynamic Platform Fee',
+      description: 'Min 0.10 USDC, Max 1.00 USDC cap',
     },
   },
 }
@@ -357,36 +356,32 @@ export function calculateSwapProtocolFeeAmount(tier: SpeedTier, amountIn: string
 }
 
 // ── Bridge Helpers ───────────────────────────────────────────
-export function getBridgeProtocolFeeBps(tier: SpeedTier): number {
-  return PROTOCOL_FEE_RATES.bridge[tier]?.bps ?? 10
+export function getBridgeProtocolFeeBps(): number {
+  return BRIDGE_CUSTOM_FEE_CONFIG.percentageBps
 }
 
-export function getBridgeProtocolFee(tier: SpeedTier): number {
-  return PROTOCOL_FEE_RATES.bridge[tier]?.valueUsdc ?? 0.1
+export function getBridgeProtocolFee(amount?: number | string | null): number {
+  return getBridgePlatformFeeValue(amount)
 }
 
-export function getBridgeProtocolFeePercent(tier: SpeedTier): string {
-  const bps = getBridgeProtocolFeeBps(tier)
+export function getBridgeProtocolFeePercent(): string {
+  const bps = getBridgeProtocolFeeBps()
   return `${(bps / 100).toFixed(2)}%`
 }
 
-export function calculateBridgeProtocolFeeAmount(tier: SpeedTier, amountIn: string): number {
-  const amt = parseFloat(amountIn)
-  const bps = getBridgeProtocolFeeBps(tier)
-  if (!Number.isFinite(amt) || amt <= 0 || bps <= 0) return 0
-  return (amt * bps) / 10000
+export function calculateBridgeProtocolFeeAmount(amountIn: string | number): number {
+  return getBridgePlatformFeeValue(amountIn)
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. ENVIRONMENT-DRIVEN CUSTOM FEE OVERRIDES (Safe Fallbacks)
+// 4. ENVIRONMENT-DRIVEN CUSTOM FEE CONFIGURATION
 // ─────────────────────────────────────────────────────────────
 
 export interface BridgeCustomFeeConfig {
   enabled: boolean
-  /** Flat fallback fee (USDC); any tier without its own env value uses this. */
-  value: string
-  /** Per-speed platform-fee ladder (USDC): standard / fast / turbo. */
-  values: Record<SpeedTier, string>
+  percentageBps: number
+  minUsdc: number
+  maxUsdc: number
   recipientAddress: string
 }
 
@@ -402,29 +397,19 @@ function isLikelyAddress(value: string | undefined): boolean {
 
 function loadBridgeFeeConfig(): BridgeCustomFeeConfig {
   const envEnabled = ENV_BRIDGE_FEE_ENABLED as string | undefined
-  const envValue = ENV_BRIDGE_FEE_VALUE as string | undefined
+  const envBps = Number(ENV_BRIDGE_FEE_BPS)
+  const envMin = Number(ENV_BRIDGE_FEE_MIN_USDC)
+  const envMax = Number(ENV_BRIDGE_FEE_MAX_USDC)
   const envRecipient = ENV_BRIDGE_FEE_RECIPIENT as string | undefined
 
-  const value = envValue && parseFloat(envValue) > 0 ? envValue : '0.10'
+  const bps = Number.isFinite(envBps) && envBps >= 0 ? envBps : 5
+  const minUsdc = Number.isFinite(envMin) && envMin >= 0 ? envMin : 0.10
+  const maxUsdc = Number.isFinite(envMax) && envMax >= minUsdc ? envMax : 1.00
   const recipient = isLikelyAddress(envRecipient) ? envRecipient! : (TREASURY_ADDRESSES.evm || '')
   const hasValidTreasury = !!recipient || !!TREASURY_ADDRESSES.solana || !!TREASURY_ADDRESSES.injective
   const enabled = envEnabled === 'true' && hasValidTreasury
 
-  // Speed ladder: each tier may override the flat fee through its own env var;
-  // a missing or invalid entry falls back to `value`, so single-value
-  // deployments keep their old behavior.
-  const tierValue = (raw: string | undefined): string => {
-    if (raw === undefined || raw === '') return value
-    const parsed = parseFloat(raw)
-    return Number.isFinite(parsed) && parsed >= 0 ? raw : value
-  }
-  const values: Record<SpeedTier, string> = {
-    standard: tierValue(ENV_BRIDGE_FEE_VALUE_STANDARD),
-    fast: tierValue(ENV_BRIDGE_FEE_VALUE_FAST),
-    turbo: tierValue(ENV_BRIDGE_FEE_VALUE_TURBO),
-  }
-
-  return { enabled, value, values, recipientAddress: recipient }
+  return { enabled, percentageBps: bps, minUsdc, maxUsdc, recipientAddress: recipient }
 }
 
 function loadSwapFeeConfig(): SwapCustomFeeConfig {
@@ -449,9 +434,7 @@ export const SWAP_CUSTOM_FEE_CONFIG: SwapCustomFeeConfig = loadSwapFeeConfig()
  *
  * The fee is collected through Circle App Kit's `customFee` on the Direct CCTP
  * path only: the UCW path has no custom-fee parameter and the Gateway paths
- * charge their own protocol fee. Every surface that displays or enforces the
- * fee (balance gate, transaction breakdown, settings) must ask this one
- * function — otherwise the UI demands a fee that is never charged.
+ * charge their own protocol fee.
  */
 export function isBridgePlatformFeeCharged(params: {
   bridgeMode: 'direct' | 'gateway'
@@ -459,45 +442,38 @@ export function isBridgePlatformFeeCharged(params: {
 }): boolean {
   if (params.bridgeMode !== 'direct') return false
   if (params.authSource === 'ucw') return false
-  if (!BRIDGE_CUSTOM_FEE_CONFIG.enabled) return false
-  // Any positive value in the ladder (flat fallback or per-speed override).
-  return (
-    parseFloat(BRIDGE_CUSTOM_FEE_CONFIG.value) > 0 ||
-    Object.values(BRIDGE_CUSTOM_FEE_CONFIG.values).some((v) => parseFloat(v) > 0)
-  )
+  return BRIDGE_CUSTOM_FEE_CONFIG.enabled && BRIDGE_CUSTOM_FEE_CONFIG.minUsdc > 0
 }
 
 /**
- * Platform fee (USDC) actually collected for one speed tier on Direct CCTP.
- * This is the single number every charge surface must use — requiredDebit, the
- * MAX reserve, the App Kit `customFee`, the breakdown and the receipt — so the
- * ladder can never disagree with what is really debited.
+ * Dynamic platform fee (USDC) collected on Direct CCTP based on volume:
+ * clamp(amount * percentageBps / 10000, minUsdc, maxUsdc).
+ * If amount is not provided or <= 0, returns the min floor (0.10 USDC).
  */
-export function getBridgePlatformFeeValue(tier: SpeedTier): number {
+export function getBridgePlatformFeeValue(amount?: number | string | null): number {
   if (!BRIDGE_CUSTOM_FEE_CONFIG.enabled) return 0
-  const raw = BRIDGE_CUSTOM_FEE_CONFIG.values[tier] ?? BRIDGE_CUSTOM_FEE_CONFIG.value
-  const parsed = parseFloat(raw)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+  const amt = typeof amount === 'string' ? parseFloat(amount) : Number(amount)
+  if (!Number.isFinite(amt) || amt <= 0) {
+    return BRIDGE_CUSTOM_FEE_CONFIG.minUsdc
+  }
+  const rawFee = (amt * BRIDGE_CUSTOM_FEE_CONFIG.percentageBps) / 10000
+  const clamped = Math.min(Math.max(rawFee, BRIDGE_CUSTOM_FEE_CONFIG.minUsdc), BRIDGE_CUSTOM_FEE_CONFIG.maxUsdc)
+  return Math.round(clamped * 10000) / 10000
 }
 
 /**
- * Human-readable platform-fee line for one speed tier in the Bridge settings
- * panel. It reads the same BRIDGE_CUSTOM_FEE_CONFIG the execution path charges,
- * so the settings panel, the breakdown and the real charge can never disagree.
+ * Human-readable platform-fee line for the Bridge tab.
  */
-export function getBridgePlatformFeeDisplay(tier: SpeedTier = 'fast'): { amount: string; description: string } {
-  // Every rung — including Turbo, the fastest Direct CCTP tier — is charged on
-  // the Direct route through App Kit's customFee, so the row always quotes the
-  // configured value. The Gateway route itself never collects a platform fee;
-  // the description discloses that, matching what isBridgePlatformFeeCharged enforces.
-  const value = getBridgePlatformFeeValue(tier)
-  const label = tier === 'standard' ? 'Standard' : tier === 'fast' ? 'Fast' : 'Turbo'
-  return value > 0
-    ? {
-        amount: `${value.toFixed(2)} USDC`,
-        description: `Direct CCTP platform fee · ${label} speed (UCW & Gateway routes are free)`,
-      }
-    : { amount: 'Free', description: 'No platform fee on this bridge route' }
+export function getBridgePlatformFeeDisplay(amount?: number | string | null): { amount: string; description: string } {
+  if (!BRIDGE_CUSTOM_FEE_CONFIG.enabled) {
+    return { amount: 'Free', description: 'No platform fee on this bridge route' }
+  }
+  const fee = getBridgePlatformFeeValue(amount)
+  const bpsPercent = (BRIDGE_CUSTOM_FEE_CONFIG.percentageBps / 100).toFixed(2)
+  return {
+    amount: `${fee.toFixed(2)} USDC`,
+    description: `Direct CCTP dynamic routing fee: ${bpsPercent}% (Min ${BRIDGE_CUSTOM_FEE_CONFIG.minUsdc.toFixed(2)} USDC, Max ${BRIDGE_CUSTOM_FEE_CONFIG.maxUsdc.toFixed(2)} USDC cap; UCW & Gateway routes are free)`,
+  }
 }
 
 export function getSwapFeePercent(bps: number): string {

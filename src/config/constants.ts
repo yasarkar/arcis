@@ -34,16 +34,16 @@ export const GAS_CONSTRAINTS = {
 
 export const SLIPPAGE_CONSTRAINTS = {
   /** Default slippage tolerance for DEX swaps (0.50% / 50 BPS) */
-  DEFAULT_PERCENT: 0.5,
-  DEFAULT_BPS: 50,
+  DEFAULT_PERCENT: 1.0,
+  DEFAULT_BPS: 100,
 
   /** Default slippage tolerance for AI Copilot automated executions (0.10% / 10 BPS) */
-  DEFAULT_COPILOT_PERCENT: 0.1,
-  DEFAULT_COPILOT_BPS: 10,
+  DEFAULT_COPILOT_PERCENT: 1,
+  DEFAULT_COPILOT_BPS: 100,
 
   /** Minimum selectable slippage (0.01% / 1 BPS) */
-  MIN_PERCENT: 0.01,
-  MIN_BPS: 1,
+  MIN_PERCENT: 0.1,
+  MIN_BPS: 10,
 
   /** Maximum recommended slippage before warning user (5.00% / 500 BPS) */
   MAX_PERCENT: 5.0,
@@ -59,7 +59,7 @@ export const SLIPPAGE_CONSTRAINTS = {
 
 export const BRIDGE_CONSTRAINTS = {
   /** Minimum transfer amount for direct CCTP bridge (0.10 USDC) to clear relayer forwarding fee */
-  MIN_DIRECT_BRIDGE_AMOUNT_USDC: 0.1,
+  MIN_DIRECT_BRIDGE_AMOUNT_USDC: 0.5,
 
   /** Approximate CCTP forwarder acceleration fee on testnet (0.055 USDC) */
   CCTP_RELAYER_FORWARDING_FEE_USDC: 0.055,

@@ -94,9 +94,26 @@ export interface PoolConfig {
   exchangeRate?: number
   feeTierPercent?: number
   reserves?: { tokenA: number; tokenB: number; ratioA: number; ratioB: number }
+  /** Live on-chain LP total supply (formatted, 18 decimals) — required for honest LP/share previews. */
+  totalLp?: string
   impermanentLossRisk?: 'Zero (Stable)' | 'Low' | 'Medium'
   isFaucetToken?: boolean
   faucetTokenAddress?: `0x${string}`
+  paused?: boolean
+  deployedAtBlock?: number
+}
+
+// `import.meta.env` only exists inside the Vite bundle; the API server loads these same
+// modules through tsx, where it is undefined. Read process.env first and guard the Vite
+// access, the same way src/config/networks/networkRegistry.ts does.
+function readEnv(key: string): string | undefined {
+  const fromProcess = typeof process !== 'undefined' && process.env ? process.env[key] : undefined
+  if (fromProcess) return fromProcess
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    const fromVite = (import.meta.env as Record<string, string | undefined>)[key]
+    if (fromVite) return fromVite
+  }
+  return undefined
 }
 
 // ── Deployed Contract Addresses (Arc Testnet — V3, mainnet-bound) ─────────────
@@ -104,45 +121,104 @@ export interface PoolConfig {
 // A*2 — see contracts/test/StableMathComparison.t.sol). These addresses were produced
 // by `forge script script/DeployV3.s.sol --rpc-url arc_testnet --broadcast --verify`
 // and verified on ArcScan testnet.
+export const POOL_CONTRACTS_V3 = {
+  // Deployed 2026-09-11 — hardened V3.2 set (24h rolling volume counters, totalYieldDistributed)
+  // Owner: 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772
+  STABLE_SWAP_POOL: '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22' as `0x${string}`, // StableSwapPoolV3
+  CONSTANT_PRODUCT_POOL: '0xF3742bDF819211dd1dcBbF577F031Bb743318903' as `0x${string}`, // ConstantProductPoolV3
+  YIELD_VAULT: '0x5e618f7f6591868827da40f73f869e3dE8F387CD' as `0x${string}`, // YieldVaultV3
+  ARCIS_SWAP_ROUTER: '0x22733d5C4C91C7BEF2BED43e3f3F42B2d91DfcD4' as `0x${string}`, // ArcisSwapRouter
+}
+
+// ── V4 (on-chain per-user fee accounting + real harvest) Deploy Targets ────────
+// V4 moves user balances on-chain: `pendingFees(lp)` / `pendingYield(user)` are read directly
+// from the pool and `harvest()` pays the caller's own accrued fees without any localStorage
+// checkpoint. Addresses are supplied at build time from the DeployV4 broadcast output:
+//   VITE_POOL_V4_STABLE_SWAP, VITE_POOL_V4_CONSTANT_PRODUCT, VITE_POOL_V4_YIELD_VAULT
+// The router is unchanged (it forwards to the pool's identical `swap` selector).
+// Live Arc Testnet deployment:
+//   StableSwapPoolV4      0xC3EdDA15AdfaC31ADfC23aC86dC96d791f72bE8a (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0x034b30049d339d6f802587d8009795432bcfb2a8f256c275798567f0124a4277)
+//   ConstantProductPoolV4 0xf0e5f1d5C36a8362D96A8a43a441c6bb29416349 (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0x767fa57654600fed2c856efab150ede91343c8ef3834e15eead3ca1cc1bcbae4)
+//   YieldVaultV4          0x7b5590c39e7671E2781C8bc82cB02C3c62B3b153
+const V4_ZERO = '0x0000000000000000000000000000000000000000' as `0x${string}`
+const v4Address = (value: string | undefined): `0x${string}` =>
+  value && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as `0x${string}`) : V4_ZERO
+
+export const POOL_CONTRACTS_V4 = {
+  STABLE_SWAP_POOL: v4Address(readEnv('VITE_POOL_V4_STABLE_SWAP')),
+  CONSTANT_PRODUCT_POOL: v4Address(readEnv('VITE_POOL_V4_CONSTANT_PRODUCT')),
+  YIELD_VAULT: v4Address(readEnv('VITE_POOL_V4_YIELD_VAULT')),
+  ARCIS_SWAP_ROUTER: POOL_CONTRACTS_V3.ARCIS_SWAP_ROUTER,
+}
+
+// V4 is only activated when explicitly requested AND every pool address was provided, so a
+// half-configured deployment can never silently point at zero addresses.
+const v4FullyConfigured =
+  POOL_CONTRACTS_V4.STABLE_SWAP_POOL !== V4_ZERO &&
+  POOL_CONTRACTS_V4.CONSTANT_PRODUCT_POOL !== V4_ZERO &&
+  POOL_CONTRACTS_V4.YIELD_VAULT !== V4_ZERO
+
+// ── Pool Version & Slippage Helpers ────────────────────────────────────────
+const poolVersionEnv = readEnv('VITE_POOL_VERSION') || 'v4'
+const poolVersionV2Env = readEnv('VITE_POOL_V2') || 'false'
+
+/** V4 is active: contracts expose `harvest()` / `pendingFees` and no checkpoint is used. */
+export const POOL_VERSION_V4: boolean = poolVersionEnv === 'v4' && v4FullyConfigured
+export const POOL_VERSION_V3: boolean = !POOL_VERSION_V4 && poolVersionEnv !== 'v2'
+export const POOL_VERSION_V2: boolean = poolVersionV2Env === 'true'
+
+// ERC-4626 vault share decimals. YieldVaultV4 hardens share/asset conversions with virtual
+// shares (`_decimalsOffset() = 3` → share decimals = asset decimals + 3 = 9); the V3 fallback
+// shares match the 6-decimal asset. Readers should trust the on-chain `decimals()` and use
+// this constant only as the fallback.
+export const VAULT_SHARE_DECIMALS = POOL_VERSION_V4 ? 9 : 6
+
+// ── Active contract set ───────────────────────────────────────────────────────
+// Single source of truth consumed everywhere: V4 when configured, otherwise the live V3 set.
 export const POOL_CONTRACTS = {
+  ...(POOL_VERSION_V4 ? POOL_CONTRACTS_V4 : POOL_CONTRACTS_V3),
   USDC: ARC_TOKENS.USDC,
   EURC: ARC_TOKENS.EURC,
   cirBTC: ARC_TOKENS.cirBTC,
-  // Deployed 2026-09-11 — hardened V3.2 set (24h rolling volume counters, totalYieldDistributed)
-  // Owner: 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772
-  STABLE_SWAP_POOL: '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22' as const, // StableSwapPoolV3
-  CONSTANT_PRODUCT_POOL: '0xF3742bDF819211dd1dcBbF577F031Bb743318903' as const, // ConstantProductPoolV3
-  YIELD_VAULT: '0x5e618f7f6591868827da40f73f869e3dE8F387CD' as const, // YieldVaultV3
-  ARCIS_SWAP_ROUTER: '0x22733d5C4C91C7BEF2BED43e3f3F42B2d91DfcD4' as const, // ArcisSwapRouter (Single-tx atomic swap + fee)
 }
 
-// ── V3 (verified testnet) Deploy Targets ───────────────────────────────────────
-// Same addresses as POOL_CONTRACTS; kept for mainnet migration. When deploying to
-// Arc Mainnet, re-run contracts/script/DeployV3.s.sol --rpc-url arc_mainnet and
-// update these to the mainnet addresses, then repoint POOL_CONTRACTS here.
-export const POOL_CONTRACTS_V3 = {
-  STABLE_SWAP_POOL: POOL_CONTRACTS.STABLE_SWAP_POOL as `0x${string}`,
-  CONSTANT_PRODUCT_POOL: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL as `0x${string}`,
-  YIELD_VAULT: POOL_CONTRACTS.YIELD_VAULT as `0x${string}`,
-  ARCIS_SWAP_ROUTER: POOL_CONTRACTS.ARCIS_SWAP_ROUTER as `0x${string}`,
-}
+export const POOL_USDC = ARC_TOKENS.USDC
+export const POOL_EURC = ARC_TOKENS.EURC
+export const POOL_CIRBTC = ARC_TOKENS.cirBTC
 
-// ── Pool Version & Slippage Helpers ───────────────────────────────────────────
-// LIVE contracts are now V3 (mainnet-bound) on Arc Testnet.
-// `import.meta.env` only exists inside the Vite bundle; the API server loads these same
-// modules through tsx, where it is undefined. Read process.env first and guard the Vite
-// access, the same way src/config/networks/networkRegistry.ts does.
-const poolVersionEnv =
-  (typeof process !== 'undefined' && process.env && process.env.VITE_POOL_VERSION) ||
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_POOL_VERSION) ||
-  'v3'
-const poolVersionV2Env =
-  (typeof process !== 'undefined' && process.env && process.env.VITE_POOL_V2) ||
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_POOL_V2) ||
-  'false'
+// ── AMM pool-state read plan (index order is part of the contract with usePoolsData) ──────────
+// V3 exposes owner-collected `accumulatedFeeA/B`; V4 removed them so LP fees sit in `feeReserveA/B`
+// outside the curve and stream to holders through `harvest()`. Reading the wrong pair on the active
+// version makes the multicall sub-call revert, which degrades silently to a 0 balance — so the reader
+// asks for exactly the pair the deployed version implements.
+export const AMM_POOL_STATE_READ_FNS_V3 = [
+  'reserveA',
+  'reserveB',
+  'totalLp',
+  'unclaimedFeeA',
+  'unclaimedFeeB',
+  'accumulatedFeeA',
+  'accumulatedFeeB',
+  'swapFeeBps',
+  'volume24hA',
+  'volume24hB',
+] as const
 
-export const POOL_VERSION_V3: boolean = poolVersionEnv === 'v3'
-export const POOL_VERSION_V2: boolean = poolVersionV2Env === 'true'
+export const AMM_POOL_STATE_READ_FNS_V4 = [
+  'reserveA',
+  'reserveB',
+  'totalLp',
+  'unclaimedFeeA',
+  'unclaimedFeeB',
+  'feeReserveA',
+  'feeReserveB',
+  'swapFeeBps',
+  'volume24hA',
+  'volume24hB',
+] as const
+
+/** Read plan for the active AMM version — consumed by `fetchOnchainPoolState`. */
+export const AMM_POOL_STATE_READ_FNS = POOL_VERSION_V4 ? AMM_POOL_STATE_READ_FNS_V4 : AMM_POOL_STATE_READ_FNS_V3
 
 // Default AMM LP operation slippage tolerance (0.5%).
 export const POOL_DEFAULT_SLIPPAGE_BPS = 50
@@ -165,10 +241,19 @@ export const STABLE_SWAP_LP_FEE_BPS = 12n
 /** USDC/cirBTC Constant-Product LP fee: 25 bps (0.25%). */
 export const CONSTANT_PRODUCT_LP_FEE_BPS = 25n
 
-// Converts a percent tolerance (e.g. 0.5) to bps, clamped to [10, 1000].
+// O3: slippage is clamped to a safe band so a fat-fingered or oversized tolerance can never
+// silently widen the min-out guard. The upper bound was 10% (1000 bps); it is now 2% (200 bps).
+export const POOL_MIN_SLIPPAGE_BPS = 10
+export const POOL_MAX_SLIPPAGE_BPS = 200
+
+// Converts a percent tolerance (e.g. 0.5) to bps, clamped to
+// [POOL_MIN_SLIPPAGE_BPS, POOL_MAX_SLIPPAGE_BPS]. Single source of truth for every pool path.
 export function poolSlippageBps(tolerancePercent: number): number {
   if (!Number.isFinite(tolerancePercent) || tolerancePercent <= 0) return POOL_DEFAULT_SLIPPAGE_BPS
-  return Math.max(10, Math.min(1000, Math.round(tolerancePercent * 100)))
+  return Math.max(
+    POOL_MIN_SLIPPAGE_BPS,
+    Math.min(POOL_MAX_SLIPPAGE_BPS, Math.round(tolerancePercent * 100))
+  )
 }
 
 // minOut = expectedOut * (10000 - slipBps) / 10000 — mirrors zapIn guard.
@@ -182,99 +267,133 @@ export function poolMinLpShares(expectedShares: bigint, slipBps: number): bigint
   return poolMinOut(expectedShares, slipBps)
 }
 
-// Canonical Gateway Constants (O2)
-export const GATEWAY_BASE_LIQUIDITY = 3_145_000
-export const GATEWAY_ROUTING_APY = 7.25
+// Canonical Gateway Constants — deprecated mock values neutralized to 0; all metrics are read live on-chain
+/** @deprecated All liquidity metrics are live on-chain; synthetic base liquidity is disabled */
+export const GATEWAY_BASE_LIQUIDITY = 0
+/** @deprecated All APY metrics are live on-chain; synthetic routing APY is disabled */
+export const GATEWAY_ROUTING_APY = 0
 
 // ── Master Pools Directory ───────────────────────────────────────────────────
 export const ARCIS_POOLS: PoolConfig[] = [
   {
     id: 'usdc-eurc-stable-pool',
-    name: 'USDC / EURC Stable Pool',
-    subtitle: 'Earn FX swap fees from USD–EUR conversions with near-zero loss.',
-    description: 'Provide liquidity for foreign exchange swaps between Circle USDC and EURC on Arc.',
+    name: 'USDC / EURC',
+    subtitle: 'Curve-style ultra-low slippage pool for Circle native stablecoins.',
+    description: 'Stableswap AMM pool (A=100) optimized for frictionless, near-zero slippage swaps between native USDC and EURC with 0.12% fee tier.',
     category: 'liquidity',
     tokens: [
       { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
       { symbol: 'EURC', name: 'Euro Coin', address: POOL_CONTRACTS.EURC, iconType: 'eurc', decimals: 6 },
     ],
-    apy: 6.15, apyType: 'APY', apyBadge: '6.15% Variable FX APY (Est.)',
-    tvlUsd: 0, volume24hUsd: 0.00, lockPeriod: 'No Lock',
-    riskLevel: 'Safe', feeShare: '0.12% Swap Fee to LPs',
+    apy: 6.15,
+    apyType: 'APR',
+    apyBadge: '6.15% APR • Dynamic Real Yield',
+    tvlUsd: 0,
+    volume24hUsd: 0,
+    lockPeriod: 'No Lock',
+    riskLevel: 'Safe',
+    feeShare: '0.12% Swap Fee to LPs',
     contractAddress: POOL_CONTRACTS.STABLE_SWAP_POOL,
-    depositTokenSymbol: 'USDC + EURC', rewardTokenSymbol: 'LP Fees (USDC/EURC)',
-    isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    yieldOrigin: 'FX Swap Fees (Direct Reserve Accrual)',
-    yieldOriginDetails: 'A 0.12% fee from users exchanging between USDC and EURC is added directly to pool reserves on every swap, increasing LP share value.',
-    gasBenefitNote: 'Gas fees on Arc are paid in USDC — no ETH needed.',
+    depositTokenSymbol: 'USDC + EURC',
+    rewardTokenSymbol: 'LP Share Growth (USDC / EURC)',
+    isFeatured: true,
+    isLiveOnChain: true,
+    executionMode: 'onchain_verified',
+    yieldOrigin: 'Foreign Exchange Swap Volume (0.12% Fee)',
+    yieldOriginDetails: 'Every swap between native USDC and EURC contributes a 0.12% fee directly to pool reserves, naturally appreciating LP token value without impermanent loss.',
+    gasBenefitNote: 'Gas fees on Arc are paid in USDC — zero ETH needed for gas.',
     howItWorksSteps: [
-      { step: 1, title: 'Provide Liquidity', desc: 'Deposit USDC + EURC (or single-token USDC via Zap).' },
-      { step: 2, title: 'Receive LP Token', desc: 'Get af-USDC-EURC representing your pool share.' },
-      { step: 3, title: 'Accumulate FX Fees', desc: 'Swap fees compound directly into pool reserves.' },
-      { step: 4, title: 'Realize Upon Exit', desc: 'Burn LP tokens to withdraw principal + accumulated fee share.' },
+      { step: 1, title: 'Deposit Stablecoins', desc: 'Deposit USDC, EURC, or both with 1-Click Zap.' },
+      { step: 2, title: 'Receive afUSDC-EURC', desc: 'Receive LP tokens representing your proportional pool ownership.' },
+      { step: 3, title: 'Earn Trading Fees', desc: 'Earn 0.12% on all swaps between USDC and EURC on Arc.' },
+      { step: 4, title: 'Withdraw Anytime', desc: 'Exit anytime to reclaim principal and accumulated swap earnings.' },
     ],
-    tags: ['StableSwap', 'FX Market', 'Zero IL', 'Single Asset'],
-    isLpPool: true, lpTokenName: 'Arcis USDC-EURC LP', lpTokenSymbol: 'af-USDC-EURC',
-    supportsZap: true, feeTierPercent: 0.12,
+    tags: ['StableSwap', 'Circle Native', 'Zero IL', 'Dual Stable'],
+    isLpPool: true,
+    lpTokenName: 'Arcis USDC-EURC LP',
+    lpTokenSymbol: 'afUSDC-EURC',
+    supportsZap: true,
+    feeTierPercent: 0.12,
     reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Zero (Stable)',
+    paused: false,
   },
   {
     id: 'usdc-cirbtc-pool',
-    name: 'USDC / cirBTC Liquidity Pool',
-    subtitle: 'Provide liquidity for Circle Wrapped Bitcoin on Arc Testnet.',
-    description: 'AMM pool for swaps between native USDC and Circle Wrapped Bitcoin (cirBTC) using constant-product pricing.',
+    name: 'USDC / cirBTC',
+    subtitle: 'Constant Product (x·y=k) liquidity pool for Circle Wrapped Bitcoin on Arc.',
+    description: 'Constant product AMM pool with 0.25% swap fee tier and pro-rata real fee streaming to LPs in USDC and cirBTC.',
     category: 'liquidity',
     tokens: [
       { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
       { symbol: 'cirBTC', name: 'Circle Wrapped Bitcoin', address: POOL_CONTRACTS.cirBTC, iconType: 'btc', decimals: 8 },
     ],
-    apy: 12.8, apyType: 'APY', apyBadge: '12.80% Dynamic Fee APY (Est.)',
-    tvlUsd: 0, volume24hUsd: 0.00, lockPeriod: 'No Lock',
-    riskLevel: 'Medium', feeShare: '0.25% Swap Fee to LPs',
+    apy: 12.8,
+    apyType: 'APR',
+    apyBadge: '12.80% APR • Dynamic Real Yield',
+    tvlUsd: 0,
+    volume24hUsd: 0,
+    lockPeriod: 'No Lock',
+    riskLevel: 'Medium',
+    feeShare: '0.25% Swap Fee to LPs',
     contractAddress: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
-    depositTokenSymbol: 'USDC + cirBTC', rewardTokenSymbol: 'LP Fees (USDC/cirBTC)',
-    isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    yieldOrigin: 'Swap Volume Fees (0.25% Direct Accrual)',
-    yieldOriginDetails: 'A 0.25% fee from traders swapping between USDC and cirBTC accrues inside the constant-product reserves.',
-    gasBenefitNote: 'Gas fees on Arc are paid in USDC — zero ETH or BTC needed for gas.',
+    depositTokenSymbol: 'USDC + cirBTC',
+    rewardTokenSymbol: 'LP Share Growth (USDC / cirBTC)',
+    isFeatured: true,
+    isLiveOnChain: true,
+    executionMode: 'onchain_verified',
+    yieldOrigin: 'Bitcoin Swap Volume (0.25% Fee)',
+    yieldOriginDetails: 'Every swap between USDC and cirBTC contributes a 0.25% fee directly to fee reserves, allowing LPs to harvest pure USDC and cirBTC yield.',
+    gasBenefitNote: 'Gas fees on Arc are paid in USDC — zero ETH needed for gas.',
     howItWorksSteps: [
-      { step: 1, title: 'Provide Liquidity', desc: 'Deposit USDC + cirBTC (or single-token USDC via Zap).' },
-      { step: 2, title: 'Receive LP Token', desc: 'Get af-USDC-cirBTC representing your pool share.' },
-      { step: 3, title: 'Earn Trading Fees', desc: 'Trading fees automatically grow the reserve ratio.' },
-      { step: 4, title: 'Flexible Withdraw', desc: 'Redeem LP tokens anytime to claim principal + fee growth.' },
+      { step: 1, title: 'Deposit Tokens', desc: 'Deposit USDC + cirBTC proportionally with 1-Click Zap.' },
+      { step: 2, title: 'Receive afUSDC-cirBTC', desc: 'Receive standardized 18-decimal LP tokens representing your pool share.' },
+      { step: 3, title: 'Earn Trading Fees', desc: 'Accumulate 0.25% fee on all swaps between USDC and cirBTC.' },
+      { step: 4, title: 'Harvest Anytime', desc: 'Harvest real USDC and cirBTC swap fees anytime without burning LP tokens.' },
     ],
-    tags: ['ConstantProduct', 'Bitcoin', 'Dual AMM', 'Single Asset'],
-    isLpPool: true, lpTokenName: 'Arcis USDC-cirBTC LP', lpTokenSymbol: 'af-USDC-cirBTC',
-    supportsZap: true, feeTierPercent: 0.25,
+    tags: ['Constant Product', 'Bitcoin', 'Circle Wrapped BTC', 'Real Yield'],
+    isLpPool: true,
+    lpTokenName: 'Arcis USDC-cirBTC LP',
+    lpTokenSymbol: 'af-USDC-cirBTC',
+    supportsZap: true,
+    feeTierPercent: 0.25,
     reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
     impermanentLossRisk: 'Medium',
+    paused: false,
   },
   {
     id: 'usdc-yield-vault',
     name: 'USDC Yield Vault',
-    subtitle: 'Deposit USDC, earn real USDC yield via ERC-4626 share appreciation.',
-    description: 'A single-asset ERC-4626 vault. Deposited USDC receives shares that appreciate as protocol fees are distributed.',
+    subtitle: 'Deposit USDC, earn real USDC yield — no lockup, no inflation.',
+    description: 'A single-asset ERC-4626 vault. Deposit USDC and receive vault shares that appreciate as protocol revenue accumulates.',
     category: 'vault',
     tokens: [
       { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
     ],
-    apy: 8.42, apyType: 'APY', apyBadge: '8.42% Vault Yield (Est.)',
-    tvlUsd: 0, volume24hUsd: 0.00, lockPeriod: 'Flexible (Unstake Anytime)',
-    riskLevel: 'Low', feeShare: '90% Protocol Revenue Share',
+    apy: 8.42,
+    apyType: 'APR',
+    apyBadge: '8.42% APR • Real Yield (USDC)',
+    tvlUsd: 0,
+    volume24hUsd: 0,
+    lockPeriod: 'Flexible (Unstake Anytime)',
+    riskLevel: 'Low',
+    feeShare: '90% Protocol Revenue Share',
     contractAddress: POOL_CONTRACTS.YIELD_VAULT,
-    depositTokenSymbol: 'USDC', rewardTokenSymbol: 'USDC',
-    isFeatured: true, isLiveOnChain: true, executionMode: 'onchain_verified',
-    yieldOrigin: 'Arcis Protocol Revenue Share (ERC-4626)',
-    yieldOriginDetails: '90% of protocol fees from Send, Swap, and Bridge transactions are distributed into the vault, raising totalAssets and share price.',
-    gasBenefitNote: 'Zero token inflation. Rewards are paid in 100% real USDC cash upon redeeming shares.',
+    depositTokenSymbol: 'USDC',
+    rewardTokenSymbol: 'USDC',
+    isFeatured: true,
+    isLiveOnChain: true,
+    executionMode: 'onchain_verified',
+    yieldOrigin: 'Arcis Protocol Revenue Share',
+    yieldOriginDetails: '90% of protocol fees from Send, Swap, and Bridge transactions are distributed to vault depositors.',
+    gasBenefitNote: 'Zero token inflation. Rewards are paid in 100% real USDC cash.',
     howItWorksSteps: [
-      { step: 1, title: 'Deposit USDC', desc: 'Deposit USDC into the ERC-4626 yield vault.' },
-      { step: 2, title: 'Share Appreciation', desc: 'Protocol revenue increases totalAssets, driving up each share value.' },
-      { step: 3, title: 'Auto-Compounding', desc: 'Yield compounds automatically without manual claiming or harvest gas.' },
-      { step: 4, title: 'Redeem for USDC', desc: 'Redeem your shares anytime to withdraw principal + accumulated USDC yield.' },
+      { step: 1, title: 'Deposit USDC', desc: 'Deposit USDC into the single-asset revenue vault.' },
+      { step: 2, title: 'Track Volume', desc: 'Protocol trading fees accumulate in real time.' },
+      { step: 3, title: 'Harvest in USDC', desc: 'Harvest accrued USDC rewards directly to your wallet.' },
+      { step: 4, title: 'Flexible Exit', desc: 'Redeem vault shares anytime with zero penalty.' },
     ],
-    tags: ['ERC-4626', 'Real Yield', 'Revenue Share', 'USDC Payout'],
+    tags: ['ERC-4626', 'Single Asset', 'Real Yield', 'Zero IL'],
     supportsZap: true,
   },
 ]
@@ -300,6 +419,20 @@ export const STABLE_SWAP_ABI = [
   { type: 'function', name: 'totalLp', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'unclaimedFeeA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'unclaimedFeeB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  // V4 on-chain per-LP fee accounting — replaces every client-side checkpoint.
+  { type: 'function', name: 'pendingFees', stateMutability: 'view', inputs: [{ name: 'lp', type: 'address' }], outputs: [{ name: 'feeA', type: 'uint256' }, { name: 'feeB', type: 'uint256' }] },
+  { type: 'function', name: 'harvest', stateMutability: 'nonpayable', inputs: [], outputs: [{ name: 'feeA', type: 'uint256' }, { name: 'feeB', type: 'uint256' }] },
+  { type: 'function', name: 'feeReserveA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'feeReserveB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  {
+    type: 'event',
+    name: 'FeesHarvested',
+    inputs: [
+      { name: 'lp', type: 'address', indexed: true },
+      { name: 'feeA', type: 'uint256', indexed: false },
+      { name: 'feeB', type: 'uint256', indexed: false },
+    ],
+  },
   { type: 'function', name: 'accumulatedFeeA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'accumulatedFeeB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'swapFeeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
@@ -313,6 +446,11 @@ export const STABLE_SWAP_ABI = [
   { type: 'function', name: 'e24hWindowStart', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'volume24hA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'volume24hB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'getVirtualPrice', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'VERSION', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'lpFeeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'protocolFeeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'totalFeeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   // Events for transaction receipt decoding (K1, K2)
   {
     type: 'event',
@@ -345,6 +483,7 @@ export const STABLE_SWAP_ABI = [
     ],
   },
 ] as const
+
 // Note: CONSTANT_PRODUCT_ABI intentionally aliases STABLE_SWAP_ABI.
 // On Arc Testnet, both Constant-Product and Curve-style pools share the identical
 // external interface (swap, addLiquidity, removeLiquidity, reserveA, reserveB, totalLp).
@@ -356,6 +495,24 @@ export const YIELD_VAULT_ABI = [
   { type: 'function', name: 'redeem', stateMutability: 'nonpayable', inputs: [{ name: 'shares', type: 'uint256' }, { name: 'receiver', type: 'address' }, { name: 'owner', type: 'address' }], outputs: [{ name: 'assets', type: 'uint256' }] },
   { type: 'function', name: 'previewDeposit', stateMutability: 'view', inputs: [{ name: 'assets', type: 'uint256' }], outputs: [{ name: 'shares', type: 'uint256' }] },
   { type: 'function', name: 'previewRedeem', stateMutability: 'view', inputs: [{ name: 'shares', type: 'uint256' }], outputs: [{ name: 'assets', type: 'uint256' }] },
+  { type: 'function', name: 'previewWithdraw', stateMutability: 'view', inputs: [{ name: 'shares', type: 'uint256' }], outputs: [{ name: 'assets', type: 'uint256' }] },
+  // H4: guarded entrypoints — deposits carry a min-shares guard and exits a min-assets guard
+  // so a share-price manipulation between quote and execution reverts instead of underpaying.
+  { type: 'function', name: 'depositWithMinShares', stateMutability: 'nonpayable', inputs: [{ name: 'assets', type: 'uint256' }, { name: 'receiver', type: 'address' }, { name: 'minShares', type: 'uint256' }], outputs: [{ name: 'shares', type: 'uint256' }] },
+  { type: 'function', name: 'redeemWithMinAssets', stateMutability: 'nonpayable', inputs: [{ name: 'shares', type: 'uint256' }, { name: 'receiver', type: 'address' }, { name: 'owner_', type: 'address' }, { name: 'minAssets', type: 'uint256' }], outputs: [{ name: 'assets', type: 'uint256' }] },
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  // V4 on-chain cost basis + real harvest (no localStorage checkpoint).
+  { type: 'function', name: 'pendingYield', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'principalAssets', stateMutability: 'view', inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'harvest', stateMutability: 'nonpayable', inputs: [], outputs: [{ name: 'amount', type: 'uint256' }] },
+  {
+    type: 'event',
+    name: 'YieldHarvested',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
   { type: 'function', name: 'totalAssets', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'totalSupply', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
@@ -399,6 +556,22 @@ export const ARCIS_SWAP_ROUTER_ABI = [
     outputs: [{ name: 'amountOut', type: 'uint256' }],
   },
   {
+    type: 'function',
+    name: 'zapIn',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'pool', type: 'address' },
+      { name: 'tokenIn', type: 'address' },
+      { name: 'tokenOther', type: 'address' },
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'swapRatioBps', type: 'uint256' },
+      { name: 'minSwapOut', type: 'uint256' },
+      { name: 'minLpOut', type: 'uint256' },
+      { name: 'to', type: 'address' },
+    ],
+    outputs: [{ name: 'lpShares', type: 'uint256' }],
+  },
+  {
     type: 'event',
     name: 'SwapWithFee',
     inputs: [
@@ -412,4 +585,17 @@ export const ARCIS_SWAP_ROUTER_ABI = [
       { name: 'treasury', type: 'address', indexed: false },
     ],
   },
-] as const
+  {
+    type: 'event',
+    name: 'ZapIn',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'pool', type: 'address', indexed: true },
+      { name: 'tokenIn', type: 'address', indexed: false },
+      { name: 'amountIn', type: 'uint256', indexed: false },
+      { name: 'swappedIn', type: 'uint256', indexed: false },
+      { name: 'swappedOut', type: 'uint256', indexed: false },
+      { name: 'lpShares', type: 'uint256', indexed: false },
+    ],
+  },
+] as const

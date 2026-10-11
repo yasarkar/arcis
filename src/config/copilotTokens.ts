@@ -7,6 +7,8 @@
 //   2. treat a plain BTC/WBTC request as UNSUPPORTED and answer with guidance, never by silently
 //      routing to a different asset (which would move the user's USDC while claiming WBTC).
 
+import { numberToExactDecimal } from '../utils/copilotAmount'
+
 /** Tokens the copilot can send or swap on Arc Testnet, in their canonical display casing. */
 export const COPILOT_SUPPORTED_TOKENS = ['USDC', 'EURC', 'WETH', 'cirBTC', 'af-USDC'] as const
 
@@ -47,7 +49,7 @@ export function isZeroAddress(value?: string | null): boolean {
 export interface SendAmountValidation {
   ok: boolean
   error?: string
-  /** Amount rounded to the token's supported precision, present only when ok. */
+  /** Exact amount within the token's supported precision, present only when ok. */
   normalized?: number
 }
 
@@ -60,15 +62,23 @@ export function validateSendAmount(amount: unknown, tokenSymbol: string): SendAm
   const n = typeof amount === 'number' ? amount : Number(amount)
   if (!Number.isFinite(n)) return { ok: false, error: 'Please provide a numeric transfer amount.' }
   if (n <= 0) return { ok: false, error: 'Transfer amount must be greater than zero.' }
+  if (Number.isInteger(n) && !Number.isSafeInteger(n)) {
+    return { ok: false, error: 'Transfer amount cannot be represented exactly by the transaction interface.' }
+  }
 
   const decimals = COPILOT_SEND_DECIMALS[tokenSymbol]
   if (decimals !== undefined) {
-    const scaled = n * 10 ** decimals
-    // Reject amounts that would round to zero, or that carry more precision than the token supports.
-    if (Math.abs(scaled - Math.round(scaled)) > 1e-6) {
+    const decimal = numberToExactDecimal(n)!
+    const [whole, fraction = ''] = decimal.split('.')
+    // Exact digit validation: float multiplication/tolerances can accept amounts below one unit.
+    if (fraction.length > decimals) {
       return { ok: false, error: `Amount is more precise than ${tokenSymbol} supports (max ${decimals} decimals).` }
     }
-    return { ok: true, normalized: Number(n.toFixed(decimals)) }
+    const units = BigInt(whole + fraction.padEnd(decimals, '0'))
+    if (units <= 0n || units > (1n << 256n) - 1n) {
+      return { ok: false, error: 'Transfer amount is outside the token atomic-unit range.' }
+    }
+    return { ok: true, normalized: n }
   }
 
   return { ok: true, normalized: n }

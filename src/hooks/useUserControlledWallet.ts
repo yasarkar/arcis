@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSocialProviderInfo } from '../config/socialAuthConfig';
 import { normalizeCircleBlockchain } from '../utils/circleBlockchain';
+import { isRealTxHash } from '../utils/ucwTxHash';
 
 export interface UcwWalletInfo {
   id: string;
@@ -833,7 +834,7 @@ export function useUserControlledWallet() {
       walletId?: string,
       blockchain?: string
     ): Promise<string | undefined> => {
-      const maxAttempts = 15;
+      const maxAttempts = 20;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         await new Promise((r) => setTimeout(r, 1800));
         try {
@@ -876,7 +877,14 @@ export function useUserControlledWallet() {
       amount?: string;
       blockchain?: string;
       walletId?: string;
-    }): Promise<{ success: boolean; txHash?: string; error?: string }> => {
+    }): Promise<{
+      success: boolean;
+      txHash?: string;
+      /** The challenge executed, but Circle has not published the broadcast hash yet. */
+      hashPending?: boolean;
+      challengeId?: string;
+      error?: string;
+    }> => {
       try {
         const uToken =
           userToken ||
@@ -959,12 +967,23 @@ export function useUserControlledWallet() {
           });
         });
 
-        // Poll for broadcasted on-chain transaction hash
+        // Poll for the broadcasted on-chain transaction hash.
         const txHash = await pollForTxHash(uToken, data.challengeId, data.walletId, targetBlockchain);
+
+        // Never hand callers a placeholder. `pending_<challengeId>` is not a transaction, and returning
+        // it as `txHash` let callers report success with nothing verifiable on chain. Report the real
+        // hash when Circle published one, otherwise surface the pending state explicitly.
+        if (!isRealTxHash(txHash)) {
+          return {
+            success: true,
+            hashPending: true,
+            challengeId: data.challengeId,
+          };
+        }
 
         return {
           success: true,
-          txHash: txHash || `pending_${data.challengeId}`,
+          txHash,
         };
       } catch (err: any) {
         console.error('[Circle UCW] executeContractCall error:', err);
@@ -1097,7 +1116,14 @@ export function useUserControlledWallet() {
       blockchain?: string;
       feeLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
       walletId?: string;
-    }): Promise<{ success: boolean; txHash?: string; error?: string }> => {
+    }): Promise<{
+      success: boolean;
+      txHash?: string;
+      /** The challenge executed, but Circle has not published the broadcast hash yet. */
+      hashPending?: boolean;
+      challengeId?: string;
+      error?: string;
+    }> => {
       try {
         const uToken =
           userToken ||
@@ -1178,12 +1204,22 @@ export function useUserControlledWallet() {
           });
         });
 
-        // Poll for on-chain txHash
+        // Poll for the broadcasted on-chain transaction hash.
         const txHash = await pollForTxHash(uToken, data.challengeId, data.walletId, targetBlockchain);
+
+        // Same rule as executeContractCall: never hand callers a fabricated `pending_<challengeId>`
+        // hash. The send UI rendered it as a real explorer link and a "success" receipt.
+        if (!isRealTxHash(txHash)) {
+          return {
+            success: true,
+            hashPending: true,
+            challengeId: data.challengeId,
+          };
+        }
 
         return {
           success: true,
-          txHash: txHash || `pending_${data.challengeId}`,
+          txHash,
         };
       } catch (err: any) {
         console.error('[Circle UCW] executeTransfer error:', err);

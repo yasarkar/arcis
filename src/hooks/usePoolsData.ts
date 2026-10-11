@@ -1,54 +1,61 @@
 // Arcis Pools & Yield — Real on-chain testnet data hook (Phase 5 rewrite).
 // Reads real reserves / vault state from Arc Testnet contracts and submits
 // real transactions via the connected wallet provider.
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  decodeEventLog,
+  encodeFunctionData,
   erc20Abi,
   formatUnits,
   parseUnits,
   zeroAddress,
-  encodeFunctionData,
-  decodeEventLog,
-  type Hex,
   type Address,
-  type WalletClient,
+  type Hex,
   type TransactionReceipt,
+  type WalletClient,
 } from 'viem'
 import { arcTestnet } from '../config/arcChain'
-import { getArcPublicClient, resilientReadContract, resilientMulticall, resilientWaitForReceipt, resilientWriteContract } from '../services/rpc'
 import {
+  AMM_POOL_STATE_READ_FNS,
   ARCIS_POOLS,
-  POOL_CONTRACTS,
-  STABLE_SWAP_ABI,
   CONSTANT_PRODUCT_ABI,
-  YIELD_VAULT_ABI,
+  CONSTANT_PRODUCT_LP_FEE_BPS,
+  POOL_CONTRACTS,
+  POOL_DEFAULT_SLIPPAGE_BPS,
   POOL_VERSION_V2,
   POOL_VERSION_V3,
-  poolSlippageBps,
-  poolMinOut,
+  POOL_VERSION_V4,
   poolMinLpShares,
+  poolMinOut,
+  poolSlippageBps,
+  STABLE_SWAP_ABI,
   STABLE_SWAP_AMP,
   STABLE_SWAP_LP_FEE_BPS,
-  CONSTANT_PRODUCT_LP_FEE_BPS,
+  VAULT_SHARE_DECIMALS,
+  YIELD_VAULT_ABI,
   type PoolConfig,
 } from '../config/poolsConfig'
-import {
-  calculateStableSwapExpectedOut,
-  calculateConstantProductExpectedOut,
-  calculatePoolShare,
-  calculateVaultClaimShares,
-  calculateLpClaimAmount,
-  getStableSwapD,
-} from '../utils/poolMath'
-import { redisCache } from '../services/redisCacheService'
-import { getLiveTokenPrices, getCachedTokenPrice, isLivePriceAvailable } from '../services/tokenPriceService'
-import { useLiveTokenPrices } from './useLiveTokenPrices'
-import { recordClientSwapVolume, getRollingClientSwapVolume, startLiveVolumeSimulation } from '../utils/poolVolumeUtils'
-import { isUserCanceled } from '../utils/errorUtils'
 import { getActiveSmartAccount, sendModularUserOperation } from '../services/modularWalletService'
+import { redisCache } from '../services/redisCacheService'
+import { getArcPublicClient, resilientMulticall, resilientReadContract, resilientWaitForReceipt, resilientWriteContract } from '../services/rpc'
+import { getCachedTokenPrice, getLiveTokenPrices, isLivePriceAvailable } from '../services/tokenPriceService'
+import { isUserCanceled } from '../utils/errorUtils'
+import {
+  analyzeDualDepositBalance,
+  calculateConstantProductExpectedOut,
+  calculateLpClaimAmount,
+  calculatePoolShare,
+  calculateStableSwapExpectedOut,
+  DUAL_DEPOSIT_DONATION_BLOCK_PCT,
+  getStableSwapD
+} from '../utils/poolMath'
+import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
+import { resolveUcwTxHash, ucwHashPendingMessage } from '../utils/ucwTxHash'
+import { addTransaction } from '../utils/history'
+import { useLiveTokenPrices } from './useLiveTokenPrices'
 
-export { recordClientSwapVolume, getRollingClientSwapVolume, startLiveVolumeSimulation }
+export { recordClientSwapVolume }
 
 /**
  * Standardized APY badge formatter across all Arcis pools and vaults.
@@ -60,7 +67,7 @@ export function formatPoolApyBadge(
   typeLabel: string
 ): string {
   if (feeApy > 0) {
-    return `${totalApy.toFixed(2)}% APY (${baseApy.toFixed(2)}% Base + ${feeApy.toFixed(2)}% Fees)`
+    return `${totalApy.toFixed(2)}% APY (${baseApy.toFixed(2)}% Incentive Est. + ${feeApy.toFixed(2)}% Fees)`
   }
   return `${baseApy.toFixed(2)}% ${typeLabel} APY`
 }
@@ -78,6 +85,9 @@ export interface UserPoolPosition {
   tokenAStaked?: string
   tokenBStaked?: string
   earnedFeesUsd?: number
+  /** O4: true when the counter-token price is not oracle-verified, so the USD valuation is a
+   * static approximation and funds-affecting USD→LP mappings must refuse to act on it. */
+  priceUnavailable?: boolean
 }
 
 export interface PoolWithdrawResult {
@@ -101,13 +111,13 @@ export const safeStorage = {
         const val = window.localStorage.getItem(key)
         if (val !== null) return val
       }
-    } catch {}
+    } catch { }
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
         const val = window.sessionStorage.getItem(key)
         if (val !== null) return val
       }
-    } catch {}
+    } catch { }
     return memoryStorageFallback.get(key) ?? null
   },
   set: (key: string, val: string): void => {
@@ -117,13 +127,13 @@ export const safeStorage = {
         window.localStorage.setItem(key, val)
         persisted = true
       }
-    } catch {}
+    } catch { }
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
         window.sessionStorage.setItem(key, val)
         persisted = true
       }
-    } catch {}
+    } catch { }
     if (!persisted) {
       memoryStorageFallback.set(key, val)
     }
@@ -133,12 +143,12 @@ export const safeStorage = {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem(key)
       }
-    } catch {}
+    } catch { }
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
         window.sessionStorage.removeItem(key)
       }
-    } catch {}
+    } catch { }
     memoryStorageFallback.delete(key)
   },
   clearMemory: (): void => {
@@ -146,98 +156,67 @@ export const safeStorage = {
   },
 }
 
-// Staking timestamp tracking (RAM + persistent fallback so page reloads do not restore artificial 48h history)
-const memoryStakingTimestamps = new Map<string, number>()
-
-export function getPoolStakingTimestamp(userAddr: string, poolId: string): number {
-  if (!userAddr) return 0
-  const key = `${userAddr.toLowerCase()}:${poolId}`
-  const mem = memoryStakingTimestamps.get(key)
-  if (mem !== undefined) return mem
-  const stored = safeStorage.get(`arcis:pool:timestamp:${key}`)
-  if (stored) {
-    const parsed = Number(stored)
-    if (!isNaN(parsed) && parsed > 0) {
-      memoryStakingTimestamps.set(key, parsed)
-      return parsed
-    }
-  }
-  return 0
-}
-
-export function setPoolStakingTimestamp(userAddr: string, poolId: string, timestamp: number = Date.now()): void {
-  if (!userAddr) return
-  const key = `${userAddr.toLowerCase()}:${poolId}`
-  memoryStakingTimestamps.set(key, timestamp)
-  safeStorage.set(`arcis:pool:timestamp:${key}`, String(timestamp))
-}
-
-// Pool claim fee checkpoints
-// Tracks cumulative contract swap fees already claimed by the user, ensuring on-chain fee counters
-// don't cause duplicate claim displays after successful harvest.
-const memoryClaimFeeCheckpoints = new Map<string, number>()
-
-export function getPoolClaimFeeCheckpoint(userAddr: string, poolId: string): number {
-  if (!userAddr) return 0
-  const key = `${userAddr.toLowerCase()}:${poolId}`
-  const mem = memoryClaimFeeCheckpoints.get(key)
-  if (mem !== undefined) return mem
-  const stored = safeStorage.get(`arcis:pool:fee_checkpoint:${key}`)
-  if (stored) {
-    const parsed = Number(stored)
-    if (!isNaN(parsed)) {
-      memoryClaimFeeCheckpoints.set(key, parsed)
-      return parsed
-    }
-  }
-  return 0
-}
-
-export function setPoolClaimFeeCheckpoint(userAddr: string, poolId: string, checkpointUsd: number): void {
-  if (!userAddr) return
-  const key = `${userAddr.toLowerCase()}:${poolId}`
-  memoryClaimFeeCheckpoints.set(key, checkpointUsd)
-  safeStorage.set(`arcis:pool:fee_checkpoint:${key}`, String(checkpointUsd))
-}
-
-// Yield Vault Claim Checkpoints
-// Tracks cumulative share-appreciation profit claimed from the ERC-4626 vault
-const memoryYieldClaimCheckpoints = new Map<string, number>()
-
-export function getPoolYieldClaimCheckpoint(userAddr: string, poolId: string): number {
-  if (!userAddr) return 0
-  const key = `${userAddr.toLowerCase()}:${poolId}`
-  const mem = memoryYieldClaimCheckpoints.get(key)
-  if (mem !== undefined) return mem
-  const stored = safeStorage.get(`arcis:pool:vault_claimed:${key}`)
-  if (stored) {
-    const parsed = Number(stored)
-    if (!isNaN(parsed)) {
-      memoryYieldClaimCheckpoints.set(key, parsed)
-      return parsed
-    }
-  }
-  return 0
-}
-
-export function setPoolYieldClaimCheckpoint(userAddr: string, poolId: string, checkpointUsd: number): void {
-  if (!userAddr) return
-  const key = `${userAddr.toLowerCase()}:${poolId}`
-  memoryYieldClaimCheckpoints.set(key, checkpointUsd)
-  safeStorage.set(`arcis:pool:vault_claimed:${key}`, String(checkpointUsd))
-}
-
-export function resetPoolCheckpointsForTesting(): void {
-  memoryStakingTimestamps.clear()
-  memoryClaimFeeCheckpoints.clear()
-  memoryYieldClaimCheckpoints.clear()
-  safeStorage.clearMemory()
-}
+// Phase 1 note: every per-user reward balance now lives on-chain (`pendingFees` for LP fees,
+// `pendingYield` for vault yield). The former localStorage checkpoints (staking timestamps,
+// fee checkpoints, vault claim checkpoints) were removed so the same wallet reports the same
+// claimable amount on every device and session.
 
 // Memory-only Gateway deposit tracking (Zero LocalStorage)
-export const recordGatewayDeposit = (_userAddr: string, _amount: number) => {}
-export const recordGatewayWithdrawal = (_userAddr: string, _amount: number) => {}
+export const recordGatewayDeposit = (_userAddr: string, _amount: number) => { }
+export const recordGatewayWithdrawal = (_userAddr: string, _amount: number) => { }
 export const getLocalGatewayDeposits = (_userAddr: string): number => 0
+
+// ── Honest vault APY measurement (H2 fix) ────────────────────────────────────
+// `totalYieldDistributed` is cumulative since vault deployment, so annualizing the raw
+// lifetime figure directly wildly overstates the APY. Instead the REAL increment of
+// distributed yield is measured over a persisted observation window (>= 24h)
+// and only that measured rate is annualized. Until a full window has been observed the
+// dynamic component is 0 and only the clearly-labeled base estimate is shown.
+const VAULT_APY_SNAPSHOT_KEY = 'arcis:pools:vault_yield_apy_snapshot'
+const VAULT_APY_MIN_WINDOW_MS = 24 * 60 * 60 * 1000 // require >= 24h of observation
+
+export function measureVaultYieldApy(
+  totalYieldDistributedUsd: number,
+  totalAssetsUsd: number,
+  nowMs: number = Date.now()
+): number {
+  if (!Number.isFinite(totalYieldDistributedUsd) || !Number.isFinite(totalAssetsUsd)) return 0
+  if (!(totalAssetsUsd > 0) || !(totalYieldDistributedUsd > 0)) return 0
+
+  let snapshot: { yield: number; ts: number } | null = null
+  try {
+    const raw = safeStorage.get(VAULT_APY_SNAPSHOT_KEY)
+    if (raw) snapshot = JSON.parse(raw)
+  } catch { }
+
+  if (
+    !snapshot ||
+    typeof snapshot.yield !== 'number' ||
+    !Number.isFinite(snapshot.yield) ||
+    typeof snapshot.ts !== 'number' ||
+    !(snapshot.ts > 0) ||
+    snapshot.ts > nowMs ||
+    snapshot.yield > totalYieldDistributedUsd // counter reset / new deployment -> re-seed
+  ) {
+    try {
+      safeStorage.set(VAULT_APY_SNAPSHOT_KEY, JSON.stringify({ yield: totalYieldDistributedUsd, ts: nowMs }))
+    } catch { }
+    return 0
+  }
+
+  const windowMs = nowMs - snapshot.ts
+  if (windowMs < VAULT_APY_MIN_WINDOW_MS) return 0 // keep accumulating; not enough data yet
+
+  const windowDays = windowMs / 86_400_000
+  const deltaYieldUsd = totalYieldDistributedUsd - snapshot.yield
+  try {
+    safeStorage.set(VAULT_APY_SNAPSHOT_KEY, JSON.stringify({ yield: totalYieldDistributedUsd, ts: nowMs }))
+  } catch { }
+
+  if (!(deltaYieldUsd > 0)) return 0
+  const apy = ((deltaYieldUsd / windowDays) * 365 * 100) / totalAssetsUsd
+  return Number.isFinite(apy) && apy > 0 ? parseFloat(apy.toFixed(2)) : 0
+}
 
 // V2/V3 helper: estimate expected LP shares from on-chain reserves and derive a
 // conservative minLpShares slippage guard. For Curve StableSwap pools, uses the exact
@@ -251,16 +230,17 @@ export function computeMinLpShares(
   counterDecimalsInput?: number,
   slippage: number = 0.5
 ): bigint {
-  if (!POOL_VERSION_V2 && !POOL_VERSION_V3) return 0n
+  if (!POOL_VERSION_V2 && !POOL_VERSION_V3 && !POOL_VERSION_V4) return 0n
   const st = (poolState || {})[poolAddress] as any
-  const totalLpRaw = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
-  const reserveARaw = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
-  if (totalLpRaw <= 0n || reserveARaw <= 0n) return 0n
-
   const slipBps = poolSlippageBps(slippage)
-  let expectedLp: bigint = 0n
   const counterDecimals =
     counterDecimalsInput ?? pool.tokens?.[1]?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : 6)
+
+  const reserveARaw = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
+  const totalLpRaw = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
+  let expectedLp: bigint = 0n
+
+  if (totalLpRaw <= 0n || reserveARaw <= 0n) return 0n
 
   if (pool.id === 'usdc-cirbtc-pool') {
     const reserveBRaw = st.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
@@ -304,7 +284,7 @@ export function getLastKnownPoolState(): Record<string, any> | undefined {
         return parsed
       }
     }
-  } catch {}
+  } catch { }
   return undefined
 }
 
@@ -325,18 +305,7 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
   // StableSwapPool (USDC/EURC) via Multicall3
   if (isDeployed(POOL_CONTRACTS.STABLE_SWAP_POOL)) {
     try {
-      const fnNames = [
-        'reserveA',
-        'reserveB',
-        'totalLp',
-        'unclaimedFeeA',
-        'unclaimedFeeB',
-        'accumulatedFeeA',
-        'accumulatedFeeB',
-        'swapFeeBps',
-        'volume24hA',
-        'volume24hB',
-      ] as const
+      const fnNames = AMM_POOL_STATE_READ_FNS
 
       const calls = fnNames.map((fn) => ({
         address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
@@ -354,8 +323,10 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
         totalLp: formatUnits(val(2), 18),
         unclaimedFeeA: formatUnits(val(3), 6),
         unclaimedFeeB: formatUnits(val(4), 6),
-        accumulatedFeeA: formatUnits(val(5), 6),
-        accumulatedFeeB: formatUnits(val(6), 6),
+        // V4 has no owner-collected counter: the fee reserve is the on-chain equivalent.
+        ...(POOL_VERSION_V4
+          ? { feeReserveA: formatUnits(val(5), 6), feeReserveB: formatUnits(val(6), 6) }
+          : { accumulatedFeeA: formatUnits(val(5), 6), accumulatedFeeB: formatUnits(val(6), 6) }),
         swapFeeBps: Number(val(7, 12n)),
         volume24hA: formatUnits(val(8), 6),
         volume24hB: formatUnits(val(9), 6),
@@ -372,18 +343,7 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
 
   for (const cpAddr of cpAddresses) {
     try {
-      const fnNames = [
-        'reserveA',
-        'reserveB',
-        'totalLp',
-        'unclaimedFeeA',
-        'unclaimedFeeB',
-        'accumulatedFeeA',
-        'accumulatedFeeB',
-        'swapFeeBps',
-        'volume24hA',
-        'volume24hB',
-      ] as const
+      const fnNames = AMM_POOL_STATE_READ_FNS
 
       const calls = fnNames.map((fn) => ({
         address: cpAddr as Address,
@@ -401,8 +361,10 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
         totalLp: formatUnits(val(2), 18),
         unclaimedFeeA: formatUnits(val(3), 6),
         unclaimedFeeB: formatUnits(val(4), 8),
-        accumulatedFeeA: formatUnits(val(5), 6),
-        accumulatedFeeB: formatUnits(val(6), 8),
+        // V4 has no owner-collected counter: the fee reserve is the on-chain equivalent.
+        ...(POOL_VERSION_V4
+          ? { feeReserveA: formatUnits(val(5), 6), feeReserveB: formatUnits(val(6), 8) }
+          : { accumulatedFeeA: formatUnits(val(5), 6), accumulatedFeeB: formatUnits(val(6), 8) }),
         swapFeeBps: Number(val(7, 25n)),
         volume24hA: formatUnits(val(8), 6),
         volume24hB: formatUnits(val(9), 8),
@@ -429,61 +391,27 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
         { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalAssets' },
         { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'totalSupply' },
         { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: totalYieldAbi, functionName: 'totalYieldDistributed' },
+        { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI, functionName: 'decimals' },
       ]
 
       const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
       const val = (idx: number) =>
         results[idx]?.status === 'success' ? (results[idx].result as bigint) : 0n
 
-      let onchainVaultVol = 0
-      try {
-        const currentBlock = await publicClient.getBlockNumber().catch(() => 0n)
-        if (currentBlock > 0n) {
-          const fromBlock = currentBlock > 2000n ? currentBlock - 2000n : 0n
-          const [depEvents, withEvents] = await Promise.all([
-            publicClient.getContractEvents({
-              address: POOL_CONTRACTS.YIELD_VAULT as Address,
-              abi: YIELD_VAULT_ABI,
-              eventName: 'Deposit',
-              fromBlock,
-              toBlock: 'latest',
-            }).catch(() => []),
-            publicClient.getContractEvents({
-              address: POOL_CONTRACTS.YIELD_VAULT as Address,
-              abi: YIELD_VAULT_ABI,
-              eventName: 'Withdraw',
-              fromBlock,
-              toBlock: 'latest',
-            }).catch(() => []),
-          ])
-          for (const ev of depEvents) {
-            if (ev.args && (ev.args as any).assets) {
-              const amt = parseFloat(formatUnits((ev.args as any).assets, 6))
-              onchainVaultVol += amt
-              if (amt > 0 && ev.transactionHash) {
-                recordClientSwapVolume('usdc-yield-vault', amt, ev.transactionHash)
-              }
-            }
-          }
-          for (const ev of withEvents) {
-            if (ev.args && (ev.args as any).assets) {
-              const amt = parseFloat(formatUnits((ev.args as any).assets, 6))
-              onchainVaultVol += amt
-              if (amt > 0 && ev.transactionHash) {
-                recordClientSwapVolume('usdc-yield-vault', amt, ev.transactionHash)
-              }
-            }
-          }
-        }
-      } catch (logErr) {
-        console.warn('[usePoolsData] YieldVault on-chain events read warning:', logErr)
-      }
+      // Share decimals are read on-chain: YieldVaultV4 uses ERC-4626 virtual shares
+      // (`_decimalsOffset() = 3` → 9 decimals), the V3 fallback has 6.
+      const shareDecimals =
+        results[3]?.status === 'success' && typeof results[3].result === 'number'
+          ? results[3].result
+          : VAULT_SHARE_DECIMALS
 
+      // Phase 0: a yield vault has no trading volume; only AMM swaps count toward 24h volume.
       state[POOL_CONTRACTS.YIELD_VAULT] = {
         totalAssets: formatUnits(val(0), 6),
-        totalSupply: formatUnits(val(1), 6),
+        totalSupply: formatUnits(val(1), shareDecimals),
         totalYieldDistributed: formatUnits(val(2), 6),
-        volume24h: onchainVaultVol.toFixed(2),
+        shareDecimals,
+        volume24h: '0',
       }
     } catch (err) {
       console.warn('[usePoolsData] YieldVault multicall state read failed:', err)
@@ -494,7 +422,7 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
     await redisCache.set(cacheKey, state, 20)
     try {
       safeStorage.set('arcis:pools:state:last', JSON.stringify(state))
-    } catch {}
+    } catch { }
   }
 
   return state
@@ -606,13 +534,30 @@ export async function fetchUserPoolPositions(
   // Short memory cache debounce (20s)
   const cached = await redisCache.get<Record<string, UserPoolPosition>>(cacheKey)
   if (cached && Object.keys(cached).length > 0) {
-    return cached
+    // D3: price trust is a live fact, not a cacheable one — refresh it on every cache read so
+    // a recovered feed is honored immediately and the H3 "refresh and retry" loop cannot be
+    // stuck for the 20s cache TTL on a stale priceUnavailable flag.
+    const freshTrusted = isLivePriceAvailable()
+    return Object.fromEntries(
+      Object.entries(cached).map(([k, v]) => [
+        k,
+        v.isLpPosition ? { ...v, priceUnavailable: !freshTrusted } : v,
+      ])
+    )
   }
 
   const publicClient = getArcPublicClient()
   const onchainPoolState = passedPoolState || (await fetchOnchainPoolState())
-  const liveEurcPrice = passedPrices?.eurc ?? (isLivePriceAvailable() ? getCachedTokenPrice('EURC') : 1.08)
-  const liveBtcPrice = passedPrices?.btc ?? (isLivePriceAvailable() ? getCachedTokenPrice('BTC') : 78500)
+  // O4: never fabricate a price and never value at 0 — getCachedTokenPrice resolves the
+  // live cache first and the documented static fallback tier second, so USD valuations
+  // cannot collapse to $0 when the oracle is briefly unavailable.
+  const liveEurcPrice =
+    passedPrices?.eurc && passedPrices.eurc > 0 ? passedPrices.eurc : getCachedTokenPrice('EURC')
+  const liveBtcPrice =
+    passedPrices?.btc && passedPrices.btc > 0 ? passedPrices.btc : getCachedTokenPrice('BTC')
+  // Funds-affecting USD→LP mappings may only trust oracle-verified prices. When false, the
+  // valuation below is a static approximation and withdrawals are refused (H3 guard, O4).
+  const isValuationTrusted = isLivePriceAvailable()
 
   const positions: Record<string, UserPoolPosition> = {}
 
@@ -629,7 +574,14 @@ export async function fetchUserPoolPositions(
       if (sharesRaw > 0n) {
         let assetsUsdc = 0
         let userEarnedUsd = 0
-        const principalUsdc = parseFloat(formatUnits(sharesRaw, 6))
+        // Share decimals are read on-chain (ERC-4626 virtual-share offset aware); the
+        // VAULT_SHARE_DECIMALS constant is only the fallback.
+        const vaultStateSnapshot = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
+        const shareDecimals =
+          typeof vaultStateSnapshot?.shareDecimals === 'number'
+            ? vaultStateSnapshot.shareDecimals
+            : VAULT_SHARE_DECIMALS
+        const principalUsdc = parseFloat(formatUnits(sharesRaw, shareDecimals))
 
         let rawVaultProfit = 0
         try {
@@ -657,7 +609,7 @@ export async function fetchUserPoolPositions(
             console.warn('[usePoolsData] YieldVault direct stats fetch warning:', e)
             const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
             totalAssets = vaultState?.totalAssets ? parseUnits(vaultState.totalAssets, 6) : 0n
-            totalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, 6) : 0n
+            totalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, shareDecimals) : 0n
           }
 
           if (totalSupply > 0n && totalAssets > 0n) {
@@ -680,29 +632,28 @@ export async function fetchUserPoolPositions(
           })) as bigint
         } catch {
           const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
-          liveTotalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, 6) : 0n
+          liveTotalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, shareDecimals) : 0n
         }
 
         const poolSharePct = liveTotalSupply > 0n
           ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(2))))
           : 0
 
-        const vaultClaimCheckpoint = getPoolYieldClaimCheckpoint(targetAddr, 'usdc-yield-vault')
-        const netVaultAppreciation = Math.max(0, rawVaultProfit - vaultClaimCheckpoint)
-
-        const vaultApy = ARCIS_POOLS.find((p) => p.id === 'usdc-yield-vault')?.apy ?? 8.42
-        let depTimestamp = getPoolStakingTimestamp(targetAddr, 'usdc-yield-vault')
-        if (!depTimestamp && sharesRaw > 0n) {
-          depTimestamp = Date.now() - 48 * 3600 * 1000
-          setPoolStakingTimestamp(targetAddr, 'usdc-yield-vault', depTimestamp)
-        }
-        const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
-        const apyAccruedUsd = (assetsUsdc * (vaultApy / 100) * elapsedSec) / (365 * 86400)
-
-        if (netVaultAppreciation > 0) {
-          userEarnedUsd = netVaultAppreciation
-        } else if (apyAccruedUsd > 0) {
-          userEarnedUsd = apyAccruedUsd
+        // Phase 1: claimable yield comes from the V4 vault's on-chain cost basis
+        // (`pendingYield`). V3 pools expose no per-user accounting, so nothing is shown as
+        // claimable — lifetime share appreciation stays informational in `rawVaultProfit`.
+        if (POOL_VERSION_V4) {
+          try {
+            const pendingRaw = (await resilientReadContract(publicClient, {
+              address: POOL_CONTRACTS.YIELD_VAULT,
+              abi: YIELD_VAULT_ABI,
+              functionName: 'pendingYield',
+              args: [targetAddr],
+            })) as bigint
+            userEarnedUsd = parseFloat(formatUnits(pendingRaw || 0n, 6))
+          } catch (e) {
+            console.warn('[usePoolsData] YieldVault pendingYield read failed:', e)
+          }
         }
 
         positions['usdc-yield-vault'] = {
@@ -712,7 +663,7 @@ export async function fetchUserPoolPositions(
           earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
           earnedUsd: userEarnedUsd,
           lastUpdatedTimestamp: Date.now(),
-          lpTokenBalance: formatUnits(sharesRaw, 6),
+          lpTokenBalance: formatUnits(sharesRaw, shareDecimals),
           poolSharePct,
           earnedFeesUsd: rawVaultProfit,
         }
@@ -781,21 +732,33 @@ export async function fetchUserPoolPositions(
           const ufA = parseFloat(formatUnits(unclaimedA, 6))
           const ufB = parseFloat(formatUnits(unclaimedB, 6))
           const totalPoolUnclaimedUsd = ufA + ufB * liveEurcPrice
+          // Lifetime pool-level fee share — informational only.
           rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-          const feeCheckpoint = getPoolClaimFeeCheckpoint(targetAddr, 'usdc-eurc-stable-pool')
-          const feeEarnedUsd = Math.max(0, rawFeeShareUsd - feeCheckpoint)
 
-          const poolApy = ARCIS_POOLS.find((p) => p.id === 'usdc-eurc-stable-pool')?.apy ?? 6.15
-          let depTimestamp = getPoolStakingTimestamp(targetAddr, 'usdc-eurc-stable-pool')
-          if (!depTimestamp && lpRaw > 0n) {
-            depTimestamp = Date.now() - 48 * 3600 * 1000
-            setPoolStakingTimestamp(targetAddr, 'usdc-eurc-stable-pool', depTimestamp)
+          // Phase 1: the user's own claimable fees are read directly on-chain via `pendingFees(lp)`.
+          // No localStorage checkpoint is involved, so the number is identical on any device.
+          if (POOL_VERSION_V4) {
+            try {
+              const pending = (await resilientReadContract(publicClient, {
+                address: POOL_CONTRACTS.STABLE_SWAP_POOL,
+                abi: STABLE_SWAP_ABI,
+                functionName: 'pendingFees',
+                args: [targetAddr],
+              })) as readonly [bigint, bigint]
+              const claimableUsd =
+                parseFloat(formatUnits(pending?.[0] || 0n, 6)) +
+                parseFloat(formatUnits(pending?.[1] || 0n, 6)) * liveEurcPrice
+              rawFeeShareUsd = claimableUsd
+              userEarnedUsd = claimableUsd
+            } catch (e) {
+              console.warn('[usePoolsData] StableSwap pendingFees read failed:', e)
+            }
           }
-          const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
-          const apyAccruedUsd = (stakedUsd * (poolApy / 100) * elapsedSec) / (365 * 86400)
-          userEarnedUsd = feeEarnedUsd + apyAccruedUsd
         } else {
-          stakedUsd = parseFloat(formatUnits(lpRaw, 18))
+          // D1: a held LP balance with no readable totalLp cannot be valued — never count
+          // raw LP tokens 1:1 as USD. 0 + priceUnavailable makes the withdrawal guard refuse
+          // instead of mapping a fabricated USD value to LP shares.
+          stakedUsd = 0
         }
 
         positions['usdc-eurc-stable-pool'] = {
@@ -811,6 +774,7 @@ export async function fetchUserPoolPositions(
           tokenAStaked: userA.toFixed(2),
           tokenBStaked: userB.toFixed(2),
           earnedFeesUsd: rawFeeShareUsd,
+          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
         }
       }
     } catch (err) {
@@ -878,22 +842,33 @@ export async function fetchUserPoolPositions(
           const ufA = parseFloat(formatUnits(unclaimedA, 6))
           const ufB = parseFloat(formatUnits(unclaimedB, 8))
           const totalPoolUnclaimedUsd = ufA + ufB * liveBtcPrice
-          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
           const poolIdKey = cirBtcPool?.id || 'usdc-cirbtc-pool'
-          const feeCheckpoint = getPoolClaimFeeCheckpoint(targetAddr, poolIdKey)
-          const feeEarnedUsd = Math.max(0, rawFeeShareUsd - feeCheckpoint)
+          // Lifetime pool-level fee share — informational only.
+          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
 
-          const poolApy = ARCIS_POOLS.find((p) => p.id === poolIdKey)?.apy ?? 12.80
-          let depTimestamp = getPoolStakingTimestamp(targetAddr, poolIdKey)
-          if (!depTimestamp && lpRaw > 0n) {
-            depTimestamp = Date.now() - 48 * 3600 * 1000
-            setPoolStakingTimestamp(targetAddr, poolIdKey, depTimestamp)
+          // Phase 1: the user's own claimable fees are read directly on-chain via `pendingFees(lp)`.
+          if (POOL_VERSION_V4) {
+            try {
+              const pending = (await resilientReadContract(publicClient, {
+                address: cpAddress,
+                abi: CONSTANT_PRODUCT_ABI,
+                functionName: 'pendingFees',
+                args: [targetAddr],
+              })) as readonly [bigint, bigint]
+              const claimableUsd =
+                parseFloat(formatUnits(pending?.[0] || 0n, 6)) +
+                parseFloat(formatUnits(pending?.[1] || 0n, 8)) * liveBtcPrice
+              rawFeeShareUsd = claimableUsd
+              userEarnedUsd = claimableUsd
+            } catch (e) {
+              console.warn('[usePoolsData] ConstantProduct pendingFees read failed:', e)
+            }
           }
-          const elapsedSec = depTimestamp > 0 ? Math.max(0, (Date.now() - depTimestamp) / 1000) : 0
-          const apyAccruedUsd = (stakedUsd * (poolApy / 100) * elapsedSec) / (365 * 86400)
-          userEarnedUsd = feeEarnedUsd + apyAccruedUsd
         } else {
-          stakedUsd = parseFloat(formatUnits(lpRaw, 18))
+          // D1: a held LP balance with no readable totalLp cannot be valued — never count
+          // raw LP tokens 1:1 as USD. 0 + priceUnavailable makes the withdrawal guard refuse
+          // instead of mapping a fabricated USD value to LP shares.
+          stakedUsd = 0
         }
 
         const poolIdKey = cirBtcPool?.id || 'usdc-cirbtc-pool'
@@ -910,6 +885,7 @@ export async function fetchUserPoolPositions(
           tokenAStaked: userA.toFixed(2),
           tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
           earnedFeesUsd: rawFeeShareUsd,
+          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
         }
       }
     } catch (err) {
@@ -945,11 +921,40 @@ export async function prefetchUserWalletPoolsData(
   ])
 }
 
+/**
+ * Safely estimates transaction gas with a 20% safety margin, falling back cleanly.
+ */
+async function estimateSafeGas(
+  publicClient: any,
+  params: {
+    address: `0x${string}`
+    abi: any
+    functionName: string
+    args?: any
+    account: Address
+  },
+  fallbackGas: bigint
+): Promise<bigint> {
+  try {
+    const estimated = await publicClient.estimateContractGas(params)
+    return (estimated * 120n) / 100n // 20% safety margin
+  } catch (err) {
+    console.warn(`[usePoolsData] Gas estimation fallback for ${params.functionName}:`, err)
+    return fallbackGas
+  }
+}
+
 export function usePoolsData(
   walletAddress: string,
   provider?: unknown,
   authSource?: 'passkey' | 'ucw' | 'evm' | null,
-  executeUcwContract?: (params: any) => Promise<{ success: boolean; txHash?: string; error?: string }>
+  executeUcwContract?: (params: any) => Promise<{
+    success: boolean
+    txHash?: string
+    hashPending?: boolean
+    challengeId?: string
+    error?: string
+  }>
 ) {
   const queryClient = useQueryClient()
   const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
@@ -957,8 +962,11 @@ export function usePoolsData(
   // ── Live Market Prices (CoinGecko Simple Price API with Redis cache) ──────
   const { data: tokenPrices } = useLiveTokenPrices()
 
-  const liveBtcPrice = tokenPrices?.CIRBTC || tokenPrices?.BTC || (isLivePriceAvailable() ? getCachedTokenPrice('BTC') : 0)
-  const liveEurcPrice = tokenPrices?.EURC || (isLivePriceAvailable() ? getCachedTokenPrice('EURC') : 0)
+  // O4: prices resolve live hook → cached oracle → documented static fallback tier. They are
+  // never 0, so a briefly unavailable feed cannot collapse TVL, 24h volume or position
+  // valuations to $0. Funds-affecting paths additionally check isLivePriceAvailable().
+  const liveBtcPrice = tokenPrices?.CIRBTC || tokenPrices?.BTC || getCachedTokenPrice('BTC')
+  const liveEurcPrice = tokenPrices?.EURC || getCachedTokenPrice('EURC')
 
   // Reactive trigger for 24h rolling swap volume updates across tabs and components
   const [volumeRevision, setVolumeRevision] = useState(0)
@@ -1040,11 +1048,6 @@ export function usePoolsData(
 
   // ── Aggregate pool metrics (pure live on-chain data, zero static fallbacks) ──
   const poolsWithUserStats = useMemo(() => {
-    // 24h rolling client volume across all pools (tracked per-device for user visibility)
-    const eurcRollingVol = getRollingClientSwapVolume('usdc-eurc-stable-pool')
-    const cirBtcRollingVol = getRollingClientSwapVolume('usdc-cirbtc-pool')
-    const vaultRollingVol = getRollingClientSwapVolume('usdc-yield-vault')
-
     // Live on-chain 24h rolling volume counters (strictly verified on-chain platform volume)
     const ssState = onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]
     const ssVolA = parseFloat(ssState?.volume24hA || '0')
@@ -1057,8 +1060,6 @@ export function usePoolsData(
     const cpVolB = parseFloat(cpState?.volume24hB || '0')
     const cpContract24h = parseFloat((cpVolA + cpVolB * liveBtcPrice).toFixed(2))
 
-    const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
-    const vaultContract24h = parseFloat(vaultState?.volume24h || '0')
 
     return ARCIS_POOLS.map((pool) => {
       let tvlUsd = 0
@@ -1068,6 +1069,7 @@ export function usePoolsData(
       let apyBadge = pool.apyBadge
       let exchangeRate = pool.exchangeRate || 1.0
       let reserves = pool.reserves ? { ...pool.reserves, tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 } : undefined
+      let totalLp = '0'
 
       if (pool.id === 'usdc-eurc-stable-pool') {
         const s = onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]
@@ -1079,10 +1081,12 @@ export function usePoolsData(
         const ratioA = reserveUsd > 0 ? Math.round((resA / reserveUsd) * 100) : 50
         const ratioB = reserveUsd > 0 ? Math.max(0, 100 - ratioA) : 50
         reserves = { tokenA: resA, tokenB: resB, ratioA, ratioB }
+        totalLp = s?.totalLp || '0'
 
-        // Live 24H volume: verified on-chain rolling window supplemented by confirmed device swap executions
-        volume24hUsd = Math.max(ssContract24h, eurcRollingVol)
-        clientVolumeUsd = eurcRollingVol
+        // Phase 1.2: 24H volume is the on-chain rolling window only. The device-local
+        // localStorage fallback used to shadow it via Math.max(...); it is no longer a display source.
+        volume24hUsd = ssContract24h
+        clientVolumeUsd = 0
 
         // Hybrid DeFi APY Model: Base FX Liquidity Incentive APY + Dynamic 24H Fee APY
         const baseApr = 6.15
@@ -1092,7 +1096,7 @@ export function usePoolsData(
           : 0
         const totalApr = parseFloat((baseApr + dynamicFeeApr).toFixed(2))
         apy = totalApr
-        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'FX Base')
+        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'FX Incentive')
 
       } else if (pool.id === 'usdc-cirbtc-pool') {
         const s = onchainPoolState?.[pool.contractAddress] || onchainPoolState?.[POOL_CONTRACTS.CONSTANT_PRODUCT_POOL]
@@ -1104,10 +1108,11 @@ export function usePoolsData(
         const ratioA = reserveUsd > 0 ? Math.round((resA / reserveUsd) * 100) : 50
         const ratioB = reserveUsd > 0 ? Math.max(0, 100 - ratioA) : 50
         reserves = { tokenA: resA, tokenB: resB, ratioA, ratioB }
+        totalLp = s?.totalLp || '0'
 
-        // Live 24H volume: verified on-chain rolling window supplemented by confirmed device swap executions
-        volume24hUsd = Math.max(cpContract24h, cirBtcRollingVol)
-        clientVolumeUsd = cirBtcRollingVol
+        // Phase 1.2: on-chain rolling window only (no localStorage shadowing).
+        volume24hUsd = cpContract24h
+        clientVolumeUsd = 0
 
         // Hybrid DeFi APY Model: Base Bitcoin Liquidity Incentive APY + Dynamic 24H Fee APY
         const baseApr = 12.80
@@ -1117,27 +1122,26 @@ export function usePoolsData(
           : 0
         const totalApr = parseFloat((baseApr + dynamicFeeApr).toFixed(2))
         apy = totalApr
-        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'BTC Base')
+        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'BTC Incentive')
 
       } else if (pool.id === 'usdc-yield-vault') {
         const s = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
         const assetsUsd = parseFloat(s?.totalAssets || '0') || 0
         const totalYield = parseFloat(s?.totalYieldDistributed || '0') || 0
         tvlUsd = assetsUsd < 1000 ? parseFloat(assetsUsd.toFixed(2)) : Math.floor(assetsUsd)
-        // 24H Volume: verified on-chain 24h flow (deposits + withdrawals) supplemented by client actions
-        volume24hUsd = Math.max(vaultContract24h, vaultRollingVol)
-        clientVolumeUsd = vaultRollingVol
+        // Phase 0: a yield vault has no trading volume — deposits/withdrawals are not swaps.
+        volume24hUsd = 0
+        clientVolumeUsd = 0
 
         const baseVaultApy = 8.42
-        // Dynamic derived APY: if yield has been distributed into vault, compute annualized performance
-        const dynamicYieldApy = assetsUsd > 0 && totalYield > 0
-          ? ((totalYield * 365) / assetsUsd) * 100
-          : 0
+        // H2 fix: the dynamic component is a MEASURED on-chain yield rate over a rolling
+        // >=24h window — never the cumulative lifetime `totalYieldDistributed` annualized.
+        const dynamicYieldApy = measureVaultYieldApy(totalYield, assetsUsd)
         const totalVaultApy = parseFloat((baseVaultApy + dynamicYieldApy).toFixed(2))
         apy = totalVaultApy
         apyBadge = dynamicYieldApy > 0
-          ? `${totalVaultApy.toFixed(2)}% APY (${baseVaultApy}% USYC + ${dynamicYieldApy.toFixed(2)}% Dist.)`
-          : '8.42% APY • Treasury / USYC Strategy (Baseline Est.)'
+          ? `${totalVaultApy.toFixed(2)}% APY (${baseVaultApy}% Incentive Est. + ${dynamicYieldApy.toFixed(2)}% Measured)`
+          : '8.42% Incentive APY (Est.) • Treasury / USYC Strategy'
 
       }
 
@@ -1150,6 +1154,7 @@ export function usePoolsData(
         apyBadge,
         exchangeRate,
         reserves,
+        totalLp,
         userPosition: userPoolPositions?.[pool.id] || undefined,
       }
     })
@@ -1346,6 +1351,25 @@ export function usePoolsData(
       const amount = parseUnits(amountStr, 6)
       const depositAmt = parseFloat(amountStr) || 0
 
+      // H4: on V4 the deposit carries a min-shares guard so a share-price manipulation between
+      // quote and execution reverts instead of silently minting fewer shares. The V3 fallback
+      // deployment has no guarded entrypoint, so it keeps the legacy plain `deposit`.
+      let guardedDepositArgs: readonly [bigint, Address, bigint] | null = null
+      if (POOL_VERSION_V4) {
+        const expectedShares = (await resilientReadContract(publicClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'previewDeposit',
+          args: [amount],
+        }).catch(() => 0n)) as bigint
+        if (!(expectedShares > 0n)) {
+          throw new Error(
+            'Unable to compute a safe minimum-shares guard for the vault deposit. Please refresh and retry so the deposit is protected against share-price manipulation.'
+          )
+        }
+        guardedDepositArgs = [amount, targetAccount, poolMinOut(expectedShares, POOL_DEFAULT_SLIPPAGE_BPS)]
+      }
+
       // Optimistically update wallet balance and staked position immediately
       const applyYieldVaultOptimisticDeposit = () => {
         if (depositAmt <= 0) return
@@ -1384,11 +1408,17 @@ export function usePoolsData(
         }
         const depositCall = {
           to: POOL_CONTRACTS.YIELD_VAULT as Hex,
-          data: encodeFunctionData({
-            abi: YIELD_VAULT_ABI,
-            functionName: 'deposit',
-            args: [amount, targetAccount],
-          }),
+          data: guardedDepositArgs
+            ? encodeFunctionData({
+              abi: YIELD_VAULT_ABI,
+              functionName: 'depositWithMinShares',
+              args: guardedDepositArgs,
+            })
+            : encodeFunctionData({
+              abi: YIELD_VAULT_ABI,
+              functionName: 'deposit',
+              args: [amount, targetAccount],
+            }),
         }
         const opRes = await sendModularUserOperation({
           calls: [approveCall, depositCall],
@@ -1398,7 +1428,7 @@ export function usePoolsData(
           throw new Error(opRes.error || 'Modular UserOperation deposit failed.')
         }
         applyYieldVaultOptimisticDeposit()
-        recordClientSwapVolume('usdc-yield-vault', depositAmt, opRes.txHash)
+        // Phase 0: vault deposits are not trading volume
         await invalidatePoolCaches()
         return { txHash: opRes.txHash }
       }
@@ -1411,8 +1441,12 @@ export function usePoolsData(
         console.log('[usePoolsData UCW] Requesting deposit challenge for Yield Vault...')
         const depositRes = await executeUcwContract({
           contractAddress: POOL_CONTRACTS.YIELD_VAULT,
-          abiFunctionSignature: 'deposit(uint256,address)',
-          abiParameters: [amount.toString(), targetAccount],
+          abiFunctionSignature: guardedDepositArgs
+            ? 'depositWithMinShares(uint256,address,uint256)'
+            : 'deposit(uint256,address)',
+          abiParameters: guardedDepositArgs
+            ? [amount.toString(), targetAccount, guardedDepositArgs[2].toString()]
+            : [amount.toString(), targetAccount],
           blockchain: 'ARC-TESTNET',
         })
         if (!depositRes.success) {
@@ -1430,7 +1464,7 @@ export function usePoolsData(
           await waitForReceiptSafe(txHash as Hex, 'Yield Vault Deposit')
         }
         applyYieldVaultOptimisticDeposit()
-        recordClientSwapVolume('usdc-yield-vault', depositAmt, txHash)
+        // Phase 0: vault deposits are not trading volume
         await invalidatePoolCaches()
         return { txHash }
       }
@@ -1441,17 +1475,39 @@ export function usePoolsData(
 
       await approveToken(POOL_CONTRACTS.USDC, POOL_CONTRACTS.YIELD_VAULT, amount)
 
-      const txHash = await resilientWriteContract(walletClient, {
-        address: POOL_CONTRACTS.YIELD_VAULT,
-        abi: YIELD_VAULT_ABI,
-        functionName: 'deposit',
-        args: [amount, targetAccount],
-        account: targetAccount,
-        chain: arcTestnet,
-        gas: 350_000n,
-      })
+      const gasLimit = await estimateSafeGas(
+        publicClient,
+        {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: guardedDepositArgs ? 'depositWithMinShares' : 'deposit',
+          args: (guardedDepositArgs || [amount, targetAccount]) as any,
+          account: targetAccount,
+        },
+        350_000n
+      )
+
+      const txHash = guardedDepositArgs
+        ? await resilientWriteContract(walletClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'depositWithMinShares',
+          args: guardedDepositArgs,
+          account: targetAccount,
+          chain: arcTestnet,
+          gas: gasLimit,
+        })
+        : await resilientWriteContract(walletClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'deposit',
+          args: [amount, targetAccount],
+          account: targetAccount,
+          chain: arcTestnet,
+          gas: gasLimit,
+        })
       applyYieldVaultOptimisticDeposit()
-      recordClientSwapVolume('usdc-yield-vault', depositAmt, txHash)
+      // Phase 0: vault deposits are not trading volume
       await waitForReceiptSafe(txHash, 'Deposit')
 
       await invalidatePoolCaches()
@@ -1526,7 +1582,8 @@ export function usePoolsData(
       }
 
       const slippageTolerance = typeof _slippage === 'number' && _slippage > 0 ? _slippage : 0.5
-      const slippageBps = BigInt(Math.max(10, Math.min(1000, Math.round(slippageTolerance * 100))))
+      // O3: one clamped source of truth (an inline clamp could drift from the contract-wide cap).
+      const slippageBps = BigInt(poolSlippageBps(slippageTolerance))
       const minOut = expectedOut > 0n ? (expectedOut * (10000n - slippageBps)) / 10000n : 0n
 
       const smartAccount = getActiveSmartAccount()
@@ -1611,6 +1668,9 @@ export function usePoolsData(
           counterDecimals,
           slippageTolerance
         )
+        if (minLpShares <= 0n) {
+          throw new Error('Unable to compute a safe minimum LP-shares guard from live pool reserves. Please refresh and retry so liquidity is added with slippage protection.')
+        }
         const approveCounterCall = {
           to: counterTokenAddress as Hex,
           data: encodeFunctionData({
@@ -1651,7 +1711,7 @@ export function usePoolsData(
                 lpMintedRaw = (decoded.args as any).lpMinted as bigint
                 break
               }
-            } catch {}
+            } catch { }
           }
         }
 
@@ -1782,6 +1842,9 @@ export function usePoolsData(
           counterDecimals,
           slippageTolerance
         )
+        if (minLpShares <= 0n) {
+          throw new Error('Unable to compute a safe minimum LP-shares guard from live pool reserves. Please refresh and retry so liquidity is added with slippage protection.')
+        }
 
         console.log('[usePoolsData UCW] Requesting addLiquidity challenge for Zap...')
         const addRes = await executeUcwContract({
@@ -1817,7 +1880,7 @@ export function usePoolsData(
                   lpMintedRaw = (decoded.args as any).lpMinted as bigint
                   break
                 }
-              } catch {}
+              } catch { }
             }
           }
         }
@@ -1880,6 +1943,18 @@ export function usePoolsData(
         args: [targetAccount],
       })) as bigint
 
+      const swapGasLimit = await estimateSafeGas(
+        publicClient,
+        {
+          address: poolAddress,
+          abi: STABLE_SWAP_ABI,
+          functionName: 'swap',
+          args: [POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut],
+          account: targetAccount,
+        },
+        350_000n
+      )
+
       const swapOut = await resilientWriteContract(walletClient, {
         address: poolAddress,
         abi: STABLE_SWAP_ABI,
@@ -1887,7 +1962,7 @@ export function usePoolsData(
         args: [POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut],
         account: targetAccount,
         chain: arcTestnet,
-        gas: 350_000n,
+        gas: swapGasLimit,
       })
       await waitForReceiptSafe(swapOut, 'Zap Swap')
 
@@ -1939,9 +2014,24 @@ export function usePoolsData(
         counterDecimals,
         slippageTolerance
       )
+      if (minLpShares <= 0n) {
+        throw new Error('Unable to compute a safe minimum LP-shares guard from live pool reserves. Please refresh and retry so liquidity is added with slippage protection.')
+      }
 
       let txHash: Hex
       try {
+        const addLiqGasLimit = await estimateSafeGas(
+          publicClient,
+          {
+            address: poolAddress,
+            abi: STABLE_SWAP_ABI,
+            functionName: 'addLiquidity',
+            args: [poolRemainingUsdc, actualCounterAmount, minLpShares],
+            account: targetAccount,
+          },
+          450_000n
+        )
+
         txHash = await resilientWriteContract(walletClient, {
           address: poolAddress,
           abi: STABLE_SWAP_ABI,
@@ -1949,15 +2039,14 @@ export function usePoolsData(
           args: [poolRemainingUsdc, actualCounterAmount, minLpShares],
           account: targetAccount,
           chain: arcTestnet,
-          gas: 450_000n,
+          gas: addLiqGasLimit,
         })
       } catch (addLiqErr: any) {
         console.error('[zapIn] Liquidity addition failed after swap:', addLiqErr)
         const counterSymbol = counterToken?.symbol || 'counter tokens'
         const counterFormatted = formatUnits(actualCounterAmount, counterDecimals)
         throw new Error(
-          `Zap swap completed successfully (${counterFormatted} ${counterSymbol} added to wallet), but liquidity addition failed: ${
-            addLiqErr?.shortMessage || addLiqErr?.message || 'Transaction reverted'
+          `Zap swap completed successfully (${counterFormatted} ${counterSymbol} added to wallet), but liquidity addition failed: ${addLiqErr?.shortMessage || addLiqErr?.message || 'Transaction reverted'
           }. Your ${counterSymbol} is safe in your wallet; you can provide dual liquidity or swap back to USDC.`
         )
       }
@@ -1978,7 +2067,7 @@ export function usePoolsData(
               lpMintedRaw = (decoded.args as any).lpMinted as bigint
               break
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -2083,9 +2172,44 @@ export function usePoolsData(
       }
 
       const minLpShares = computeMinLpShares(pool, poolAddress, freshPoolState, amountA, amountB, counterDecimals, _slippage)
+      // Phase 0: never submit addLiquidity with a zero slippage guard on a seeded pool.
+      const previewTotalLpRaw = freshPoolState?.[poolAddress]?.totalLp ? parseUnits(freshPoolState[poolAddress].totalLp, 18) : 0n
+      if (minLpShares <= 0n && previewTotalLpRaw > 0n) {
+        throw new Error('Unable to compute a safe minimum LP-shares guard from live pool reserves. Please refresh and retry so liquidity is added with slippage protection.')
+      }
+
+      // O2 guard: both V4 pool contracts transfer BOTH full input amounts but only credit
+      // min(lpA, lpB) (ConstantProduct) or the Curve D-delta (StableSwap), so an off-ratio
+      // deposit silently donates the excess to existing LPs. Refuse deposits whose estimated
+      // donation exceeds the block threshold.
+      {
+        const stNow = (freshPoolState || {})[poolAddress] as any
+        const reserveANum = parseFloat(stNow?.reserveA || '0') || 0
+        const reserveBNum = parseFloat(stNow?.reserveB || '0') || 0
+        const totalLpNum = parseFloat(stNow?.totalLp || '0') || 0
+        if (reserveANum > 0 && reserveBNum > 0 && totalLpNum > 0) {
+          const balance = analyzeDualDepositBalance({
+            poolId,
+            amountA: parseFloat(amountAStr) || 0,
+            amountB: parseFloat(amountBStr) || 0,
+            reserveA: reserveANum,
+            reserveB: reserveBNum,
+            totalLp: totalLpNum,
+            amp: STABLE_SWAP_AMP,
+          })
+          if (balance && balance.donationPct > DUAL_DEPOSIT_DONATION_BLOCK_PCT) {
+            throw new Error(
+              `Unbalanced deposit: about ${balance.donationValueA.toFixed(2)} USDC of excess would be donated to existing LPs instead of minting LP shares. Please rebalance the amounts to the pool ratio and retry.`
+            )
+          }
+        }
+      }
       const addLiquidityArgs = [amountA, amountB, minLpShares] as const
 
-      const totalUsdAdded = parseFloat(amountAStr) + parseFloat(amountBStr) * (pool.exchangeRate || 1)
+      // D2: value the counter side at the live price — `pool.exchangeRate || 1` counted
+      // cirBTC as $1 in the optimistic updates whenever the static rate was missing (O4 family).
+      const counterUsdPrice = poolId === 'usdc-eurc-stable-pool' ? liveEurcPrice : liveBtcPrice
+      const totalUsdAdded = parseFloat(amountAStr) + parseFloat(amountBStr) * counterUsdPrice
 
       // 1. Modular Smart Account (Atomic 3-call batch UserOp)
       const smartAccount = getActiveSmartAccount()
@@ -2138,7 +2262,7 @@ export function usePoolsData(
                 lpMintedRaw = (decoded.args as any).lpMinted as bigint
                 break
               }
-            } catch {}
+            } catch { }
           }
         }
 
@@ -2183,7 +2307,7 @@ export function usePoolsData(
         }
 
         if (totalUsdAdded > 0) {
-          recordClientSwapVolume(pool.id, parseFloat((totalUsdAdded * 0.15).toFixed(2)), opRes.txHash)
+          // Phase 0: dual-asset deposits are not trading volume
         }
 
         await invalidatePoolCaches()
@@ -2235,7 +2359,7 @@ export function usePoolsData(
                   lpMintedRaw = (decoded.args as any).lpMinted as bigint
                   break
                 }
-              } catch {}
+              } catch { }
             }
           }
         }
@@ -2278,7 +2402,7 @@ export function usePoolsData(
               }
             }
           )
-          recordClientSwapVolume(pool.id, parseFloat((totalUsdAdded * 0.15).toFixed(2)), txHash)
+          // Phase 0: dual-asset deposits are not trading volume
         }
 
         await invalidatePoolCaches()
@@ -2292,6 +2416,18 @@ export function usePoolsData(
       await approveToken(POOL_CONTRACTS.USDC, poolAddress, amountA)
       await approveToken(counterTokenAddress, poolAddress, amountB)
 
+      const gasLimit = await estimateSafeGas(
+        publicClient,
+        {
+          address: poolAddress,
+          abi: STABLE_SWAP_ABI,
+          functionName: 'addLiquidity',
+          args: addLiquidityArgs,
+          account: targetAccount,
+        },
+        450_000n
+      )
+
       const txHash = await resilientWriteContract(walletClient, {
         address: poolAddress,
         abi: STABLE_SWAP_ABI,
@@ -2299,7 +2435,7 @@ export function usePoolsData(
         args: addLiquidityArgs,
         account: targetAccount,
         chain: arcTestnet,
-        gas: 450_000n,
+        gas: gasLimit,
       })
       const receipt = await waitForReceiptSafe(txHash, 'Add dual liquidity')
 
@@ -2318,7 +2454,7 @@ export function usePoolsData(
               lpMintedRaw = (decoded.args as any).lpMinted as bigint
               break
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -2360,7 +2496,7 @@ export function usePoolsData(
             }
           }
         )
-        recordClientSwapVolume(pool.id, parseFloat((totalUsdAdded * 0.15).toFixed(2)), txHash)
+        // Phase 0: dual-asset deposits are not trading volume
       }
 
       await invalidatePoolCaches()
@@ -2410,6 +2546,9 @@ export function usePoolsData(
       const outDecimals = (tokenOut === 'cirBTC' || (counterToken?.decimals === 8 && tokenOut !== 'USDC')) ? 8 : 6
       const amountIn = parseUnits(amountInStr, inDecimals)
       const minOut = minOutStr ? parseUnits(minOutStr, outDecimals) : 0n
+      if (minOut <= 0n) {
+        throw new Error('A positive minimum-output guard is required; refusing to swap without slippage protection.')
+      }
 
       let swapVolUsd = 0
       if (tokenIn === 'USDC') {
@@ -2462,7 +2601,7 @@ export function usePoolsData(
                 actualAmountOutStr = formatUnits((decoded.args as any).amountOut as bigint, outDecimals)
                 break
               }
-            } catch {}
+            } catch { }
           }
         }
 
@@ -2514,7 +2653,7 @@ export function usePoolsData(
                   actualAmountOutStr = formatUnits((decoded.args as any).amountOut as bigint, outDecimals)
                   break
                 }
-              } catch {}
+              } catch { }
             }
           }
         }
@@ -2534,6 +2673,18 @@ export function usePoolsData(
 
       await approveToken(tokenInAddr as `0x${string}`, poolAddress, amountIn)
 
+      const gasLimit = await estimateSafeGas(
+        publicClient,
+        {
+          address: poolAddress,
+          abi: STABLE_SWAP_ABI,
+          functionName: 'swap',
+          args: [tokenInAddr, tokenOutAddr, amountIn, minOut],
+          account: targetAccount,
+        },
+        350_000n
+      )
+
       const txHash = await resilientWriteContract(walletClient, {
         address: poolAddress,
         abi: STABLE_SWAP_ABI,
@@ -2541,7 +2692,7 @@ export function usePoolsData(
         args: [tokenInAddr, tokenOutAddr, amountIn, minOut],
         account: targetAccount,
         chain: arcTestnet,
-        gas: 350_000n,
+        gas: gasLimit,
       })
       const receipt = await waitForReceiptSafe(txHash, 'Pool swap')
 
@@ -2560,7 +2711,7 @@ export function usePoolsData(
               actualAmountOutStr = formatUnits((decoded.args as any).amountOut as bigint, outDecimals)
               break
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -2626,17 +2777,59 @@ export function usePoolsData(
         const withdrawAmountUsd = parseFloat(amountStr) || 0
 
         let sharesToRedeem: bigint
-        if (withdrawAmountUsd >= userStakedUsd * 0.999 || userStakedUsd <= 0) {
+        // H3 fix: a FULL exit happens only when the user explicitly requests >= 99.9% of their
+        // valued position. A missing/stale valuation (userStakedUsd <= 0) must never silently
+        // redeem the entire position for a partial request — fall back to exact share math.
+        if (userStakedUsd > 0 && withdrawAmountUsd >= userStakedUsd * 0.999) {
           sharesToRedeem = walletSharesRaw
         } else {
-          // YieldVault has 6 decimals, matching underlying USDC
+          // Exact share mapping straight from the contract: `previewWithdraw` is correct under
+          // ERC-4626 virtual shares (H4), where share amounts are NOT 1:1 with assets.
           const amountAssets = parseUnits(amountStr, 6)
-          if (totalAssets > 0n && totalSupply > 0n) {
-            sharesToRedeem = (amountAssets * totalSupply) / totalAssets
-          } else {
-            sharesToRedeem = amountAssets
+          try {
+            sharesToRedeem = (await resilientReadContract(publicClient, {
+              address: POOL_CONTRACTS.YIELD_VAULT,
+              abi: YIELD_VAULT_ABI,
+              functionName: 'previewWithdraw',
+              args: [amountAssets],
+            })) as bigint
+          } catch {
+            if (totalAssets > 0n && totalSupply > 0n) {
+              sharesToRedeem = (amountAssets * totalSupply) / totalAssets
+            } else {
+              throw new Error(
+                'Unable to map the withdrawal amount to vault shares right now. Please refresh and retry.'
+              )
+            }
           }
           if (sharesToRedeem > walletSharesRaw) sharesToRedeem = walletSharesRaw
+        }
+        if (sharesToRedeem === 0n) {
+          throw new Error('Withdrawal amount too small')
+        }
+
+        // H4: on V4 the redeem carries a min-assets guard so a share-price manipulation between
+        // quote and execution reverts instead of underpaying the redeemer. The V3 fallback
+        // deployment has no guarded entrypoint, so it keeps the legacy plain `redeem`.
+        let guardedRedeemArgs: readonly [bigint, Address, Address, bigint] | null = null
+        if (POOL_VERSION_V4) {
+          const expectedAssets = (await resilientReadContract(publicClient, {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: 'previewRedeem',
+            args: [sharesToRedeem],
+          }).catch(() => 0n)) as bigint
+          if (!(expectedAssets > 0n)) {
+            throw new Error(
+              'Unable to compute a safe minimum-assets guard for the vault redeem. Please refresh and retry so the exit is protected against share-price manipulation.'
+            )
+          }
+          guardedRedeemArgs = [
+            sharesToRedeem,
+            targetAccount,
+            targetAccount,
+            poolMinOut(expectedAssets, poolSlippageBps(_slippage)),
+          ]
         }
 
         const applyYieldVaultOptimisticWithdraw = () => {
@@ -2672,11 +2865,17 @@ export function usePoolsData(
         if (smartAccount) {
           const redeemCall = {
             to: POOL_CONTRACTS.YIELD_VAULT as Hex,
-            data: encodeFunctionData({
-              abi: YIELD_VAULT_ABI,
-              functionName: 'redeem',
-              args: [sharesToRedeem, targetAccount, targetAccount],
-            }),
+            data: guardedRedeemArgs
+              ? encodeFunctionData({
+                abi: YIELD_VAULT_ABI,
+                functionName: 'redeemWithMinAssets',
+                args: guardedRedeemArgs,
+              })
+              : encodeFunctionData({
+                abi: YIELD_VAULT_ABI,
+                functionName: 'redeem',
+                args: [sharesToRedeem, targetAccount, targetAccount],
+              }),
           }
           const opRes = await sendModularUserOperation({
             calls: [redeemCall],
@@ -2686,7 +2885,7 @@ export function usePoolsData(
             throw new Error(opRes.error || 'Modular UserOperation redeem failed.')
           }
           applyYieldVaultOptimisticWithdraw()
-          recordClientSwapVolume('usdc-yield-vault', withdrawAmountUsd, opRes.txHash)
+          // Phase 0: vault withdrawals are not trading volume
           if (!skipCacheInvalidation) {
             await invalidatePoolCaches()
           }
@@ -2698,17 +2897,27 @@ export function usePoolsData(
           console.log('[usePoolsData UCW] Requesting redeem challenge for Yield Vault...')
           const redeemRes = await executeUcwContract({
             contractAddress: POOL_CONTRACTS.YIELD_VAULT,
-            abiFunctionSignature: 'redeem(uint256,address,address)',
-            abiParameters: [sharesToRedeem.toString(), targetAccount, targetAccount],
+            abiFunctionSignature: guardedRedeemArgs
+              ? 'redeemWithMinAssets(uint256,address,address,uint256)'
+              : 'redeem(uint256,address,address)',
+            abiParameters: guardedRedeemArgs
+              ? [
+                sharesToRedeem.toString(),
+                targetAccount,
+                targetAccount,
+                guardedRedeemArgs[3].toString(),
+              ]
+              : [sharesToRedeem.toString(), targetAccount, targetAccount],
             blockchain: 'ARC-TESTNET',
           })
           if (!redeemRes.success) {
             throw new Error(redeemRes.error || 'Yield vault redeem authorization failed.')
           }
 
-          const txHash = redeemRes.txHash || ''
+          // Same rule as the harvest path: return a real hash or nothing, never a placeholder.
+          const txHash = resolveUcwTxHash(redeemRes) || ''
           applyYieldVaultOptimisticWithdraw()
-          recordClientSwapVolume('usdc-yield-vault', withdrawAmountUsd, txHash)
+          // Phase 0: vault withdrawals are not trading volume
           if (!skipCacheInvalidation) {
             await invalidatePoolCaches()
           }
@@ -2719,17 +2928,39 @@ export function usePoolsData(
         const walletClient = await getWalletClient()
         if (!walletClient) throw new Error('Wallet not connected')
 
-        const txHash = await resilientWriteContract(walletClient, {
-          address: POOL_CONTRACTS.YIELD_VAULT,
-          abi: YIELD_VAULT_ABI,
-          functionName: 'redeem',
-          args: [sharesToRedeem, targetAccount, targetAccount],
-          account: targetAccount,
-          chain: arcTestnet,
-          gas: 350_000n,
-        })
+        const gasLimit = await estimateSafeGas(
+          publicClient,
+          {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: guardedRedeemArgs ? 'redeemWithMinAssets' : 'redeem',
+            args: (guardedRedeemArgs || [sharesToRedeem, targetAccount, targetAccount]) as any,
+            account: targetAccount,
+          },
+          350_000n
+        )
+
+        const txHash = guardedRedeemArgs
+          ? await resilientWriteContract(walletClient, {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: 'redeemWithMinAssets',
+            args: guardedRedeemArgs,
+            account: targetAccount,
+            chain: arcTestnet,
+            gas: gasLimit,
+          })
+          : await resilientWriteContract(walletClient, {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: 'redeem',
+            args: [sharesToRedeem, targetAccount, targetAccount],
+            account: targetAccount,
+            chain: arcTestnet,
+            gas: gasLimit,
+          })
         applyYieldVaultOptimisticWithdraw()
-        recordClientSwapVolume('usdc-yield-vault', withdrawAmountUsd, txHash)
+        // Phase 0: vault withdrawals are not trading volume
         await waitForReceiptSafe(txHash, 'Yield vault redeem')
         if (!skipCacheInvalidation) {
           await invalidatePoolCaches()
@@ -2756,14 +2987,36 @@ export function usePoolsData(
 
       const userPos = userPoolPositions?.[poolId]
       const userStakedUsd = userPos?.stakedUsd || 0
-      const withdrawAmountUsd = parseFloat(amountStr) || 0
+      const userLpTokensFormatted = parseFloat(userPos?.lpTokenBalance || '0')
+      const withdrawAmountNum = parseFloat(amountStr) || 0
+      const withdrawAmountUsd = withdrawAmountNum
 
       let lpToWithdraw: bigint
-      if (withdrawAmountUsd >= userStakedUsd * 0.999 || userStakedUsd <= 0) {
+      // Direct LP share withdrawal: if the user explicitly requests their full USD balance (>= 99.9%),
+      // or their full LP balance, or an explicit proportional USD amount.
+      if (userStakedUsd > 0 && withdrawAmountNum >= userStakedUsd * 0.999) {
+        lpToWithdraw = userLpRaw
+      } else if (userLpTokensFormatted > 0 && Math.abs(withdrawAmountNum - userLpTokensFormatted) <= userLpTokensFormatted * 0.001) {
         lpToWithdraw = userLpRaw
       } else {
-        lpToWithdraw = calculateLpClaimAmount(withdrawAmountUsd, userStakedUsd, userLpRaw)
-        if (lpToWithdraw > userLpRaw) lpToWithdraw = userLpRaw
+        let directLpRaw = 0n
+        try {
+          directLpRaw = parseUnits(withdrawAmountNum.toFixed(18), 18)
+        } catch { }
+
+        if (directLpRaw > 0n && directLpRaw <= userLpRaw) {
+          lpToWithdraw = directLpRaw
+        } else if (userStakedUsd > 0 && withdrawAmountUsd >= userStakedUsd * 0.999) {
+          lpToWithdraw = userLpRaw
+        } else if (userStakedUsd <= 0 || userPos?.priceUnavailable) {
+          // H3/O4 fix: missing or unverified price feed prevents an unintended full exit
+          throw new Error(
+            'Unable to value your LP position right now (price feed unverified). Please specify your withdrawal percentage or LP token amount directly.'
+          )
+        } else {
+          lpToWithdraw = calculateLpClaimAmount(withdrawAmountNum, userStakedUsd, userLpRaw)
+          if (lpToWithdraw > userLpRaw) lpToWithdraw = userLpRaw
+        }
       }
 
       if (lpToWithdraw === 0n) {
@@ -2775,7 +3028,7 @@ export function usePoolsData(
 
       // V2: derive exact minOutA/minOutB from reserves for removeLiquidity slippage.
       const removeLiquidityArgs = (() => {
-        if (!POOL_VERSION_V2 && !POOL_VERSION_V3) return [lpToWithdraw, 0n, 0n] as const
+        if (!POOL_VERSION_V2 && !POOL_VERSION_V3 && !POOL_VERSION_V4) return [lpToWithdraw, 0n, 0n] as const
         const st = (onchainPoolState || {})[poolAddress] as any
         const total = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
         if (total <= 0n) return [lpToWithdraw, 0n, 0n] as const
@@ -2790,11 +3043,11 @@ export function usePoolsData(
 
       const counterBalBefore = payoutMode === 'usdc' && counterTokenAddress
         ? ((await resilientReadContract(publicClient, {
-            address: counterTokenAddress,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [targetAccount],
-          })) as bigint)
+          address: counterTokenAddress,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [targetAccount],
+        })) as bigint)
         : 0n
 
       const applyLpOptimisticWithdraw = () => {
@@ -2872,6 +3125,18 @@ export function usePoolsData(
         const walletClient = await getWalletClient()
         if (!walletClient) throw new Error('Wallet not connected')
 
+        const gasLimit = await estimateSafeGas(
+          publicClient,
+          {
+            address: poolAddress,
+            abi: STABLE_SWAP_ABI,
+            functionName: 'removeLiquidity',
+            args: removeLiquidityArgs as any,
+            account: targetAccount,
+          },
+          400_000n
+        )
+
         txHash = await resilientWriteContract(walletClient, {
           address: poolAddress,
           abi: STABLE_SWAP_ABI,
@@ -2879,7 +3144,7 @@ export function usePoolsData(
           args: removeLiquidityArgs,
           account: targetAccount,
           chain: arcTestnet,
-          gas: 400_000n,
+          gas: gasLimit,
         })
         await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')
         applyLpOptimisticWithdraw()
@@ -2954,8 +3219,14 @@ export function usePoolsData(
               console.warn('[usePoolsData] Auto-swap fresh minOut calculation fallback:', mathErr)
             }
 
-            // Execute swap back to USDC with slippage protection
-            await swapInPool(poolId, counterToken.symbol, 'USDC', counterBalStr, minOutUsdcStr, skipCacheInvalidation)
+            // Execute swap back to USDC with slippage protection.
+            // Phase 0: never swap without a real minOut guard — leave the counter token in the wallet instead.
+            if ((parseFloat(minOutUsdcStr) || 0) > 0) {
+              await swapInPool(poolId, counterToken.symbol, 'USDC', counterBalStr, minOutUsdcStr, skipCacheInvalidation)
+            } else {
+              autoSwapFailed = true
+              console.warn('[usePoolsData] Skipping auto-swap to USDC: could not compute a safe minOut from live reserves.')
+            }
           }
         } catch (swapErr) {
           autoSwapFailed = true
@@ -2966,98 +3237,186 @@ export function usePoolsData(
       if (!skipCacheInvalidation) {
         await invalidatePoolCaches()
       }
-      return { 
-        txHash, 
-        autoSwapFailed, 
-        counterTokenSymbol: autoSwapCounterSymbol, 
-        counterAmount: autoSwapCounterAmount 
+      return {
+        txHash,
+        autoSwapFailed,
+        counterTokenSymbol: autoSwapCounterSymbol,
+        counterAmount: autoSwapCounterAmount
       }
     },
     [getWalletClient, publicClient, requireDeployed, invalidatePoolCaches, userPoolPositions, walletAddress, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, waitForReceiptSafe, swapInPool, authSource, executeUcwContract]
   )
 
-  // ── Auto-Accrued Yield Claim Management ───────────────────────────────────
-  // In Arcis ERC-4626 Vaults and AMM LP pools, yield accrues by appreciating
-  // the value of user shares. "Claiming" redeems precisely the earned profit
-  // portion (without liquidating principal) directly into user's wallet as USDC.
+  // ── On-chain harvest (Phase 1) ────────────────────────────────────────────
+  // LP fees and vault yield are settled inside the V4 contracts. "Claiming" is a real
+  // `harvest()` call: it pays exactly what `pendingFees` / `pendingYield` reports and never
+  // touches the principal. No client-side checkpoint is written, so a fresh device sees the
+  // same claimable amount.
   const claimPoolRewards = useCallback(
     async (poolId: string): Promise<{ amountClaimed: string; txHash: string }> => {
       const pool = ARCIS_POOLS.find((p) => p.id === poolId)
       if (!pool) throw new Error('Pool not found')
 
-      const pos = userPoolPositions?.[poolId]
-      const earnedUsd = pos?.earnedUsd || 0
-
-      if (earnedUsd < 0.001) {
-        throw new Error('No claimable yield accrued yet for this pool.')
+      if (!POOL_VERSION_V4) {
+        throw new Error('Fee harvest requires the V4 pool contracts (deploy V4 and set VITE_POOL_VERSION=v4).')
       }
 
       const targetAccount = (walletAddress || (await (await getWalletClient())?.getAddresses())?.[0]) as Address
       if (!targetAccount) throw new Error('Wallet not connected')
 
-      // Use withdrawFromPool with exact earnedUsd amount and single-token 'usdc' payout
-      // Pass skipCacheInvalidation = true so caches are NOT invalidated before checkpoints & timestamps are saved
-      const claimAmountStr = earnedUsd.toFixed(2)
-      const res = await withdrawFromPool(poolId, claimAmountStr, 'usdc', provider, 0.5, true)
+      const isVault = poolId === 'usdc-yield-vault'
+      const poolAddress = (pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
+        ? POOL_CONTRACTS.STABLE_SWAP_POOL
+        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)) as `0x${string}`
 
-      // 1. Reset staking timestamp to current time so continuous APY yield starts accumulating anew from 0
-      const now = Date.now()
-      setPoolStakingTimestamp(targetAccount, poolId, now)
-      if (walletAddress) setPoolStakingTimestamp(walletAddress, poolId, now)
-
-      // 2. For LP pools: checkpoint cumulative contract swap fees so already-claimed fees are not re-accrued
-      if (pos?.earnedFeesUsd !== undefined) {
-        setPoolClaimFeeCheckpoint(targetAccount, poolId, pos.earnedFeesUsd)
-        if (walletAddress) setPoolClaimFeeCheckpoint(walletAddress, poolId, pos.earnedFeesUsd)
+      // 1) Read the on-chain claimable amount — the single source of truth for the user.
+      let harvestableA = 0n
+      let harvestableB = 0n
+      const decB = pool.tokens?.[1]?.decimals ?? 6
+      if (isVault) {
+        harvestableA = (await resilientReadContract(publicClient, {
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          abi: YIELD_VAULT_ABI,
+          functionName: 'pendingYield',
+          args: [targetAccount],
+        })) as bigint
+      } else {
+        const pending = (await resilientReadContract(publicClient, {
+          address: poolAddress,
+          abi: STABLE_SWAP_ABI,
+          functionName: 'pendingFees',
+          args: [targetAccount],
+        })) as readonly [bigint, bigint]
+        harvestableA = pending?.[0] || 0n
+        harvestableB = pending?.[1] || 0n
       }
 
-      // 3. For Yield Vault: checkpoint cumulative vault appreciation profit
-      if (poolId === 'usdc-yield-vault') {
-        const currentVaultProfit = pos?.earnedFeesUsd !== undefined ? pos.earnedFeesUsd : (pos?.earnedUsd || 0)
-        setPoolYieldClaimCheckpoint(targetAccount, poolId, currentVaultProfit)
-        if (walletAddress) setPoolYieldClaimCheckpoint(walletAddress, poolId, currentVaultProfit)
+      if (harvestableA === 0n && harvestableB === 0n) {
+        throw new Error('No harvestable rewards accrued yet for this pool.')
       }
 
-      // 4. Optimistically reset earned yield for this pool to 0 across all address representations in React Query
-      const updateQuery = (addrKey: string) => {
-        queryClient.setQueryData<Record<string, UserPoolPosition>>(
-          ['userPoolPositions', addrKey],
-          (old) => {
-            if (!old) return old
-            const curr = old[poolId]
-            if (!curr) return old
-            return {
-              ...old,
-              [poolId]: {
-                ...curr,
-                earnedRewards: '0.00',
-                earnedUsd: 0,
-              },
-            }
-          }
-        )
-      }
-      if (targetAccount) {
-        updateQuery(targetAccount)
-        updateQuery(targetAccount.toLowerCase())
-      }
-      if (walletAddress) {
-        updateQuery(walletAddress)
-        updateQuery(walletAddress.toLowerCase())
+      const harvestTarget = (isVault ? POOL_CONTRACTS.YIELD_VAULT : poolAddress) as `0x${string}`
+
+      // 2) Submit harvest() through whichever wallet path is active.
+      let txHash = ''
+      const smartAccount = getActiveSmartAccount()
+      if (smartAccount) {
+        const harvestData = isVault
+          ? encodeFunctionData({ abi: YIELD_VAULT_ABI, functionName: 'harvest' })
+          : encodeFunctionData({ abi: STABLE_SWAP_ABI, functionName: 'harvest' })
+        const opRes = await sendModularUserOperation({
+          calls: [{ to: harvestTarget as Hex, data: harvestData }],
+          paymaster: true,
+        })
+        if (!opRes.success || !opRes.txHash) {
+          throw new Error(opRes.error || 'Modular UserOperation harvest failed.')
+        }
+        txHash = opRes.txHash
+        await waitForReceiptSafe(txHash as Hex, 'Harvest')
+      } else if (authSource === 'ucw' && executeUcwContract) {
+        const res = await executeUcwContract({
+          contractAddress: harvestTarget,
+          abiFunctionSignature: 'harvest()',
+          abiParameters: [],
+          blockchain: 'ARC-TESTNET',
+        })
+        if (!res.success) {
+          const isCanceled = Boolean(res.error && (res.error.toLowerCase().includes('cancel') || res.error.toLowerCase().includes('iptal')))
+          const err: any = new Error(res.error || 'Harvest authorization failed.')
+          if (isCanceled) err.isCanceled = true
+          throw err
+        }
+        // Only a real hash can be waited on: a placeholder would report a harvest that never
+        // happened. When Circle has not published one yet, say so instead of claiming success.
+        const ucwHarvestHash = resolveUcwTxHash(res)
+        if (!ucwHarvestHash) {
+          throw new Error(ucwHashPendingMessage('Harvest'))
+        }
+        txHash = ucwHarvestHash
+        await waitForReceiptSafe(txHash as Hex, 'Harvest')
+      } else {
+        const walletClient = await getWalletClient()
+        if (!walletClient) throw new Error('Wallet not connected')
+        if (isVault) {
+          const gasLimit = await estimateSafeGas(
+            publicClient,
+            {
+              address: POOL_CONTRACTS.YIELD_VAULT,
+              abi: YIELD_VAULT_ABI,
+              functionName: 'harvest',
+              args: [],
+              account: targetAccount,
+            },
+            250_000n
+          )
+          txHash = await resilientWriteContract(walletClient, {
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            abi: YIELD_VAULT_ABI,
+            functionName: 'harvest',
+            args: [],
+            account: targetAccount,
+            chain: arcTestnet,
+            gas: gasLimit,
+          })
+        } else {
+          const gasLimit = await estimateSafeGas(
+            publicClient,
+            {
+              address: poolAddress,
+              abi: STABLE_SWAP_ABI,
+              functionName: 'harvest',
+              args: [],
+              account: targetAccount,
+            },
+            300_000n
+          )
+          txHash = await resilientWriteContract(walletClient, {
+            address: poolAddress,
+            abi: STABLE_SWAP_ABI,
+            functionName: 'harvest',
+            args: [],
+            account: targetAccount,
+            chain: arcTestnet,
+            gas: gasLimit,
+          })
+        }
+        await waitForReceiptSafe(txHash as Hex, 'Harvest')
       }
 
-      // 5. Invalidate caches safely now that all checkpoints and timestamps are written
+      // 3) USDC-denominated display value of what was just harvested.
+      const usdA = parseFloat(formatUnits(harvestableA, 6))
+      const usdB = harvestableB > 0n
+        ? parseFloat(formatUnits(harvestableB, decB)) * (decB === 8 ? liveBtcPrice : liveEurcPrice)
+        : 0
+      const amountClaimed = (usdA + usdB).toFixed(4)
+
+      if (txHash && targetAccount) {
+        try {
+          addTransaction({
+            type: 'harvest',
+            txHash,
+            amount: amountClaimed,
+            tokenSymbol: 'USDC',
+            sourceChain: 'Arc_Testnet',
+            recipient: targetAccount,
+            userAddress: targetAccount,
+            status: 'success',
+            poolId,
+            poolName: pool.name,
+          })
+        } catch (histErr) {
+          console.warn('[usePoolsData] Failed to record harvest in history:', histErr)
+        }
+      }
+
       await invalidatePoolCaches()
-      return {
-        amountClaimed: claimAmountStr,
-        txHash: res.txHash,
-      }
+      return { amountClaimed, txHash }
     },
-    [userPoolPositions, walletAddress, getWalletClient, withdrawFromPool, provider, queryClient, onchainPoolState, liveBtcPrice, liveEurcPrice, invalidatePoolCaches]
+    [walletAddress, getWalletClient, publicClient, waitForReceiptSafe, invalidatePoolCaches, liveBtcPrice, liveEurcPrice, authSource, executeUcwContract]
   )
 
-  const claimAllRewards = useCallback(async (): Promise<{ 
-    totalClaimed: string; 
+  const claimAllRewards = useCallback(async (): Promise<{
+    totalClaimed: string;
     txHash: string;
     txHashes: string[];
     successfulPools: string[];

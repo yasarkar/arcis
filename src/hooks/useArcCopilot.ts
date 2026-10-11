@@ -25,6 +25,7 @@ import {
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload, CopilotActionType } from '../types/marketplace'
 import type { SessionKeyConfig, SessionActionType } from '../types/sessionKey'
 import { formatCopilotError, canceledActionTitle } from '../utils/errorUtils'
+import { classifyCopilotIntent, copilotActionIntent, invalidateCopilotDrafts } from '../utils/copilotIntent'
 
 function normalizeActionType(type?: CopilotActionType | string): SessionActionType {
   if (!type) return 'send'
@@ -529,11 +530,22 @@ export function useArcCopilot(
   const queryBusyRef = useRef<boolean>(false)
   const queryGenerationRef = useRef<number>(0)
   const queryAbortRef = useRef<AbortController | null>(null)
+  // Separate from network generations: protects cards that are still being streamed.
+  const draftGenerationRef = useRef(0)
+  const currentDraftRef = useRef<CopilotActionPayload | null>(null)
+
+  const invalidateDrafts = () => {
+    draftGenerationRef.current += 1
+    currentDraftRef.current = null
+    pendingActionRef.current = null
+    setMessages(invalidateCopilotDrafts)
+  }
 
   // Invalidate in-flight query tasks and pending actions when the connected wallet changes
   const prevWalletRef = useRef<string | undefined>(walletAddress)
   useEffect(() => {
     if (prevWalletRef.current !== walletAddress) {
+      invalidateDrafts()
       prevWalletRef.current = walletAddress
       queryGenerationRef.current += 1
       queryAbortRef.current?.abort()
@@ -552,6 +564,7 @@ export function useArcCopilot(
   const streamAssistantMessage = async (msg: CopilotMessage): Promise<void> => {
     setIsAnalyzing(false)
     const currentGeneration = queryGenerationRef.current
+    const draftGeneration = draftGenerationRef.current
     const fullContent = msg.content
     const msgId = msg.id
 
@@ -613,7 +626,7 @@ export function useArcCopilot(
               ...m,
               content: fullContent,
               isStreaming: false,
-              actionPayload: msg.actionPayload,
+              actionPayload: draftGeneration === draftGenerationRef.current ? msg.actionPayload : undefined,
             }
           : m
       )
@@ -644,7 +657,7 @@ export function useArcCopilot(
       const resumeMsg: CopilotMessage = {
         id: 'assistant-resume-' + Date.now(),
         role: 'assistant',
-        content: `✅ **Session Settings** are now active! Ready to proceed with your **${pendingName}** transaction:`,
+        content: `✅ Session Settings are now active! Ready to proceed with your ${pendingName} transaction:`,
         timestamp: Date.now(),
         actionPayload: pending,
       }
@@ -715,6 +728,9 @@ export function useArcCopilot(
 
   const executeInlineAction = async (msgId: string, actionPayload: CopilotActionPayload) => {
     if (inFlightExecutionsRef.current.has(msgId)) return
+    if (copilotActionIntent(actionPayload) && (!currentDraftRef.current ||
+      actionPayload.draftId !== currentDraftRef.current.draftId ||
+      actionPayload.revision !== currentDraftRef.current.revision)) return
 
     const liveConfig = getSessionKeyConfig(walletAddress)
     const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
@@ -815,9 +831,16 @@ export function useArcCopilot(
     portfolioSnapshot?: any
   ): Promise<void> => {
     try {
+      const generation = queryGenerationRef.current
       const llmResult = await queryArcisLLM(queryText, walletAddress, messages, portfolioSnapshot)
+      if (generation !== queryGenerationRef.current) return
       const assistantMsgId = 'assistant-' + Date.now()
       const action = llmResult.actionPayload
+      // Any newly prepared transaction supersedes unsubmitted cards, never receipts/in-flight work.
+      if (action && copilotActionIntent(action)) {
+        invalidateDrafts()
+        currentDraftRef.current = action
+      }
 
       const liveConfig = getSessionKeyConfig(walletAddress)
       const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
@@ -987,7 +1010,19 @@ export function useArcCopilot(
 
   // Orchestrate execution of natural language query or quick prompt
   const executeQuery = async (queryText: string) => {
-    if (!queryText.trim() || queryBusyRef.current) return
+    if (!queryText.trim()) return
+    const intent = classifyCopilotIntent(queryText)
+    // Cancellation must work while a provider response is still in flight.
+    if (intent.kind === 'cancel') {
+      queryGenerationRef.current += 1
+      queryAbortRef.current?.abort()
+      invalidateDrafts()
+      addMessage({ id: 'user-' + Date.now(), role: 'user', content: queryText, timestamp: Date.now() })
+      addMessage({ id: 'assistant-cancel-' + Date.now(), role: 'assistant', content: intent.message, timestamp: Date.now() })
+      setCurrentSteps([])
+      return
+    }
+    if (queryBusyRef.current) return
     queryBusyRef.current = true
     setIsAnalyzing(true)
 
@@ -1004,6 +1039,12 @@ export function useArcCopilot(
         timestamp: Date.now(),
       }
       addMessage(userMsg)
+      if (intent.kind === 'command' || intent.kind === 'correction') invalidateDrafts()
+      if ('message' in intent) {
+        addMessage({ id: 'assistant-' + Date.now(), role: 'assistant', content: intent.message, timestamp: Date.now() })
+        setCurrentSteps([])
+        return
+      }
 
       // Fetch live on-chain portfolio snapshot directly (no artificial 1.8s wait)
       const portfolioSnapshot = await getLivePortfolioSnapshot(walletAddress)
@@ -2040,6 +2081,7 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
 }
 
   const clearChat = () => {
+    invalidateDrafts()
     queryGenerationRef.current += 1
     queryAbortRef.current?.abort()
     queryAbortRef.current = null
