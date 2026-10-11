@@ -13,6 +13,7 @@ export interface SessionKeyConfig {
   expiresAt: number // Timestamp in ms
   maxSpendUsdc: number // Total budget cap e.g. 100 USDC
   spentUsdc: number // Total spent so far
+  reservedUsdc?: number // Durable pending/signing principal held against this wallet budget
   maxPerTxUsdc: number // Single-tx threshold e.g. 25 USDC
   allowedActions: SessionActionType[]
   isActive: boolean
@@ -46,6 +47,9 @@ export interface InlineExecutionReceipt {
   txHash: string
   /** Bundler operation identifier when an ERC-4337 operation is still awaiting inclusion. */
   userOpHash?: string
+  /** Durable wallet-scoped budget reservation; never a signing credential. */
+  reservationId?: string
+  reservationWallet?: string
   explorerUrl?: string
   /** Source-chain transaction for cross-chain bridge receipts. */
   sourceTxHash?: string

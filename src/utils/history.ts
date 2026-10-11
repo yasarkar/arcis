@@ -6,7 +6,15 @@
 
 export interface HistoryItem {
   id: string
-  type: 'send' | 'swap' | 'bridge' | 'deposit' | 'ai_service'
+  type:
+    | 'send'
+    | 'swap'
+    | 'bridge'
+    | 'deposit'
+    | 'ai_service'
+    | 'add_liquidity'
+    | 'remove_liquidity'
+    | 'harvest'
   txHash: string
   /**
    * Bridge only: destination (mint) transaction hash. Rows created before the
@@ -42,6 +50,14 @@ export interface HistoryItem {
   serviceName?: string
   providerAddress?: string
   latencyMs?: number
+
+  // Pool / AMM specific
+  poolId?: string
+  poolName?: string
+  lpMinted?: string
+  poolShare?: number
+  amountB?: string
+  tokenB?: string
 }
 
 // In-memory runtime cache partitioned by wallet address for instant UI reactivity

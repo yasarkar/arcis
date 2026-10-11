@@ -118,6 +118,9 @@ export type CopilotActionType =
   | 'configure_session'
 
 export interface CopilotActionPayload {
+  /** Unsubmitted transaction identity; revisions never inherit a different action's draft. */
+  draftId?: string
+  revision?: number
   type: CopilotActionType
   title: string
   data?: {
@@ -127,8 +130,13 @@ export interface CopilotActionPayload {
     recipient?: string
     memo?: string
     amount?: number
+    /** Canonical Ask Arco tolerance, e.g. 10 bps = 0.1%. */
+    slippageBps?: number
+    /** Legacy chat percentage only; new drafts emit slippageBps. */
     slippage?: number
-    estimatedOut?: number
+    estimatedOut?: number | string
+    /** New quotes emit an exact decimal string; legacy numeric cards require a new quote. */
+    minReceived?: string | number
     rate?: number
     fromChain?: string
     toChain?: string

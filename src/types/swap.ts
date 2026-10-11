@@ -25,6 +25,11 @@ export interface SwapExecuteParams {
    *  never `recipientAddress` (which only decides where output is delivered). */
   senderAddress?: string
   recipientAddress?: string
+  /** Canonical tolerance: 100 bps = 1%. Never silently clamped. */
+  slippageBps?: number
+  /** User-approved exact decimal output bound, retained through approval/refresh. */
+  minimumOutput?: string
+  /** Legacy service callers use a fraction: 0.01 = 1%. */
   slippageTolerance?: number
   speedTier?: 'standard' | 'fast' | 'turbo'
   customFee?: {
