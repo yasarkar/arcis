@@ -19,7 +19,14 @@ import {
 import PoolsHeroStats from './PoolsHeroStats'
 import PoolCard from './PoolCard'
 import PoolActionModal from './PoolActionModal'
+import ConcentratedLiquidityModal from './ConcentratedLiquidityModal'
 import YieldCalculator from './YieldCalculator'
+import PoolsOverviewCard from './PoolsOverviewCard'
+import PoolsTvlChartCard from './PoolsTvlChartCard'
+import PoolsToolbar from './PoolsToolbar'
+import PoolsTable from './PoolsTable'
+import CreatePoolModal from './CreatePoolModal'
+import MyPositionsSection from './MyPositionsSection'
 import { usePoolsData } from '../../hooks/usePoolsData'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
 import { type PoolCategory, type PoolConfig, type PoolRiskLevel, POOLS_CHAIN_DEFS } from '../../config/poolsConfig'
@@ -28,6 +35,7 @@ import { transferFromGateway } from '../../services/gatewayService'
 import { useBroadcast, type BroadcastType } from '../BroadcastNotification'
 import { TOKEN_ICON_MAP } from '../../config/tokenIcons'
 import { isUserCanceled, formatWalletError } from '../../utils/errorUtils'
+import { addTransaction } from '../../utils/history'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
@@ -232,7 +240,7 @@ export default function PoolsTab({
   ) => {
     if (ids.toastId && removeToast) removeToast(ids.toastId)
     const isCanceled = isUserCanceled(err) || err?.isCanceled === true || err?.code === 4001
-    const title = isCanceled ? (defaultTitle.includes('Claim') ? 'Claim Canceled' : 'Transaction Canceled') : defaultTitle
+    const title = isCanceled ? (defaultTitle.includes('Withdraw') ? 'Withdrawal Canceled' : 'Transaction Canceled') : defaultTitle
     const message = isCanceled
       ? 'You canceled the confirmation request in your wallet. No balance was deducted.'
       : (formatWalletError(err) || err?.shortMessage || err?.message || 'Transaction failed on Arc Testnet')
@@ -252,8 +260,8 @@ export default function PoolsTab({
     if (userTotalClaimableRewardsUsd < 0.005) {
       if (addToast) {
         addToast(
-          'No Claimable Yield',
-          'You have no accrued yield to claim at this time (minimum 0.01 USDC).',
+          'Nothing to Harvest',
+          'No accrued fees or yield to harvest yet (minimum 0.01 USDC).',
           'info',
           undefined,
           'Arc Testnet'
@@ -277,8 +285,8 @@ export default function PoolsTab({
     const formattedAvgApy = `Avg ${avgApy.toFixed(1)}% APY`
 
     const notif = notifyPending(
-      'Claiming All Yield...',
-      `Redeeming ${userTotalClaimableRewardsUsd.toFixed(2)} USDC in accumulated profit across your pools`,
+      'Harvesting Accrued Yield...',
+      `Harvesting ${userTotalClaimableRewardsUsd.toFixed(2)} USDC of accrued fees/yield — your principal stays staked`,
       {
         poolName: 'All Active Pools',
         isClaimAll: true,
@@ -297,8 +305,8 @@ export default function PoolsTab({
       if (res.isCanceled && res.successfulPools && res.successfulPools.length > 0) {
         notifySuccess(
           notif,
-          'Partial Yield Claimed',
-          `Claimed ${res.totalClaimed} USDC from ${res.successfulPools.join(', ')}. Remaining claim requests were canceled in wallet.`,
+          'Partial Harvest',
+          `Harvested ${res.totalClaimed} USDC from ${res.successfulPools.join(', ')}. Remaining harvest requests were canceled in wallet.`,
           res.txHash,
           {
             poolName: 'All Active Pools',
@@ -315,8 +323,8 @@ export default function PoolsTab({
         if (res.successfulPools && res.successfulPools.length > 0) {
           notifySuccess(
             notif,
-            'Partial Yield Claimed',
-            `Claimed ${res.totalClaimed} USDC from ${res.successfulPools.join(', ')}. Note: Claim failed for ${res.failedPools.join(', ')}.`,
+            'Partial Harvest',
+            `Harvested ${res.totalClaimed} USDC from ${res.successfulPools.join(', ')}. Note: Harvest failed for ${res.failedPools.join(', ')}.`,
             res.txHash,
             {
               poolName: 'All Active Pools',
@@ -330,7 +338,7 @@ export default function PoolsTab({
             }
           )
         } else {
-          notifyError(notif, 'Claim Failed', new Error(`Claim failed for: ${res.failedPools.join(', ')}`), {
+          notifyError(notif, 'Withdrawal Failed', new Error(`Withdrawal failed for: ${res.failedPools.join(', ')}`), {
             poolName: 'All Active Pools',
             isClaimAll: true,
             poolApy: formattedAvgApy,
@@ -344,8 +352,8 @@ export default function PoolsTab({
       } else {
         notifySuccess(
           notif,
-          'Yield Claimed Successfully!',
-          `Successfully claimed ${res.totalClaimed} USDC across ${res.successfulPools.length} pool(s) directly to your wallet!`,
+          'Yield Harvested Successfully!',
+          `Successfully harvested ${res.totalClaimed} USDC across ${res.successfulPools.length} pool(s) directly to your wallet!`,
           res.txHash,
           {
             poolName: 'All Active Pools',
@@ -362,7 +370,7 @@ export default function PoolsTab({
       refreshBalances()
       refreshGatewayBalance()
     } catch (err: any) {
-      notifyError(notif, 'Claim Failed', err, {
+      notifyError(notif, 'Withdrawal Failed', err, {
         poolName: 'All Active Pools',
         isClaimAll: true,
         poolApy: formattedAvgApy,
@@ -386,8 +394,8 @@ export default function PoolsTab({
     if (earnedUsd < 0.005) {
       if (addToast) {
         addToast(
-          'No Claimable Yield',
-          `No accrued yield available to claim for ${poolName} (minimum 0.01 USDC).`,
+          'Nothing to Harvest',
+          `No accrued fees or yield available to harvest for ${poolName} yet (minimum 0.01 USDC).`,
           'info',
           undefined,
           'Arc Testnet'
@@ -400,8 +408,8 @@ export default function PoolsTab({
     setIsClaiming(true)
 
     const notif = notifyPending(
-      `Claiming Yield...`,
-      `Redeeming ${earnedUsd.toFixed(2)} USDC in profit without unstaking your principal`,
+      `Harvesting Yield...`,
+      `Harvesting ${earnedUsd.toFixed(2)} USDC of accrued fees/yield — your principal stays staked`,
       {
         poolId,
         poolName,
@@ -418,8 +426,8 @@ export default function PoolsTab({
       const res = await claimPoolRewards(poolId)
       notifySuccess(
         notif,
-        'Yield Claimed Successfully!',
-        `Successfully claimed +${res.amountClaimed} USDC from ${poolName} directly into your wallet!`,
+        'Yield Harvested Successfully!',
+        `Successfully harvested +${res.amountClaimed} USDC from ${poolName} directly into your wallet!`,
         res.txHash,
         {
           poolId,
@@ -434,7 +442,7 @@ export default function PoolsTab({
       refreshBalances()
       refreshGatewayBalance()
     } catch (err: any) {
-      notifyError(notif, 'Claim Failed', err, {
+      notifyError(notif, 'Withdrawal Failed', err, {
         poolId,
         poolName,
         amount: earnedUsd.toFixed(2),
@@ -533,6 +541,25 @@ export default function PoolsTab({
         }
       )
 
+      if (txResult?.txHash && walletAddress) {
+        try {
+          addTransaction({
+            type: mode === 'deposit' ? 'add_liquidity' : 'remove_liquidity',
+            txHash: txResult.txHash,
+            amount,
+            tokenSymbol,
+            sourceChain: 'Arc_Testnet',
+            recipient: targetPool?.contractAddress || undefined,
+            userAddress: walletAddress,
+            status: 'success',
+            poolId,
+            poolName,
+          })
+        } catch (err) {
+          console.warn('[PoolsTab] Failed to add transaction to history:', err)
+        }
+      }
+
       refreshBalances()
       refreshGatewayBalance()
     } catch (err: any) {
@@ -601,6 +628,27 @@ export default function PoolsTab({
           network: 'Arc_Testnet',
         }
       )
+
+      if (result?.txHash && walletAddress) {
+        try {
+          addTransaction({
+            type: 'add_liquidity',
+            txHash: result.txHash,
+            amount: inputAmount,
+            tokenSymbol: inputToken,
+            sourceChain: 'Arc_Testnet',
+            recipient: targetPool?.contractAddress || undefined,
+            userAddress: walletAddress,
+            status: 'success',
+            poolId,
+            poolName,
+            lpMinted: result.lpMinted,
+            poolShare: result.poolShare,
+          })
+        } catch (err) {
+          console.warn('[PoolsTab] Failed to add zap transaction to history:', err)
+        }
+      }
 
       refreshBalances()
       refreshGatewayBalance()
@@ -674,6 +722,29 @@ export default function PoolsTab({
           network: 'Arc_Testnet',
         }
       )
+
+      if (result?.txHash && walletAddress) {
+        try {
+          addTransaction({
+            type: 'add_liquidity',
+            txHash: result.txHash,
+            amount: amountA,
+            tokenSymbol: symbolA,
+            amountB,
+            tokenB: symbolB,
+            sourceChain: 'Arc_Testnet',
+            recipient: targetPool?.contractAddress || undefined,
+            userAddress: walletAddress,
+            status: 'success',
+            poolId,
+            poolName,
+            lpMinted: result.lpMinted,
+            poolShare: result.poolShare,
+          })
+        } catch (err) {
+          console.warn('[PoolsTab] Failed to add dual deposit transaction to history:', err)
+        }
+      }
 
       refreshBalances()
       refreshGatewayBalance()
@@ -774,6 +845,25 @@ export default function PoolsTab({
             network: 'Arc_Testnet',
           }
         )
+      }
+
+      if (result?.txHash && walletAddress) {
+        try {
+          addTransaction({
+            type: 'remove_liquidity',
+            txHash: result.txHash,
+            amount: lpAmount,
+            tokenSymbol: lpTokenSymbol,
+            sourceChain: 'Arc_Testnet',
+            recipient: targetPool?.contractAddress || undefined,
+            userAddress: walletAddress,
+            status: 'success',
+            poolId,
+            poolName,
+          })
+        } catch (err) {
+          console.warn('[PoolsTab] Failed to add LP withdraw transaction to history:', err)
+        }
       }
 
       refreshBalances()
@@ -949,6 +1039,26 @@ export default function PoolsTab({
         }
       )
 
+      if (txResult?.txHash && walletAddress) {
+        try {
+          addTransaction({
+            type: 'add_liquidity',
+            txHash: txResult.txHash,
+            amount: effectiveDepositAmount,
+            tokenSymbol: 'USDC',
+            sourceChain: effectiveSourceChain,
+            destChain: 'Arc_Testnet',
+            recipient: targetPool?.contractAddress || undefined,
+            userAddress: walletAddress,
+            status: 'success',
+            poolId,
+            poolName,
+          })
+        } catch (err) {
+          console.warn('[PoolsTab] Failed to add cross-chain deposit to history:', err)
+        }
+      }
+
       refreshBalances()
       refreshGatewayBalance()
     } catch (err: any) {
@@ -971,13 +1081,18 @@ export default function PoolsTab({
 
 
 
+  // Chart timeframe state
+  const [chartTimeframe, setChartTimeframe] = useState<'24H' | '7D' | '30D'>('30D')
+  // Create pool modal state
+  const [isCreatePoolOpen, setIsCreatePoolOpen] = useState<boolean>(false)
+
   return (
-    <div className="arc-animate-reveal w-full max-w-[1400px] mx-auto pt-1">
-      {/* ── Two-Column Desktop Layout ── */}
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
-        {/* ── Left Column: Sticky Arcis Pools & Yield Hub Card ── */}
-        <div className="w-full lg:w-[430px] xl:w-[460px] lg:shrink-0 lg:sticky lg:top-[88px] z-20">
-          <PoolsHeroStats
+    <div className="arc-animate-reveal w-full max-w-[1400px] mx-auto pt-1 pb-12">
+      {/* ── 1. Top Section: Hero Analytics Grid (Left: Overview, Right: TVL Chart) ── */}
+      <div className="flex flex-col lg:flex-row gap-5 sm:gap-6 items-stretch">
+        {/* Left Hero: Liquidity Pools Overview Card (Expanded Width) */}
+        <div className="w-full lg:w-[380px] xl:w-[420px] 2xl:w-[460px] lg:shrink-0 flex flex-col self-stretch">
+          <PoolsOverviewCard
             totalTvlUsd={totalTvlUsd}
             pools={pools}
             userTotalDepositedUsd={userTotalDepositedUsd}
@@ -987,274 +1102,108 @@ export default function PoolsTab({
             onClaimAll={handleClaimAll}
             isClaiming={isClaiming}
             onOpenCalculator={() => setIsCalculatorOpen(true)}
+            timeframe={chartTimeframe}
           />
         </div>
 
-        {/* ── Right Column: Filters, Search & Pools List ── */}
-        <div className="flex-1 min-w-0 w-full flex flex-col">
-          {/* ── Filter Bar & Search Controls ── */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: 12,
-              marginBottom: 18,
-            }}
-          >
-            {/* Category Filter Pills */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                overflowX: 'auto',
-                padding: '2px 0',
-                maxWidth: '100%',
-              }}
-            >
-              {categories.map((cat) => {
-                const isActive = activeCategory === cat.id
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setActiveCategory(cat.id)}
-                    style={{
-                      padding: '7px 14px',
-                      borderRadius: 99,
-                      fontSize: 12,
-                      fontFamily: 'var(--font-app)',
-                      fontWeight: isActive ? 600 : 500,
-                      color: isActive ? '#fff' : 'var(--fp-3)',
-                      background: isActive
-                        ? 'linear-gradient(135deg, rgba(152, 150, 255, 0.25) 0%, rgba(99, 102, 241, 0.3) 100%)'
-                        : 'rgba(255, 255, 255, 0.04)',
-                      border: isActive
-                        ? '1px solid rgba(152, 150, 255, 0.4)'
-                        : '1px solid rgba(255, 255, 255, 0.08)',
-                      boxShadow: isActive ? '0 2px 10px rgba(152, 150, 255, 0.2)' : 'none',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    {cat.label}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Search & Sort Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {/* Search Box */}
-              <div style={{ position: 'relative', minWidth: 360}}>
-                <Search
-                  size={14}
-                  style={{
-                    position: 'absolute',
-                    left: 12,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--fp-4)',
-                  }}
-                />
-                <input
-                  type="text"
-                  placeholder="Search vaults..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    background: 'rgba(11, 13, 24, 0.75)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: 99,
-                    padding: '6px 14px 6px 32px',
-                    fontSize: 12,
-                    color: '#fff',
-                    fontFamily: 'var(--font-app)',
-                    outline: 'none',
-                    width: '100%',
-                  }}
-                />
-              </div>
-
-              {/* Custom Luxury Sort Dropdown */}
-              <div style={{ position: 'relative' }} ref={sortDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowSortDropdown((prev) => !prev)}
-                  style={{
-                    background: 'rgba(11, 13, 24, 0.75)',
-                    border: showSortDropdown
-                      ? '1px solid rgba(152, 150, 255, 0.5)'
-                      : '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: 99,
-                    padding: '6px 14px',
-                    fontSize: 12,
-                    color: '#fff',
-                    fontFamily: 'var(--font-app)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 7,
-                    cursor: 'pointer',
-                    outline: 'none',
-                    transition: 'all 0.2s var(--ease-out-smooth)',
-                    boxShadow: showSortDropdown ? '0 0 14px rgba(152, 150, 255, 0.2)' : 'none',
-                  }}
-                >
-                  <SlidersHorizontal size={12} style={{ color: 'var(--purple-1)' }} />
-                  <span style={{ fontWeight: 500 }}>
-                    {sortOptions.find((opt) => opt.id === sortBy)?.label || 'Sort'}
-                  </span>
-                  <ChevronDown
-                    size={13}
-                    style={{
-                      transition: 'transform 0.25s var(--ease-out-smooth)',
-                      transform: showSortDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
-                      color: 'var(--fp-3)',
-                    }}
-                  />
-                </button>
-
-                {showSortDropdown && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 6px)',
-                      right: 0,
-                      minWidth: 195,
-                      background: 'rgba(15, 18, 32, 0.96)',
-                      backdropFilter: 'blur(24px)',
-                      WebkitBackdropFilter: 'blur(24px)',
-                      border: '1px solid rgba(152, 150, 255, 0.25)',
-                      borderRadius: 14,
-                      boxShadow: '0 16px 36px -4px rgba(0, 0, 0, 0.7), 0 4px 16px rgba(0, 0, 0, 0.4)',
-                      padding: 4,
-                      zIndex: 100,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 2,
-                    }}
-                  >
-                    {sortOptions.map((opt) => {
-                      const isSelected = sortBy === opt.id
-                      const IconComponent = opt.icon
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setSortBy(opt.id)
-                            setShowSortDropdown(false)
-                          }}
-                          style={{
-                            width: '100%',
-                            textAlign: 'left',
-                            padding: '8px 12px',
-                            borderRadius: 10,
-                            background: isSelected ? 'rgba(152, 150, 255, 0.15)' : 'transparent',
-                            border: 'none',
-                            fontSize: 12,
-                            color: isSelected ? '#fff' : 'var(--fp-3)',
-                            fontFamily: 'var(--font-app)',
-                            fontWeight: isSelected ? 600 : 400,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            transition: 'all 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isSelected) (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)')
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isSelected) (e.currentTarget.style.background = 'transparent')
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <IconComponent size={13} style={{ color: isSelected ? 'var(--purple-1)' : 'var(--fp-4)' }} />
-                            <span>{opt.label}</span>
-                          </div>
-                          {isSelected && <Check size={13} style={{ color: 'var(--purple-1)' }} />}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Refresh Balances Button */}
-              <button
-                type="button"
-                onClick={async () => {
-                  if (isManualRefreshing) return
-                  try {
-                    setIsManualRefreshing(true)
-                    await refreshBalances()
-                  } finally {
-                    setIsManualRefreshing(false)
-                  }
-                }}
-                disabled={isBalancesLoading || isManualRefreshing}
-                className="ub-action-btn"
-                style={{ padding: '7px 10px', borderRadius: 99 }}
-                title="Refresh Vault Balances & Positions"
-              >
-                <RefreshCw size={13} className={isBalancesLoading || isManualRefreshing ? 'arcis-spin' : ''} />
-              </button>
-            </div>
-          </div>
-
-          {/* ── Pools Cards List ── */}
-          <div>
-            {filteredPools.map((pool) => (
-              <PoolCard
-                key={pool.id}
-                pool={pool}
-                walletConnected={walletConnected}
-                onDeposit={handleOpenDeposit}
-                onWithdraw={handleOpenWithdraw}
-                onClaim={handleClaimPool}
-                isClaiming={isClaiming}
-                claimingPoolId={claimingPoolId}
-              />
-            ))}
-
-            {filteredPools.length === 0 && (
-              <div
-                className="ub-asset-card"
-                style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--fp-3)' }}
-              >
-                <Layers size={32} style={{ margin: '0 auto 12px auto', opacity: 0.4 }} />
-                <h4 style={{ margin: '0 0 6px 0', color: '#fff', fontSize: 16 }}>No Vaults Found</h4>
-                <p style={{ margin: 0, fontSize: 13 }}>
-                  No pools matched your current search and filter criteria.
-                </p>
-              </div>
-            )}
-          </div>
+        {/* Right Hero: Interactive TVL Historical SVG Chart Card (Expansive Width) */}
+        <div className="flex-1 min-w-0 flex flex-col self-stretch">
+          <PoolsTvlChartCard
+            totalTvlUsd={totalTvlUsd}
+            activeTimeframe={chartTimeframe}
+            onTimeframeChange={setChartTimeframe}
+          />
         </div>
       </div>
 
+      {/* ── 2. Middle Section: Search & Actions Toolbar ── */}
+      <PoolsToolbar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        activeCategory={activeCategory}
+        onCategoryChange={setActiveCategory}
+        onCreatePool={() => setIsCreatePoolOpen(true)}
+        onOpenCalculator={() => setIsCalculatorOpen(true)}
+        onRefresh={async () => {
+          if (isManualRefreshing) return
+          try {
+            setIsManualRefreshing(true)
+            await refreshBalances()
+          } finally {
+            setIsManualRefreshing(false)
+          }
+        }}
+        isRefreshing={isBalancesLoading || isManualRefreshing}
+      />
+
+      {/* ── 3. Bottom Section: Modern DeFi Pools Table View ── */}
+      <PoolsTable
+        pools={filteredPools}
+        onSelectPool={(pool, mode = 'deposit') => {
+          setSelectedPoolForAction(pool)
+          setActionModalMode(mode)
+          setIsActionModalOpen(true)
+        }}
+        walletConnected={walletConnected}
+        searchQuery={searchQuery}
+      />
+
+      {/* ── 4. My Positions Section (Concentrated Liquidity Cards Matching Screenshot) ── */}
+      <MyPositionsSection
+        pools={pools}
+        walletConnected={walletConnected}
+        walletAddress={walletAddress}
+        onClaim={handleClaimPool}
+        onAddLiquidity={(pool) => {
+          if (pool) {
+            handleOpenDeposit(pool)
+          } else if (pools.length > 0) {
+            handleOpenDeposit(pools[0])
+          }
+        }}
+        onRemoveLiquidity={(pool) => {
+          if (pool) {
+            handleOpenWithdraw(pool)
+          } else if (pools.length > 0) {
+            handleOpenWithdraw(pools[0])
+          }
+        }}
+        isClaiming={isClaiming}
+        claimingPoolId={claimingPoolId}
+      />
+
       {/* ── Interactive Modals ── */}
       {isActionModalOpen && selectedPoolForAction && (
-        <PoolActionModal
-          isOpen={isActionModalOpen}
-          pool={selectedPoolForAction as any}
-          mode={actionModalMode}
-          onClose={() => setIsActionModalOpen(false)}
-          walletAddress={walletAddress}
-          availableWalletUsdc={onchainBalances.usdc}
-          availableWalletEurc={onchainBalances.eurc}
-          availableWalletCirBtc={onchainBalances.cirbtc}
-          onExecute={handleExecuteModalAction}
-          onExecuteZap={handleExecuteZap}
-          onExecuteDual={handleExecuteDual}
-          onExecuteLpWithdraw={handleExecuteLpWithdraw}
-          onExecuteSwap={handleExecuteSwap}
-          onExecuteCrossChainZap={handleExecuteCrossChainGatewayZap}
-        />
+        actionModalMode === 'deposit' && (selectedPoolForAction.id === 'usdc-cirbtc-pool' || selectedPoolForAction.tags?.includes('Concentrated Liquidity')) ? (
+          <ConcentratedLiquidityModal
+            isOpen={isActionModalOpen}
+            pool={selectedPoolForAction as any}
+            onClose={() => setIsActionModalOpen(false)}
+            walletAddress={walletAddress}
+            availableWalletUsdc={onchainBalances.usdc}
+            availableWalletCirBtc={onchainBalances.cirbtc}
+            onExecuteDeposit={async (poolId, usdcAmt, btcAmt, slip) => {
+              await handleExecuteDual(poolId, usdcAmt, btcAmt, slip)
+            }}
+          />
+        ) : (
+          <PoolActionModal
+            isOpen={isActionModalOpen}
+            pool={selectedPoolForAction as any}
+            mode={actionModalMode}
+            onClose={() => setIsActionModalOpen(false)}
+            walletAddress={walletAddress}
+            availableWalletUsdc={onchainBalances.usdc}
+            availableWalletEurc={onchainBalances.eurc}
+            availableWalletCirBtc={onchainBalances.cirbtc}
+            onExecute={handleExecuteModalAction}
+            onExecuteZap={handleExecuteZap}
+            onExecuteDual={handleExecuteDual}
+            onExecuteLpWithdraw={handleExecuteLpWithdraw}
+            onExecuteSwap={handleExecuteSwap}
+            onExecuteCrossChainZap={handleExecuteCrossChainGatewayZap}
+          />
+        )
       )}
 
       {isCalculatorOpen && (
@@ -1266,6 +1215,16 @@ export default function PoolsTab({
           pools={pools}
         />
       )}
+
+      {isCreatePoolOpen && (
+        <CreatePoolModal
+          isOpen={isCreatePoolOpen}
+          onClose={() => setIsCreatePoolOpen(false)}
+          walletAddress={walletAddress}
+          availableWalletUsdc={onchainBalances.usdc}
+        />
+      )}
     </div>
   )
 }
+

@@ -440,7 +440,7 @@ export default function PoolsHeroStats({
               PORTFOLIO APY
             </span>
             <InfoTooltip
-              content="Weighted average annual percentage yield across your active deposited positions on Arc."
+              content="Weighted average annual percentage yield across your active deposited positions on Arc. Includes the estimated incentive component — see each pool card for the measured-vs-estimated split."
               position="top"
               align="end"
               size={11}
@@ -499,8 +499,8 @@ export default function PoolsHeroStats({
             }}
             title={
               userTotalClaimableRewardsUsd >= 0.01
-                ? "Claim all accumulated earnings directly into your USDC wallet"
-                : `Yield is currently accruing (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC). Minimum claim amount is 0.01 USDC.`
+                ? "Harvest all realized on-chain fees/yield directly into your wallet — your principal stays staked"
+                : `Yield is currently accruing (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC). Minimum harvest amount is 0.01 USDC.`
             }
           >
             {isClaiming ? (
@@ -510,10 +510,10 @@ export default function PoolsHeroStats({
             )}
             <span>
               {isClaiming
-                ? 'Claiming Rewards...'
+                ? 'Harvesting Yield...'
                 : userTotalClaimableRewardsUsd >= 0.01
-                ? `Claim All Rewards (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC)`
-                : `Claim All Rewards (< 0.01 USDC)`}
+                ? `Harvest Accrued Yield (+${userTotalClaimableRewardsUsd.toFixed(4)} USDC)`
+                : `Harvest Accrued Yield (< 0.01 USDC)`}
             </span>
           </button>
         )}

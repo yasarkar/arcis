@@ -19,6 +19,8 @@ import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import ArcLogo from '../../assets/Arc-Icon.svg'
 import { POOL_RISK_LEVELS, type PoolConfig } from '../../config/poolsConfig'
+import { apySourceExplainer, feeAccrualExplainer, impermanentLossExplainer } from '../../config/poolEducation'
+import { InfoTooltip } from '../common/Tooltip'
 import { getExplorerAddressUrl } from '../../config/sendConfig'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
@@ -61,9 +63,13 @@ export default function PoolCard({
   const earnedUsd = pool.userPosition?.earnedUsd || 0
   const isThisPoolClaiming = isClaiming && claimingPoolId === pool.id
 
+  const isLpIdle = Boolean(pool.isLpPool && (pool.volume24hUsd || 0) === 0 && earnedUsd === 0)
+  const isYieldActive = pool.apy > 0 && !isLpIdle
+  const effectiveApyForStream = isLpIdle ? 0 : pool.apy
+
   const { formattedYield: liveCardYield, yieldPerSecond: cardYieldPerSec, accumulatedYield, resetStream } = useContinuousYieldStream(
     userStaked,
-    pool.apy,
+    effectiveApyForStream,
     pool.userPosition?.earnedUsd || 0,
     1000,
     pool.id
@@ -76,8 +82,11 @@ export default function PoolCard({
     }
   }, [earnedUsd, resetStream])
 
-  const effectiveClaimableUsd = Math.max(earnedUsd, accumulatedYield || 0, parseFloat(liveCardYield) || 0)
-  const isClaimReady = effectiveClaimableUsd >= 0.01
+  // H1: the Harvest amount and its enabled state come ONLY from the on-chain claimable
+  // (`pendingFees` / `pendingYield`, surfaced as userPosition.earnedUsd). The ticking stream
+  // above is a display-only projection and is never presented as claimable.
+  const claimableUsd = earnedUsd
+  const isClaimReady = claimableUsd >= 0.01
 
   // Meaningful Right-Aligned Pool Icon Renderer (Clean, Prominent, No Border, No Background)
   const renderPoolRightIcon = () => {
@@ -336,6 +345,14 @@ export default function PoolCard({
           >
             {pool.apy.toFixed(2)}%
           </span>
+          <InfoTooltip
+            content={apySourceExplainer(pool.apyType)}
+            position="top"
+            align="end"
+            size={11}
+            maxWidth={260}
+            iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+          />
         </div>
       </div>
 
@@ -344,13 +361,13 @@ export default function PoolCard({
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: 'var(--fp-4)', marginBottom: 4 }}>
             <span>
-              {pool.tokens[0]?.symbol}: {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? `${pool.reserves.ratioA}%` : '0.00'}
+              {pool.tokens[0]?.symbol}: {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? `${pool.reserves.ratioA}%` : '—'}
             </span>
             <span style={{ color: 'var(--fp-3)', fontWeight: 500 }}>
-              {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? 'Pool Composition' : 'No Reserves (0.00)'}
+              {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? 'Pool Composition' : 'No Reserves'}
             </span>
             <span>
-              {pool.tokens[1]?.symbol}: {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? `${pool.reserves.ratioB}%` : '0.00'}
+              {pool.tokens[1]?.symbol}: {pool.reserves.tokenA > 0 || pool.reserves.tokenB > 0 ? `${pool.reserves.ratioB}%` : '—'}
             </span>
           </div>
           <div
@@ -476,36 +493,36 @@ export default function PoolCard({
                   width: 5,
                   height: 5,
                   borderRadius: '50%',
-                  background: pool.apy > 0 ? 'var(--earned-green)' : '#64748b',
+                  background: isYieldActive ? 'var(--earned-green)' : '#64748b',
                   display: 'inline-block',
-                  boxShadow: pool.apy > 0 ? '0 0 6px var(--earned-green)' : 'none',
-                  animation: pool.apy > 0 ? 'pulse 1.5s infinite' : 'none',
+                  boxShadow: isYieldActive ? '0 0 6px var(--earned-green)' : 'none',
+                  animation: isYieldActive ? 'pulse 1.5s infinite' : 'none',
                 }}
               />
               <span
                 style={{
                   fontSize: 9.5,
-                  color: pool.apy > 0 ? '#34d399' : 'var(--fp-4)',
+                  color: isYieldActive ? '#34d399' : 'var(--fp-4)',
                   fontWeight: 600,
                   cursor: 'help',
                 }}
               >
-                {pool.apy > 0 ? 'Est. Yield' : 'Yield Idle'}
+                {isYieldActive ? 'Est. Yield' : isLpIdle ? 'Yield Idle (0 Vol)' : 'Yield Idle'}
               </span>
             </div>
             <span
               style={{
-                color: pool.apy > 0 ? 'var(--earned-green)' : 'var(--fp-3)',
+                color: isYieldActive ? 'var(--earned-green)' : 'var(--fp-3)',
                 fontWeight: 700,
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontSize: 12,
               }}
             >
-              {pool.apy > 0 ? `≈ +${liveCardYield}` : '+0.00'}
+              {isYieldActive ? `≈ +${liveCardYield}` : '+0.00'}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
               <span style={{ fontSize: 10, color: 'var(--fp-4)' }}>
-                {pool.apy > 0 ? `(+${(cardYieldPerSec * 86400).toFixed(4)}/d)` : '(Waiting for swaps)'}
+                {isYieldActive ? `(+${(cardYieldPerSec * 86400).toFixed(4)}/d)` : '(Waiting for swaps)'}
               </span>
             </div>
           </div>
@@ -563,10 +580,10 @@ export default function PoolCard({
             <Coins size={13} />
             <span>
               {isThisPoolClaiming
-                ? 'Claiming...'
+                ? 'Harvesting...'
                 : isClaimReady
-                ? `Claim +${effectiveClaimableUsd.toFixed(4)}`
-                : `Claim (< 0.01)`}
+                ? `Harvest +${claimableUsd.toFixed(4)}`
+                : `Harvest (< 0.01)`}
             </span>
           </button>
         )}
@@ -701,8 +718,33 @@ export default function PoolCard({
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-            <span>Fee Distribution:</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Fee Distribution:
+              <InfoTooltip
+                content={feeAccrualExplainer()}
+                position="top"
+                align="end"
+                size={11}
+                maxWidth={280}
+                iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+              />
+            </span>
             <span style={{ color: '#fff', fontWeight: 500 }}>{pool.feeShare}</span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Impermanent Loss:
+              <InfoTooltip
+                content={impermanentLossExplainer(pool.impermanentLossRisk)}
+                position="top"
+                align="end"
+                size={11}
+                maxWidth={280}
+                iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+              />
+            </span>
+            <span style={{ color: '#fff', fontWeight: 500 }}>{pool.impermanentLossRisk || 'N/A (Vault)'}</span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

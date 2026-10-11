@@ -34,11 +34,11 @@ import { CHAIN_META, getChainDisplayName, getChainIconId } from '../../config/br
 import { AssetInputPanel, ChainSelectorModal } from '../fintech'
 import { isUserCanceled, formatWalletError } from '../../utils/errorUtils'
 import { parseUnits, formatUnits } from 'viem'
-import { calculateStableSwapExpectedOut } from '../../utils/poolMath'
+import { calculateStableSwapExpectedOut, calculateConstantProductExpectedOut, calculatePriceImpactPct, estimateLpSharesForDeposit, analyzeDualDepositBalance, DUAL_DEPOSIT_DONATION_WARN_PCT, DUAL_DEPOSIT_DONATION_BLOCK_PCT, calculateLpTokensToAssets } from '../../utils/poolMath'
 import { useLiveTokenPrices, formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
 import { Tooltip, InfoTooltip } from '../common/Tooltip'
 import { useAccount } from 'wagmi'
-import { POOLS_CHAIN_DEFS } from '../../config/poolsConfig'
+import { POOLS_CHAIN_DEFS, STABLE_SWAP_AMP, STABLE_SWAP_LP_FEE_BPS, CONSTANT_PRODUCT_LP_FEE_BPS, POOL_MAX_SLIPPAGE_BPS, poolMinOut, poolSlippageBps } from '../../config/poolsConfig'
 import { ensureNetwork } from '../../services/chainSwitchService'
 import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
 
@@ -189,8 +189,9 @@ export default function PoolActionModal({
   useEffect(() => {
     if (selectedSlippageType === 'custom') {
       const parsed = parseFloat(customSlippage)
-      if (!isNaN(parsed) && parsed > 0 && parsed <= 50) {
-        setSlippage(parsed)
+      if (!isNaN(parsed) && parsed > 0) {
+        // O3: never display a tolerance the execution path would clamp away.
+        setSlippage(Math.min(parsed, POOL_MAX_SLIPPAGE_BPS / 100))
       }
     } else {
       setSlippage(parseFloat(selectedSlippageType))
@@ -288,6 +289,7 @@ export default function PoolActionModal({
     )
   )
   const userStaked = parseFloat(pool.userPosition?.stakedAmount || '0')
+  const userLpTokensFormatted = parseFloat(pool.userPosition?.lpTokenBalance || '0')
   const walletBalUsdc = parseFloat(availableWalletUsdc || '0')
   const walletBalEurc = parseFloat(availableWalletEurc || '0')
   const walletBalCirBtc = parseFloat(availableWalletCirBtc || '0')
@@ -316,7 +318,7 @@ export default function PoolActionModal({
     : `${userStaked.toFixed(2)} USD`
 
   const depositTokenSymbol = activeMode === 'withdraw'
-    ? (isLp ? (pool.lpTokenSymbol || 'LP') : (pool.tokens[0]?.symbol || 'USDC'))
+    ? (isVault ? 'USDC' : 'USD')
     : depositSource === 'crosschain'
       ? 'USDC'
       : isLp && lpDepositMethod === 'zap'
@@ -330,7 +332,7 @@ export default function PoolActionModal({
       : UsdcIcon
 
   const depositLabel = activeMode === 'withdraw'
-    ? (isVault ? 'AMOUNT OF USDC TO REDEEM' : 'AMOUNT TO WITHDRAW')
+    ? (isVault ? 'AMOUNT OF USDC TO REDEEM' : 'AMOUNT TO WITHDRAW (USD)')
     : 'AMOUNT TO DEPOSIT'
 
   const numericBalanceStr = activeMode === 'deposit'
@@ -378,7 +380,7 @@ export default function PoolActionModal({
     ))
   )
 
-  // Calculate AMM swap output with pool fee, real pool reserves and slippage
+  // Calculate AMM swap output with pool fee, real pool reserves and slippage using exact BigInt math
   const swapAmountInNum = parseFloat(swapAmountIn) || 0
   let calculatedSwapOut = ''
   let minSwapOutStr = ''
@@ -394,53 +396,93 @@ export default function PoolActionModal({
     )
 
     if (swapTokenIn === 'USDC') {
-      let rawOut = 0
       if (hasReserves && pool.reserves) {
         if (pool.id === 'usdc-eurc-stable-pool') {
           try {
             const rawInBig = parseUnits(swapAmountInNum.toFixed(6), 6)
             const resABig = parseUnits(pool.reserves.tokenA.toFixed(6), 6)
             const resBBig = parseUnits(pool.reserves.tokenB.toFixed(6), 6)
-            const outBig = calculateStableSwapExpectedOut(rawInBig, resABig, resBBig, 12n, 100n)
-            rawOut = parseFloat(formatUnits(outBig, 6))
+            const outBig = calculateStableSwapExpectedOut(rawInBig, resABig, resBBig, STABLE_SWAP_LP_FEE_BPS, STABLE_SWAP_AMP)
+            calculatedSwapOut = formatUnits(outBig, 6)
+            const minOutBig = poolMinOut(outBig, poolSlippageBps(slippage))
+            minSwapOutStr = formatUnits(minOutBig, 6)
           } catch {
-            rawOut = (pool.reserves.tokenB * netIn) / (pool.reserves.tokenA + netIn)
+            const rawOut = (pool.reserves.tokenB * netIn) / (pool.reserves.tokenA + netIn)
+            calculatedSwapOut = rawOut.toFixed(4)
+            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(4)
           }
         } else {
-          // x * y = k AMM Constant Product calculation matching on-chain swap()
-          rawOut = (pool.reserves.tokenB * netIn) / (pool.reserves.tokenA + netIn)
+          // Constant Product (USDC -> cirBTC, 6 -> 8 decimals)
+          try {
+            const rawInBig = parseUnits(swapAmountInNum.toFixed(6), 6)
+            const resABig = parseUnits(pool.reserves.tokenA.toFixed(6), 6)
+            const resBBig = parseUnits(pool.reserves.tokenB.toFixed(counterTokenDecimals), counterTokenDecimals)
+            const outBig = calculateConstantProductExpectedOut(rawInBig, resABig, resBBig, CONSTANT_PRODUCT_LP_FEE_BPS)
+            calculatedSwapOut = formatUnits(outBig, counterTokenDecimals)
+            const minOutBig = poolMinOut(outBig, poolSlippageBps(slippage))
+            minSwapOutStr = formatUnits(minOutBig, counterTokenDecimals)
+          } catch {
+            const rawOut = (pool.reserves.tokenB * netIn) / (pool.reserves.tokenA + netIn)
+            calculatedSwapOut = rawOut.toFixed(counterTokenDecimals === 8 ? 8 : 4)
+            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(counterTokenDecimals === 8 ? 8 : 4)
+          }
         }
       } else if (exchangeRate > 0) {
-        rawOut = (swapAmountInNum / exchangeRate) * feeMultiplier
+        const rawOut = (swapAmountInNum / exchangeRate) * feeMultiplier
+        calculatedSwapOut = rawOut.toFixed(counterTokenDecimals === 8 ? 8 : 4)
+        minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(counterTokenDecimals === 8 ? 8 : 4)
       }
-      calculatedSwapOut = rawOut.toFixed(counterTokenDecimals === 8 ? 8 : 4)
-      const minOutNum = rawOut * ((100 - slippage) / 100)
-      minSwapOutStr = minOutNum.toFixed(counterTokenDecimals === 8 ? 8 : 4)
     } else {
-      let rawOut = 0
+      // Counter Token -> USDC
       if (hasReserves && pool.reserves) {
         if (pool.id === 'usdc-eurc-stable-pool') {
           try {
             const rawInBig = parseUnits(swapAmountInNum.toFixed(6), 6)
-            const resABig = parseUnits(pool.reserves.tokenA.toFixed(6), 6)
             const resBBig = parseUnits(pool.reserves.tokenB.toFixed(6), 6)
-            const outBig = calculateStableSwapExpectedOut(rawInBig, resBBig, resABig, 12n, 100n)
-            rawOut = parseFloat(formatUnits(outBig, 6))
+            const resABig = parseUnits(pool.reserves.tokenA.toFixed(6), 6)
+            const outBig = calculateStableSwapExpectedOut(rawInBig, resBBig, resABig, STABLE_SWAP_LP_FEE_BPS, STABLE_SWAP_AMP)
+            calculatedSwapOut = formatUnits(outBig, 6)
+            const minOutBig = poolMinOut(outBig, poolSlippageBps(slippage))
+            minSwapOutStr = formatUnits(minOutBig, 6)
           } catch {
-            rawOut = (pool.reserves.tokenA * netIn) / (pool.reserves.tokenB + netIn)
+            const rawOut = (pool.reserves.tokenA * netIn) / (pool.reserves.tokenB + netIn)
+            calculatedSwapOut = rawOut.toFixed(2)
+            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(2)
           }
         } else {
-          // x * y = k AMM Constant Product calculation matching on-chain swap()
-          rawOut = (pool.reserves.tokenA * netIn) / (pool.reserves.tokenB + netIn)
+          // Constant Product (cirBTC -> USDC, 8 -> 6 decimals)
+          try {
+            const rawInBig = parseUnits(swapAmountInNum.toFixed(counterTokenDecimals), counterTokenDecimals)
+            const resBBig = parseUnits(pool.reserves.tokenB.toFixed(counterTokenDecimals), counterTokenDecimals)
+            const resABig = parseUnits(pool.reserves.tokenA.toFixed(6), 6)
+            const outBig = calculateConstantProductExpectedOut(rawInBig, resBBig, resABig, CONSTANT_PRODUCT_LP_FEE_BPS)
+            calculatedSwapOut = formatUnits(outBig, 6)
+            const minOutBig = poolMinOut(outBig, poolSlippageBps(slippage))
+            minSwapOutStr = formatUnits(minOutBig, 6)
+          } catch {
+            const rawOut = (pool.reserves.tokenA * netIn) / (pool.reserves.tokenB + netIn)
+            calculatedSwapOut = rawOut.toFixed(2)
+            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(2)
+          }
         }
       } else if (exchangeRate > 0) {
-        rawOut = (swapAmountInNum * exchangeRate) * feeMultiplier
+        const rawOut = (swapAmountInNum * exchangeRate) * feeMultiplier
+        calculatedSwapOut = rawOut.toFixed(2)
+        minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(2)
       }
-      calculatedSwapOut = rawOut.toFixed(2)
-      const minOutNum = rawOut * ((100 - slippage) / 100)
-      minSwapOutStr = minOutNum.toFixed(2)
     }
   }
+
+  // Real price impact (fee-excluded), derived from live reserves — never a hard-coded value.
+  const priceImpactPct = (swapAmountInNum > 0 && pool.reserves)
+    ? calculatePriceImpactPct(
+        swapAmountInNum,
+        swapTokenIn === 'USDC' ? pool.reserves.tokenA : pool.reserves.tokenB,
+        swapTokenIn === 'USDC' ? pool.reserves.tokenB : pool.reserves.tokenA,
+        pool.id === 'usdc-eurc-stable-pool',
+        STABLE_SWAP_AMP
+      )
+    : 0
 
   const handleFlipSwapDirection = () => {
     const tempIn = swapTokenIn
@@ -466,7 +508,7 @@ export default function PoolActionModal({
     setErrorMsg(null)
     const num = parseFloat(val)
     if (!isNaN(num) && num > 0 && exchangeRate > 0) {
-      const bDecimals = counterTokenDecimals === 8 ? 8 : (counterTokenSymbol === 'EURC' ? 2 : 4)
+      const bDecimals = counterTokenDecimals
       const requiredB = (num / exchangeRate).toFixed(bDecimals)
       setAmountB(requiredB)
     } else {
@@ -519,8 +561,12 @@ export default function PoolActionModal({
       }
     } else {
       // Withdraw mode
-      const calculated = (maxAvailable * (pct / 100)).toFixed(2)
-      setAmount(calculated)
+      if (pct === 100) {
+        setAmount(userStaked.toFixed(2))
+      } else {
+        const calculated = (userStaked * (pct / 100)).toFixed(2)
+        setAmount(calculated)
+      }
     }
     setErrorMsg(null)
   }
@@ -546,11 +592,141 @@ export default function PoolActionModal({
   const monthlyYield = annualYield / 12
   const dailyYield = annualYield / 365
 
-  // LP preview calculations
-  const estimatedLpMinted = inputAmountNum > 0 ? (inputAmountNum * 0.998).toFixed(2) : '0.00'
-  const estimatedPoolShare = inputAmountNum > 0
-    ? (((inputAmountNum) / (pool.tvlUsd + inputAmountNum)) * 100).toFixed(2)
-    : '0.000'
+  // ── Real, invariant-based LP/share preview (no fabricated conversion factor) ──
+  const previewTotalLp = parseFloat((pool as any).totalLp || '0') || 0
+  const previewReserveA = pool.reserves?.tokenA || 0
+  const previewReserveB = pool.reserves?.tokenB || 0
+
+  const zapCounterOut = (() => {
+    if (!(previewTotalLp > 0) || !(previewReserveA > 0) || !(previewReserveB > 0)) return 0
+    const half = inputAmountNum / 2
+    if (!(half > 0)) return 0
+    try {
+      if (pool.id === 'usdc-eurc-stable-pool') {
+        return parseFloat(formatUnits(
+          calculateStableSwapExpectedOut(
+            parseUnits(half.toFixed(6), 6),
+            parseUnits(previewReserveA.toFixed(6), 6),
+            parseUnits(previewReserveB.toFixed(6), 6),
+            STABLE_SWAP_LP_FEE_BPS,
+            STABLE_SWAP_AMP
+          ),
+          6
+        ))
+      }
+      return parseFloat(formatUnits(
+        calculateConstantProductExpectedOut(
+          parseUnits(half.toFixed(6), 6),
+          parseUnits(previewReserveA.toFixed(6), 6),
+          parseUnits(previewReserveB.toFixed(counterTokenDecimals), counterTokenDecimals),
+          CONSTANT_PRODUCT_LP_FEE_BPS
+        ),
+        counterTokenDecimals
+      ))
+    } catch {
+      return 0
+    }
+  })()
+
+  const lpPreview = (() => {
+    const isSeedingInitialLiquidity = Boolean(previewTotalLp === 0 || previewReserveA === 0 || previewReserveB === 0)
+    if (isSeedingInitialLiquidity) {
+      if (isLp && lpDepositMethod === 'dual' && depositSource === 'native' && aNum > 0 && bNum > 0) {
+        return estimateLpSharesForDeposit({
+          poolId: pool.id,
+          amountA: aNum,
+          amountB: bNum,
+          reserveA: 0,
+          reserveB: 0,
+          totalLp: 0,
+          amp: STABLE_SWAP_AMP,
+          allowInitialSeed: true,
+        })
+      }
+      return null
+    }
+    if (isLp && lpDepositMethod === 'dual' && depositSource === 'native') {
+      return estimateLpSharesForDeposit({
+        poolId: pool.id,
+        amountA: aNum,
+        amountB: bNum,
+        reserveA: previewReserveA,
+        reserveB: previewReserveB,
+        totalLp: previewTotalLp,
+        amp: STABLE_SWAP_AMP,
+      })
+    }
+    if (isLp && zapCounterOut > 0) {
+      return estimateLpSharesForDeposit({
+        poolId: pool.id,
+        amountA: inputAmountNum / 2,
+        amountB: zapCounterOut,
+        reserveA: previewReserveA,
+        reserveB: previewReserveB,
+        totalLp: previewTotalLp,
+        amp: STABLE_SWAP_AMP,
+      })
+    }
+    return null
+  })()
+
+  const estimatedLpMinted = lpPreview ? lpPreview.shares.toFixed(2) : ''
+
+  const estimatedPoolShare = isLp
+    ? (lpPreview && lpPreview.shares > 0
+        ? (previewTotalLp === 0
+            ? '100.00'
+            : ((lpPreview.shares / lpPreview.totalLpAfter) * 100).toFixed(2))
+        : '')
+    : (inputAmountNum > 0 && pool.tvlUsd + inputAmountNum > 0
+        ? ((inputAmountNum / (pool.tvlUsd + inputAmountNum)) * 100).toFixed(2)
+        : '')
+
+  // Proportional withdrawal asset returns preview for LP pools
+  const withdrawAssetReturns = useMemo(() => {
+    if (!isLp || activeMode !== 'withdraw' || inputAmountNum <= 0 || userStaked <= 0) return null
+    try {
+      const ratio = Math.min(1, inputAmountNum / userStaked)
+      const tokenAStaked = parseFloat(pool.userPosition?.tokenAStaked || '0')
+      const tokenBStaked = parseFloat(pool.userPosition?.tokenBStaked || '0')
+
+      let outA = tokenAStaked * ratio
+      let outB = tokenBStaked * ratio
+
+      if (outA === 0 && outB === 0 && previewReserveA > 0 && previewTotalLp > 0) {
+        const poolShare = (parseFloat(pool.userPosition?.poolSharePct?.toString() || '0') / 100) * ratio
+        outA = previewReserveA * poolShare
+        outB = previewReserveB * poolShare
+      }
+      return {
+        amountA: outA.toFixed(2),
+        amountB: outB.toFixed(counterTokenDecimals === 8 ? 6 : 2),
+      }
+    } catch {
+      return null
+    }
+  }, [isLp, activeMode, inputAmountNum, userStaked, pool.userPosition, previewReserveA, previewReserveB, previewTotalLp, counterTokenDecimals])
+
+  // ── O2: unbalanced dual-deposit donation guard ──
+  // Both V4 pool contracts transfer BOTH full input amounts but only credit min(lpA, lpB)
+  // (ConstantProduct) or the Curve D-delta (StableSwap), so amounts off the pool ratio
+  // silently donate the excess to existing LPs. Warn above a small tolerance, block beyond it.
+  const dualDepositBalance = (() => {
+    if (!isDualMode) return null
+    if (!(aNum > 0) || !(bNum > 0)) return null
+    return analyzeDualDepositBalance({
+      poolId: pool.id,
+      amountA: aNum,
+      amountB: bNum,
+      reserveA: previewReserveA,
+      reserveB: previewReserveB,
+      totalLp: previewTotalLp,
+      amp: STABLE_SWAP_AMP,
+    })
+  })()
+  const donationPct = dualDepositBalance?.donationPct ?? 0
+  const isDualDonationWarn = isDualMode && donationPct > DUAL_DEPOSIT_DONATION_WARN_PCT
+  const isDualDonationBlock = isDualMode && donationPct > DUAL_DEPOSIT_DONATION_BLOCK_PCT
 
   const isSingleDepositInsuff = activeMode === 'deposit' && !isDualMode && (
     depositSource === 'crosschain'
@@ -558,7 +734,7 @@ export default function PoolActionModal({
       : inputAmountNum > walletBalUsdc
   )
 
-  const isWithdrawExceeds = activeMode === 'withdraw' && inputAmountNum > userStaked
+  const isWithdrawExceeds = activeMode === 'withdraw' && inputAmountNum > (userStaked + 0.01)
 
   const isSubmitDisabled = Boolean(
     isProcessing ||
@@ -568,7 +744,7 @@ export default function PoolActionModal({
       : activeMode === 'withdraw'
         ? inputAmountNum <= 0 || isWithdrawExceeds
         : isDualMode
-          ? isDualIncomplete || isDualInsuffA || isDualInsuffB
+          ? isDualIncomplete || isDualInsuffA || isDualInsuffB || isDualDonationBlock
           : isWrongChainForCrossChain
             ? false
             : isZapUnavailable || inputAmountNum <= 0 || isSingleDepositInsuff)
@@ -721,8 +897,8 @@ export default function PoolActionModal({
         setErrorMsg('Please enter a valid withdrawal amount.')
         return
       }
-      if (inputAmountNum > userStaked) {
-        setErrorMsg(`Withdrawal amount exceeds your deposited balance of ${userStaked.toFixed(2)}.`)
+      if (inputAmountNum > (userStaked + 0.01)) {
+        setErrorMsg(`Withdrawal amount exceeds your deposited balance of $${userStaked.toFixed(2)}.`)
         return
       }
 
@@ -978,13 +1154,14 @@ export default function PoolActionModal({
                       type="number"
                       step="0.1"
                       min="0.01"
-                      max="5.0"
+                      max={POOL_MAX_SLIPPAGE_BPS / 100}
                       placeholder="e.g. 1.0"
                       value={customSlippage}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value)
-                        if (!isNaN(val) && val > 5.0) {
-                          setCustomSlippage('5.0')
+                        const maxPercent = POOL_MAX_SLIPPAGE_BPS / 100
+                        if (!isNaN(val) && val > maxPercent) {
+                          setCustomSlippage(String(maxPercent))
                         } else {
                           setCustomSlippage(e.target.value)
                         }
@@ -1005,10 +1182,10 @@ export default function PoolActionModal({
                       %
                     </span>
                   </div>
-                  {slippage > 3.0 && (
+                  {slippage > 1.5 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#f59e0b' }}>
                       <AlertTriangle size={12} />
-                      <span>High slippage may result in unfavorable execution (strictly capped at 5.0% max).</span>
+                      <span>High slippage may result in unfavorable execution (strictly capped at 2.0% max).</span>
                     </div>
                   )}
                 </div>
@@ -1678,7 +1855,14 @@ export default function PoolActionModal({
                       iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
                     />
                   </div>
-                  <span style={{ color: '#34d399', fontWeight: 600 }}>&lt; 0.05%</span>
+                  <span
+                    style={{
+                      color: priceImpactPct > 3 ? '#f87171' : priceImpactPct > 1 ? '#fbbf24' : '#34d399',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {priceImpactPct <= 0 ? '< 0.01%' : `${priceImpactPct.toFixed(2)}%`}
+                  </span>
                 </div>
               </div>
             )}
@@ -1709,7 +1893,9 @@ export default function PoolActionModal({
                       iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
                     />
                   </div>
-                  <span style={{ color: '#fff', fontWeight: 600 }}>~{estimatedLpMinted} {pool.lpTokenSymbol || 'LP'}</span>
+                  <span style={{ color: '#fff', fontWeight: 600 }}>
+                    {estimatedLpMinted ? `~${estimatedLpMinted} ${pool.lpTokenSymbol || 'LP'}` : 'Unavailable — live reserves required'}
+                  </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1722,11 +1908,11 @@ export default function PoolActionModal({
                       iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
                     />
                   </div>
-                  <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{estimatedPoolShare}%</span>
+                  <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>{estimatedPoolShare ? `~${estimatedPoolShare}%` : '—'}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
+                    <span>Projected Annual Return (Est. {pool.apy.toFixed(2)}% {pool.apyType}):</span>
                     <InfoTooltip
                       content="Projected annual earnings based on current pool APY."
                       position="top"
@@ -1753,6 +1939,123 @@ export default function PoolActionModal({
               </div>
             )}
 
+            {activeMode === 'withdraw' && isLp && inputAmountNum > 0 && withdrawAssetReturns && (
+              <div
+                style={{
+                  background: 'rgba(15, 18, 35, 0.85)',
+                  border: '1px solid rgba(152, 150, 255, 0.2)',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  marginBottom: 16,
+                  fontSize: 11,
+                  fontFamily: 'var(--font-app)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Estimated Return ({lpPayoutMode === 'usdc' ? '100% USDC' : 'Dual Assets'}):</span>
+                    <InfoTooltip
+                      content={
+                        lpPayoutMode === 'usdc'
+                          ? `Proportional pool assets redeemed and automatically swapped to USDC with ${slippage}% slippage tolerance.`
+                          : 'Proportional pool assets redeemed and sent directly to your wallet.'
+                      }
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
+                  <span style={{ color: '#fff', fontWeight: 600 }}>
+                    {lpPayoutMode === 'usdc'
+                      ? `~${(parseFloat(withdrawAssetReturns.amountA) + (parseFloat(withdrawAssetReturns.amountB) * exchangeRate)).toFixed(2)} USDC`
+                      : `~${withdrawAssetReturns.amountA} USDC + ~${withdrawAssetReturns.amountB} ${counterTokenSymbol}`}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Underlying Proportional Assets:</span>
+                    <InfoTooltip
+                      content="Underlying assets corresponding to your LP token share before any conversions."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
+                  <span style={{ color: 'var(--fp-2)' }}>
+                    {withdrawAssetReturns.amountA} USDC / {withdrawAssetReturns.amountB} {counterTokenSymbol}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Slippage Protection:</span>
+                    <InfoTooltip
+                      content="Maximum slippage tolerance applied during the withdrawal and any auto-swap."
+                      position="top"
+                      align="start"
+                      size={11}
+                      iconClassName="w-3 h-3 text-slate-400 hover:text-indigo-300 cursor-help transition-colors"
+                    />
+                  </div>
+                  <span style={{ color: 'var(--fp-2)' }}>{slippage}%</span>
+                </div>
+              </div>
+            )}
+
+            {/* ── O2: Unbalanced dual-deposit donation warning ── */}
+            {isDualDonationWarn && dualDepositBalance && (
+              <div
+                style={{
+                  background: isDualDonationBlock ? 'rgba(248, 113, 113, 0.08)' : 'rgba(251, 191, 36, 0.08)',
+                  border: `1px solid ${isDualDonationBlock ? 'rgba(248, 113, 113, 0.35)' : 'rgba(251, 191, 36, 0.35)'}`,
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  marginBottom: 16,
+                  fontSize: 11,
+                  fontFamily: 'var(--font-app)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: isDualDonationBlock ? '#fca5a5' : '#fcd34d' }}>
+                  <AlertTriangle size={14} />
+                  <span style={{ fontWeight: 700 }}>Unbalanced deposit — excess is donated to existing LPs</span>
+                </div>
+                <div style={{ color: 'var(--fp-3)', lineHeight: 1.5 }}>
+                  About <strong style={{ color: '#fff' }}>{dualDepositBalance.donationValueA.toFixed(2)} USDC</strong>{' '}
+                  ({donationPct.toFixed(2)}% of your deposit) is above the current pool ratio and would not
+                  mint any LP shares — it stays in the pool as a donation to existing LPs.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const bDecimals = counterTokenDecimals
+                    setAmountA(dualDepositBalance.optimizedAmountA.toFixed(2))
+                    setAmountB(dualDepositBalance.optimizedAmountB.toFixed(bDecimals))
+                    setErrorMsg(null)
+                  }}
+                  style={{
+                    alignSelf: 'flex-start',
+                    background: 'rgba(152, 150, 255, 0.15)',
+                    border: '1px solid rgba(152, 150, 255, 0.35)',
+                    color: '#c7d2fe',
+                    fontWeight: 700,
+                    fontSize: 11,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Balance amounts to pool ratio
+                </button>
+              </div>
+            )}
+
             {activeMode === 'deposit' && !isLp && inputAmountNum > 0 && (
               <div
                 style={{
@@ -1769,7 +2072,7 @@ export default function PoolActionModal({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
-                  <span>Projected Annual Return ({pool.apy.toFixed(2)}% {pool.apyType}):</span>
+                  <span>Projected Annual Return (Est. {pool.apy.toFixed(2)}% {pool.apyType}):</span>
                   <span style={{ color: 'var(--earned-green)', fontWeight: 600 }}>+{annualYield.toFixed(2)} USDC</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
@@ -1778,7 +2081,7 @@ export default function PoolActionModal({
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--fp-3)' }}>
                   <span>Pool Share:</span>
-                  <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>~{estimatedPoolShare}%</span>
+                  <span style={{ color: 'var(--purple-1)', fontWeight: 600 }}>{estimatedPoolShare ? `~${estimatedPoolShare}%` : '—'}</span>
                 </div>
               </div>
             )}
@@ -1953,6 +2256,8 @@ export default function PoolActionModal({
                     <span>INSUFFICIENT BALANCE</span>
                   ) : isDualInsuffB ? (
                     <span>INSUFFICIENT BALANCE</span>
+                  ) : isDualDonationBlock ? (
+                    <span>UNBALANCED — EXCESS IS DONATED</span>
                   ) : (
                     <>
                       <Plus size={16} />
