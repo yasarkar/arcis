@@ -54,15 +54,13 @@ contract StableSwapPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAcc
         if (_tokenA == address(0) || _tokenB == address(0)) revert ZeroAddress();
         if (_tokenA == _tokenB) revert InvalidTokenPair();
         if (_swapFeeBps > 1000) revert InvalidFeeBps();
+        if (address(_tokenA).code.length == 0) revert ZeroAddress();
+        if (address(_tokenB).code.length == 0) revert ZeroAddress();
 
         tokenA = IERC20Like(_tokenA);
         tokenB = IERC20Like(_tokenB);
         swapFeeBps = _swapFeeBps;
         e24hWindowStart = block.timestamp;
-    }
-
-    receive() external payable {
-        revert("native deposits not allowed");
     }
 
     // ── V4 State Getters for AMM_POOL_STATE_READ_FNS_V4 ───────────────────────
@@ -99,7 +97,13 @@ contract StableSwapPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAcc
         return balanceOf(account);
     }
 
+    /// @dev Self-transfers must skip accounting hooks to avoid double-counting unclaimed fees.
     function _update(address from, address to, uint256 value) internal override {
+        if (from == to) {
+            super._update(from, to, value);
+            return;
+        }
+
         _beforeLpBalanceChange(from);
         _beforeLpBalanceChange(to);
         super._update(from, to, value);
@@ -145,12 +149,13 @@ contract StableSwapPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAcc
 
         if (lpShares == 0 || lpShares < minLpShares) revert SlippageExceeded();
 
-        _mint(msg.sender, lpShares);
-
+        // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant; reserves updated after both transfers
         _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
         _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
         reserveA += amountAIn;
         reserveB += amountBIn;
+
+        _mint(msg.sender, lpShares);
 
         emit LiquidityAdded(msg.sender, amountAIn, amountBIn, lpShares);
         return lpShares;
@@ -210,8 +215,10 @@ contract StableSwapPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAcc
             if (y >= reserveB) revert InvalidReserves();
             amountOut = reserveB - y;
 
+            if (amountOut > reserveB / 2) revert SlippageExceeded();
             if (amountOut < minOut) revert SlippageExceeded();
 
+            // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant; state written after both calls complete
             _safeTransferFrom(tokenA, msg.sender, address(this), amountIn);
             _safeTransfer(tokenB, msg.sender, amountOut);
 
@@ -228,8 +235,10 @@ contract StableSwapPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAcc
             if (y >= reserveA) revert InvalidReserves();
             amountOut = reserveA - y;
 
+            if (amountOut > reserveA / 2) revert SlippageExceeded();
             if (amountOut < minOut) revert SlippageExceeded();
 
+            // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant; state written after both calls complete
             _safeTransferFrom(tokenB, msg.sender, address(this), amountIn);
             _safeTransfer(tokenA, msg.sender, amountOut);
 
@@ -284,10 +293,13 @@ contract StableSwapPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAcc
 
         for (uint256 i = 0; i < 255; i++) {
             uint256 dP = d;
-            dP = (dP * d) / (x * 2);
-            dP = (dP * d) / (y * 2);
+            // slither-disable-next-line divide-before-multiply
+            dP = (dP * d) / (x * 2); // Curve invariant step 1: dP = D^3 / (4xy), split to avoid overflow
+            // slither-disable-next-line divide-before-multiply
+            dP = (dP * d) / (y * 2); // Curve invariant step 2: same formula continued
             prevD = d;
-            d = ((Ann * s + dP * 2) * d) / ((Ann - 1) * d + 3 * dP);
+            // slither-disable-next-line divide-before-multiply
+            d = ((Ann * s + dP * 2) * d) / ((Ann - 1) * d + 3 * dP); // Newton step
             if (d > prevD) {
                 if (d - prevD <= 1) return d;
             } else {
@@ -299,8 +311,10 @@ contract StableSwapPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAcc
 
     function _getY(uint256 x, uint256 d) internal pure returns (uint256) {
         uint256 Ann = A * 4;
-        uint256 c = (d * d) / (x * 2);
-        c = (c * d) / (Ann * 2);
+        // slither-disable-next-line divide-before-multiply
+        uint256 c = (d * d) / (x * 2); // Curve _getY step 1: c = D^3 / (4x * Ann), split to avoid overflow
+        // slither-disable-next-line divide-before-multiply
+        c = (c * d) / (Ann * 2); // Curve _getY step 2: same formula continued
         uint256 b = x + d / Ann;
         uint256 prevY;
         uint256 y = d;

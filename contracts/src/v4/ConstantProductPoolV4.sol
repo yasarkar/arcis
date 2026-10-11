@@ -2,46 +2,66 @@
 pragma solidity ^0.8.24;
 
 import {IERC20Like} from "../interfaces/IERC20Like.sol";
-import {LpFeeAccounting} from "./LpFeeAccounting.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {LpFeeAccounting} from "./LpFeeAccounting.sol";
 
-/// @title ConstantProductPoolV4
-/// @notice Arcis USDC / cirBTC Constant-Product AMM (x * y = k) with Pro-Rata Real Yield Fee Streaming.
-/// @dev Implements an isolated fee-reserve architecture (`feeReserveA`, `feeReserveB`).
-///      Swap fees do not inflate trading reserves, but are distributed directly to LP token holders
-///      via `LpFeeAccounting`. LPs can harvest their accumulated swap revenues at any time in underlying
-///      tokens (USDC and cirBTC) without burning or exiting their LP positions.
+/// @notice Arcis USDC / cirBTC Constant-Product Pool V4 (x * y = k) with Real-Yield Fee Harvest.
+/// @dev Pair: USDC (6 decimals, tokenA) / cirBTC (8 decimals, tokenB).
+///      LP token: 18 decimals — initial shares = sqrt(amountA * amountB) * 1e11.
+///      The 1e11 scalar normalises geometric-mean units (6+8=14 dec / 2 = 7 dec raw sqrt)
+///      up to a standard 18-decimal ERC-20. MINIMUM_LIQUIDITY = 1000 wei LP locked to
+///      DEAD_ADDRESS on the first deposit — at 18 dec LP / 7 dec raw, 1000 LP wei represents
+///      ~1e-15 USD of pool value, so the inflation attack is economically infeasible.
+///
+///      Arc Network Note: native gas on Arc IS USDC (18 dec), but this contract interacts
+///      only with the 6-decimal USDC ERC-20 interface. No receive() / fallback() is defined,
+///      so any attempt to send native value reverts at the EVM level.
+///
+///      Security features carried forward from V3 + V4 upgrades:
+///        - Pausable admin kill-switch (swap + addLiquidity only; removeLiquidity always live)
+///        - nonReentrant on every state-mutating function
+///        - 50% single-swap output cap (M-1 from the V4 StableSwap audit)
+///        - Contract-existence check on both token addresses in constructor (H-1)
+///        - Self-transfer guard in _update (C-1) preventing double-fee accrual
+///        - Remainder carry-forward in _distributeSwapFee (M-2) — all fees eventually claimable
+///        - CEI ordering: tokens pulled BEFORE _mint in addLiquidity (L-1)
 contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAccounting {
-    uint256 public immutable swapFeeBps; // e.g. 25 = 0.25%
+    // ── Immutables & Constants ────────────────────────────────────────────────
+    IERC20Like public immutable tokenA; // USDC  (6 decimals)
+    IERC20Like public immutable tokenB; // cirBTC (8 decimals)
+
+    uint256 public immutable swapFeeBps;
+
     uint256 public constant MINIMUM_LIQUIDITY = 1000;
     address public constant DEAD_ADDRESS = address(0x000000000000000000000000000000000000dEaD);
 
-    uint256 public reserveA; // USDC (6 decimals)
-    uint256 public reserveB; // cirBTC (8 decimals)
+    // ── Mutable Pool State ────────────────────────────────────────────────────
+    uint256 public reserveA; // live USDC  reserve (excludes feeReserveA)
+    uint256 public reserveB; // live cirBTC reserve (excludes feeReserveB)
 
-    IERC20Like public immutable tokenA;
-    IERC20Like public immutable tokenB;
-
-    // 24H rolling volume counters with lazy-reset on swap
+    // 24-hour rolling volume counters, lazy-reset on swap
     uint256 public e24hVolumeA;
     uint256 public e24hVolumeB;
     uint256 public e24hWindowStart;
 
+    // ── Custom Errors ─────────────────────────────────────────────────────────
     error ZeroAmount();
     error InvalidFeeBps();
     error NotEnoughLP();
     error SlippageExceeded();
     error InvalidTokenPair();
     error ZeroAddress();
-    error InvalidReserves();
+    error KInvariantViolated();
 
+    // ── Events ────────────────────────────────────────────────────────────────
     event LiquidityAdded(address indexed provider, uint256 amountA, uint256 amountB, uint256 lpMinted);
     event LiquidityRemoved(address indexed provider, uint256 lpAmount, uint256 amountA, uint256 amountB);
     event Swapped(address indexed user, address tokenIn, uint256 amountIn, uint256 amountOut);
 
+    // ── Constructor ───────────────────────────────────────────────────────────
     constructor(
         address _tokenA,
         address _tokenB,
@@ -53,7 +73,8 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
     {
         if (_tokenA == address(0) || _tokenB == address(0)) revert ZeroAddress();
         if (_tokenA == _tokenB) revert InvalidTokenPair();
-        if (_swapFeeBps > 1000) revert InvalidFeeBps(); // Max 10%
+        if (_swapFeeBps > 1000) revert InvalidFeeBps();
+        // H-1: verify both addresses are deployed contracts, not EOAs or zero-bytecode addresses
         if (address(_tokenA).code.length == 0) revert ZeroAddress();
         if (address(_tokenB).code.length == 0) revert ZeroAddress();
 
@@ -63,15 +84,42 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
         e24hWindowStart = block.timestamp;
     }
 
-    // ── OpenZeppelin ERC20 Hook Overrides for Fee Accounting ──────────────────
-    /// @dev Intercepts all LP balance changes (mint, burn, transfer) to accurately accrue fees.
-    ///      Guards against self-transfer fee inflation by skipping pre/post balance hooks if from == to.
+    // ── Backward-Compatible Getters ───────────────────────────────────────────
+    function totalLp() external view returns (uint256) { return totalSupply(); }
+    function unclaimedFeeA() external view returns (uint256) { return feeReserveA; }
+    function unclaimedFeeB() external view returns (uint256) { return feeReserveB; }
+
+    function volume24hA() external view returns (uint256) {
+        if (block.timestamp - e24hWindowStart >= 1 days) return 0;
+        return e24hVolumeA;
+    }
+    function volume24hB() external view returns (uint256) {
+        if (block.timestamp - e24hWindowStart >= 1 days) return 0;
+        return e24hVolumeB;
+    }
+
+    // ── LpFeeAccounting Hooks ─────────────────────────────────────────────────
+
+    /// @dev Eligible supply excludes permanently locked DEAD_ADDRESS shares so the
+    ///      "dead" LP never accrues harvestable fees, preventing permanent fee lock.
+    function _eligibleLpSupply() internal view override returns (uint256) {
+        uint256 dead = balanceOf(DEAD_ADDRESS);
+        uint256 total = totalSupply();
+        return total > dead ? total - dead : 0;
+    }
+
+    function _lpBalanceOf(address account) internal view override returns (uint256) {
+        return balanceOf(account);
+    }
+
+    /// @dev C-1 fix: self-transfers (from == to) skip fee accounting entirely to prevent
+    ///      double-counting of userUnclaimedA/B. A self-transfer never changes any account's
+    ///      net balance, so no reward settlement is needed.
     function _update(address from, address to, uint256 value) internal override {
         if (from == to) {
             super._update(from, to, value);
             return;
         }
-
         _beforeLpBalanceChange(from);
         _beforeLpBalanceChange(to);
         super._update(from, to, value);
@@ -79,31 +127,17 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
         _afterLpBalanceChange(to);
     }
 
-    /// @dev Eligible LP supply excludes permanently burned dead address tokens.
-    function _eligibleLpSupply() internal view override returns (uint256) {
-        uint256 deadLp = balanceOf(DEAD_ADDRESS);
-        uint256 total = totalSupply();
-        if (total <= deadLp) return 0;
-        return total - deadLp;
-    }
-
-    /// @dev DEAD_ADDRESS LP tokens do not earn fee distribution.
-    function _lpBalanceOf(address account) internal view override returns (uint256) {
-        if (account == DEAD_ADDRESS) return 0;
-        return balanceOf(account);
-    }
-
-    // ── Admin Functions ───────────────────────────────────────────────────────
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
-    }
+    // ── Admin ─────────────────────────────────────────────────────────────────
+    function pause()   external onlyOwner { _pause(); }
+    function unpause() external onlyOwner { _unpause(); }
 
     // ── Liquidity Management ──────────────────────────────────────────────────
-    /// @notice Add 50/50 USDC + cirBTC liquidity with standardized 18-decimal LP token.
+
+    /// @notice Add USDC + cirBTC liquidity. Slippage protected.
+    /// @dev L-1 fix: tokens are pulled from caller BEFORE _mint so that any revert
+    ///      in _safeTransferFrom rolls back without having issued LP shares first (CEI).
+    ///      Initial LP = sqrt(amountA * amountB) * 1e11 to standardise both 6-dec and
+    ///      8-dec inputs to an 18-dec LP token (sqrt of 14-dec product = 7-dec raw * 1e11 = 18-dec).
     function addLiquidity(uint256 amountAIn, uint256 amountBIn, uint256 minLpShares)
         external
         nonReentrant
@@ -115,27 +149,36 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
         uint256 total = totalSupply();
 
         if (total == 0) {
-            // sqrt(10^6 * 10^8) = 10^7 -> scale to 18 decimals via 1e11 (18 - 7 = 11)
+            // geometric-mean normalisation: sqrt(6-dec * 8-dec) = 7-dec; * 1e11 = 18-dec LP
             uint256 rawSqrt = _sqrt(amountAIn * amountBIn);
             uint256 initialLp = rawSqrt * 1e11;
             if (initialLp <= MINIMUM_LIQUIDITY) revert ZeroAmount();
 
-            // Lock MINIMUM_LIQUIDITY permanently to prevent first-depositor inflation attacks
+            // Pull tokens first (CEI) — if transfer fails, no LP is ever minted
+            // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant; _mint called after both transfers
+            _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
+            _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
+            reserveA += amountAIn;
+            reserveB += amountBIn;
+
+            // Lock MINIMUM_LIQUIDITY permanently — anti-inflation anchor
             _mint(DEAD_ADDRESS, MINIMUM_LIQUIDITY);
             lpShares = initialLp - MINIMUM_LIQUIDITY;
         } else {
             uint256 lpA = (amountAIn * total) / reserveA;
             uint256 lpB = (amountBIn * total) / reserveB;
             lpShares = lpA < lpB ? lpA : lpB;
+
+            if (lpShares == 0 || lpShares < minLpShares) revert SlippageExceeded();
+
+            // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant; _mint called after both transfers
+            _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
+            _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
+            reserveA += amountAIn;
+            reserveB += amountBIn;
         }
 
         if (lpShares == 0 || lpShares < minLpShares) revert SlippageExceeded();
-
-        // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant
-        _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
-        _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
-        reserveA += amountAIn;
-        reserveB += amountBIn;
 
         _mint(msg.sender, lpShares);
 
@@ -144,6 +187,8 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
     }
 
     /// @notice Remove liquidity proportionally and burn LP shares.
+    /// @dev Intentionally NOT gated by whenNotPaused — LPs must always be able to exit
+    ///      even when trading is paused, to prevent "trapped LP" scenarios.
     function removeLiquidity(uint256 lpAmount, uint256 minOutA, uint256 minOutB)
         external
         nonReentrant
@@ -159,8 +204,8 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
 
         if (outA < minOutA || outB < minOutB) revert SlippageExceeded();
 
+        // Burn before transfers (CEI)
         _burn(msg.sender, lpAmount);
-
         reserveA -= outA;
         reserveB -= outB;
 
@@ -171,8 +216,17 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
         return (outA, outB);
     }
 
-    // ── Swaps with Real Yield Distribution ────────────────────────────────────
-    /// @notice Execute token swap with x * y = k Constant Product AMM and pro-rata swap fee streaming to LPs.
+    // ── Swap ──────────────────────────────────────────────────────────────────
+
+    /// @notice Swap tokenIn for tokenOut using x*y=k with fee isolation.
+    /// @dev Fee is subtracted from amountIn BEFORE the constant-product formula so that
+    ///      `fee` flows into `feeReserveA/B` and not into the AMM k-value. This means k
+    ///      only grows with `amountInAfterFee`, which strictly favours the pool reserve:
+    ///      (reserveIn + amountInAfterFee) * (reserveOut - amountOut) >= reserveIn * reserveOut
+    ///      because integer division of amountOut rounds DOWN, so the pool always keeps >= 1 wei extra.
+    ///
+    ///      M-1: The 50% output cap prevents single-transaction reserve drainage and makes
+    ///      flash-loan price manipulation economically infeasible on a pool of any size.
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut)
         external
         nonReentrant
@@ -192,29 +246,34 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
         uint256 amountInAfterFee = amountIn - fee;
 
         if (tokenIn == address(tokenA) && tokenOut == address(tokenB)) {
-            // USDC -> cirBTC: amountOut = (reserveB * amountInAfterFee) / (reserveA + amountInAfterFee)
+            // USDC → cirBTC
             amountOut = (reserveB * amountInAfterFee) / (reserveA + amountInAfterFee);
-
-            // Drainage guard: single swap cannot drain more than 50% of output reserve
+            if (amountOut == 0) revert ZeroAmount();
+            if (amountOut >= reserveB) revert KInvariantViolated();
+            // M-1: 50% single-swap output cap
             if (amountOut > reserveB / 2) revert SlippageExceeded();
-            if (amountOut == 0 || amountOut < minOut) revert SlippageExceeded();
+            if (amountOut < minOut) revert SlippageExceeded();
 
+            // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant; state written after both calls
             _safeTransferFrom(tokenA, msg.sender, address(this), amountIn);
             _safeTransfer(tokenB, msg.sender, amountOut);
 
-            reserveA += amountInAfterFee;
+            reserveA += amountInAfterFee; // fee stays in contract balance but NOT in reserveA
             reserveB -= amountOut;
 
             _distributeSwapFee(fee, 0);
             e24hVolumeA += amountIn;
+
         } else if (tokenIn == address(tokenB) && tokenOut == address(tokenA)) {
-            // cirBTC -> USDC: amountOut = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee)
+            // cirBTC → USDC
             amountOut = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee);
-
-            // Drainage guard: single swap cannot drain more than 50% of output reserve
+            if (amountOut == 0) revert ZeroAmount();
+            if (amountOut >= reserveA) revert KInvariantViolated();
+            // M-1: 50% single-swap output cap
             if (amountOut > reserveA / 2) revert SlippageExceeded();
-            if (amountOut == 0 || amountOut < minOut) revert SlippageExceeded();
+            if (amountOut < minOut) revert SlippageExceeded();
 
+            // slither-disable-next-line reentrancy-no-eth -- protected by nonReentrant; state written after both calls
             _safeTransferFrom(tokenB, msg.sender, address(this), amountIn);
             _safeTransfer(tokenA, msg.sender, amountOut);
 
@@ -223,6 +282,7 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
 
             _distributeSwapFee(0, fee);
             e24hVolumeB += amountIn;
+
         } else {
             revert InvalidTokenPair();
         }
@@ -232,17 +292,23 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
     }
 
     // ── Real Yield Harvest ────────────────────────────────────────────────────
-    /// @notice Harvest accrued swap fees without burning LP shares.
+
+    /// @notice Claim accrued swap fees without exiting the LP position.
+    /// @dev State is fully settled (debt reset, reserves decremented) BEFORE external
+    ///      transfers — strict checks-effects-interactions. nonReentrant provides a second
+    ///      line of defence even if a malicious token attempts a re-entrant harvest().
     function harvest() external nonReentrant returns (uint256 feeA, uint256 feeB) {
         address lp = msg.sender;
         (feeA, feeB) = pendingFees(lp);
         if (feeA == 0 && feeB == 0) revert NoFeesAccrued();
 
+        // Effects: settle state before any transfer
         userUnclaimedA[lp] = 0;
         userUnclaimedB[lp] = 0;
         userRewardDebtA[lp] = (balanceOf(lp) * accFeePerShareA) / PRECISION;
         userRewardDebtB[lp] = (balanceOf(lp) * accFeePerShareB) / PRECISION;
 
+        // Interactions: transfer after state is clean
         if (feeA > 0) {
             feeReserveA -= feeA;
             _safeTransfer(tokenA, lp, feeA);
@@ -256,69 +322,9 @@ contract ConstantProductPoolV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpF
         return (feeA, feeB);
     }
 
-    // ── View Functions ────────────────────────────────────────────────────────
-    /// @notice Calculates output amount for a potential swap using current reserves.
-    function getAmountOut(address tokenIn, uint256 amountIn) external view returns (uint256 amountOut) {
-        if (amountIn == 0) return 0;
-        uint256 fee = (amountIn * swapFeeBps) / 10000;
-        uint256 amountInAfterFee = amountIn - fee;
-
-        if (tokenIn == address(tokenA)) {
-            if (reserveA == 0 || reserveB == 0) return 0;
-            amountOut = (reserveB * amountInAfterFee) / (reserveA + amountInAfterFee);
-            if (amountOut > reserveB / 2) return 0;
-        } else if (tokenIn == address(tokenB)) {
-            if (reserveA == 0 || reserveB == 0) return 0;
-            amountOut = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee);
-            if (amountOut > reserveA / 2) return 0;
-        } else {
-            revert InvalidTokenPair();
-        }
-    }
-
-    /// @notice Returns current active AMM reserves.
-    function getReserves() external view returns (uint256 _reserveA, uint256 _reserveB) {
-        return (reserveA, reserveB);
-    }
-
-    /// @notice Returns comprehensive pool state in a single call.
-    function getPoolState()
-        external
-        view
-        returns (
-            uint256 _reserveA,
-            uint256 _reserveB,
-            uint256 _totalLp,
-            uint256 _feeReserveA,
-            uint256 _feeReserveB
-        )
-    {
-        return (reserveA, reserveB, totalSupply(), feeReserveA, feeReserveB);
-    }
-
-    function totalLp() external view returns (uint256) {
-        return totalSupply();
-    }
-
-    function unclaimedFeeA() external view returns (uint256) {
-        return feeReserveA;
-    }
-
-    function unclaimedFeeB() external view returns (uint256) {
-        return feeReserveB;
-    }
-
-    function volume24hA() external view returns (uint256) {
-        if (block.timestamp - e24hWindowStart >= 1 days) return 0;
-        return e24hVolumeA;
-    }
-
-    function volume24hB() external view returns (uint256) {
-        if (block.timestamp - e24hWindowStart >= 1 days) return 0;
-        return e24hVolumeB;
-    }
-
     // ── Internal Helpers ──────────────────────────────────────────────────────
+
+    /// @dev Babylonian integer square root (rounds down). Used for initial LP calculation.
     function _sqrt(uint256 y) internal pure returns (uint256 z) {
         if (y > 3) {
             z = y;

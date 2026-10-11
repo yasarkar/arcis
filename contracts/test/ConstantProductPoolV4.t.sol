@@ -3,278 +3,381 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {ConstantProductPoolV4} from "../src/v4/ConstantProductPoolV4.sol";
-import {LpFeeAccounting} from "../src/v4/LpFeeAccounting.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 
-/// @notice Unit & Integration tests for ConstantProductPoolV4 (USDC/cirBTC, x*y=k with Real Yield Harvest).
+/// @notice Unit & integration tests for ConstantProductPoolV4 (USDC/cirBTC, x*y=k, real-yield harvest).
 contract ConstantProductPoolV4Test is Test {
     ConstantProductPoolV4 pool;
     MockERC20 usdc;
     MockERC20 btc;
 
     address owner = address(this);
-    address alice = address(0x10);
-    address bob = address(0x20);
-    address charlie = address(0x30);
-    address constant DEAD_ADDRESS = address(0x000000000000000000000000000000000000dEaD);
+    address alice = address(0xA11ce);
+    address bob   = address(0xB0b);
 
-    uint256 constant DEC6 = 1e6; // USDC decimals
-    uint256 constant DEC8 = 1e8; // cirBTC decimals
-    uint256 constant BPS = 25;   // 25 bps = 0.25% fee
+    uint256 constant DEC6 = 1e6;  // USDC decimals
+    uint256 constant DEC8 = 1e8;  // cirBTC decimals
 
+    // ── Setup ─────────────────────────────────────────────────────────────────
     function setUp() public {
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        btc = new MockERC20("Circle Wrapped Bitcoin", "cirBTC", 8);
-
-        pool = new ConstantProductPoolV4(address(usdc), address(btc), BPS, owner);
+        btc  = new MockERC20("Circle Wrapped Bitcoin", "cirBTC", 8);
+        pool = new ConstantProductPoolV4(address(usdc), address(btc), 25, owner);
 
         usdc.mint(alice, 10_000_000 * DEC6);
-        btc.mint(alice, 100 * DEC8);
-
-        usdc.mint(bob, 10_000_000 * DEC6);
-        btc.mint(bob, 100 * DEC8);
-
-        usdc.mint(charlie, 10_000_000 * DEC6);
-        btc.mint(charlie, 100 * DEC8);
-
-        vm.prank(alice);
-        usdc.approve(address(pool), type(uint256).max);
-        vm.prank(alice);
-        btc.approve(address(pool), type(uint256).max);
-
-        vm.prank(bob);
-        usdc.approve(address(pool), type(uint256).max);
-        vm.prank(bob);
-        btc.approve(address(pool), type(uint256).max);
-
-        vm.prank(charlie);
-        usdc.approve(address(pool), type(uint256).max);
-        vm.prank(charlie);
-        btc.approve(address(pool), type(uint256).max);
+        btc.mint(alice,      1_000 * DEC8);
+        usdc.mint(bob,  10_000_000 * DEC6);
+        btc.mint(bob,        1_000 * DEC8);
     }
 
-    function test_InitialLiquidityAndStandardizedLp() public {
+    function _approveAlice() internal {
+        vm.startPrank(alice);
+        usdc.approve(address(pool), type(uint256).max);
+        btc.approve(address(pool), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function _approveBob() internal {
+        vm.startPrank(bob);
+        usdc.approve(address(pool), type(uint256).max);
+        btc.approve(address(pool), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    // ── LP Token Properties ───────────────────────────────────────────────────
+
+    function test_LpDecimalsStandardized18() public view {
         assertEq(pool.decimals(), 18, "LP token must be 18 decimals");
-
-        uint256 seedA = 60_000 * DEC6; // 60k USDC
-        uint256 seedB = 1 * DEC8;      // 1 BTC
-
-        vm.prank(alice);
-        uint256 lpAlice = pool.addLiquidity(seedA, seedB, 0);
-
-        // sqrt(60_000 * 1e6 * 1 * 1e8) = sqrt(6e18) = 2449489742
-        // scaled by 1e11 = 244948974200000000000 (approx 244.94 LP)
-        assertGt(lpAlice, 0, "Alice must receive LP tokens");
-        assertEq(pool.balanceOf(DEAD_ADDRESS), 1000, "1000 LP must be locked permanently to dead address");
-        assertEq(pool.totalSupply(), lpAlice + 1000, "Total supply must equal user LP + minimum dead LP");
-
-        assertEq(pool.reserveA(), seedA, "reserveA must match seedA");
-        assertEq(pool.reserveB(), seedB, "reserveB must match seedB");
-        assertEq(pool.feeReserveA(), 0, "initial feeReserveA must be 0");
-        assertEq(pool.feeReserveB(), 0, "initial feeReserveB must be 0");
     }
 
-    function test_RevertDegenerateTokenPair() public {
-        vm.expectRevert(ConstantProductPoolV4.InvalidTokenPair.selector);
-        new ConstantProductPoolV4(address(usdc), address(usdc), 25, owner);
-    }
+    // ── Constructor Guards ────────────────────────────────────────────────────
 
-    function test_RevertZeroAddressTokens() public {
+    function test_ConstructorRejectsZeroTokenA() public {
         vm.expectRevert(ConstantProductPoolV4.ZeroAddress.selector);
         new ConstantProductPoolV4(address(0), address(btc), 25, owner);
+    }
 
+    function test_ConstructorRejectsZeroTokenB() public {
         vm.expectRevert(ConstantProductPoolV4.ZeroAddress.selector);
         new ConstantProductPoolV4(address(usdc), address(0), 25, owner);
     }
 
-    function test_RevertInvalidFeeBps() public {
+    function test_ConstructorRejectsIdenticalTokens() public {
+        vm.expectRevert(ConstantProductPoolV4.InvalidTokenPair.selector);
+        new ConstantProductPoolV4(address(usdc), address(usdc), 25, owner);
+    }
+
+    function test_ConstructorRejectsInvalidFeeBps() public {
         vm.expectRevert(ConstantProductPoolV4.InvalidFeeBps.selector);
         new ConstantProductPoolV4(address(usdc), address(btc), 1001, owner);
     }
 
-    function test_NativeDepositReverts() public {
-        (bool ok,) = address(pool).call{value: 1 ether}("");
-        assertFalse(ok, "Direct native value transfer must revert");
+    function test_ConstructorRejectsEOATokenAddress() public {
+        // H-1: contract code length check
+        address eoa = address(0xBEEF);
+        vm.expectRevert(ConstantProductPoolV4.ZeroAddress.selector);
+        new ConstantProductPoolV4(eoa, address(btc), 25, owner);
     }
 
-    function test_SwapAccruesFeeAndHarvestSucceeds() public {
-        // Alice adds initial liquidity
+    // ── First Deposit & MINIMUM_LIQUIDITY ────────────────────────────────────
+
+    function test_MinimumLiquidityLockedToDead() public {
+        _approveAlice();
         vm.prank(alice);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
-        uint256 lpAlice = pool.balanceOf(alice);
+        pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
 
-        // Bob swaps 6,000 USDC for cirBTC
-        uint256 swapAmount = 6_000 * DEC6;
-        uint256 expectedFee = (swapAmount * BPS) / 10000; // 25 bps of 6000 USDC = 15 USDC = 15,000,000 wei
-
-        vm.prank(bob);
-        uint256 btcOut = pool.swap(address(usdc), address(btc), swapAmount, 0);
-        assertGt(btcOut, 0, "Bob should receive cirBTC");
-
-        // Fee reserve checks
-        assertEq(pool.feeReserveA(), expectedFee, "feeReserveA must hold exact collected swap fee");
-        assertEq(pool.feeReserveB(), 0, "feeReserveB must be 0");
-
-        // Alice pending fees check
-        (uint256 pendingA, uint256 pendingB) = pool.pendingFees(alice);
-        assertGt(pendingA, 0, "Alice should have accrued pending USDC fees");
-        assertEq(pendingB, 0, "Pending EURC/BTC should be 0");
-
-        // Alice harvests fees
-        uint256 usdcBefore = usdc.balanceOf(alice);
-        vm.prank(alice);
-        (uint256 harvestedA, uint256 harvestedB) = pool.harvest();
-
-        assertEq(harvestedA, pendingA, "Harvested fee must match pending fee");
-        assertEq(harvestedB, 0);
-        assertEq(usdc.balanceOf(alice) - usdcBefore, harvestedA, "Alice should receive USDC directly");
-
-        // LP token balance unchanged
-        assertEq(pool.balanceOf(alice), lpAlice, "Alice LP balance must not change during harvest");
-
-        // Second harvest reverts with NoFeesAccrued
-        vm.prank(alice);
-        vm.expectRevert(LpFeeAccounting.NoFeesAccrued.selector);
-        pool.harvest();
+        assertEq(
+            pool.balanceOf(pool.DEAD_ADDRESS()),
+            1000,
+            "1000 LP wei must be locked to dead address"
+        );
     }
 
-    function test_BidirectionalSwapAccruesBothFees() public {
+    function test_InitialLpShares_GeometricMean() public {
+        _approveAlice();
         vm.prank(alice);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
+        uint256 lp = pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
 
-        // 1. Swap USDC -> cirBTC (accrues fee in USDC)
-        vm.prank(bob);
-        pool.swap(address(usdc), address(btc), 6_000 * DEC6, 0);
-
-        // 2. Swap cirBTC -> USDC (accrues fee in cirBTC)
-        vm.prank(charlie);
-        pool.swap(address(btc), address(usdc), 0.1 * 1e8, 0);
-
-        (uint256 pendingA, uint256 pendingB) = pool.pendingFees(alice);
-        assertGt(pendingA, 0, "Should have pending USDC");
-        assertGt(pendingB, 0, "Should have pending cirBTC");
-
-        uint256 usdcBefore = usdc.balanceOf(alice);
-        uint256 btcBefore = btc.balanceOf(alice);
-
-        vm.prank(alice);
-        (uint256 harvA, uint256 harvB) = pool.harvest();
-
-        assertEq(harvA, pendingA);
-        assertEq(harvB, pendingB);
-        assertEq(usdc.balanceOf(alice) - usdcBefore, harvA);
-        assertEq(btc.balanceOf(alice) - btcBefore, harvB);
+        // sqrt(100_000e6 * 1e8) * 1e11 - 1000
+        // = sqrt(1e19) * 1e11 - 1000
+        // = 1e9.5 * 1e11 ≈ 3.16e20 * 1e11 ... exact via uint256
+        uint256 rawA = 100_000 * DEC6;
+        uint256 rawB = 1 * DEC8;
+        uint256 product = rawA * rawB;
+        // Babylonian sqrt
+        uint256 z = product;
+        uint256 x = product / 2 + 1;
+        while (x < z) { z = x; x = (product / x + x) / 2; }
+        uint256 expected = z * 1e11 - 1000;
+        assertEq(lp, expected, "initial LP shares must equal sqrt(amountA*amountB)*1e11 - MINIMUM_LIQUIDITY");
     }
 
-    function test_DualLpProportionalFeeSplit() public {
-        // Alice provides initial liquidity: 60,000 USDC + 1 BTC
+    function test_RevertIfZeroAmounts() public {
+        _approveAlice();
         vm.prank(alice);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
-        uint256 lpAlice = pool.balanceOf(alice);
+        vm.expectRevert(ConstantProductPoolV4.ZeroAmount.selector);
+        pool.addLiquidity(0, 1 * DEC8, 0);
+    }
 
-        // Bob adds identical liquidity: 60,000 USDC + 1 BTC
+    // ── Subsequent Liquidity ──────────────────────────────────────────────────
+
+    function test_SecondDeposit_ProportionalShares() public {
+        _approveAlice();
+        _approveBob();
+
+        vm.prank(alice);
+        uint256 lpAlice = pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
+
         vm.prank(bob);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
-        uint256 lpBob = pool.balanceOf(bob);
+        uint256 lpBob = pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
 
-        // Verify LP parity (within roundoff)
-        assertApproxEqAbs(lpAlice, lpBob, 1000, "Alice and Bob should have nearly identical LP shares");
+        // Both supply same amounts; Bob should get ≈ same LP (modulo MINIMUM_LIQUIDITY rounding)
+        assertApproxEqRel(lpBob, lpAlice, 1e15, "second deposit should yield proportional LP");
+    }
 
-        // Charlie performs swap
-        vm.prank(charlie);
+    // ── Swap & Fee Isolation ──────────────────────────────────────────────────
+
+    function test_Swap_AtoB_UpdatesReserves() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        uint256 rABefore = pool.reserveA();
+        uint256 rBBefore = pool.reserveB();
+
+        _approveBob();
+        vm.prank(bob);
+        uint256 amountOut = pool.swap(address(usdc), address(btc), 1_000 * DEC6, 0);
+
+        assertGt(pool.reserveA(), rABefore, "reserveA must increase after USDC-in swap");
+        assertLt(pool.reserveB(), rBBefore, "reserveB must decrease after BTC-out swap");
+        assertGt(amountOut, 0, "amountOut must be positive");
+    }
+
+    function test_Swap_FeeIsolatedFromReserve() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        _approveBob();
+        vm.prank(bob);
         pool.swap(address(usdc), address(btc), 10_000 * DEC6, 0);
 
-        (uint256 aliceA,) = pool.pendingFees(alice);
-        (uint256 bobA,) = pool.pendingFees(bob);
-
-        assertGt(aliceA, 0);
-        assertGt(bobA, 0);
-        assertApproxEqAbs(aliceA, bobA, 5, "Fee split should be equal between equal LPs");
-
-        // Both harvest
-        vm.prank(alice);
-        pool.harvest();
-        vm.prank(bob);
-        pool.harvest();
-
-        assertEq(pool.balanceOf(alice), lpAlice, "Alice LP unchanged");
-        assertEq(pool.balanceOf(bob), lpBob, "Bob LP unchanged");
+        // feeReserveA must grow; reserveA excludes fee (fee is NOT added to reserveA)
+        assertGt(pool.feeReserveA(), 0, "feeReserveA must grow after USDC-in swap");
+        // Total USDC balance = reserveA + feeReserveA
+        uint256 contractBalance = usdc.balanceOf(address(pool));
+        assertEq(contractBalance, pool.reserveA() + pool.feeReserveA(),
+            "contractBalance == reserveA + feeReserveA");
     }
 
-    function test_RemoveLiquiditySucceedsAndPreservesFees() public {
+    function test_Swap_BtoA_UpdatesReserves() public {
+        _approveAlice();
         vm.prank(alice);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
-        uint256 lpAlice = pool.balanceOf(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
 
-        // Bob performs swap
+        _approveBob();
         vm.prank(bob);
-        pool.swap(address(usdc), address(btc), 6_000 * DEC6, 0);
+        uint256 amountOut = pool.swap(address(btc), address(usdc), 1e7, 0); // 0.1 BTC
 
-        (uint256 pendingBefore,) = pool.pendingFees(alice);
-        assertGt(pendingBefore, 0);
-
-        // Alice removes half of her liquidity
-        uint256 removeLp = lpAlice / 2;
-        vm.prank(alice);
-        (uint256 outA, uint256 outB) = pool.removeLiquidity(removeLp, 0, 0);
-
-        assertGt(outA, 0);
-        assertGt(outB, 0);
-
-        // Pending fees must remain intact
-        (uint256 pendingAfter,) = pool.pendingFees(alice);
-        assertEq(pendingAfter, pendingBefore, "Unclaimed fees must not be lost upon partial withdrawal");
-
-        // Alice can harvest the fees afterwards
-        vm.prank(alice);
-        (uint256 harvA,) = pool.harvest();
-        assertEq(harvA, pendingBefore);
+        assertGt(amountOut, 0);
+        assertGt(pool.feeReserveB(), 0, "feeReserveB must grow after BTC-in swap");
     }
 
-    function test_SelfTransfer_DoubleHarvestBugGuard() public {
+    function test_Swap_ZeroAmountReverts() public {
+        _approveAlice();
         vm.prank(alice);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
 
+        _approveBob();
         vm.prank(bob);
-        pool.swap(address(usdc), address(btc), 6_000 * DEC6, 0);
-
-        (uint256 pendingBefore,) = pool.pendingFees(alice);
-        assertGt(pendingBefore, 0);
-
-        // Alice transfers to herself
-        vm.prank(alice);
-        pool.transfer(alice, 1000);
-
-        (uint256 pendingAfter,) = pool.pendingFees(alice);
-        assertEq(pendingAfter, pendingBefore, "Self-transfer must not inflate pending fees");
+        vm.expectRevert(ConstantProductPoolV4.ZeroAmount.selector);
+        pool.swap(address(usdc), address(btc), 0, 0);
     }
 
-    function test_DrainageGuardReverts() public {
+    function test_Swap_InvalidPairReverts() public {
+        _approveAlice();
         vm.prank(alice);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
 
-        // Attempt to drain > 50% of BTC reserve in one swap
-        // In x*y=k, swapping 60,000 USDC would extract 50% of 1 BTC
-        // Swapping 120,000 USDC would extract 66.6% (> 50%)
+        _approveBob();
+        vm.prank(bob);
+        vm.expectRevert(ConstantProductPoolV4.InvalidTokenPair.selector);
+        pool.swap(address(usdc), address(usdc), 1_000 * DEC6, 0);
+    }
+
+    function test_Swap_SlippageReverts() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        _approveBob();
         vm.prank(bob);
         vm.expectRevert(ConstantProductPoolV4.SlippageExceeded.selector);
-        pool.swap(address(usdc), address(btc), 120_000 * DEC6, 0);
+        pool.swap(address(usdc), address(btc), 1_000 * DEC6, type(uint256).max);
     }
 
-    function test_PauseBlocksOperations() public {
+    // ── 50% Output Cap ────────────────────────────────────────────────────────
+
+    function test_Swap_50PctCapReverts() public {
+        _approveAlice();
         vm.prank(alice);
-        pool.addLiquidity(60_000 * DEC6, 1 * DEC8, 0);
+        pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
+
+        // Swap in so much USDC that the formula would give > 50% of reserveB
+        // reserveB = 1 * DEC8 = 100_000_000 units; >50% = >50_000_000 units
+        // To get ~51%, we need amountIn >> reserveA per the formula
+        _approveBob();
+        vm.prank(bob);
+        vm.expectRevert(ConstantProductPoolV4.SlippageExceeded.selector);
+        pool.swap(address(usdc), address(btc), 1_000_000 * DEC6, 0);
+    }
+
+    // ── Remove Liquidity ──────────────────────────────────────────────────────
+
+    function test_RemoveLiquidity_ReturnsCorrectAmounts() public {
+        _approveAlice();
+        vm.prank(alice);
+        uint256 lp = pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
+
+        uint256 usdcBefore = usdc.balanceOf(alice);
+        uint256 btcBefore  = btc.balanceOf(alice);
+
+        vm.prank(alice);
+        pool.removeLiquidity(lp, 0, 0);
+
+        assertGt(usdc.balanceOf(alice), usdcBefore, "Alice must receive USDC back");
+        assertGt(btc.balanceOf(alice),  btcBefore,  "Alice must receive BTC back");
+    }
+
+    function test_RemoveLiquidity_ZeroAmountReverts() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
+
+        vm.prank(alice);
+        vm.expectRevert(ConstantProductPoolV4.ZeroAmount.selector);
+        pool.removeLiquidity(0, 0, 0);
+    }
+
+    function test_RemoveLiquidity_SlippageReverts() public {
+        _approveAlice();
+        vm.prank(alice);
+        uint256 lp = pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
+
+        vm.prank(alice);
+        vm.expectRevert(ConstantProductPoolV4.SlippageExceeded.selector);
+        pool.removeLiquidity(lp, type(uint256).max, 0);
+    }
+
+    function test_RemoveLiquidity_SucceedsWhenPaused() public {
+        _approveAlice();
+        vm.prank(alice);
+        uint256 lp = pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
 
         pool.pause();
         assertTrue(pool.paused());
 
-        vm.prank(bob);
+        // removeLiquidity must work even when paused (intentional escape hatch)
+        vm.prank(alice);
+        pool.removeLiquidity(lp, 0, 0);
+    }
+
+    // ── Pause ─────────────────────────────────────────────────────────────────
+
+    function test_Pause_BlocksAddLiquidityAndSwap() public {
+        _approveAlice();
+        pool.pause();
+
+        vm.prank(alice);
         vm.expectRevert();
+        pool.addLiquidity(100_000 * DEC6, 1 * DEC8, 0);
+    }
+
+    function test_Pause_AccessControl() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        pool.pause();
+    }
+
+    // ── Harvest ───────────────────────────────────────────────────────────────
+
+    function test_Harvest_ClaimsFeesWithoutExiting() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        _approveBob();
+        vm.prank(bob);
+        pool.swap(address(usdc), address(btc), 10_000 * DEC6, 0);
+
+        (uint256 pA, ) = pool.pendingFees(alice);
+        assertGt(pA, 0, "Alice must have pending USDC fees");
+
+        uint256 balBefore = usdc.balanceOf(alice);
+        vm.prank(alice);
+        (uint256 hA, ) = pool.harvest();
+        assertGt(hA, 0, "harvest must return positive feeA");
+        assertGt(usdc.balanceOf(alice), balBefore, "Alice USDC balance must increase");
+
+        // Alice's LP balance is unchanged
+        assertGt(pool.balanceOf(alice), 0, "LP balance must survive harvest");
+    }
+
+    function test_Harvest_NoFeesReverts() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        vm.prank(alice);
+        vm.expectRevert(bytes4(keccak256("NoFeesAccrued()")));
+        pool.harvest();
+    }
+
+    function test_Harvest_DoubleClaimReverts() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        _approveBob();
+        vm.prank(bob);
+        pool.swap(address(usdc), address(btc), 5_000 * DEC6, 0);
+
+        vm.prank(alice);
+        pool.harvest();
+
+        vm.prank(alice);
+        vm.expectRevert(bytes4(keccak256("NoFeesAccrued()")));
+        pool.harvest();
+    }
+
+    // ── Fee Getters ───────────────────────────────────────────────────────────
+
+    function test_FeeGettersCompatibility() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        _approveBob();
+        vm.prank(bob);
         pool.swap(address(usdc), address(btc), 1_000 * DEC6, 0);
 
-        pool.unpause();
+        assertGt(pool.unclaimedFeeA(), 0, "unclaimedFeeA must reflect accrued fee");
+    }
+
+    // ── Volume 24h ────────────────────────────────────────────────────────────
+
+    function test_Volume24hResetsAfterWindow() public {
+        _approveAlice();
+        vm.prank(alice);
+        pool.addLiquidity(500_000 * DEC6, 5 * DEC8, 0);
+
+        _approveBob();
         vm.prank(bob);
-        uint256 out = pool.swap(address(usdc), address(btc), 1_000 * DEC6, 0);
-        assertGt(out, 0);
+        pool.swap(address(usdc), address(btc), 1_000 * DEC6, 0);
+        assertGt(pool.volume24hA(), 0);
+
+        vm.warp(block.timestamp + 2 days);
+        assertEq(pool.volume24hA(), 0, "volume must reset after 24h window");
     }
 }

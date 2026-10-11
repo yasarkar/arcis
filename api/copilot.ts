@@ -6,9 +6,13 @@ import { arcTestnet } from '../src/config/arcChain'
 import { ARC_GAS_LIMITS } from '../src/config/feeTiers'
 import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from '../src/services/arcGasService'
 import { getSwapEstimate } from '../src/services/swapService'
+import { copilotSlippageBps } from '../src/utils/swapSlippage'
 import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 import { checkRateLimit } from './_utils/rateLimiter'
 import { extractTrustedClientIp } from './_utils/trustedIp'
+import { parseCopilotPromptAmount } from '../src/utils/copilotAmount'
+import { classifyCopilotIntent, copilotActionIntent } from '../src/utils/copilotIntent'
+import { parseLocalIntentFallback, attachLiveQuote } from '../src/services/llmService'
 // Single owner of the portfolio → prompt contract, shared with the browser so field names cannot drift.
 import { formatPortfolioForPrompt, availableTokenBalance } from '../src/utils/portfolioPrompt'
 import {
@@ -87,6 +91,20 @@ export async function POST(req: Request) {
         null,
         { fallbackToLocal: true }
       )
+    }
+
+    const intent = classifyCopilotIntent(userPrompt)
+    if (intent.kind === 'cancel' || intent.kind === 'ambiguous') return apiSuccess({ message: intent.message, source: 'local-nlp' })
+    if (intent.kind === 'correction') {
+      const local = parseLocalIntentFallback(userPrompt, walletAddress, livePrices, chatHistory, portfolio)
+      const quoted = await attachLiveQuote(local, walletAddress, portfolio)
+      return apiSuccess({ ...quoted, source: 'local-nlp' })
+    }
+
+    // The raw user amount is authoritative; providers cannot resolve ambiguous separators for us.
+    const promptAmount = parseCopilotPromptAmount(userPrompt)
+    if (promptAmount.status === 'ambiguous' || promptAmount.status === 'invalid') {
+      return apiSuccess({ message: promptAmount.message, source: 'local-nlp' })
     }
 
     // Serialize the client snapshot through the shared contract (see src/utils/portfolioPrompt.ts).
@@ -240,7 +258,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         model: modelName,
         messages,
         tools: ARC_COPILOT_TOOLS,
-        tool_choice: 'auto',
+        tool_choice: intent.kind === 'read-only' ? 'none' : 'auto',
         temperature: 0.3,
         max_tokens: 650,
       }),
@@ -269,11 +287,24 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
     if (message?.tool_calls && message.tool_calls.length > 0) {
       const toolCall = message.tool_calls[0]
       const funcName = toolCall.function?.name
+      if (intent.kind === 'read-only') return apiSuccess({ message: intent.message, source: 'local-nlp' })
+      const toolIntent: Record<string, string> = { execute_send: 'send', execute_swap: 'swap', execute_deposit_yield: 'deposit', execute_bridge: 'bridge' }
+      if (toolIntent[funcName] && (intent.kind !== 'command' || intent.action !== toolIntent[funcName])) {
+        return apiSuccess({ message: 'No transaction prepared / İşlem hazırlanmadı. The tool does not match an explicit new command.', source: 'local-nlp' })
+      }
       let args: any = {}
       try {
         args = JSON.parse(toolCall.function?.arguments || '{}')
       } catch (e) {
         console.error('Failed to parse AI tool arguments:', e)
+      }
+
+      if (toolIntent[funcName]) {
+        // The model cannot inherit old token/recipient/chain fields for a new command.
+        const local = parseLocalIntentFallback(userPrompt, walletAddress, livePrices, undefined, portfolio)
+        if (!local.actionPayload) return apiSuccess({ message: local.message, source: 'local-nlp' })
+        const data = local.actionPayload.data!
+        args = { ...data, token: data.tokenSymbol }
       }
 
       if (funcName === 'execute_swap') {
@@ -291,7 +322,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
           return apiSuccess({ message: `Invalid swap amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini' })
         }
         const amount = amountCheck.normalized
-        const slippage = Number(args.slippage) || 0.1
+        const slippageBps = copilotSlippageBps(args)
         let quote: Awaited<ReturnType<typeof getSwapEstimate>> | undefined
         try {
           quote = await getSwapEstimate({
@@ -299,14 +330,14 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
             tokenIn: fromTok,
             tokenOut: toTok,
             amountIn: String(amount),
-            slippageTolerance: slippage / 100,
+            slippageBps,
           })
           if (!Number.isFinite(Number(quote.estimatedOutput)) || Number(quote.estimatedOutput) <= 0) quote = undefined
         } catch (error) {
           console.warn('[copilot] Live Arc swap quote unavailable:', error)
         }
-        const estimatedOut = quote ? Number(Number(quote.estimatedOutput).toFixed(8)) : undefined
-        const minReceived = quote ? Number(Number(quote.stopLimit).toFixed(8)) : undefined
+        const estimatedOut = quote?.estimatedOutput
+        const minReceived = quote?.stopLimit
         const rate = quote ? Number(quote.rate) : undefined
         const networkFee = await getEstimatedArcGasUsdc(ARC_GAS_LIMITS.contractInteraction)
 
@@ -317,7 +348,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
             fromToken: fromTok,
             toToken: toTok,
             amount,
-            slippage,
+            slippageBps,
             estimatedOut,
             minReceived,
             rate,
@@ -432,6 +463,9 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       }
     }
 
+    if (copilotActionIntent(actionPayload)) {
+      actionPayload = { ...actionPayload, draftId: crypto.randomUUID(), revision: 1 }
+    }
     return apiSuccess({
       message: outputMessage,
       actionPayload,

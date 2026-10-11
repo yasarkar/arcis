@@ -2,58 +2,57 @@
 // Vite Dev Server SSR & Vercel Serverless Tollgate Endpoint for x402 AI Services & Nanopayments
 // Implements F2 Tollgate Dispatcher, Invariant Guards, EIP-3009 ecrecover verification,
 // Two-Phase Settlement (Commit vs Void), and F3 Provider Ledger & Withdrawal.
-
+import { timingSafeEqual } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { request as httpsRequest } from 'node:https'
-import { timingSafeEqual } from 'node:crypto'
 import { isIP } from 'node:net'
 import {
-  recoverTypedDataAddress,
   getAddress,
   isAddress,
-  type Hex,
+  recoverTypedDataAddress,
   type Address,
+  type Hex,
 } from 'viem'
-import { arcTestnet, ARC_TESTNET_TOKENS } from '../src/config/arcChain'
-import { OFFICIAL_MANIFESTS } from '../src/config/x402/manifests'
+import { ARC_TESTNET_TOKENS, arcTestnet } from '../src/config/arcChain'
 import {
-  GATEWAY_BATCHED_DOMAIN,
-  DEFAULT_X402_DOMAIN,
-  GATEWAY_CONTRACTS,
-  CIRCLE_BATCHING_METADATA,
-  EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
-  X402_SCHEMES,
-  X402_NETWORKS,
-} from '../src/config/x402/schemes'
-import { usdcToBaseUnits } from '../src/config/x402/pricing'
-import { generateLiveServiceData } from '../src/services/aiServicesDataProvider'
-import {
-  kvGet,
-  kvSet,
-  kvDelIfValue,
-  kvSetIfAbsent,
-  getStorageDriver,
-  kvUpdateProviderLedger,
-  kvCreateProviderSettlementIntent,
-  kvMarkProviderSettlementAccepted,
-  kvRejectProviderSettlementIntent,
-  kvGetPendingProviderSettlement,
-  kvConfirmPendingProviderSettlement,
-  kvFailPendingProviderSettlement,
-} from './_utils/redisStorage'
-import {
-  X402_AUTHORIZATION_DOMAIN,
-  SERVICE_REGISTRATION_TYPES,
   PROVIDER_LEDGER_TYPES,
+  SERVICE_REGISTRATION_TYPES,
+  X402_AUTHORIZATION_DOMAIN,
   hashServiceManifest,
 } from '../src/config/x402/authorization'
+import { OFFICIAL_MANIFESTS } from '../src/config/x402/manifests'
+import { usdcToBaseUnits } from '../src/config/x402/pricing'
+import {
+  CIRCLE_BATCHING_METADATA,
+  DEFAULT_X402_DOMAIN,
+  EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
+  GATEWAY_BATCHED_DOMAIN,
+  GATEWAY_CONTRACTS,
+  X402_NETWORKS,
+  X402_SCHEMES,
+} from '../src/config/x402/schemes'
+import { generateLiveServiceData } from '../src/services/aiServicesDataProvider'
 import type {
-  ServiceManifest,
   PaymentReceipt,
-  X402PaymentRequirements,
-  X402ExecutionReceipt,
   ProviderLedger,
+  ServiceManifest,
+  X402ExecutionReceipt,
+  X402PaymentRequirements,
 } from '../src/types/x402'
+import {
+  getStorageDriver,
+  kvConfirmPendingProviderSettlement,
+  kvCreateProviderSettlementIntent,
+  kvDelIfValue,
+  kvFailPendingProviderSettlement,
+  kvGet,
+  kvGetPendingProviderSettlement,
+  kvMarkProviderSettlementAccepted,
+  kvRejectProviderSettlementIntent,
+  kvSet,
+  kvSetIfAbsent,
+  kvUpdateProviderLedger,
+} from './_utils/redisStorage'
 
 // In-memory fallback stores for non-KV / isolated environments
 const serverNonceStore = new Set<string>()

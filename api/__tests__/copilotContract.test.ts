@@ -178,6 +178,28 @@ function stubProvider(message: Record<string, unknown>) {
   return fetchSpy
 }
 
+describe('A03 API slippage contract', () => {
+  it.each([['0,1', 10], ['0.5', 50], ['1', 100], ['2', 200]])('uses user %s percent rather than model slippage', async (percent, bps) => {
+    const spy = stubProvider({ content: '', tool_calls: [{ function: { name: 'execute_swap', arguments: JSON.stringify({ amount: 10, fromToken: 'USDC', toToken: 'EURC', slippage: 50 }) } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: `swap 10 USDC to EURC slippage ${percent}%` }),
+    }))
+    const body = await res.json()
+    expect(body.actionPayload?.data?.slippageBps).toBe(bps)
+    expect(body.actionPayload?.data?.slippage).toBeUndefined()
+    expect(spy).toHaveBeenCalled()
+  })
+  it.each(['0.01', '2.01', '-1', '0.101'])('does not prepare a card for unsupported %s percent', async percent => {
+    stubProvider({ content: '', tool_calls: [{ function: { name: 'execute_swap', arguments: '{}' } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: `swap 10 USDC to EURC slippage ${percent}%` }),
+    }))
+    expect((await res.json()).actionPayload).toBeUndefined()
+  })
+})
+
 describe('transaction tool amount validation', () => {
   it.each([
     ['execute_swap', { fromToken: 'USDC', toToken: 'EURC' }],
@@ -195,7 +217,7 @@ describe('transaction tool amount validation', () => {
     const res = await POST(new Request('http://localhost/api/copilot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
-      body: JSON.stringify({ userPrompt: 'prepare this transaction' }),
+      body: JSON.stringify({ userPrompt: name === 'execute_swap' ? 'swap USDC to EURC' : name === 'execute_bridge' ? 'bridge USDC from Arc to Base' : 'deposit USDC' }),
     }))
     const body = await res.json()
 
@@ -212,12 +234,89 @@ describe('transaction tool amount validation', () => {
     const res = await POST(new Request('http://localhost/api/copilot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
-      body: JSON.stringify({ userPrompt: 'prepare this swap' }),
+      body: JSON.stringify({ userPrompt: 'swap 1.0000001 USDC to EURC' }),
     }))
     const body = await res.json()
 
     expect(body.actionPayload).toBeUndefined()
     expect(body.message).toContain('more precise')
+  })
+})
+
+describe('A01 locale-safe user amounts', () => {
+  it.each(['1.000', '1,000', '1.2.3', '-1,5'])('refuses %s before contacting the provider', async amount => {
+    const fetchSpy = stubProvider({ content: 'Prepared', tool_calls: [{ function: { name: 'execute_send', arguments: JSON.stringify({ amount: 1000, recipient: WALLET, token: 'USDC' }) } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: `send ${amount} USDC to ${WALLET}` }),
+    }))
+    const body = await res.json()
+    expect(body.actionPayload).toBeUndefined()
+    expect(body.message).toMatch(/tutar/)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it.each(['execute_send', 'execute_deposit_yield', 'execute_bridge'])('does not let %s change a decimal comma amount to 15', async name => {
+    stubProvider({ content: '', tool_calls: [{ function: { name, arguments: JSON.stringify({ amount: 15, recipient: WALLET, token: 'USDC' }) } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: name === 'execute_send' ? `send 1,5 USDC to ${WALLET}` : name === 'execute_deposit_yield' ? 'deposit 1,5 USDC' : 'bridge 1,5 USDC from Arc to Base' }),
+    }))
+    const body = await res.json()
+    expect(body.actionPayload?.data?.amount).toBe(1.5)
+  })
+})
+
+describe('A02 intent boundaries', () => {
+  it.each(['Do not send 10 USDC', 'send 10 USDC yapma', '10 USDC gönderme', 'cancel', 'iptal et'])('blocks %s without contacting a provider', async prompt => {
+    const fetchSpy = stubProvider({ content: '', tool_calls: [{ function: { name: 'execute_send', arguments: JSON.stringify({ amount: 10, token: 'USDC', recipient: WALLET }) } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: `${prompt} ${WALLET}` }),
+    }))
+    expect((await res.json()).actionPayload).toBeUndefined()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it.each(['How do I send 10 USDC?', 'örnek: send 10 USDC', '"send 10 USDC"'])('rejects a provider tool even for read-only %s', async userPrompt => {
+    const fetchSpy = stubProvider({ content: '', tool_calls: [{ function: { name: 'execute_send', arguments: JSON.stringify({ amount: 10, token: 'USDC', recipient: WALLET }) } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt }),
+    }))
+    expect((await res.json()).actionPayload).toBeUndefined()
+    const [, init] = fetchSpy.mock.calls[0] as unknown as [string, any]
+    expect(JSON.parse(init.body).tool_choice).toBe('none')
+  })
+
+  it('refuses a wrong action type for a new send after a swap', async () => {
+    stubProvider({ content: '', tool_calls: [{ function: { name: 'execute_swap', arguments: JSON.stringify({ amount: 5, fromToken: 'USDC', toToken: 'EURC' }) } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: `5 USDC gönder ${WALLET}`, chatHistory: [{ role: 'assistant', content: 'swap', actionPayload: { type: 'interactive_swap', data: { amount: 10 } } }] }),
+    }))
+    expect((await res.json()).actionPayload).toBeUndefined()
+  })
+
+  it('never inherits recipient/token fields from a model or previous send', async () => {
+    stubProvider({ content: '', tool_calls: [{ function: { name: 'execute_send', arguments: JSON.stringify({ amount: 5, token: 'EURC', recipient: '0x3333333333333333333333333333333333333333', memo: 'old' }) } }] })
+    const res = await POST(new Request('http://localhost/api/copilot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: `send 5 USDC to ${WALLET}` }),
+    }))
+    const body = await res.json()
+    expect(body.actionPayload).toMatchObject({ type: 'interactive_send', revision: 1, data: { amount: 5, tokenSymbol: 'USDC', recipient: WALLET } })
+    expect(body.actionPayload.data.memo).toBe('')
+  })
+
+  it('revises a known pending draft without asking the model to infer one', async () => {
+    const fetchSpy = stubProvider({ content: 'hallucinated' })
+    const res = await POST(new Request('http://localhost/api/copilot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ userPrompt: 'actually make it 5', chatHistory: [{ role: 'assistant', content: 'deposit', actionPayload: { type: 'interactive_deposit', draftId: 'deposit-draft', revision: 1, data: { amount: 10 } } }] }),
+    }))
+    expect((await res.json()).actionPayload).toMatchObject({ type: 'interactive_deposit', draftId: 'deposit-draft', revision: 2, data: { amount: 5 } })
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
 

@@ -14,6 +14,9 @@ abstract contract LpFeeAccounting {
     uint256 public accFeePerShareA;
     uint256 public accFeePerShareB;
 
+    uint256 internal remainderA;
+    uint256 internal remainderB;
+
     mapping(address => uint256) public userRewardDebtA;
     mapping(address => uint256) public userRewardDebtB;
     mapping(address => uint256) public userUnclaimedA;
@@ -36,12 +39,16 @@ abstract contract LpFeeAccounting {
         if (supply == 0) return;
 
         if (feeA > 0) {
+            uint256 scaledA = feeA * PRECISION + remainderA;
+            accFeePerShareA += scaledA / supply;
+            remainderA = scaledA % supply;
             feeReserveA += feeA;
-            accFeePerShareA += (feeA * PRECISION) / supply;
         }
         if (feeB > 0) {
+            uint256 scaledB = feeB * PRECISION + remainderB;
+            accFeePerShareB += scaledB / supply;
+            remainderB = scaledB % supply;
             feeReserveB += feeB;
-            accFeePerShareB += (feeB * PRECISION) / supply;
         }
     }
 

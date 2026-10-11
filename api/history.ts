@@ -6,7 +6,15 @@
 
 export interface ServerHistoryItem {
   id: string
-  type: 'send' | 'swap' | 'bridge' | 'deposit'
+  type:
+    | 'send'
+    | 'swap'
+    | 'bridge'
+    | 'deposit'
+    | 'ai_service'
+    | 'add_liquidity'
+    | 'remove_liquidity'
+    | 'harvest'
   txHash: string
   amount: string
   tokenSymbol: string
@@ -30,6 +38,14 @@ export interface ServerHistoryItem {
   memo?: string
   memoId?: string
   memoIndex?: number
+
+  // Pool specific
+  poolId?: string
+  poolName?: string
+  lpMinted?: string
+  poolShare?: number
+  amountB?: string
+  tokenB?: string
 }
 
 import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
@@ -171,20 +187,9 @@ export async function GET(req: Request) {
  * POST /api/history
  * Body: Partial<ServerHistoryItem>
  * Adds or updates a transaction in server storage (Vercel KV / Redis + memory fallback).
+ * Scoped and indexed by userAddress and recipient wallet addresses.
  */
-export async function POST(_req: Request) {
-  // Security (SEC-04 Quarantine): Anonymous history writes and updates are disabled pending wallet authentication.
-  return apiError(
-    'Anonymous history writes are disabled pending wallet authentication.',
-    'FORBIDDEN',
-    403
-  )
-}
-
-/**
- * Historical implementation preserved for when authenticated wallet sessions are active.
- */
-async function _legacyUnauthenticatedPOST(req: Request) {
+export async function POST(req: Request) {
   try {
     const jsonResult = await safeJsonParse(req)
     if (!jsonResult.success) {
@@ -218,28 +223,57 @@ async function _legacyUnauthenticatedPOST(req: Request) {
       memo,
       memoId,
       memoIndex,
+      poolId,
+      poolName,
+      lpMinted,
+      poolShare,
+      amountB,
+      tokenB,
     } = body
 
+    // Validation: Require either userAddress or recipient so record is always bound to a wallet
+    const cleanUser = userAddress ? String(userAddress).toLowerCase().trim() : undefined
+    const cleanRecipient = recipient ? String(recipient).toLowerCase().trim() : undefined
+
+    if (!cleanUser && !cleanRecipient) {
+      return apiError('Wallet address (userAddress or recipient) is required.', 'WALLET_REQUIRED', 400)
+    }
+
+    // Format validation: if userAddress or recipient is provided and starts with 0x, ensure hex address
+    const hexPattern = /^0x[a-f0-9]{40}$/
+    if (cleanUser && cleanUser.startsWith('0x') && !hexPattern.test(cleanUser)) {
+      return apiError('Invalid userAddress format.', 'INVALID_ADDRESS', 400)
+    }
+    if (cleanRecipient && cleanRecipient.startsWith('0x') && !hexPattern.test(cleanRecipient)) {
+      return apiError('Invalid recipient format.', 'INVALID_ADDRESS', 400)
+    }
+
     const newItem: ServerHistoryItem = {
-      id: body.id || Math.random().toString(36).substring(2, 9),
+      id: body.id ? String(body.id) : Math.random().toString(36).substring(2, 9),
       type,
-      txHash,
-      amount: String(amount),
-      tokenSymbol,
-      sourceChain,
-      destChain,
-      recipient: recipient ? String(recipient).toLowerCase().trim() : undefined,
-      userAddress: userAddress ? String(userAddress).toLowerCase().trim() : undefined,
-      timestamp: body.timestamp || Date.now(),
-      status,
+      txHash: String(txHash || ''),
+      amount: String(amount ?? '0'),
+      tokenSymbol: String(tokenSymbol || 'USDC'),
+      sourceChain: String(sourceChain || 'Arc_Testnet'),
+      destChain: destChain ? String(destChain) : undefined,
+      recipient: cleanRecipient,
+      userAddress: cleanUser,
+      timestamp: typeof body.timestamp === 'number' ? body.timestamp : Date.now(),
+      status: ['success', 'pending', 'failed'].includes(status) ? status : 'success',
       amountIn: amountIn ? String(amountIn) : undefined,
       amountOut: amountOut ? String(amountOut) : undefined,
-      tokenIn,
-      tokenOut,
+      tokenIn: tokenIn ? String(tokenIn) : undefined,
+      tokenOut: tokenOut ? String(tokenOut) : undefined,
       isPrivate: Boolean(isPrivate),
-      memo,
-      memoId,
-      memoIndex,
+      memo: memo ? String(memo) : undefined,
+      memoId: memoId ? String(memoId) : undefined,
+      memoIndex: typeof memoIndex === 'number' ? memoIndex : undefined,
+      poolId: poolId ? String(poolId) : undefined,
+      poolName: poolName ? String(poolName) : undefined,
+      lpMinted: lpMinted ? String(lpMinted) : undefined,
+      poolShare: typeof poolShare === 'number' ? poolShare : (poolShare ? Number(poolShare) : undefined),
+      amountB: amountB ? String(amountB) : undefined,
+      tokenB: tokenB ? String(tokenB) : undefined,
     }
 
     // 1. Update in-memory server cache

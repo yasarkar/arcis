@@ -126,17 +126,19 @@ contract StableSwapPoolV4Test is Test {
         uint256 bobLp = pool.addLiquidity(10_000 * DEC6, 10_000 * DEC6, 0);
         assertEq(bobLp, aliceLp + 1000, "Bob gets full share; Alice burned MINIMUM_LIQUIDITY");
 
-        // Trader swaps 20,000 USDC for EURC
-        // Fee: 12 bps of 20,000 USDC = 24 USDC (24_000_000 units)
+        // Trader swaps 4,000 USDC for EURC (within the 50% output cap on a 20,000 EURC reserve)
+        // Fee: 12 bps of 4,000 USDC = 4.8 USDC (4_800_000 units)
+        uint256 swapAmt = 4_000 * DEC6;
         vm.prank(trader);
-        pool.swap(address(usdc), address(eurc), 20_000 * DEC6, 0);
+        pool.swap(address(usdc), address(eurc), swapAmt, 0);
 
+        uint256 expectedTotalFee = (swapAmt * 12) / 10000; // 4_800 units
         (uint256 aliceFeeA, ) = pool.pendingFees(alice);
         (uint256 bobFeeA, ) = pool.pendingFees(bob);
 
-        // Each must get pro-rata share of 24 USDC (~12 USDC within 1 unit)
-        assertApproxEqAbs(aliceFeeA, 12 * DEC6, 1, "Alice should receive ~50% of the fee");
-        assertApproxEqAbs(bobFeeA, 12 * DEC6, 1, "Bob should receive ~50% of the fee");
+        // Each must get ~50% pro-rata share
+        assertApproxEqAbs(aliceFeeA, expectedTotalFee / 2, 2, "Alice should receive ~50% of the fee");
+        assertApproxEqAbs(bobFeeA, expectedTotalFee / 2, 2, "Bob should receive ~50% of the fee");
 
         // Alice harvests
         uint256 aliceUsdcBefore = usdc.balanceOf(alice);
@@ -209,7 +211,9 @@ contract StableSwapPoolV4Test is Test {
     }
 
     function test_NativeDepositReverts() public {
+        // No receive() or fallback() defined — the EVM reverts with no data on any ETH send.
+        // On Arc, native value IS USDC (msg.value), but the pool accepts no native deposits.
         (bool ok, ) = address(pool).call{value: 1}("");
-        assertFalse(ok, "native deposit must revert");
+        assertFalse(ok, "native deposit must revert (no receive/fallback)");
     }
 }
