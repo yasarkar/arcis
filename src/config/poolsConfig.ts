@@ -139,7 +139,7 @@ export const POOL_CONTRACTS_V3 = {
 // Live Arc Testnet deployment:
 //   StableSwapPoolV4      0xC3EdDA15AdfaC31ADfC23aC86dC96d791f72bE8a (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0x034b30049d339d6f802587d8009795432bcfb2a8f256c275798567f0124a4277)
 //   ConstantProductPoolV4 0xf0e5f1d5C36a8362D96A8a43a441c6bb29416349 (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0x767fa57654600fed2c856efab150ede91343c8ef3834e15eead3ca1cc1bcbae4)
-//   YieldVaultV4          0x7b5590c39e7671E2781C8bc82cB02C3c62B3b153
+//   YieldVaultV4          0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0xbc2d61bd25008d94690edcdebcd73fc61a964f1d36d3107f324d5b5e73259278)
 const V4_ZERO = '0x0000000000000000000000000000000000000000' as `0x${string}`
 const v4Address = (value: string | undefined): `0x${string}` =>
   value && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as `0x${string}`) : V4_ZERO

@@ -29,16 +29,8 @@ contract DeployConstantProductV4 is Script {
     uint256 public constant SWAP_FEE_BPS = 25; // 0.25%
 
     function run() external returns (ConstantProductPoolV4 pool) {
-        address deployer;
-        uint256 deployerKey = vm.envOr("PRIVATE_KEY", uint256(0));
-
-        if (deployerKey != 0) {
-            deployer = vm.addr(deployerKey);
-            vm.startBroadcast(deployerKey);
-        } else {
-            deployer = vm.envOr("DEPLOYER_ADDRESS", msg.sender);
-            vm.startBroadcast();
-        }
+        // Owner = deployer (can be a multisig on mainnet; msg.sender is fine for testnet)
+        address deployer = vm.envAddress("DEPLOYER_ADDRESS");
 
         console2.log("Deploying ConstantProductPoolV4");
         console2.log("  Chain ID        :", block.chainid);
@@ -47,13 +39,13 @@ contract DeployConstantProductV4 is Script {
         console2.log("  tokenB (cirBTC) :", ARC_TESTNET_CIRBTC);
         console2.log("  swapFeeBps      :", SWAP_FEE_BPS);
 
-        // Verify we are on Arc Testnet (chain ID 5042002 or local 31337)
-        if (block.chainid != 31337) {
-            require(
-                block.chainid == 5042002,
-                "DeployConstantProductV4: wrong chain - expected Arc Testnet (5042002)"
-            );
-        }
+        // Verify we are on Arc Testnet
+        require(
+            block.chainid == 5042002,
+            "DeployConstantProductV4: wrong chain - expected Arc Testnet (5042002)"
+        );
+
+        vm.startBroadcast(deployer);
 
         pool = new ConstantProductPoolV4(
             ARC_TESTNET_USDC,

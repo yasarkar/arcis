@@ -10,8 +10,8 @@ import {Script, console2} from "forge-std/Script.sol";
 /// @notice Arcis V4 deployment script for complete V4 Real Yield Protocol Suite on Arc Testnet.
 contract DeployV4 is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        uint256 deployerKey = vm.envOr("PRIVATE_KEY", uint256(0));
+        address deployer = deployerKey != 0 ? vm.addr(deployerKey) : msg.sender;
         address owner = vm.envOr("OWNER_ADDRESS", deployer);
 
         // Arc Testnet official addresses
@@ -21,21 +21,33 @@ contract DeployV4 is Script {
 
         require(usdc != address(0) && eurc != address(0) && cirbtc != address(0), "USDC, EURC and cirBTC required");
 
-        vm.startBroadcast(deployerKey);
+        if (deployerKey != 0) {
+            vm.startBroadcast(deployerKey);
+        } else {
+            vm.startBroadcast();
+        }
 
         // 12 basis points (0.12%) stable swap fee
         StableSwapPoolV4 stableV4 = new StableSwapPoolV4(usdc, eurc, 12, owner);
+
         // 25 basis points (0.25%) volatile constant-product swap fee
         ConstantProductPoolV4 cpV4 = new ConstantProductPoolV4(usdc, cirbtc, 25, owner);
-        // 100 basis points (1%) performance fee vault
-        YieldVaultV4 vaultV4 = new YieldVaultV4(IERC20(usdc), "Arcis USDC Yield v4", "af-USDC-v4", 100, owner);
 
-        console2.log("=== Arcis V4 Full Protocol Suite Deployed ===");
+        // YieldVaultV4 — 1% performance fee
+        YieldVaultV4 vaultV4 = new YieldVaultV4(
+            IERC20(usdc),
+            "Arcis USDC Yield Vault v4",
+            "af-USDC-v4",
+            100, // 1% performance fee
+            owner
+        );
+
+        console2.log("=== Arcis V4 Suite Deployed ===");
         console2.log("Deployer:", deployer);
         console2.log("Owner/Admin:", owner);
         console2.log("StableSwapPoolV4 (USDC/EURC):", address(stableV4));
         console2.log("ConstantProductPoolV4 (USDC/cirBTC):", address(cpV4));
-        console2.log("YieldVaultV4 (af-USDC-v4):", address(vaultV4));
+        console2.log("YieldVaultV4 (USDC):", address(vaultV4));
 
         vm.stopBroadcast();
     }
