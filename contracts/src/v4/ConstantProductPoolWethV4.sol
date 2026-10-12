@@ -139,16 +139,27 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
     // ── Liquidity Management ──────────────────────────────────────────────────
 
     /// @notice Add USDC + WETH liquidity. Slippage and deadline protected.
-    /// @dev M-2 fix: slippage check (minLpShares) is evaluated BEFORE tokens are pulled on the
-    ///      initial deposit path, so a failing slippage condition never wastes the caller's gas
-    ///      on token transfers that will be reverted.
-    ///      M-3 fix: deadline parameter rejects stale transactions held in the mempool.
-    ///      Initial LP = sqrt(amountA * amountB) * 1e6 to standardise both 6-dec and
-    ///      18-dec inputs to an 18-dec LP token (sqrt of 24-dec product = 12-dec raw * 1e6 = 18-dec).
     function addLiquidity(uint256 amountAIn, uint256 amountBIn, uint256 minLpShares, uint256 deadline)
+        public
+        nonReentrant
+        whenNotPaused
+        returns (uint256 lpShares)
+    {
+        return _addLiquidityInternal(amountAIn, amountBIn, minLpShares, deadline);
+    }
+
+    /// @notice Backward-compatible overload without deadline (defaults to 20 min from block.timestamp).
+    function addLiquidity(uint256 amountAIn, uint256 amountBIn, uint256 minLpShares)
         external
         nonReentrant
         whenNotPaused
+        returns (uint256 lpShares)
+    {
+        return _addLiquidityInternal(amountAIn, amountBIn, minLpShares, block.timestamp + 1200);
+    }
+
+    function _addLiquidityInternal(uint256 amountAIn, uint256 amountBIn, uint256 minLpShares, uint256 deadline)
+        internal
         returns (uint256 lpShares)
     {
         // M-3: deadline check
@@ -226,18 +237,28 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
 
     // ── Swap ──────────────────────────────────────────────────────────────────
 
-    /// @notice Swap tokenIn for tokenOut using x*y=k with fee isolation.
-    /// @dev H-1 fix: reverts when eligible LP supply is zero so fees are never silently orphaned.
-    ///      H-3 fix: reverts when the fee calculation truncates to zero (dust swap with free ride).
-    ///      M-1 fix: strict CEI -- all reserve state is written BEFORE the output token is pushed,
-    ///               so any re-entrant read of reserveA/B during the output transfer sees the
-    ///               already-updated (correct) state. nonReentrant remains as a second defence.
-    ///      M-3 fix: deadline parameter rejects stale transactions.
-    ///      50% single-swap output cap prevents single-tx flash-loan reserve drainage.
+    /// @notice Swap tokenIn for tokenOut using x*y=k with fee isolation and deadline protection.
     function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 deadline)
+        public
+        nonReentrant
+        whenNotPaused
+        returns (uint256 amountOut)
+    {
+        return _swapInternal(tokenIn, tokenOut, amountIn, minOut, deadline);
+    }
+
+    /// @notice Backward-compatible swap overload for ArcisSwapRouter and standard AMM callers (defaults to 20 min deadline).
+    function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut)
         external
         nonReentrant
         whenNotPaused
+        returns (uint256 amountOut)
+    {
+        return _swapInternal(tokenIn, tokenOut, amountIn, minOut, block.timestamp + 1200);
+    }
+
+    function _swapInternal(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 deadline)
+        internal
         returns (uint256 amountOut)
     {
         // M-3: deadline check
