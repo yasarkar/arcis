@@ -62,7 +62,9 @@ describe('Gateway deposit success receipt', () => {
     )
 
     expect(markup).toContain('Network Fee:')
-    expect(markup).toContain('0.000792866025 USDC')
+    // UnifiedSuccessReceipt caps the displayed Network Fee to 5 decimals (UX precision rule),
+    // so the raw 0.000792866025 resolves to 0.00079 in the markup.
+    expect(markup).toContain('0.00079 USDC')
     expect(markup).toContain('Approval Fee:')
     expect(markup).toContain('0.00031 USDC')
     expect(markup).not.toContain('Sponsored')

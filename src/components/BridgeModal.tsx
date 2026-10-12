@@ -11,6 +11,7 @@ import {
   Ban,
   ChevronDown,
   Save,
+  Sparkles,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
@@ -18,6 +19,7 @@ import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import { transferFromGateway, ensureChain, verifyDestinationUsdcMint, gatewayTransferFeeCeiling, resolveDestinationUsdcMintAmount, gatewayDeliveredUsdc } from '../services/gatewayService'
 import { executeBridge, estimateBridgeCost, resolveBridgeNetworkFee } from '../services/bridgeService'
+import { canAutoWrapEth, wrapEth } from '../services/wethService'
 import { executeUcwBridgeTransfer, pollCctpDestinationTx, fetchCctpFastFeeBps, fetchCctpForwardQuote } from '../services/bridgeUcwService'
 import {
   executeUcwGatewayTransfer,
@@ -199,13 +201,16 @@ export default function BridgeModal({
 
   // Non-USDC CCTP Expanded Assets bridging is supported exclusively on Direct EVM-to-EVM routes
   const canBridgeNonUsdc = bridgeMode === 'direct' && !isSourceSolana && !isDestSolana
+  const isSourceEthAutoWrap = canBridgeNonUsdc && canAutoWrapEth(sourceChain)
 
-  // Auto-reset token to USDC if current mode or route does not support non-USDC tokens
+  // Auto-reset token to USDC or WETH if current mode or route does not support non-USDC or ETH auto-wrap
   useEffect(() => {
     if (!canBridgeNonUsdc && selectedToken !== 'USDC') {
       setSelectedToken('USDC')
+    } else if (selectedToken === 'ETH' && !isSourceEthAutoWrap) {
+      setSelectedToken('WETH')
     }
-  }, [canBridgeNonUsdc, selectedToken])
+  }, [canBridgeNonUsdc, isSourceEthAutoWrap, selectedToken])
 
   const recipientIsValid = useMemo(() => {
     if (!recipient) return false
@@ -225,7 +230,9 @@ export default function BridgeModal({
     gatewayBalances.find((b) => b.chainKey === sourceChain)?.balance || '0.00'
 
   const isUsdc = selectedToken === 'USDC'
-  const tokenDecimals = selectedToken === 'WETH' ? 18 : selectedToken === 'cirBTC' ? 8 : 6
+  const deliveredTokenSymbol = selectedToken === 'ETH' ? 'WETH' : selectedToken
+  const deliveredTokenIcon = TOKEN_ICON_MAP[deliveredTokenSymbol] || UsdcIcon
+  const tokenDecimals = selectedToken === 'WETH' || selectedToken === 'ETH' ? 18 : selectedToken === 'cirBTC' ? 8 : 6
 
   const activeBalance = useMemo(() => {
     if (selectedToken === 'USDC') {
@@ -233,6 +240,7 @@ export default function BridgeModal({
     }
     if (selectedToken === 'EURC') return walletBalances[sourceChain]?.eurc || '0.00'
     if (selectedToken === 'WETH') return walletBalances[sourceChain]?.weth || '0.0000'
+    if (selectedToken === 'ETH') return walletBalances[sourceChain]?.nativeAmount || '0.0000'
     if (selectedToken === 'cirBTC') return walletBalances[sourceChain]?.cirbtc || '0.00000'
     return '0.00'
   }, [selectedToken, bridgeMode, sourceWalletBalance, sourceGatewayBalance, walletBalances, sourceChain])
@@ -249,7 +257,7 @@ export default function BridgeModal({
       return [usdcItem]
     }
 
-    return [
+    const tokens: TokenItem[] = [
       usdcItem,
       {
         symbol: 'EURC',
@@ -263,14 +271,26 @@ export default function BridgeModal({
         icon: TOKEN_ICON_MAP.WETH,
         balance: walletBalances[sourceChain]?.weth || '0.0000',
       },
-      {
-        symbol: 'cirBTC',
-        name: 'Circle Bitcoin',
-        icon: TOKEN_ICON_MAP.cirBTC,
-        balance: walletBalances[sourceChain]?.cirbtc || '0.00000',
-      },
     ]
-  }, [canBridgeNonUsdc, bridgeMode, sourceGatewayBalance, sourceWalletBalance, walletBalances, sourceChain])
+
+    if (isSourceEthAutoWrap) {
+      tokens.push({
+        symbol: 'ETH',
+        name: 'Ethereum (Auto-Wrap)',
+        icon: TOKEN_ICON_MAP.ETH || TOKEN_ICON_MAP.WETH,
+        balance: walletBalances[sourceChain]?.nativeAmount || '0.0000',
+      })
+    }
+
+    tokens.push({
+      symbol: 'cirBTC',
+      name: 'Circle Bitcoin',
+      icon: TOKEN_ICON_MAP.cirBTC,
+      balance: walletBalances[sourceChain]?.cirbtc || '0.00000',
+    })
+
+    return tokens
+  }, [canBridgeNonUsdc, isSourceEthAutoWrap, bridgeMode, sourceGatewayBalance, sourceWalletBalance, walletBalances, sourceChain])
 
   // Dynamic Platform Fee configuration from Arcis Treasury Fee Engine
   // (VITE_BRIDGE_FEE_BPS + VITE_BRIDGE_FEE_MIN_USDC + VITE_BRIDGE_FEE_MAX_USDC).
@@ -299,6 +319,7 @@ export default function BridgeModal({
 
   // Transfer execution states
   const [isTransferring, setIsTransferring] = useState(false)
+  const [isWrapping, setIsWrapping] = useState(false)
   const [successReceipt, setSuccessReceipt] = useState<any>(null)
   const [isBridgePending, setIsBridgePending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -313,6 +334,7 @@ export default function BridgeModal({
     setRecipient('')
     setSelectedToken('USDC')
     setIsTransferring(false)
+    setIsWrapping(false)
     setSuccessReceipt(null)
     setIsBridgePending(false)
     setError(null)
@@ -332,6 +354,7 @@ export default function BridgeModal({
   useEffect(() => {
     if (isOpen) {
       setIsTransferring(false)
+      setIsWrapping(false)
       setSuccessReceipt(null)
       setIsBridgePending(false)
       setError(null)
@@ -561,16 +584,15 @@ export default function BridgeModal({
 
     setIsTransferring(true)
 
-    const tokenSymbol = 'USDC'
     const broadcastId = addBroadcast({
       type: 'bridge',
-      title: bridgeMode === 'direct' ? `Bridging ${tokenSymbol}...` : `Bridging ${tokenSymbol} via Gateway...`,
+      title: bridgeMode === 'direct' ? `Bridging ${selectedToken}...` : `Bridging ${selectedToken} via Gateway...`,
       status: 'pending',
       badgeText: 'Pending',
       details: {
         amount,
-        tokenSymbol,
-        tokenIcon: UsdcIcon,
+        tokenSymbol: deliveredTokenSymbol,
+        tokenIcon: deliveredTokenIcon,
         sourceChain,
         destChain,
         bridgeMode,
@@ -695,13 +717,61 @@ export default function BridgeModal({
           await ensureChain(provider, sourceChainDef)
         }
 
+        // Auto-Wrap ETH -> WETH on source chain if user selected native ETH
+        if (selectedToken === 'ETH') {
+          setIsWrapping(true)
+          updateBroadcast(broadcastId, {
+            type: 'bridge',
+            title: 'Wrapping ETH to WETH...',
+            status: 'pending',
+            badgeText: 'Wrapping',
+            message: `Wrapping ${amount} ETH to WETH on ${getChainDisplayName(sourceChain)} before cross-chain bridge.`,
+            details: {
+              amount,
+              tokenSymbol: 'ETH',
+              tokenIcon: TOKEN_ICON_MAP.ETH || UsdcIcon,
+              sourceChain,
+              destChain,
+              bridgeMode,
+            },
+          })
+
+          try {
+            await wrapEth({
+              provider,
+              chainKey: sourceChain,
+              amount,
+              fromAddress: connectedAddress,
+            })
+            console.log('[BridgeModal] ETH wrapped to WETH successfully.')
+            refetchWalletBalances()
+          } catch (wrapErr: any) {
+            setIsWrapping(false)
+            setIsTransferring(false)
+            const normalized = normalizeAppError(wrapErr)
+            setIsCanceledError(normalized.isCanceled)
+            setError(normalized.message)
+            updateBroadcast(broadcastId, {
+              type: 'bridge',
+              title: normalized.isCanceled ? 'ETH Wrapping Canceled' : 'ETH Wrapping Failed',
+              status: normalized.isCanceled ? 'canceled' : 'failed',
+              badgeText: normalized.isCanceled ? 'Canceled' : 'Failed',
+              message: normalized.message,
+            })
+            return
+          } finally {
+            setIsWrapping(false)
+          }
+        }
+
         const adapter = await createViemAdapter(provider)
+        const bridgeToken = selectedToken === 'ETH' ? 'WETH' : selectedToken
 
         const result: any = await executeBridge({
           fromChain: sourceChain,
           toChain: destChain,
           amount,
-          token: selectedToken,
+          token: bridgeToken,
           sourceAdapter: adapter,
           recipientAddress: targetRecipient,
           useForwarder: true,
@@ -861,8 +931,8 @@ export default function BridgeModal({
         sourceExplorerUrl: isGateway || !burnTxHash ? undefined : sourceExplorerUrl,
         destExplorerUrl: hasRealDestTx ? explorerUrl : undefined,
         amount,
-        tokenSymbol: selectedToken,
-        tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+        tokenSymbol: deliveredTokenSymbol,
+        tokenIcon: deliveredTokenIcon,
         sourceChain,
         destChain,
         networkFee: networkFeeText,
@@ -878,8 +948,8 @@ export default function BridgeModal({
         badgeText: destinationConfirmed ? 'Confirmed' : 'Pending',
         details: {
           amount,
-          tokenSymbol: selectedToken,
-          tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+          tokenSymbol: deliveredTokenSymbol,
+          tokenIcon: deliveredTokenIcon,
           sourceChain,
           destChain,
           bridgeMode,
@@ -902,7 +972,7 @@ export default function BridgeModal({
           txHash: mintTxHash,
           destTxHash: mintTxHash,
           amount,
-          tokenSymbol: selectedToken,
+          tokenSymbol: deliveredTokenSymbol,
           sourceChain,
           destChain,
           recipient: targetRecipient,
@@ -913,7 +983,7 @@ export default function BridgeModal({
         onSuccess(amount, mintTxHash)
       } else if (burnTxHash && /^0x[0-9a-fA-F]{64}$/.test(burnTxHash)) {
         addTransaction({
-          type: 'bridge', txHash: burnTxHash, amount, tokenSymbol: selectedToken, sourceChain, destChain,
+          type: 'bridge', txHash: burnTxHash, amount, tokenSymbol: deliveredTokenSymbol, sourceChain, destChain,
           recipient: targetRecipient, userAddress: connectedAddress, status: 'pending', isPrivate: isPrivateBridge,
         })
       }
@@ -987,14 +1057,14 @@ export default function BridgeModal({
                       destExplorerUrl: resolvedExplorerUrl,
                       netReceived: isGateway ? (resolvedGatewayReceivedAmount ?? prev.netReceived) : confirmedCctpReceivedAmount,
                       destFee: resolvedDestFeeText ?? prev.destFee,
-                      tokenSymbol: selectedToken,
-                      tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+                      tokenSymbol: deliveredTokenSymbol,
+                      tokenIcon: deliveredTokenIcon,
                     }
                   : prev
               )
               setIsBridgePending(false)
               completeBridgeTransaction({
-                sourceTxHash: burnTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: selectedToken, sourceChain, destChain,
+                sourceTxHash: burnTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: deliveredTokenSymbol, sourceChain, destChain,
                 recipient: targetRecipient, userAddress: connectedAddress, isPrivate: isPrivateBridge,
               })
               onSuccess(amount, resolvedDestTx)
@@ -1006,8 +1076,8 @@ export default function BridgeModal({
                 badgeText: 'Confirmed',
                 details: {
                   amount,
-                  tokenSymbol: selectedToken,
-                  tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+                  tokenSymbol: deliveredTokenSymbol,
+                  tokenIcon: deliveredTokenIcon,
                   sourceChain,
                   destChain,
                   bridgeMode,
@@ -1052,8 +1122,8 @@ export default function BridgeModal({
           sourceExplorerUrl: sourceExplorer,
           destExplorerUrl: undefined,
           amount,
-          tokenSymbol: selectedToken,
-          tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+          tokenSymbol: deliveredTokenSymbol,
+          tokenIcon: deliveredTokenIcon,
           sourceChain,
           destChain,
           networkFee: pendingNetworkFee,
@@ -1063,7 +1133,7 @@ export default function BridgeModal({
         setIsBridgePending(true)
 
         addTransaction({
-          type: 'bridge', txHash: burnedTxHash, amount, tokenSymbol: selectedToken,
+          type: 'bridge', txHash: burnedTxHash, amount, tokenSymbol: deliveredTokenSymbol,
           sourceChain, destChain, recipient: targetRecipient, userAddress: connectedAddress,
           status: 'pending', isPrivate: isPrivateBridge,
         })
@@ -1076,8 +1146,8 @@ export default function BridgeModal({
           message: 'The source burn succeeded; the destination mint is being tracked automatically.',
           details: {
             amount,
-            tokenSymbol: selectedToken,
-            tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+            tokenSymbol: deliveredTokenSymbol,
+            tokenIcon: deliveredTokenIcon,
             sourceChain,
             destChain,
             bridgeMode,
@@ -1115,14 +1185,14 @@ export default function BridgeModal({
                     destExplorerUrl: resolvedExplorerUrl,
                     netReceived: cctpDest.receivedAmount ?? prev.netReceived,
                     destFee: resolvedDestFeeText ?? prev.destFee,
-                    tokenSymbol: selectedToken,
-                    tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+                    tokenSymbol: deliveredTokenSymbol,
+                    tokenIcon: deliveredTokenIcon,
                   }
                 : prev
             )
             setIsBridgePending(false)
             completeBridgeTransaction({
-              sourceTxHash: burnedTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: selectedToken,
+              sourceTxHash: burnedTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: deliveredTokenSymbol,
               sourceChain, destChain, recipient: targetRecipient, userAddress: connectedAddress,
               isPrivate: isPrivateBridge,
             })
@@ -1134,8 +1204,8 @@ export default function BridgeModal({
               badgeText: 'Confirmed',
               details: {
                 amount,
-                tokenSymbol: selectedToken,
-                tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+                tokenSymbol: deliveredTokenSymbol,
+                tokenIcon: deliveredTokenIcon,
                 sourceChain,
                 destChain,
                 bridgeMode,
@@ -1170,8 +1240,8 @@ export default function BridgeModal({
         message: normalized.message,
         details: {
           amount,
-          tokenSymbol: selectedToken,
-          tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
+          tokenSymbol: deliveredTokenSymbol,
+          tokenIcon: deliveredTokenIcon,
           sourceChain,
           destChain,
           bridgeMode,
@@ -1183,10 +1253,22 @@ export default function BridgeModal({
 
   // Smart Action Button States
   const actionButtonState = useMemo(() => {
+    if (isWrapping) {
+      return {
+        disabled: true,
+        text: 'WRAPPING ETH TO WETH...',
+        loading: true,
+      }
+    }
     if (isTransferring) {
       return {
         disabled: true,
-        text: bridgeMode === 'direct' ? 'BRIDGING VIA CCTP...' : 'TRANSFERRING VIA GATEWAY...',
+        text:
+          selectedToken === 'ETH'
+            ? 'BRIDGING WETH VIA CCTP...'
+            : bridgeMode === 'direct'
+              ? 'BRIDGING VIA CCTP...'
+              : 'TRANSFERRING VIA GATEWAY...',
         loading: true,
       }
     }
@@ -1241,11 +1323,17 @@ export default function BridgeModal({
     }
     return {
       disabled: false,
-      text: bridgeMode === 'direct' ? `BRIDGE ${selectedToken}` : 'FAST TRANSFER USDC',
+      text:
+        selectedToken === 'ETH'
+          ? 'WRAP & BRIDGE ETH'
+          : bridgeMode === 'direct'
+            ? `BRIDGE ${selectedToken}`
+            : 'FAST TRANSFER USDC',
       loading: false,
       icon: <Globe className="w-4 h-4" />,
     }
   }, [
+    isWrapping,
     isTransferring,
     connectedAddress,
     amount,
@@ -1322,8 +1410,11 @@ export default function BridgeModal({
       },
       {
         label: 'Net Received',
-        tooltip: `The final net amount of ${selectedToken} that will arrive in your destination wallet.`,
-        value: `${formatFeeDecimals(netReceived)} ${selectedToken}`,
+        tooltip:
+          selectedToken === 'ETH'
+            ? `1:1 Auto-Wrap: ${amount} ETH wrapped into WETH on ${sourceName}, arriving as WETH in your Arc destination wallet.`
+            : `The final net amount of ${selectedToken} that will arrive in your destination wallet.`,
+        value: `${formatFeeDecimals(netReceived)} ${selectedToken === 'ETH' ? 'WETH' : selectedToken}`,
         highlight: true,
         highlightColor: 'text-indigo-400',
       },
@@ -1494,8 +1585,8 @@ export default function BridgeModal({
       {successReceipt ? (
         <BridgeSuccessReceipt
           amount={successReceipt.amount}
-          tokenSymbol={successReceipt.tokenSymbol || selectedToken}
-          tokenIcon={successReceipt.tokenIcon || TOKEN_ICON_MAP[selectedToken] || UsdcIcon}
+          tokenSymbol={successReceipt.tokenSymbol || deliveredTokenSymbol}
+          tokenIcon={successReceipt.tokenIcon || deliveredTokenIcon}
           sourceChain={successReceipt.sourceChain}
           destChain={successReceipt.destChain}
           sourceChainName={getChainDisplayName(successReceipt.sourceChain)}
@@ -1658,17 +1749,49 @@ export default function BridgeModal({
             onSelectToken={() => setShowTokenModal(true)}
             maxDecimals={tokenDecimals}
             balance={activeBalance}
-            onMaxClick={() => setAmount(maxBridgeAmount(activeBalance, amountReserves))}
+            onMaxClick={() => {
+              if (selectedToken === 'ETH') {
+                const rawBal = parseFloat(activeBalance) || 0
+                const safeMax = Math.max(0, rawBal - 0.002).toFixed(4)
+                setAmount(safeMax)
+              } else {
+                setAmount(maxBridgeAmount(activeBalance, amountReserves))
+              }
+            }}
             quickPercentages={[25, 50, 75, 100]}
             onSelectPercentage={(pct) => {
-              const next = bridgeAmountForPercentage(activeBalance, pct, amountReserves)
-              if (parseFloat(next) > 0) {
-                setAmount(next)
+              if (selectedToken === 'ETH') {
+                const rawBal = parseFloat(activeBalance) || 0
+                const safeMax = Math.max(0, rawBal - 0.002)
+                const next = ((safeMax * pct) / 100).toFixed(4)
+                if (parseFloat(next) > 0) {
+                  setAmount(next)
+                }
+              } else {
+                const next = bridgeAmountForPercentage(activeBalance, pct, amountReserves)
+                if (parseFloat(next) > 0) {
+                  setAmount(next)
+                }
               }
             }}
             error={isInsufficient}
             disabled={isTransferring}
           />
+
+          {/* 1:1 Auto-Wrap Informational Banner when ETH is selected */}
+          {selectedToken === 'ETH' && (
+            <div className="text-[11px] text-cyan-300 bg-cyan-500/10 border border-cyan-500/25 rounded-xl p-3 flex items-start gap-2.5 animate-fade-in">
+              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1">
+                <div className="font-semibold text-cyan-200 flex items-center gap-1.5">
+                  <span>⚡ 1:1 Auto-Wrap Enabled</span>
+                </div>
+                <p className="text-slate-300/90 leading-relaxed text-[11px]">
+                  Native ETH on {getChainDisplayName(sourceChain)} will automatically be wrapped into WETH (1:1 with zero slippage) before bridging via Circle CCTP. You will receive canonical <strong>WETH</strong> on Arc Testnet.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Smart Gateway Balance Helper: suggest switching to Direct CCTP if user has wallet balance */}
           {bridgeMode === 'gateway' && isInsufficient && parseFloat(sourceWalletBalance) > 0 && (
