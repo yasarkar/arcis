@@ -55,7 +55,7 @@ contract ConstantProductPoolWethV4Test is Test {
         uint256 amountB = 10 * DEC18;     // 10 WETH
 
         vm.prank(alice);
-        uint256 lpShares = pool.addLiquidity(amountA, amountB, 0);
+        uint256 lpShares = pool.addLiquidity(amountA, amountB, 0, type(uint256).max);
 
         // Expected:
         // rawSqrt = sqrt(26_000 * 1e6 * 10 * 1e18) = sqrt(260_000 * 1e24) = 509901951359 * 1e12...
@@ -74,14 +74,14 @@ contract ConstantProductPoolWethV4Test is Test {
 
         // Alice adds initial liquidity: 260,000 USDC and 100 WETH (ratio: 2,600 USDC / WETH)
         vm.prank(alice);
-        pool.addLiquidity(260_000 * DEC6, 100 * DEC18, 0);
+        pool.addLiquidity(260_000 * DEC6, 100 * DEC18, 0, type(uint256).max);
 
         // Bob swaps 2,600 USDC for WETH
         uint256 bobUsdcIn = 2_600 * DEC6;
         uint256 bobWethBefore = weth.balanceOf(bob);
 
         vm.prank(bob);
-        uint256 wethOut = pool.swap(address(usdc), address(weth), bobUsdcIn, 0);
+        uint256 wethOut = pool.swap(address(usdc), address(weth), bobUsdcIn, 0, type(uint256).max);
 
         assertGt(wethOut, 0, "Bob must receive WETH");
         assertEq(weth.balanceOf(bob) - bobWethBefore, wethOut);
@@ -95,14 +95,14 @@ contract ConstantProductPoolWethV4Test is Test {
 
         // Alice adds liquidity: 260,000 USDC and 100 WETH
         vm.prank(alice);
-        pool.addLiquidity(260_000 * DEC6, 100 * DEC18, 0);
+        pool.addLiquidity(260_000 * DEC6, 100 * DEC18, 0, type(uint256).max);
 
         // Bob swaps 1 WETH for USDC
         uint256 bobWethIn = 1 * DEC18;
         uint256 bobUsdcBefore = usdc.balanceOf(bob);
 
         vm.prank(bob);
-        uint256 usdcOut = pool.swap(address(weth), address(usdc), bobWethIn, 0);
+        uint256 usdcOut = pool.swap(address(weth), address(usdc), bobWethIn, 0, type(uint256).max);
 
         assertGt(usdcOut, 0, "Bob must receive USDC");
         assertEq(usdc.balanceOf(bob) - bobUsdcBefore, usdcOut);
@@ -116,15 +116,15 @@ contract ConstantProductPoolWethV4Test is Test {
 
         // Alice provides liquidity
         vm.prank(alice);
-        pool.addLiquidity(260_000 * DEC6, 100 * DEC18, 0);
+        pool.addLiquidity(260_000 * DEC6, 100 * DEC18, 0, type(uint256).max);
 
         // Bob swaps 5,200 USDC for WETH
         vm.prank(bob);
-        pool.swap(address(usdc), address(weth), 5_200 * DEC6, 0);
+        pool.swap(address(usdc), address(weth), 5_200 * DEC6, 0, type(uint256).max);
 
         // Bob swaps 2 WETH for USDC
         vm.prank(bob);
-        pool.swap(address(weth), address(usdc), 2 * DEC18, 0);
+        pool.swap(address(weth), address(usdc), 2 * DEC18, 0, type(uint256).max);
 
         // Alice harvests accrued swap fees
         (uint256 pFeeA, uint256 pFeeB) = pool.pendingFees(alice);

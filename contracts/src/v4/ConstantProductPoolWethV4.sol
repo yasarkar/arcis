@@ -10,7 +10,7 @@ import {LpFeeAccounting} from "./LpFeeAccounting.sol";
 
 /// @notice Arcis USDC / WETH Constant-Product Pool V4 (x * y = k) with Real-Yield Fee Harvest.
 /// @dev Pair: USDC (6 decimals, tokenA) / WETH (18 decimals, tokenB).
-///      LP token: 18 decimals — initial shares = sqrt(amountA * amountB) * 1e6.
+///      LP token: 18 decimals -- initial shares = sqrt(amountA * amountB) * 1e6.
 ///      The 1e6 scalar normalises geometric-mean units (6+18=24 dec / 2 = 12 dec raw sqrt)
 ///      up to standard 18-decimal ERC-20 shares. MINIMUM_LIQUIDITY = 1000 wei LP locked to
 ///      DEAD_ADDRESS on the first deposit to anchor the exchange rate and prevent inflation attacks.
@@ -18,6 +18,14 @@ import {LpFeeAccounting} from "./LpFeeAccounting.sol";
 ///      Arc Network Note: native gas on Arc IS USDC (18 dec), but this contract interacts
 ///      only with the 6-decimal USDC ERC-20 interface. No receive() / fallback() is defined,
 ///      so any attempt to send native value reverts at the EVM level.
+///
+///      Security fixes applied (audit 2026-10-12):
+///        H-1: NoLiquidityProviders guard in swap() -- fees never orphaned when eligible supply=0.
+///        H-3: DustSwapNotAllowed guard -- fee must be >= 1 wei; prevents free swaps.
+///        M-1: Strict CEI in swap() -- reserve state written BEFORE output token is pushed.
+///        M-2: minLpShares checked BEFORE tokens are pulled on the initial deposit path.
+///        M-3: deadline parameter added to swap() and addLiquidity() -- MEV staleness protection.
+///        M-5: skim() function added -- recovers stray token donations above tracked reserves.
 contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAccounting {
     // ── Immutables & Constants ────────────────────────────────────────────────
     IERC20Like public immutable tokenA; // USDC (6 decimals)
@@ -45,11 +53,19 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
     error InvalidTokenPair();
     error ZeroAddress();
     error KInvariantViolated();
+    /// @dev H-1: swap() reverts when no real LP holders remain, preventing fee orphaning.
+    error NoLiquidityProviders();
+    /// @dev H-3: swap() reverts when amountIn is so small that the fee rounds to zero.
+    error DustSwapNotAllowed();
+    /// @dev M-3: swap()/addLiquidity() revert when block.timestamp exceeds caller's deadline.
+    error DeadlineExpired();
 
     // ── Events ────────────────────────────────────────────────────────────────
     event LiquidityAdded(address indexed provider, uint256 amountA, uint256 amountB, uint256 lpMinted);
     event LiquidityRemoved(address indexed provider, uint256 lpAmount, uint256 amountA, uint256 amountB);
     event Swapped(address indexed user, address tokenIn, uint256 amountIn, uint256 amountOut);
+    /// @dev M-5: emitted when the owner recovers stray tokens above tracked reserves.
+    event SkimExecuted(address indexed token, address indexed to, uint256 amount);
 
     // ── Constructor ───────────────────────────────────────────────────────────
     constructor(
@@ -122,17 +138,21 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
 
     // ── Liquidity Management ──────────────────────────────────────────────────
 
-    /// @notice Add USDC + WETH liquidity. Slippage protected.
-    /// @dev L-1 fix: tokens are pulled from caller BEFORE _mint so that any revert
-    ///      in _safeTransferFrom rolls back without having issued LP shares first (CEI).
+    /// @notice Add USDC + WETH liquidity. Slippage and deadline protected.
+    /// @dev M-2 fix: slippage check (minLpShares) is evaluated BEFORE tokens are pulled on the
+    ///      initial deposit path, so a failing slippage condition never wastes the caller's gas
+    ///      on token transfers that will be reverted.
+    ///      M-3 fix: deadline parameter rejects stale transactions held in the mempool.
     ///      Initial LP = sqrt(amountA * amountB) * 1e6 to standardise both 6-dec and
     ///      18-dec inputs to an 18-dec LP token (sqrt of 24-dec product = 12-dec raw * 1e6 = 18-dec).
-    function addLiquidity(uint256 amountAIn, uint256 amountBIn, uint256 minLpShares)
+    function addLiquidity(uint256 amountAIn, uint256 amountBIn, uint256 minLpShares, uint256 deadline)
         external
         nonReentrant
         whenNotPaused
         returns (uint256 lpShares)
     {
+        // M-3: deadline check
+        if (block.timestamp > deadline) revert DeadlineExpired();
         if (amountAIn == 0 || amountBIn == 0) revert ZeroAmount();
 
         uint256 total = totalSupply();
@@ -143,15 +163,18 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
             uint256 initialLp = rawSqrt * 1e6;
             if (initialLp <= MINIMUM_LIQUIDITY) revert ZeroAmount();
 
-            // Pull tokens first (CEI) — if transfer fails, no LP is ever minted
+            // M-2 fix: check slippage BEFORE pulling tokens so a failing check wastes no gas on transfers
+            lpShares = initialLp - MINIMUM_LIQUIDITY;
+            if (lpShares < minLpShares) revert SlippageExceeded();
+
+            // Pull tokens (CEI: checks above, effects below, interactions last for mint)
             _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
             _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
             reserveA += amountAIn;
             reserveB += amountBIn;
 
-            // Lock MINIMUM_LIQUIDITY permanently — anti-inflation anchor
+            // Lock MINIMUM_LIQUIDITY permanently -- anti-inflation anchor
             _mint(DEAD_ADDRESS, MINIMUM_LIQUIDITY);
-            lpShares = initialLp - MINIMUM_LIQUIDITY;
         } else {
             uint256 lpA = (amountAIn * total) / reserveA;
             uint256 lpB = (amountBIn * total) / reserveB;
@@ -164,8 +187,6 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
             reserveA += amountAIn;
             reserveB += amountBIn;
         }
-
-        if (lpShares == 0 || lpShares < minLpShares) revert SlippageExceeded();
 
         _mint(msg.sender, lpShares);
 
@@ -206,15 +227,30 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
     // ── Swap ──────────────────────────────────────────────────────────────────
 
     /// @notice Swap tokenIn for tokenOut using x*y=k with fee isolation.
-    /// @dev Fee is subtracted from amountIn BEFORE constant-product calculation.
-    ///      M-1: 50% single-swap output cap prevents flash-loan price manipulation.
-    function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut)
+    /// @dev H-1 fix: reverts when eligible LP supply is zero so fees are never silently orphaned.
+    ///      H-3 fix: reverts when the fee calculation truncates to zero (dust swap with free ride).
+    ///      M-1 fix: strict CEI -- all reserve state is written BEFORE the output token is pushed,
+    ///               so any re-entrant read of reserveA/B during the output transfer sees the
+    ///               already-updated (correct) state. nonReentrant remains as a second defence.
+    ///      M-3 fix: deadline parameter rejects stale transactions.
+    ///      50% single-swap output cap prevents single-tx flash-loan reserve drainage.
+    function swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 deadline)
         external
         nonReentrant
         whenNotPaused
         returns (uint256 amountOut)
     {
+        // M-3: deadline check
+        if (block.timestamp > deadline) revert DeadlineExpired();
         if (amountIn == 0) revert ZeroAmount();
+
+        // H-1: refuse swaps when no real LP holders remain -- prevents fee orphaning
+        if (_eligibleLpSupply() == 0) revert NoLiquidityProviders();
+
+        uint256 fee = (amountIn * swapFeeBps) / 10000;
+        // H-3: reject dust swaps whose fee rounds to zero
+        if (fee == 0 && swapFeeBps > 0) revert DustSwapNotAllowed();
+        uint256 amountInAfterFee = amountIn - fee;
 
         // Lazy-reset 24-hour volume window
         if (block.timestamp - e24hWindowStart >= 1 days) {
@@ -223,44 +259,43 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
             e24hWindowStart = block.timestamp;
         }
 
-        uint256 fee = (amountIn * swapFeeBps) / 10000;
-        uint256 amountInAfterFee = amountIn - fee;
-
         if (tokenIn == address(tokenA) && tokenOut == address(tokenB)) {
-            // USDC → WETH
+            // USDC -> WETH
             amountOut = (reserveB * amountInAfterFee) / (reserveA + amountInAfterFee);
             if (amountOut == 0) revert ZeroAmount();
             if (amountOut >= reserveB) revert KInvariantViolated();
-            // M-1: 50% single-swap output cap
+            // 50% single-swap output cap
             if (amountOut > reserveB / 2) revert SlippageExceeded();
             if (amountOut < minOut) revert SlippageExceeded();
 
+            // Pull input token
             _safeTransferFrom(tokenA, msg.sender, address(this), amountIn);
-            _safeTransfer(tokenB, msg.sender, amountOut);
-
+            // M-1 fix: update reserves and distribute fee BEFORE pushing output token
             reserveA += amountInAfterFee;
             reserveB -= amountOut;
-
             _distributeSwapFee(fee, 0);
             e24hVolumeA += amountIn;
+            // Push output token last (strict CEI -- state already settled above)
+            _safeTransfer(tokenB, msg.sender, amountOut);
 
         } else if (tokenIn == address(tokenB) && tokenOut == address(tokenA)) {
-            // WETH → USDC
+            // WETH -> USDC
             amountOut = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee);
             if (amountOut == 0) revert ZeroAmount();
             if (amountOut >= reserveA) revert KInvariantViolated();
-            // M-1: 50% single-swap output cap
+            // 50% single-swap output cap
             if (amountOut > reserveA / 2) revert SlippageExceeded();
             if (amountOut < minOut) revert SlippageExceeded();
 
+            // Pull input token
             _safeTransferFrom(tokenB, msg.sender, address(this), amountIn);
-            _safeTransfer(tokenA, msg.sender, amountOut);
-
+            // M-1 fix: update reserves and distribute fee BEFORE pushing output token
             reserveB += amountInAfterFee;
             reserveA -= amountOut;
-
             _distributeSwapFee(0, fee);
             e24hVolumeB += amountIn;
+            // Push output token last (strict CEI -- state already settled above)
+            _safeTransfer(tokenA, msg.sender, amountOut);
 
         } else {
             revert InvalidTokenPair();
@@ -296,6 +331,32 @@ contract ConstantProductPoolWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable,
 
         emit FeesHarvested(lp, feeA, feeB);
         return (feeA, feeB);
+    }
+
+    // ── Token Recovery ────────────────────────────────────────────────────────
+
+    /// @notice Recover excess tokens (stray donations) sent directly to this contract.
+    /// @dev M-5 fix: only withdraws the surplus above (reserveX + feeReserveX) so AMM
+    ///      reserves and the fee pool are never touched. Accepts any token address so that
+    ///      accidentally sent third-party tokens can also be recovered.
+    ///      For tokenA (USDC) and tokenB (WETH) the tracked amount is deducted first;
+    ///      for any other token the full contract balance is recoverable.
+    /// @param token   ERC-20 token to skim.
+    /// @param to      Destination address for the excess tokens.
+    function skim(address token, address to) external onlyOwner {
+        if (to == address(0)) revert ZeroAddress();
+        uint256 contractBal = IERC20Like(token).balanceOf(address(this));
+        uint256 tracked;
+        if (token == address(tokenA)) {
+            tracked = reserveA + feeReserveA;
+        } else if (token == address(tokenB)) {
+            tracked = reserveB + feeReserveB;
+        }
+        // For unrecognised tokens tracked == 0, so the full balance is recoverable.
+        uint256 excess = contractBal > tracked ? contractBal - tracked : 0;
+        if (excess == 0) return;
+        _safeTransfer(IERC20Like(token), to, excess);
+        emit SkimExecuted(token, to, excess);
     }
 
     // ── Internal Helpers ──────────────────────────────────────────────────────
