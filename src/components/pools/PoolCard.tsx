@@ -17,6 +17,7 @@ import {
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
+import WethIcon from '../../assets/Token-Icon/WETH Token.svg'
 import ArcLogo from '../../assets/Arc-Icon.svg'
 import { POOL_RISK_LEVELS, type PoolConfig } from '../../config/poolsConfig'
 import { apySourceExplainer, feeAccrualExplainer, impermanentLossExplainer } from '../../config/poolEducation'
@@ -100,6 +101,7 @@ export default function PoolCard({
             if (t.iconType === 'eurc') src = EurcIcon
             else if (t.iconType === 'arc') src = ArcLogo
             else if (t.iconType === 'btc') src = CirBtcIcon
+            else if (t.iconType === 'weth') src = WethIcon
 
             return (
               <div

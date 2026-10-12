@@ -56,7 +56,7 @@ export interface PoolToken {
   symbol: string
   name: string
   address?: `0x${string}`
-  iconType: 'usdc' | 'eurc' | 'btc' | 'arc' | 'gateway'
+  iconType: 'usdc' | 'eurc' | 'btc' | 'arc' | 'gateway' | 'weth'
   decimals: number
 }
 
@@ -148,6 +148,7 @@ export const POOL_CONTRACTS_V4 = {
   STABLE_SWAP_POOL: v4Address(readEnv('VITE_POOL_V4_STABLE_SWAP')),
   CONSTANT_PRODUCT_POOL: v4Address(readEnv('VITE_POOL_V4_CONSTANT_PRODUCT')),
   YIELD_VAULT: v4Address(readEnv('VITE_POOL_V4_YIELD_VAULT')),
+  WETH_POOL: v4Address(readEnv('VITE_POOL_V4_WETH_POOL')),
   ARCIS_SWAP_ROUTER: POOL_CONTRACTS_V3.ARCIS_SWAP_ROUTER,
 }
 
@@ -177,14 +178,17 @@ export const VAULT_SHARE_DECIMALS = POOL_VERSION_V4 ? 9 : 6
 // Single source of truth consumed everywhere: V4 when configured, otherwise the live V3 set.
 export const POOL_CONTRACTS = {
   ...(POOL_VERSION_V4 ? POOL_CONTRACTS_V4 : POOL_CONTRACTS_V3),
+  WETH_POOL: v4Address(readEnv('VITE_POOL_V4_WETH_POOL')),
   USDC: ARC_TOKENS.USDC,
   EURC: ARC_TOKENS.EURC,
   cirBTC: ARC_TOKENS.cirBTC,
+  WETH: ARC_TOKENS.WETH,
 }
 
 export const POOL_USDC = ARC_TOKENS.USDC
 export const POOL_EURC = ARC_TOKENS.EURC
 export const POOL_CIRBTC = ARC_TOKENS.cirBTC
+export const POOL_WETH = ARC_TOKENS.WETH
 
 // ── AMM pool-state read plan (index order is part of the contract with usePoolsData) ──────────
 // V3 exposes owner-collected `accumulatedFeeA/B`; V4 removed them so LP fees sit in `feeReserveA/B`
@@ -395,6 +399,49 @@ export const ARCIS_POOLS: PoolConfig[] = [
     ],
     tags: ['ERC-4626', 'Single Asset', 'Real Yield', 'Zero IL'],
     supportsZap: true,
+  },
+  {
+    id: 'usdc-weth-pool',
+    name: 'USDC / WETH',
+    subtitle: 'Constant Product (x·y=k) liquidity pool for Bridged Ether on Arc.',
+    description: 'Constant product AMM pool with 0.30% swap fee tier and pro-rata real fee streaming to LPs in USDC and WETH.',
+    category: 'liquidity',
+    tokens: [
+      { symbol: 'USDC', name: 'USD Coin', address: POOL_CONTRACTS.USDC, iconType: 'usdc', decimals: 6 },
+      { symbol: 'WETH', name: 'Wrapped Ether', address: POOL_CONTRACTS.WETH, iconType: 'weth', decimals: 18 },
+    ],
+    apy: 15.4,
+    apyType: 'APR',
+    apyBadge: '15.40% APR • Dynamic Real Yield',
+    tvlUsd: 0,
+    volume24hUsd: 0,
+    lockPeriod: 'No Lock',
+    riskLevel: 'Medium',
+    feeShare: '0.30% Swap Fee to LPs',
+    contractAddress: POOL_CONTRACTS.WETH_POOL,
+    depositTokenSymbol: 'USDC + WETH',
+    rewardTokenSymbol: 'LP Share Growth (USDC / WETH)',
+    isFeatured: true,
+    isLiveOnChain: true,
+    executionMode: 'onchain_verified',
+    yieldOrigin: 'Ether Swap Volume (0.30% Fee)',
+    yieldOriginDetails: 'Every swap between USDC and WETH contributes a 0.30% fee directly to fee reserves, allowing LPs to harvest pure USDC and WETH yield.',
+    gasBenefitNote: 'Gas fees on Arc are paid in USDC — zero ETH needed for gas.',
+    howItWorksSteps: [
+      { step: 1, title: 'Deposit Tokens', desc: 'Deposit USDC + WETH proportionally with 1-Click Zap.' },
+      { step: 2, title: 'Receive afUSDC-WETH', desc: 'Receive standardized 18-decimal LP tokens representing your pool share.' },
+      { step: 3, title: 'Earn Trading Fees', desc: 'Accumulate 0.30% fee on all swaps between USDC and WETH.' },
+      { step: 4, title: 'Harvest Anytime', desc: 'Harvest real USDC and WETH swap fees anytime without burning LP tokens.' },
+    ],
+    tags: ['Constant Product', 'Ethereum', 'Bridged WETH', 'Real Yield'],
+    isLpPool: true,
+    lpTokenName: 'Arcis USDC-WETH LP',
+    lpTokenSymbol: 'af-USDC-WETH',
+    supportsZap: true,
+    feeTierPercent: 0.30,
+    reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
+    impermanentLossRisk: 'Medium',
+    paused: false,
   },
 ]
 

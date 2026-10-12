@@ -235,7 +235,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   const getButtonText = () => {
     if (!walletAddress) return 'CONNECT WALLET'
     if (!hasEnteredAmount) return 'ENTER AMOUNT'
-    if (isBtcExceeded) return 'INSUFFICIENT BTC BALANCE'
+    if (isBtcExceeded) return 'INSUFFICIENT cirBTC BALANCE'
     if (isUsdcExceeded) return 'INSUFFICIENT USDC BALANCE'
     if (isSubmitting) return 'DEPOSITING LIQUIDITY...'
     return 'PREVIEW & DEPOSIT'
@@ -332,20 +332,34 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
             {/* Overlapping token avatars */}
             <div className="flex items-center">
-              <div className="w-8 h-8 rounded-full bg-[#f7931a]/20 border border-[#f7931a]/40 p-1 flex items-center justify-center shadow-md z-10">
-                <img src={CirBtcIcon} alt="BTC" className="w-full h-full object-contain" />
+              <div className="w-8 h-8 rounded-full bg-[#141727] border border-orange-500/40 p-1 flex items-center justify-center shadow-md z-10">
+                <img src={CirBtcIcon} alt="cirBTC" className="w-full h-full object-contain" />
               </div>
-              <div className="w-8 h-8 rounded-full bg-[#2775ca]/20 border border-[#2775ca]/40 p-1 flex items-center justify-center shadow-md -ml-2.5 z-0">
+              <div className="w-8 h-8 rounded-full bg-[#141727] border border-sky-500/40 p-1 flex items-center justify-center shadow-md -ml-2.5 z-0">
                 <img src={UsdcIcon} alt="USDC" className="w-full h-full object-contain" />
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-lg font-bold text-white tracking-tight">cirBTC / USDC</span>
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold uppercase bg-amber-500/20 border border-amber-500/40 text-amber-400">
+              <span className="text-lg font-bold text-white tracking-tight">{pool?.name || 'USDC / cirBTC'}</span>
+              <span
+                className="px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider select-none shrink-0"
+                style={{
+                  background: 'rgba(249, 115, 22, 0.2)',
+                  color: '#fb923c',
+                  border: '1px solid rgba(249, 115, 22, 0.35)',
+                }}
+              >
                 {POOL_VERSION_V4 ? 'V4' : 'V3'}
               </span>
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-white/[0.06] text-white/70">
+              <span
+                className="px-1.5 py-0.5 rounded-md text-[10px] font-medium select-none shrink-0"
+                style={{
+                  background: 'rgba(251, 191, 36, 0.1)',
+                  color: '#fde68a',
+                  border: '1px solid rgba(251, 191, 36, 0.22)',
+                }}
+              >
                 {`${(pool?.feeTierPercent || 0.25).toFixed(2)}%`}
               </span>
             </div>
@@ -388,7 +402,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
             </div>
             <h3 className="text-xl font-bold text-white">Liquidity Position Initialized!</h3>
             <p className="text-sm text-[var(--fp-3)] max-w-md mx-auto">
-              Your concentrated liquidity position for <strong>cirBTC / USDC</strong> has been successfully deployed within the range <strong>{parsedMinPrice.toLocaleString()} - {parsedMaxPrice.toLocaleString()} USDC</strong>.
+              Your concentrated liquidity position for <strong>USDC / cirBTC</strong> has been successfully deployed within the range <strong>{parsedMinPrice.toLocaleString()} - {parsedMaxPrice.toLocaleString()} USDC per cirBTC</strong>.
             </p>
             <div className="pt-4 flex justify-center gap-3">
               <button
@@ -414,9 +428,11 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                   <div className="flex items-center gap-1.5 text-xs text-[var(--fp-3)] mt-0.5">
                     <span>Price:</span>
                     <strong className="text-white font-mono">
-                      {liveBtcPrice.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                      {isUsdcPerBtc
+                        ? liveBtcPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                        : (1 / liveBtcPrice).toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 })}
                     </strong>
-                    <span>USDC per BTC</span>
+                    <span>{isUsdcPerBtc ? 'USDC per cirBTC' : 'cirBTC per USDC'}</span>
                     <button
                       type="button"
                       onClick={() => setIsUsdcPerBtc(!isUsdcPerBtc)}
@@ -467,19 +483,19 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
               <div className="relative w-full h-[220px] rounded-2xl bg-black/40 border border-white/[0.06] p-3 flex flex-col justify-between overflow-hidden">
                 {/* Min tag (-18.83%) handle */}
                 <div className="absolute top-2 left-4 z-20 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[11px] font-mono text-white shadow-md">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
                   <span>{minPercentDiff < 0 ? `${minPercentDiff}%` : `-${Math.abs(minPercentDiff)}%`}</span>
                 </div>
 
                 {/* Max tag (+22.80%) handle */}
                 <div className="absolute top-2 right-4 z-20 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/80 border border-white/20 text-[11px] font-mono text-white shadow-md">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
                   <span>+{Math.abs(maxPercentDiff)}%</span>
                 </div>
 
                 {/* Center current price dashed indicator */}
                 <div
-                  className="absolute inset-y-0 w-px border-l-2 border-dashed border-amber-500/80 pointer-events-none z-10"
+                  className="absolute inset-y-0 w-px border-l-2 border-dashed border-orange-500/80 pointer-events-none z-10"
                   style={{ left: '50%' }}
                 />
 
@@ -493,7 +509,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                       <div
                         className={`w-full rounded-t-sm transition-all duration-200 ${
                           bar.inRange
-                            ? 'bg-gradient-to-t from-amber-600/50 via-amber-500/80 to-amber-400 group-hover:brightness-125'
+                            ? 'bg-gradient-to-t from-orange-700/60 via-orange-500/80 to-amber-400 group-hover:brightness-125'
                             : 'bg-white/[0.06] group-hover:bg-white/[0.12]'
                         }`}
                         style={{ height: `${bar.heightPct}%` }}
@@ -510,7 +526,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 <div className="flex items-center justify-between text-[10px] text-white/40 font-mono pt-1 border-t border-white/[0.05]">
                   <span>{parsedMinPrice.toLocaleString('en-US', { maximumFractionDigits: 1 })}</span>
                   <span>{((parsedMinPrice + liveBtcPrice) / 2).toLocaleString('en-US', { maximumFractionDigits: 1 })}</span>
-                  <span className="text-amber-400 font-bold">{liveBtcPrice.toLocaleString('en-US', { maximumFractionDigits: 1 })}</span>
+                  <span className="text-orange-400 font-bold">{liveBtcPrice.toLocaleString('en-US', { maximumFractionDigits: 1 })}</span>
                   <span>{((liveBtcPrice + parsedMaxPrice) / 2).toLocaleString('en-US', { maximumFractionDigits: 1 })}</span>
                   <span>{parsedMaxPrice.toLocaleString('en-US', { maximumFractionDigits: 1 })}</span>
                 </div>
@@ -552,16 +568,18 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                       <button
                         type="button"
                         onClick={() => adjustMinPrice(-2)}
-                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70"
+                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70 transition-colors cursor-pointer"
+                        title="Decrease Min Price"
                       >
-                        -
+                        <Minus size={11} />
                       </button>
                       <button
                         type="button"
                         onClick={() => adjustMinPrice(2)}
-                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70"
+                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70 transition-colors cursor-pointer"
+                        title="Increase Min Price"
                       >
-                        +
+                        <Plus size={11} />
                       </button>
                     </div>
                   </div>
@@ -571,7 +589,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     onChange={(e) => setMinPriceInput(e.target.value)}
                     className="w-full text-base sm:text-lg font-bold text-white bg-transparent outline-none font-mono"
                   />
-                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">USDC per BTC</p>
+                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">USDC per cirBTC</p>
                 </div>
 
                 {/* Max Price Card */}
@@ -582,16 +600,18 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                       <button
                         type="button"
                         onClick={() => adjustMaxPrice(-2)}
-                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70"
+                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70 transition-colors cursor-pointer"
+                        title="Decrease Max Price"
                       >
-                        -
+                        <Minus size={11} />
                       </button>
                       <button
                         type="button"
                         onClick={() => adjustMaxPrice(2)}
-                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70"
+                        className="w-5 h-5 rounded flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.1] text-white/70 transition-colors cursor-pointer"
+                        title="Increase Max Price"
                       >
-                        +
+                        <Plus size={11} />
                       </button>
                     </div>
                   </div>
@@ -601,7 +621,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     onChange={(e) => setMaxPriceInput(e.target.value)}
                     className="w-full text-base sm:text-lg font-bold text-white bg-transparent outline-none font-mono"
                   />
-                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">USDC per BTC</p>
+                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">USDC per cirBTC</p>
                 </div>
 
                 {/* Estimated APR Card */}
@@ -629,9 +649,10 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                   <button
                     type="button"
                     onClick={() => setShowSlippageModal(!showSlippageModal)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-medium text-white/80 hover:text-white transition-colors cursor-pointer border border-white/[0.06]"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-medium text-white/80 hover:text-white transition-colors cursor-pointer border border-white/[0.06]"
                   >
-                    <span>⚙ {slippage}%</span>
+                    <Sliders size={12} className="text-white/60" />
+                    <span>{slippage}%</span>
                   </button>
 
                   {/* Slippage Dropdown */}
@@ -662,25 +683,25 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 </div>
               </div>
 
-              {/* ── Token A Deposit Input (BTC) ── */}
+              {/* ── Token A Deposit Input (cirBTC) ── */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.15] transition-colors space-y-2">
                 <div className="flex items-center justify-between text-xs text-[var(--fp-4)]">
                   <div className="flex items-center gap-1.5">
                     <Wallet size={12} />
-                    <span>{userBtcBal.toFixed(6)}</span>
+                    <span className="font-mono">{userBtcBal.toFixed(6)} cirBTC</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => handleBtcPercent(50)}
-                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold"
+                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold transition-colors cursor-pointer"
                     >
                       50%
                     </button>
                     <button
                       type="button"
                       onClick={() => handleBtcPercent(100)}
-                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold"
+                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold transition-colors cursor-pointer"
                     >
                       Max
                     </button>
@@ -689,10 +710,10 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="w-7 h-7 rounded-full bg-[#f7931a]/20 border border-[#f7931a]/40 p-1 flex items-center justify-center">
-                      <img src={CirBtcIcon} alt="BTC" className="w-full h-full object-contain" />
+                    <div className="w-7 h-7 rounded-full bg-[#141727] border border-orange-500/30 p-1 flex items-center justify-center shadow-sm">
+                      <img src={CirBtcIcon} alt="cirBTC" className="w-full h-full object-contain" />
                     </div>
-                    <span className="font-bold text-white text-base">BTC</span>
+                    <span className="font-bold text-white text-base">cirBTC</span>
                   </div>
 
                   <input
@@ -714,20 +735,20 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 <div className="flex items-center justify-between text-xs text-[var(--fp-4)]">
                   <div className="flex items-center gap-1.5">
                     <Wallet size={12} />
-                    <span>{userUsdcBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span className="font-mono">{userUsdcBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => handleUsdcPercent(50)}
-                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold"
+                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold transition-colors cursor-pointer"
                     >
                       50%
                     </button>
                     <button
                       type="button"
                       onClick={() => handleUsdcPercent(100)}
-                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold"
+                      className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold transition-colors cursor-pointer"
                     >
                       Max
                     </button>
@@ -736,7 +757,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="w-7 h-7 rounded-full bg-[#2775ca]/20 border border-[#2775ca]/40 p-1 flex items-center justify-center">
+                    <div className="w-7 h-7 rounded-full bg-[#141727] border border-sky-500/30 p-1 flex items-center justify-center shadow-sm">
                       <img src={UsdcIcon} alt="USDC" className="w-full h-full object-contain" />
                     </div>
                     <span className="font-bold text-white text-base">USDC</span>
@@ -759,25 +780,39 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
               {/* ── Dynamic Ratio Allocation Bar (Matching Reference) ── */}
               <div className="space-y-1.5 pt-1">
                 <div className="flex items-center justify-between text-xs font-semibold">
-                  <div className="flex items-center gap-1.5 text-amber-400">
-                    <span>₿</span>
-                    <span>{ratioResult.percentA}%</span>
+                  <div className="flex items-center gap-1.5 text-orange-500">
+                    <img
+                      src={CirBtcIcon}
+                      alt="cirBTC"
+                      className="w-4 h-4 rounded-full object-contain shrink-0 shadow-sm"
+                    />
+                    <span className="tabular-nums">{ratioResult.percentA}% cirBTC</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-blue-400">
-                    <span>{ratioResult.percentB}%</span>
-                    <span>Ⓢ</span>
+                  <div className="flex items-center gap-1.5 text-sky-400">
+                    <span className="tabular-nums">{ratioResult.percentB}% USDC</span>
+                    <img
+                      src={UsdcIcon}
+                      alt="USDC"
+                      className="w-4 h-4 rounded-full object-contain shrink-0 shadow-sm"
+                    />
                   </div>
                 </div>
 
                 {/* Split Dual-Tone Bar */}
-                <div className="h-2 w-full rounded-full bg-white/[0.05] flex overflow-hidden">
+                <div className="h-1.5 w-full rounded-full bg-white/[0.06] flex overflow-hidden">
                   <div
-                    className="h-full bg-amber-500 transition-all duration-300 rounded-l-full"
-                    style={{ width: `${ratioResult.percentA}%` }}
+                    className="h-full transition-all duration-300"
+                    style={{
+                      width: `${ratioResult.percentA}%`,
+                      background: 'linear-gradient(90deg, #c2410c 0%, #ea580c 100%)',
+                    }}
                   />
                   <div
-                    className="h-full bg-blue-500 transition-all duration-300 rounded-r-full"
-                    style={{ width: `${ratioResult.percentB}%` }}
+                    className="h-full transition-all duration-300"
+                    style={{
+                      width: `${ratioResult.percentB}%`,
+                      background: 'linear-gradient(90deg, #0284c7 0%, #38bdf8 100%)',
+                    }}
                   />
                 </div>
               </div>
@@ -802,11 +837,19 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 type="button"
                 onClick={handleDeposit}
                 disabled={isButtonDisabled}
-                className={`w-full py-4 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-lg ${
+                className={`w-full py-3.5 rounded-2xl font-bold text-xs sm:text-sm tracking-wide text-white transition-all duration-200 shadow-lg active:scale-95 flex items-center justify-center gap-2 select-none ${
                   isButtonDisabled
-                    ? 'bg-white/[0.06] text-white/30 cursor-not-allowed border border-white/[0.04]'
-                    : 'bg-[#ffeedd] text-[#1a140f] hover:bg-white hover:scale-[1.01] active:scale-[0.99] shadow-orange-500/10'
+                    ? 'bg-white/[0.05] border border-white/[0.08] text-white/40 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:brightness-110 shadow-orange-500/25 cursor-pointer'
                 }`}
+                style={
+                  !isButtonDisabled
+                    ? {
+                        background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                        boxShadow: '0 6px 20px -4px rgba(249, 115, 22, 0.45)',
+                      }
+                    : undefined
+                }
               >
                 {getButtonText()}
               </button>

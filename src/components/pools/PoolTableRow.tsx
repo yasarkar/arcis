@@ -5,6 +5,7 @@ import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
+import WethIcon from '../../assets/Token-Icon/WETH Token.svg'
 import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
 
 interface PoolTableRowProps {
@@ -34,6 +35,12 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
     token2Icon = UsdcIcon
     feeTier = `${(pool.feeTierPercent || 0.25).toFixed(2)}%`
     version = POOL_VERSION_V4 ? 'V4' : 'V3'
+  } else if (pool.id === 'usdc-weth-pool') {
+    primaryName = 'WETH / USDC'
+    token1Icon = WethIcon
+    token2Icon = UsdcIcon
+    feeTier = `${(pool.feeTierPercent || 0.30).toFixed(2)}%`
+    version = POOL_VERSION_V4 ? 'V4' : 'V3'
   } else if (pool.id === 'usdc-eurc-stable-pool') {
     primaryName = 'EURC / USDC'
     token1Icon = EurcIcon
@@ -48,7 +55,7 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
     version = POOL_VERSION_V4 ? 'V4' : 'V3'
   } else if (pool.tokens && pool.tokens.length >= 2) {
     primaryName = `${pool.tokens[1]?.symbol || 'Token'}/${pool.tokens[0]?.symbol || 'USDC'}`
-    token1Icon = pool.tokens[1]?.iconType === 'btc' ? CirBtcIcon : pool.tokens[1]?.iconType === 'eurc' ? EurcIcon : UsdcIcon
+    token1Icon = pool.tokens[1]?.iconType === 'btc' ? CirBtcIcon : pool.tokens[1]?.iconType === 'eurc' ? EurcIcon : pool.tokens[1]?.iconType === 'weth' ? WethIcon : UsdcIcon
     token2Icon = UsdcIcon
   }
 
@@ -57,6 +64,14 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
     return `$${val.toLocaleString('en-US', {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
+    })}`
+  }
+
+  // Format fees with 2 decimal places to prevent sub-dollar fees (e.g. $0.27) from rounding to $0
+  const formatFees = (val: number): string => {
+    return `$${val.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     })}`
   }
 
@@ -145,7 +160,7 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
 
       {/* ── 4. 24h Fees Column ── */}
       <td className="py-4 sm:py-5 px-4 text-sm font-medium text-white/80 tabular-nums">
-        {formatDollar(displayFees)}
+        {formatFees(displayFees)}
       </td>
 
       {/* ── 5. APR Column (Bold text matching screenshot) ── */}

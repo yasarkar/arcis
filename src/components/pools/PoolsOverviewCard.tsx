@@ -7,6 +7,7 @@ import { Tooltip } from '../common/Tooltip'
 interface PoolsOverviewCardProps {
   totalTvlUsd: number
   pools?: (PoolConfig & { userPosition?: UserPoolPosition })[]
+  totalPoolTxCount?: number
   userTotalDepositedUsd: number
   userTotalClaimableRewardsUsd: number
   dailyYieldGeneratedUsd: number
@@ -20,6 +21,7 @@ interface PoolsOverviewCardProps {
 export const PoolsOverviewCard: React.FC<PoolsOverviewCardProps> = ({
   totalTvlUsd,
   pools = [],
+  totalPoolTxCount,
   userTotalDepositedUsd,
   userTotalClaimableRewardsUsd,
   dailyYieldGeneratedUsd,
@@ -43,8 +45,10 @@ export const PoolsOverviewCard: React.FC<PoolsOverviewCardProps> = ({
   // Real active pools count with verified contracts
   const poolCount = pools.length
 
-  // Real transaction counter based on live pools activity
-  const txCount = pools.some((p) => (p.volume24hUsd || 0) > 0) ? '1.240' : '0'
+  // Real on-chain verified transaction counter across all Arc pools & vaults
+  const txCount = typeof totalPoolTxCount === 'number' && totalPoolTxCount >= 0
+    ? totalPoolTxCount.toLocaleString('en-US')
+    : '0'
 
   // Format TVL display from on-chain state
   const effectiveTvl = totalTvlUsd || pools.reduce((acc, p) => acc + (p.tvlUsd || 0), 0)
@@ -143,9 +147,20 @@ export const PoolsOverviewCard: React.FC<PoolsOverviewCardProps> = ({
           </span>
         </div>
 
-        {/* Transactions */}
+        {/* Transactions (Verified On-Chain Total) */}
         <div className="flex flex-col">
-          <span className="text-xs text-[var(--fp-4)] font-medium">Transactions</span>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-[var(--fp-4)] font-medium">Total Txns</span>
+            <Tooltip
+              content="Total verified on-chain transactions across all Arc liquidity pools & vaults (Swaps, Deposits, Withdrawals, Harvests)"
+              position="top"
+              align="center"
+            >
+              <span className="cursor-help text-[11px] text-[var(--fp-4)]/70 hover:text-white transition-colors">
+                ⓘ
+              </span>
+            </Tooltip>
+          </div>
           <span className="text-base sm:text-lg font-bold text-white mt-1 tabular-nums">
             {txCount}
           </span>

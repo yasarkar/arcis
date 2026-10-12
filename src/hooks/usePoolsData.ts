@@ -54,8 +54,12 @@ import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
 import { resolveUcwTxHash, ucwHashPendingMessage } from '../utils/ucwTxHash'
 import { addTransaction } from '../utils/history'
 import { useLiveTokenPrices } from './useLiveTokenPrices'
+import {
+  fetchTotalPoolTransactionCount,
+  recordOptimisticPoolTx,
+} from '../services/poolEventsIndexer'
 
-export { recordClientSwapVolume }
+export { recordClientSwapVolume, recordOptimisticPoolTx }
 
 /**
  * Standardized APY badge formatter across all Arcis pools and vaults.
@@ -371,6 +375,39 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
       }
     } catch (err) {
       console.warn(`[usePoolsData] ConstantProduct multicall state read failed for ${cpAddr}:`, err)
+    }
+  }
+
+  // ConstantProductPool (USDC/WETH) via Multicall3
+  if (isDeployed(POOL_CONTRACTS.WETH_POOL)) {
+    try {
+      const fnNames = AMM_POOL_STATE_READ_FNS
+
+      const calls = fnNames.map((fn) => ({
+        address: POOL_CONTRACTS.WETH_POOL as Address,
+        abi: CONSTANT_PRODUCT_ABI,
+        functionName: fn,
+      }))
+
+      const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+      const val = (idx: number, fallback: bigint = 0n) =>
+        results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
+      state[POOL_CONTRACTS.WETH_POOL] = {
+        reserveA: formatUnits(val(0), 6),
+        reserveB: formatUnits(val(1), 18),
+        totalLp: formatUnits(val(2), 18),
+        unclaimedFeeA: formatUnits(val(3), 6),
+        unclaimedFeeB: formatUnits(val(4), 18),
+        ...(POOL_VERSION_V4
+          ? { feeReserveA: formatUnits(val(5), 6), feeReserveB: formatUnits(val(6), 18) }
+          : { accumulatedFeeA: formatUnits(val(5), 6), accumulatedFeeB: formatUnits(val(6), 18) }),
+        swapFeeBps: Number(val(7, 30n)),
+        volume24hA: formatUnits(val(8), 6),
+        volume24hB: formatUnits(val(9), 18),
+      }
+    } catch (err) {
+      console.warn(`[usePoolsData] WETH ConstantProduct multicall state read failed:`, err)
     }
   }
 
@@ -893,6 +930,108 @@ export async function fetchUserPoolPositions(
     }
   }
 
+  // ConstantProductPool (USDC/WETH) user balance read
+  const wethPoolAddress = POOL_CONTRACTS.WETH_POOL
+  if (isDeployed(wethPoolAddress)) {
+    try {
+      const lpRaw = (await resilientReadContract(publicClient, {
+        address: wethPoolAddress as Address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [targetAddr],
+      })) as bigint
+
+      if (lpRaw > 0n) {
+        let reserveA = 0n
+        let reserveB = 0n
+        let totalLp = 0n
+        let unclaimedA = 0n
+        let unclaimedB = 0n
+
+        try {
+          const [rA, rB, tLp, uA, uB] = await Promise.all([
+            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
+            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
+            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
+            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
+            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
+          ])
+          reserveA = rA as bigint
+          reserveB = rB as bigint
+          totalLp = tLp as bigint
+          unclaimedA = (uA as bigint) || 0n
+          unclaimedB = (uB as bigint) || 0n
+        } catch (e) {
+          const poolState = onchainPoolState?.[wethPoolAddress]
+          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
+          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
+          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 18) : 0n
+          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
+          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 18) : 0n
+        }
+
+        let stakedUsd = 0
+        let userA = 0
+        let userB = 0
+        let poolSharePct = 0
+        let userEarnedUsd = 0
+        let rawFeeShareUsd = 0
+
+        const liveEthPrice = tokenPrices?.WETH || tokenPrices?.ETH || getCachedTokenPrice('WETH') || 2600
+
+        if (totalLp > 0n) {
+          const userARaw = (reserveA * lpRaw) / totalLp
+          const userBRaw = (reserveB * lpRaw) / totalLp
+          userA = parseFloat(formatUnits(userARaw, 6))
+          userB = parseFloat(formatUnits(userBRaw, 18))
+          stakedUsd = userA + userB * liveEthPrice
+          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+
+          const ufA = parseFloat(formatUnits(unclaimedA, 6))
+          const ufB = parseFloat(formatUnits(unclaimedB, 18))
+          const totalPoolUnclaimedUsd = ufA + ufB * liveEthPrice
+          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+
+          if (POOL_VERSION_V4) {
+            try {
+              const pending = (await resilientReadContract(publicClient, {
+                address: wethPoolAddress as Address,
+                abi: CONSTANT_PRODUCT_ABI,
+                functionName: 'pendingFees',
+                args: [targetAddr],
+              })) as readonly [bigint, bigint]
+              const claimableUsd =
+                parseFloat(formatUnits(pending?.[0] || 0n, 6)) +
+                parseFloat(formatUnits(pending?.[1] || 0n, 18)) * liveEthPrice
+              rawFeeShareUsd = claimableUsd
+              userEarnedUsd = claimableUsd
+            } catch (e) {
+              console.warn('[usePoolsData] WETH ConstantProduct pendingFees read failed:', e)
+            }
+          }
+        }
+
+        positions['usdc-weth-pool'] = {
+          poolId: 'usdc-weth-pool',
+          stakedAmount: stakedUsd.toFixed(2),
+          stakedUsd,
+          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedUsd: userEarnedUsd,
+          lastUpdatedTimestamp: Date.now(),
+          isLpPosition: true,
+          lpTokenBalance: formatUnits(lpRaw, 18),
+          poolSharePct,
+          tokenAStaked: userA.toFixed(2),
+          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
+          earnedFeesUsd: rawFeeShareUsd,
+          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
+        }
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] WETH ConstantProduct user balance read failed:', err)
+    }
+  }
+
   if (Object.keys(positions).length > 0) {
     await redisCache.set(cacheKey, positions, 20)
   }
@@ -967,6 +1106,7 @@ export function usePoolsData(
   // valuations to $0. Funds-affecting paths additionally check isLivePriceAvailable().
   const liveBtcPrice = tokenPrices?.CIRBTC || tokenPrices?.BTC || getCachedTokenPrice('BTC')
   const liveEurcPrice = tokenPrices?.EURC || getCachedTokenPrice('EURC')
+  const liveWethPrice = tokenPrices?.WETH || tokenPrices?.ETH || getCachedTokenPrice('WETH') || 2600
 
   // Reactive trigger for 24h rolling swap volume updates across tabs and components
   const [volumeRevision, setVolumeRevision] = useState(0)
@@ -978,9 +1118,11 @@ export function usePoolsData(
       setVolumeRevision((prev) => prev + 1)
     }
     window.addEventListener('arcis:swap-volume-updated', handleVolumeUpdate)
+    window.addEventListener('arcis:pool-tx-indexed', handleVolumeUpdate)
     window.addEventListener('storage', handleVolumeUpdate)
     return () => {
       window.removeEventListener('arcis:swap-volume-updated', handleVolumeUpdate)
+      window.removeEventListener('arcis:pool-tx-indexed', handleVolumeUpdate)
       window.removeEventListener('storage', handleVolumeUpdate)
     }
   }, [])
@@ -1043,6 +1185,15 @@ export function usePoolsData(
     enabled: isAddressValid,
     staleTime: 20_000,
     refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 45_000),
+    gcTime: 1000 * 60 * 5,
+  })
+
+  // ── Real on-chain total pool transactions (Direct event scan via getLogs) ──
+  const { data: totalPoolTxCount = 0 } = useQuery({
+    queryKey: ['totalPoolTxCount'],
+    queryFn: () => fetchTotalPoolTransactionCount(publicClient),
+    staleTime: 25_000,
+    refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 30_000),
     gcTime: 1000 * 60 * 5,
   })
 
@@ -1124,6 +1275,31 @@ export function usePoolsData(
         apy = totalApr
         apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'BTC Incentive')
 
+      } else if (pool.id === 'usdc-weth-pool') {
+        const s = onchainPoolState?.[pool.contractAddress] || onchainPoolState?.[POOL_CONTRACTS.WETH_POOL]
+        const resA = parseFloat(s?.reserveA || '0') || 0
+        const resB = parseFloat(s?.reserveB || '0') || 0
+        exchangeRate = liveWethPrice
+        const reserveUsd = resA + resB * liveWethPrice
+        tvlUsd = reserveUsd < 1000 ? parseFloat(reserveUsd.toFixed(2)) : Math.floor(reserveUsd)
+        const ratioA = reserveUsd > 0 ? Math.round((resA / reserveUsd) * 100) : 50
+        const ratioB = reserveUsd > 0 ? Math.max(0, 100 - ratioA) : 50
+        reserves = { tokenA: resA, tokenB: resB, ratioA, ratioB }
+        totalLp = s?.totalLp || '0'
+        const wethVolA = parseFloat(s?.volume24hA || '0')
+        const wethVolB = parseFloat(s?.volume24hB || '0')
+        volume24hUsd = parseFloat((wethVolA + wethVolB * liveWethPrice).toFixed(2))
+        clientVolumeUsd = 0
+
+        const baseApr = 15.40
+        const feeTierPct = pool.feeTierPercent || 0.30
+        const dynamicFeeApr = tvlUsd > 0 && volume24hUsd > 0
+          ? ((volume24hUsd * (feeTierPct / 100) * 365) / tvlUsd) * 100
+          : 0
+        const totalApr = parseFloat((baseApr + dynamicFeeApr).toFixed(2))
+        apy = totalApr
+        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'ETH Incentive')
+
       } else if (pool.id === 'usdc-yield-vault') {
         const s = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
         const assetsUsd = parseFloat(s?.totalAssets || '0') || 0
@@ -1158,7 +1334,7 @@ export function usePoolsData(
         userPosition: userPoolPositions?.[pool.id] || undefined,
       }
     })
-  }, [onchainPoolState, userPoolPositions, liveBtcPrice, liveEurcPrice, volumeRevision])
+  }, [onchainPoolState, userPoolPositions, liveBtcPrice, liveEurcPrice, liveWethPrice, volumeRevision])
 
   // Total protocol liquidity across all native Arc pools & vaults
   const totalTvlUsd = useMemo(() => {
@@ -1317,6 +1493,7 @@ export function usePoolsData(
       queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances'] }),
       queryClient.invalidateQueries({ queryKey: ['liveTokenPrices'] }),
       queryClient.invalidateQueries({ queryKey: ['gatewayBalances'] }),
+      queryClient.invalidateQueries({ queryKey: ['totalPoolTxCount'] }),
     ])
 
     // Bump volume revision to refresh 24h metrics
@@ -2209,7 +2386,8 @@ export function usePoolsData(
       // D2: value the counter side at the live price — `pool.exchangeRate || 1` counted
       // cirBTC as $1 in the optimistic updates whenever the static rate was missing (O4 family).
       const counterUsdPrice = poolId === 'usdc-eurc-stable-pool' ? liveEurcPrice : liveBtcPrice
-      const totalUsdAdded = parseFloat(amountAStr) + parseFloat(amountBStr) * counterUsdPrice
+      const effectiveCounterUsdPrice = poolId === 'usdc-weth-pool' ? liveWethPrice : counterUsdPrice
+      const totalUsdAdded = parseFloat(amountAStr) + parseFloat(amountBStr) * effectiveCounterUsdPrice
 
       // 1. Modular Smart Account (Atomic 3-call batch UserOp)
       const smartAccount = getActiveSmartAccount()
@@ -3385,8 +3563,9 @@ export function usePoolsData(
 
       // 3) USDC-denominated display value of what was just harvested.
       const usdA = parseFloat(formatUnits(harvestableA, 6))
+      const counterPrice = decB === 8 ? liveBtcPrice : decB === 18 ? liveWethPrice : liveEurcPrice
       const usdB = harvestableB > 0n
-        ? parseFloat(formatUnits(harvestableB, decB)) * (decB === 8 ? liveBtcPrice : liveEurcPrice)
+        ? parseFloat(formatUnits(harvestableB, decB)) * counterPrice
         : 0
       const amountClaimed = (usdA + usdB).toFixed(4)
 
@@ -3534,6 +3713,7 @@ export function usePoolsData(
     onchainBalances: onchainBalances || { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000' },
     isBalancesLoading,
     totalTvlUsd,
+    totalPoolTxCount,
     userTotalDepositedUsd,
     userTotalClaimableRewardsUsd,
     dailyYieldGeneratedUsd,

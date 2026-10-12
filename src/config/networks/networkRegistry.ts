@@ -311,8 +311,6 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       fallbacks: [
         'https://rpc.testnet.arc.io',
         'https://rpc.quicknode.testnet.arc.io',
-        'https://rpc.blockdaemon.testnet.arc.io',
-        'https://rpc.drpc.testnet.arc.io',
       ],
       ws: 'wss://rpc.testnet.arc.network',
     },

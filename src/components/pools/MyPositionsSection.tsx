@@ -48,43 +48,84 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
         const earnedUsd = p.userPosition?.earnedUsd || 0
         const isBtc = p.id === 'usdc-cirbtc-pool'
         const isEurc = p.id === 'usdc-eurc-stable-pool'
-        const isVault = p.id === 'usdc-yield-vault'
+        const isVault = p.id === 'usdc-yield-vault' || p.category === 'vault'
+        const isWeth = p.id === 'usdc-weth-pool' || p.tokens?.some((t) => t.symbol === 'WETH')
 
-        let name = p.name || 'cirBTC / USDC'
+        let name = p.name || 'USDC / cirBTC'
         let token1Symbol = 'cirBTC'
         let token2Symbol = 'USDC'
         let version = POOL_VERSION_V4 ? 'V4' : 'V3'
         let feeTier = `${(p.feeTierPercent || 0.25).toFixed(2)}%`
-        let token1IconType: 'btc' | 'eurc' | 'usdc' = 'btc'
-        let token2IconType: 'btc' | 'eurc' | 'usdc' = 'usdc'
+        let token1IconType: 'btc' | 'eurc' | 'usdc' | 'weth' = 'btc'
+        let token2IconType: 'btc' | 'eurc' | 'usdc' | 'weth' | undefined = 'usdc'
 
         if (isEurc) {
           name = 'EURC / USDC'
           token1Symbol = 'EURC'
           token1IconType = 'eurc'
+          token2Symbol = 'USDC'
+          token2IconType = 'usdc'
           feeTier = `${(p.feeTierPercent || 0.12).toFixed(2)}%`
         } else if (isVault) {
           name = 'USDC Vault'
           token1Symbol = 'USDC'
           token1IconType = 'usdc'
+          token2Symbol = ''
+          token2IconType = undefined
           version = 'V4'
           feeTier = 'ERC-4626'
+        } else if (isBtc) {
+          name = 'USDC / cirBTC'
+          token1Symbol = 'cirBTC'
+          token1IconType = 'btc'
+          token2Symbol = 'USDC'
+          token2IconType = 'usdc'
+          feeTier = `${(p.feeTierPercent || 0.25).toFixed(2)}%`
+        } else if (isWeth) {
+          name = 'WETH / USDC'
+          token1Symbol = 'WETH'
+          token1IconType = 'weth'
+          token2Symbol = 'USDC'
+          token2IconType = 'usdc'
+          feeTier = `${(p.feeTierPercent || 0.30).toFixed(2)}%`
         }
 
         // Dynamic Price & Range Resolution
-        const livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 82739.99
+        let livePrice = 1.0
+        let currentPriceDisplay = ''
+        if (isEurc) {
+          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 1.08
+          currentPriceDisplay = `Price ${livePrice.toFixed(2)} USDC per EURC`
+        } else if (isBtc) {
+          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 83436.00
+          currentPriceDisplay = `Price ${livePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC per cirBTC`
+        } else if (isWeth) {
+          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 2600.00
+          currentPriceDisplay = `Price ${livePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC per WETH`
+        } else if (isVault) {
+          livePrice = 1.0
+          currentPriceDisplay = '1.00 USDC = 1.00 iUSDC Vault Share'
+        } else {
+          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 1.0
+          currentPriceDisplay = `Price ${livePrice.toFixed(2)} ${token2Symbol} per ${token1Symbol}`
+        }
 
         let minPriceNum = Math.round(livePrice * (1 - 0.1883) * 100) / 100
         let maxPriceNum = Math.round(livePrice * (1 + 0.2280) * 100) / 100
 
-        if (typeof window !== 'undefined' && walletAddress) {
+        if (typeof window !== 'undefined' && walletAddress && !isVault) {
           try {
             const cached = localStorage.getItem(`arcis_clamm_position_${walletAddress.toLowerCase()}_${p.id}`)
             if (cached) {
               const data = JSON.parse(cached)
               if (data.minPrice && data.maxPrice) {
-                minPriceNum = Number(data.minPrice)
-                maxPriceNum = Number(data.maxPrice)
+                const cMin = Number(data.minPrice)
+                const cMax = Number(data.maxPrice)
+                // Sanity check: Ensure cached range is within 0.3x to 3.0x of live price
+                if (cMin > 0 && cMax > cMin && cMin >= livePrice * 0.3 && cMax <= livePrice * 3.0) {
+                  minPriceNum = cMin
+                  maxPriceNum = cMax
+                }
               }
             }
           } catch (e) {
@@ -95,21 +136,41 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
         const inRange = livePrice >= minPriceNum && livePrice <= maxPriceNum
         const minRange = minPriceNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         const maxRange = maxPriceNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        const currentPriceDisplay = `Price ${livePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC per cirBTC`
 
         // Real On-Chain Token Breakdown
-        const token1Amount = p.userPosition?.tokenBStaked || '0.00' // cirBTC
-        const token2Amount = p.userPosition?.tokenAStaked || '0.00' // USDC
-
-        // Real Ratio Calculation from actual holdings
-        const valB = (parseFloat(token1Amount) || 0) * livePrice
-        const valA = parseFloat(token2Amount) || 0
-        const totalVal = valA + valB
+        let token1Amount = '0.00'
+        let token2Amount: string | undefined = '0.00'
         let token1Ratio = 50
         let token2Ratio = 50
-        if (totalVal > 0) {
-          token1Ratio = Math.max(1, Math.min(99, Math.round((valB / totalVal) * 100)))
-          token2Ratio = 100 - token1Ratio
+
+        if (isVault) {
+          token1Amount = p.userPosition?.stakedAmount || (stakedUsd > 0 ? stakedUsd.toFixed(2) : '0.00')
+          token2Amount = undefined
+          token1Ratio = 100
+          token2Ratio = 0
+        } else if (isEurc) {
+          token1Amount = p.userPosition?.tokenBStaked || '0.00' // EURC
+          token2Amount = p.userPosition?.tokenAStaked || '0.00' // USDC
+          const valB = (parseFloat(token1Amount) || 0) * livePrice
+          const valA = parseFloat(token2Amount) || 0
+          const totalVal = valA + valB
+          if (totalVal > 0) {
+            token1Ratio = Math.max(1, Math.min(99, Math.round((valB / totalVal) * 100)))
+            token2Ratio = 100 - token1Ratio
+          }
+        } else if (isBtc) {
+          token1Amount = p.userPosition?.tokenBStaked || '0.00' // cirBTC
+          token2Amount = p.userPosition?.tokenAStaked || '0.00' // USDC
+          const valB = (parseFloat(token1Amount) || 0) * livePrice
+          const valA = parseFloat(token2Amount) || 0
+          const totalVal = valA + valB
+          if (totalVal > 0) {
+            token1Ratio = Math.max(1, Math.min(99, Math.round((valB / totalVal) * 100)))
+            token2Ratio = 100 - token1Ratio
+          }
+        } else {
+          token1Amount = p.userPosition?.tokenBStaked || '0.00'
+          token2Amount = p.userPosition?.tokenAStaked || '0.00'
         }
 
         return {
@@ -133,6 +194,7 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
           maxRange,
           currentPriceDisplay,
           inRange,
+          isVault,
           poolConfig: p,
         }
       })
@@ -237,7 +299,7 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
               }}
               className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold text-white/90 bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 transition-all cursor-pointer shadow-sm"
             >
-              <span>{statusFilter}</span>
+              <span>{statusFilter === 'All' ? 'All Statuses' : statusFilter}</span>
               <ChevronDown
                 size={13}
                 className={`transition-transform duration-200 text-white/60 ${showStatusDropdown ? 'rotate-180' : ''}`}
@@ -246,7 +308,7 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
 
             {showStatusDropdown && (
               <div
-                className="absolute right-0 top-full mt-1.5 min-w-[130px] p-1.5 rounded-2xl border border-white/10 shadow-2xl z-30 flex flex-col gap-1"
+                className="absolute right-0 top-full mt-1.5 min-w-[140px] p-1.5 rounded-2xl border border-white/10 shadow-2xl z-30 flex flex-col gap-1"
                 style={{
                   background: 'rgba(15, 18, 32, 0.96)',
                   backdropFilter: 'blur(20px)',
@@ -264,7 +326,7 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
                       statusFilter === s ? 'bg-purple-500/20 text-white' : 'text-white/70 hover:bg-white/[0.05]'
                     }`}
                   >
-                    <span>{s}</span>
+                    <span>{s === 'All' ? 'All Statuses' : s}</span>
                     {statusFilter === s && <Check size={12} className="text-[var(--purple-1)]" />}
                   </button>
                 ))}

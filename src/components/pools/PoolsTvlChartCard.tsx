@@ -192,9 +192,21 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
     setHoveredIndex(null)
   }
 
-  // Active point for tooltip (default to a featured point e.g. index 18 if not hovering, or hovered)
-  const activePtIndex = hoveredIndex !== null ? hoveredIndex : 18
-  const activePt = pointsWithCoords[activePtIndex] || pointsWithCoords[pointsWithCoords.length - 1]
+  // Format currency helper for tooltips, ticks, and headers
+  const formatCompactUsd = (val: number): string => {
+    if (!Number.isFinite(val) || val <= 0) return '$0.00'
+    if (val >= 1_000_000) {
+      return `$${(val / 1_000_000).toFixed(2)}M`
+    }
+    if (val >= 1_000) {
+      return `$${(val / 1_000).toFixed(2)}K`
+    }
+    return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+
+  // Active point for tooltip (active only when user is hovering)
+  const isHovering = hoveredIndex !== null
+  const activePt = isHovering && hoveredIndex !== null ? pointsWithCoords[hoveredIndex] : null
   const activePtCoord = activePt
     ? {
         x: paddingLeft + activePt.xRatio * plotWidth,
@@ -202,22 +214,25 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
       }
     : null
 
-  // Y-Axis Ticks (3 levels: min, mid, max)
+  // Latest live endpoint on curve (for persistent subtle pulse dot when not hovering)
+  const latestPt = pointsWithCoords[pointsWithCoords.length - 1]
+  const latestPtCoord = latestPt
+    ? {
+        x: paddingLeft + latestPt.xRatio * plotWidth,
+        y: paddingTop + (1 - latestPt.yRatio) * plotHeight,
+      }
+    : null
+
+  // Y-Axis Ticks (3 levels: min, mid, max with unified formatting)
   const yTicks = useMemo(() => {
     const min = chartData.minTvl
     const max = chartData.maxTvl
     const mid = (min + max) / 2
 
-    const formatTick = (val: number) => {
-      if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(2)}M`
-      if (val >= 1_000) return `$${(val / 1_000).toFixed(1)}K`
-      return `$${Math.round(val)}`
-    }
-
     return [
-      { label: formatTick(max), y: paddingTop },
-      { label: formatTick(mid), y: paddingTop + plotHeight / 2 },
-      { label: formatTick(min), y: paddingTop + plotHeight },
+      { label: formatCompactUsd(max), y: paddingTop },
+      { label: formatCompactUsd(mid), y: paddingTop + plotHeight / 2 },
+      { label: formatCompactUsd(min), y: paddingTop + plotHeight },
     ]
   }, [chartData, paddingTop, plotHeight])
 
@@ -251,10 +266,10 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
         fontFamily: 'var(--font-app)',
       }}
     >
-      {/* Top Header Row: Timeframe Switcher */}
+      {/* Top Header Row: Timeframe Switcher & Live TVL Badge */}
       <div className="relative z-10 flex items-center justify-between pb-2 shrink-0">
-        {/* Subtle Label / Breadcrumb */}
-        <div className="flex items-center gap-2">
+        {/* Subtle Label / Breadcrumb + Live TVL Indicator */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
           <span className="w-2 h-2 rounded-full bg-[var(--earned-green)] animate-pulse" />
           <span className="text-xs font-medium text-[var(--fp-4)] tracking-wide">
             Live Protocol Liquidity Stream
@@ -373,16 +388,32 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
             </text>
           ))}
 
-          {/* Vertical Dotted Crosshair & Point on Curve */}
-          {activePtCoord && (
-            <g className="pointer-events-none transition-all duration-100">
+          {/* Persistent Live Tip Dot on Curve (When Not Hovering) */}
+          {!isHovering && latestPtCoord && (
+            <g className="pointer-events-none transition-opacity duration-200">
+              <circle
+                cx={latestPtCoord.x}
+                cy={latestPtCoord.y}
+                r="4.5"
+                fill="#01d062"
+                stroke="#ffffff"
+                strokeWidth="2"
+                filter="url(#glowGreen)"
+                className="animate-pulse"
+              />
+            </g>
+          )}
+
+          {/* Vertical Dotted Crosshair & Active Point on Curve (When Hovering) */}
+          {isHovering && activePtCoord && (
+            <g className="pointer-events-none transition-all duration-75">
               {/* Dotted Vertical Guide Line */}
               <line
                 x1={activePtCoord.x}
                 y1={paddingTop}
                 x2={activePtCoord.x}
                 y2={paddingTop + plotHeight}
-                stroke="rgba(255, 255, 255, 0.35)"
+                stroke="rgba(255, 255, 255, 0.4)"
                 strokeDasharray="3 3"
                 strokeWidth="1.2"
               />
@@ -391,7 +422,7 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
               <circle
                 cx={activePtCoord.x}
                 cy={activePtCoord.y}
-                r="5"
+                r="5.5"
                 fill="#01d062"
                 stroke="#ffffff"
                 strokeWidth="2.5"
@@ -401,15 +432,15 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
           )}
         </svg>
 
-        {/* ── Hover Tooltip (Matching the Screenshot Exactly) ── */}
-        {activePt && activePtCoord && (
+        {/* ── Hover Tooltip (Shown Only on Active Hover with Dynamic Bounds & Formatting) ── */}
+        {isHovering && activePt && activePtCoord && (
           <div
-            className="pointer-events-none absolute z-20 flex flex-col p-2.5 rounded-xl border border-white/10 shadow-2xl transition-transform duration-75"
+            className="pointer-events-none absolute z-20 flex flex-col p-2.5 rounded-xl border border-white/10 shadow-2xl transition-all duration-75"
             style={{
               background: 'rgba(12, 15, 26, 0.96)',
               backdropFilter: 'blur(16px)',
               WebkitBackdropFilter: 'blur(16px)',
-              left: `${(activePtCoord.x / svgWidth) * 100}%`,
+              left: `${Math.min(86, Math.max(14, (activePtCoord.x / svgWidth) * 100))}%`,
               top: `${Math.max(10, (activePtCoord.y / svgHeight) * 100 - 35)}%`,
               transform: 'translate(-50%, -100%)',
               minWidth: '135px',
@@ -424,7 +455,7 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
             <div className="flex items-center justify-between gap-3 mt-1.5 pt-1 border-t border-white/[0.08]">
               <span className="text-[11px] font-semibold text-[var(--fp-4)]">TVL</span>
               <span className="text-xs font-bold text-white tabular-nums tracking-wide">
-                ${(activePt.tvl / 1_000_000).toFixed(2)}M
+                {formatCompactUsd(activePt.tvl)}
               </span>
             </div>
           </div>

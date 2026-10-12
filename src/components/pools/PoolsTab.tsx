@@ -70,6 +70,7 @@ export default function PoolsTab({
     onchainBalances,
     isBalancesLoading,
     totalTvlUsd,
+    totalPoolTxCount,
     userTotalDepositedUsd,
     userTotalClaimableRewardsUsd,
     dailyYieldGeneratedUsd,
@@ -391,11 +392,11 @@ export default function PoolsTab({
     const earnedUsd = targetPool?.userPosition?.earnedUsd || 0
     const poolApy = targetPool?.apy
 
-    if (earnedUsd < 0.005) {
+    if (earnedUsd < 0.01) {
       if (addToast) {
         addToast(
-          'Nothing to Harvest',
-          `No accrued fees or yield available to harvest for ${poolName} yet (minimum 0.01 USDC).`,
+          'Minimum Claim Threshold',
+          `Accrued fees are below the minimum distribution threshold ($0.01 USDC). Current: $${earnedUsd.toFixed(4)} USDC.`,
           'info',
           undefined,
           'Arc Testnet'
@@ -1095,6 +1096,7 @@ export default function PoolsTab({
           <PoolsOverviewCard
             totalTvlUsd={totalTvlUsd}
             pools={pools}
+            totalPoolTxCount={totalPoolTxCount}
             userTotalDepositedUsd={userTotalDepositedUsd}
             userTotalClaimableRewardsUsd={userTotalClaimableRewardsUsd}
             dailyYieldGeneratedUsd={dailyYieldGeneratedUsd}

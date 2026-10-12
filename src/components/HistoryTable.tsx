@@ -671,11 +671,6 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                 <span>{formatAmountDisplay(item.amountB)}</span>
                 <RenderTokenIcon symbol={item.tokenB} />
               </span>
-              {item.poolName && (
-                <span className="text-[10px] text-emerald-300/80 font-mono font-medium truncate max-w-[140px] text-center">
-                  {item.poolName}
-                </span>
-              )}
             </div>
           )
         }
@@ -699,11 +694,6 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
               <span>-{formatAmountDisplay(item.amount)}</span>
               <RenderTokenIcon symbol={item.tokenSymbol} />
             </span>
-            {item.poolName && (
-              <span className="text-[10px] text-rose-300/80 font-mono font-medium truncate max-w-[140px] text-center">
-                {item.poolName}
-              </span>
-            )}
           </div>
         )
       case 'harvest':
@@ -713,11 +703,6 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
               <span>+{formatAmountDisplay(item.amount)}</span>
               <RenderTokenIcon symbol={item.tokenSymbol || 'USDC'} />
             </span>
-            {item.poolName && (
-              <span className="text-[10px] text-amber-400/80 font-mono font-medium truncate max-w-[140px] text-center">
-                {item.poolName}
-              </span>
-            )}
           </div>
         )
     }
