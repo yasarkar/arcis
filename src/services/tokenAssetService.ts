@@ -35,6 +35,13 @@ export const ARC_TOKEN_ASSETS: Record<string, ArcTokenAssetMetadata> = {
     name: 'Circle Wrapped Bitcoin',
     image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599/logo.png',
   },
+  WETH: {
+    address: ARC_TESTNET_TOKENS.WETH,
+    symbol: 'WETH',
+    decimals: 18,
+    name: 'Wrapped Ether',
+    image: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png',
+  },
 }
 
 const STORAGE_KEY_PREFIX = 'arcis_watched_asset_'

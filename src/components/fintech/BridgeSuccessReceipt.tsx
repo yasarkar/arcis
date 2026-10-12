@@ -34,6 +34,8 @@ export interface BridgeSuccessReceiptProps {
   /** Actual gas charged on the destination chain for the mint, in its native currency (ETH on Base, USDC on Arc). */
   destinationFee?: string
   netReceived?: string
+  tokenSymbol?: string
+  tokenIcon?: string
   onBridgeAgain: () => void
   onClose?: () => void
   isInline?: boolean
@@ -61,6 +63,8 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
   sourceFeeGasless,
   destinationFee,
   netReceived,
+  tokenSymbol = 'USDC',
+  tokenIcon = UsdcIcon,
   onBridgeAgain,
   onClose,
   isInline = false,
@@ -73,8 +77,8 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
       subtitle={pending ? 'The source transaction was submitted. Destination mint is not yet verified; no final delivery is claimed.' : undefined}
       status={pending ? 'pending' : 'success'}
       amount={amount}
-      tokenSymbol="USDC"
-      tokenIcon={UsdcIcon}
+      tokenSymbol={tokenSymbol}
+      tokenIcon={tokenIcon}
       sourceChain={sourceChain}
       destChain={destChain}
       sourceChainName={sourceChainName}

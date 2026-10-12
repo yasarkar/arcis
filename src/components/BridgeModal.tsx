@@ -56,6 +56,8 @@ import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants'
 import { formatFeeDecimals, CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 import { addTransaction, completeBridgeTransaction } from '../utils/history'
 import { Tooltip } from './common/Tooltip'
+import type { SupportedBridgeToken } from '../types/bridge'
+import { TOKEN_ICON_MAP } from '../config/tokenIcons'
 import {
   FintechCard,
   SegmentedModeSwitch,
@@ -67,6 +69,8 @@ import {
   FintechActionButton,
   ChainSelectorModal,
   BridgeSuccessReceipt,
+  TokenSelectorModal,
+  type TokenItem,
 } from './fintech'
 
 interface BridgeModalProps {
@@ -178,6 +182,10 @@ export default function BridgeModal({
   const [showSourceChainModal, setShowSourceChainModal] = useState(false)
   const [showDestChainModal, setShowDestChainModal] = useState(false)
 
+  // Token selection
+  const [selectedToken, setSelectedToken] = useState<SupportedBridgeToken>('USDC')
+  const [showTokenModal, setShowTokenModal] = useState(false)
+
 
   const isValidEvmAddress = (addr: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(addr)
   const isValidSolanaAddress = (addr: string): boolean =>
@@ -187,6 +195,17 @@ export default function BridgeModal({
 
   const isDestSolana = destChain.toLowerCase().includes('solana')
   const isDestInjective = destChain.toLowerCase().includes('injective')
+  const isSourceSolana = sourceChain.toLowerCase().includes('solana')
+
+  // Non-USDC CCTP Expanded Assets bridging is supported exclusively on Direct EVM-to-EVM routes
+  const canBridgeNonUsdc = bridgeMode === 'direct' && !isSourceSolana && !isDestSolana
+
+  // Auto-reset token to USDC if current mode or route does not support non-USDC tokens
+  useEffect(() => {
+    if (!canBridgeNonUsdc && selectedToken !== 'USDC') {
+      setSelectedToken('USDC')
+    }
+  }, [canBridgeNonUsdc, selectedToken])
 
   const recipientIsValid = useMemo(() => {
     if (!recipient) return false
@@ -205,16 +224,63 @@ export default function BridgeModal({
   const sourceGatewayBalance =
     gatewayBalances.find((b) => b.chainKey === sourceChain)?.balance || '0.00'
 
-  const activeBalance = bridgeMode === 'direct' ? sourceWalletBalance : sourceGatewayBalance
+  const isUsdc = selectedToken === 'USDC'
+  const tokenDecimals = selectedToken === 'WETH' ? 18 : selectedToken === 'cirBTC' ? 8 : 6
+
+  const activeBalance = useMemo(() => {
+    if (selectedToken === 'USDC') {
+      return bridgeMode === 'direct' ? sourceWalletBalance : sourceGatewayBalance
+    }
+    if (selectedToken === 'EURC') return walletBalances[sourceChain]?.eurc || '0.00'
+    if (selectedToken === 'WETH') return walletBalances[sourceChain]?.weth || '0.0000'
+    if (selectedToken === 'cirBTC') return walletBalances[sourceChain]?.cirbtc || '0.00000'
+    return '0.00'
+  }, [selectedToken, bridgeMode, sourceWalletBalance, sourceGatewayBalance, walletBalances, sourceChain])
+
+  const availableBridgeTokens = useMemo<TokenItem[]>(() => {
+    const usdcItem: TokenItem = {
+      symbol: 'USDC',
+      name: 'USD Coin',
+      icon: TOKEN_ICON_MAP.USDC || UsdcIcon,
+      balance: bridgeMode === 'gateway' ? sourceGatewayBalance : sourceWalletBalance,
+    }
+
+    if (!canBridgeNonUsdc) {
+      return [usdcItem]
+    }
+
+    return [
+      usdcItem,
+      {
+        symbol: 'EURC',
+        name: 'Euro Coin',
+        icon: TOKEN_ICON_MAP.EURC,
+        balance: walletBalances[sourceChain]?.eurc || '0.00',
+      },
+      {
+        symbol: 'WETH',
+        name: 'Wrapped Ether',
+        icon: TOKEN_ICON_MAP.WETH,
+        balance: walletBalances[sourceChain]?.weth || '0.0000',
+      },
+      {
+        symbol: 'cirBTC',
+        name: 'Circle Bitcoin',
+        icon: TOKEN_ICON_MAP.cirBTC,
+        balance: walletBalances[sourceChain]?.cirbtc || '0.00000',
+      },
+    ]
+  }, [canBridgeNonUsdc, bridgeMode, sourceGatewayBalance, sourceWalletBalance, walletBalances, sourceChain])
 
   // Dynamic Platform Fee configuration from Arcis Treasury Fee Engine
   // (VITE_BRIDGE_FEE_BPS + VITE_BRIDGE_FEE_MIN_USDC + VITE_BRIDGE_FEE_MAX_USDC).
   // Calculates volume-based fee with floor & ceiling: clamp(amount * bps / 10000, min, max).
-  const platformFeeAmount = getBridgePlatformFeeValue(amount)
+  // Non-USDC CCTP bridge transfers do not carry platform fees per Circle protocol rules.
+  const platformFeeAmount = isUsdc ? getBridgePlatformFeeValue(amount) : 0
   // One policy, one source: the fee is only charged — and only enforced against
   // the balance — where the execution path can actually collect it (Direct CCTP
   // via App Kit; never for UCW or the Gateway paths).
-  const platformFeeCharged = isBridgePlatformFeeCharged({ bridgeMode, authSource })
+  const platformFeeCharged = isUsdc && isBridgePlatformFeeCharged({ bridgeMode, authSource })
   const requiredDebit = amount
     ? parseFloat(amount) + (platformFeeCharged ? platformFeeAmount : 0)
     : 0
@@ -245,6 +311,7 @@ export default function BridgeModal({
   const resetFormInputs = useCallback(() => {
     setAmount('')
     setRecipient('')
+    setSelectedToken('USDC')
     setIsTransferring(false)
     setSuccessReceipt(null)
     setIsBridgePending(false)
@@ -347,6 +414,7 @@ export default function BridgeModal({
             fromChain: sourceChain,
             toChain: destChain,
             amount,
+            token: selectedToken,
             sourceAdapter: adapter,
             recipientAddress: recipient || connectedAddress,
             useForwarder: true,
@@ -450,7 +518,7 @@ export default function BridgeModal({
       return
     }
 
-    if (bridgeMode === 'direct' && amt < MIN_DIRECT_BRIDGE_AMOUNT) {
+    if (isUsdc && bridgeMode === 'direct' && amt < MIN_DIRECT_BRIDGE_AMOUNT) {
       setError(
         `Minimum transfer amount for direct CCTP bridge is ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC to cover CCTP network forwarder fees.`
       )
@@ -633,6 +701,7 @@ export default function BridgeModal({
           fromChain: sourceChain,
           toChain: destChain,
           amount,
+          token: selectedToken,
           sourceAdapter: adapter,
           recipientAddress: targetRecipient,
           useForwarder: true,
@@ -792,6 +861,8 @@ export default function BridgeModal({
         sourceExplorerUrl: isGateway || !burnTxHash ? undefined : sourceExplorerUrl,
         destExplorerUrl: hasRealDestTx ? explorerUrl : undefined,
         amount,
+        tokenSymbol: selectedToken,
+        tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
         sourceChain,
         destChain,
         networkFee: networkFeeText,
@@ -807,8 +878,8 @@ export default function BridgeModal({
         badgeText: destinationConfirmed ? 'Confirmed' : 'Pending',
         details: {
           amount,
-          tokenSymbol: 'USDC',
-          tokenIcon: UsdcIcon,
+          tokenSymbol: selectedToken,
+          tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
           sourceChain,
           destChain,
           bridgeMode,
@@ -831,7 +902,7 @@ export default function BridgeModal({
           txHash: mintTxHash,
           destTxHash: mintTxHash,
           amount,
-          tokenSymbol: 'USDC',
+          tokenSymbol: selectedToken,
           sourceChain,
           destChain,
           recipient: targetRecipient,
@@ -842,7 +913,7 @@ export default function BridgeModal({
         onSuccess(amount, mintTxHash)
       } else if (burnTxHash && /^0x[0-9a-fA-F]{64}$/.test(burnTxHash)) {
         addTransaction({
-          type: 'bridge', txHash: burnTxHash, amount, tokenSymbol: 'USDC', sourceChain, destChain,
+          type: 'bridge', txHash: burnTxHash, amount, tokenSymbol: selectedToken, sourceChain, destChain,
           recipient: targetRecipient, userAddress: connectedAddress, status: 'pending', isPrivate: isPrivateBridge,
         })
       }
@@ -916,12 +987,14 @@ export default function BridgeModal({
                       destExplorerUrl: resolvedExplorerUrl,
                       netReceived: isGateway ? (resolvedGatewayReceivedAmount ?? prev.netReceived) : confirmedCctpReceivedAmount,
                       destFee: resolvedDestFeeText ?? prev.destFee,
+                      tokenSymbol: selectedToken,
+                      tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
                     }
                   : prev
               )
               setIsBridgePending(false)
               completeBridgeTransaction({
-                sourceTxHash: burnTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: 'USDC', sourceChain, destChain,
+                sourceTxHash: burnTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: selectedToken, sourceChain, destChain,
                 recipient: targetRecipient, userAddress: connectedAddress, isPrivate: isPrivateBridge,
               })
               onSuccess(amount, resolvedDestTx)
@@ -933,8 +1006,8 @@ export default function BridgeModal({
                 badgeText: 'Confirmed',
                 details: {
                   amount,
-                  tokenSymbol: 'USDC',
-                  tokenIcon: UsdcIcon,
+                  tokenSymbol: selectedToken,
+                  tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
                   sourceChain,
                   destChain,
                   bridgeMode,
@@ -979,6 +1052,8 @@ export default function BridgeModal({
           sourceExplorerUrl: sourceExplorer,
           destExplorerUrl: undefined,
           amount,
+          tokenSymbol: selectedToken,
+          tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
           sourceChain,
           destChain,
           networkFee: pendingNetworkFee,
@@ -988,7 +1063,7 @@ export default function BridgeModal({
         setIsBridgePending(true)
 
         addTransaction({
-          type: 'bridge', txHash: burnedTxHash, amount, tokenSymbol: 'USDC',
+          type: 'bridge', txHash: burnedTxHash, amount, tokenSymbol: selectedToken,
           sourceChain, destChain, recipient: targetRecipient, userAddress: connectedAddress,
           status: 'pending', isPrivate: isPrivateBridge,
         })
@@ -1001,8 +1076,8 @@ export default function BridgeModal({
           message: 'The source burn succeeded; the destination mint is being tracked automatically.',
           details: {
             amount,
-            tokenSymbol: 'USDC',
-            tokenIcon: UsdcIcon,
+            tokenSymbol: selectedToken,
+            tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
             sourceChain,
             destChain,
             bridgeMode,
@@ -1040,12 +1115,14 @@ export default function BridgeModal({
                     destExplorerUrl: resolvedExplorerUrl,
                     netReceived: cctpDest.receivedAmount ?? prev.netReceived,
                     destFee: resolvedDestFeeText ?? prev.destFee,
+                    tokenSymbol: selectedToken,
+                    tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
                   }
                 : prev
             )
             setIsBridgePending(false)
             completeBridgeTransaction({
-              sourceTxHash: burnedTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: 'USDC',
+              sourceTxHash: burnedTxHash, destTxHash: resolvedDestTx, amount, tokenSymbol: selectedToken,
               sourceChain, destChain, recipient: targetRecipient, userAddress: connectedAddress,
               isPrivate: isPrivateBridge,
             })
@@ -1057,8 +1134,8 @@ export default function BridgeModal({
               badgeText: 'Confirmed',
               details: {
                 amount,
-                tokenSymbol: 'USDC',
-                tokenIcon: UsdcIcon,
+                tokenSymbol: selectedToken,
+                tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
                 sourceChain,
                 destChain,
                 bridgeMode,
@@ -1093,8 +1170,8 @@ export default function BridgeModal({
         message: normalized.message,
         details: {
           amount,
-          tokenSymbol: 'USDC',
-          tokenIcon: UsdcIcon,
+          tokenSymbol: selectedToken,
+          tokenIcon: TOKEN_ICON_MAP[selectedToken] || UsdcIcon,
           sourceChain,
           destChain,
           bridgeMode,
@@ -1127,7 +1204,7 @@ export default function BridgeModal({
         loading: false,
       }
     }
-    if (bridgeMode === 'direct' && parseFloat(amount) < MIN_DIRECT_BRIDGE_AMOUNT) {
+    if (isUsdc && bridgeMode === 'direct' && parseFloat(amount) < MIN_DIRECT_BRIDGE_AMOUNT) {
       return {
         disabled: true,
         text: `MINIMUM IS ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC`,
@@ -1164,7 +1241,7 @@ export default function BridgeModal({
     }
     return {
       disabled: false,
-      text: bridgeMode === 'direct' ? 'BRIDGE USDC' : 'FAST TRANSFER USDC',
+      text: bridgeMode === 'direct' ? `BRIDGE ${selectedToken}` : 'FAST TRANSFER USDC',
       loading: false,
       icon: <Globe className="w-4 h-4" />,
     }
@@ -1178,6 +1255,8 @@ export default function BridgeModal({
     recipient,
     recipientIsValid,
     bridgeMode,
+    selectedToken,
+    isUsdc,
   ])
 
   // Clean, standardized Fee & Route breakdown
@@ -1243,8 +1322,8 @@ export default function BridgeModal({
       },
       {
         label: 'Net Received',
-        tooltip: 'The final net amount of USDC that will arrive in your destination wallet.',
-        value: `${formatFeeDecimals(netReceived)} USDC`,
+        tooltip: `The final net amount of ${selectedToken} that will arrive in your destination wallet.`,
+        value: `${formatFeeDecimals(netReceived)} ${selectedToken}`,
         highlight: true,
         highlightColor: 'text-indigo-400',
       },
@@ -1263,7 +1342,9 @@ export default function BridgeModal({
       },
       {
         label: 'Platform Fee',
-        tooltip: `Arcis platform routing fee: ${(BRIDGE_CUSTOM_FEE_CONFIG.percentageBps / 100).toFixed(2)}% (Min ${BRIDGE_CUSTOM_FEE_CONFIG.minUsdc.toFixed(2)} USDC, Max ${BRIDGE_CUSTOM_FEE_CONFIG.maxUsdc.toFixed(2)} USDC cap). 90% supports Arcis treasury, 10% Arc ecosystem.`,
+        tooltip: isUsdc
+          ? `Arcis platform routing fee: ${(BRIDGE_CUSTOM_FEE_CONFIG.percentageBps / 100).toFixed(2)}% (Min ${BRIDGE_CUSTOM_FEE_CONFIG.minUsdc.toFixed(2)} USDC, Max ${BRIDGE_CUSTOM_FEE_CONFIG.maxUsdc.toFixed(2)} USDC cap). 90% supports Arcis treasury, 10% Arc ecosystem.`
+          : 'Non-USDC CCTP token bridge transfers do not carry platform fees (0.00).',
         value:
           platformFeeCharged && platformFeeAmount
             ? `${formatFeeDecimals(platformFeeAmount)} USDC`
@@ -1282,7 +1363,8 @@ export default function BridgeModal({
     // Gateway Fast is a route Circle and Arc provide end to end: Arcis charges no
     // platform fee on it and Circle bills its own cost from the user's Gateway
     // balance, so no Platform Fee row is presented for that route.
-    return bridgeMode === 'gateway'
+    // Non-USDC CCTP routes also carry no platform fee.
+    return bridgeMode === 'gateway' || !isUsdc
       ? items.filter((item) => item.label !== 'Platform Fee')
       : items
   }, [
@@ -1295,6 +1377,8 @@ export default function BridgeModal({
     sourceChain,
     destChain,
     authSource,
+    selectedToken,
+    isUsdc,
   ])
 
   // NOTE: Keep every hook above this line unconditional. The render bailout for
@@ -1410,6 +1494,8 @@ export default function BridgeModal({
       {successReceipt ? (
         <BridgeSuccessReceipt
           amount={successReceipt.amount}
+          tokenSymbol={successReceipt.tokenSymbol || selectedToken}
+          tokenIcon={successReceipt.tokenIcon || TOKEN_ICON_MAP[selectedToken] || UsdcIcon}
           sourceChain={successReceipt.sourceChain}
           destChain={successReceipt.destChain}
           sourceChainName={getChainDisplayName(successReceipt.sourceChain)}
@@ -1428,7 +1514,7 @@ export default function BridgeModal({
           // Gateway Fast carries no Arcis platform fee, so no Platform Fee row is
           // requested for it; every other bridge route still reports the real one.
           platformFee={
-            successReceipt.mode === 'gateway'
+            successReceipt.mode === 'gateway' || !isUsdc
               ? undefined
               : platformFeeCharged && platformFeeAmount
                 ? `${formatFeeDecimals(platformFeeAmount)} USDC`
@@ -1566,8 +1652,11 @@ export default function BridgeModal({
               if (error) setError(null)
               if (isCanceledError) setIsCanceledError(false)
             }}
-            tokenSymbol="USDC"
-            tokenIcon={UsdcIcon}
+            tokenSymbol={selectedToken}
+            tokenIcon={TOKEN_ICON_MAP[selectedToken] || UsdcIcon}
+            tokenListAvailable={canBridgeNonUsdc}
+            onSelectToken={() => setShowTokenModal(true)}
+            maxDecimals={tokenDecimals}
             balance={activeBalance}
             onMaxClick={() => setAmount(maxBridgeAmount(activeBalance, amountReserves))}
             quickPercentages={[25, 50, 75, 100]}
@@ -1607,7 +1696,7 @@ export default function BridgeModal({
           )}
 
           {/* Minimum Amount Warning for CCTP Direct */}
-          {bridgeMode === 'direct' && amount && parseFloat(amount) > 0 && parseFloat(amount) < MIN_DIRECT_BRIDGE_AMOUNT && (
+          {isUsdc && bridgeMode === 'direct' && amount && parseFloat(amount) > 0 && parseFloat(amount) < MIN_DIRECT_BRIDGE_AMOUNT && (
             <div className="text-[11px] text-amber-400/90 flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl animate-fade-in">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
               <span>Minimum transfer amount is {MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC to cover CCTP network forwarder fees.</span>
@@ -1698,6 +1787,22 @@ export default function BridgeModal({
         }}
         getChainIconId={(c) => CHAIN_META[c]?.iconId || 'ethereum'}
         title="Select Destination Network"
+      />
+
+      {/* Token Selector Modal for Multi-Token Bridging */}
+      <TokenSelectorModal
+        isOpen={showTokenModal}
+        onClose={() => setShowTokenModal(false)}
+        tokens={availableBridgeTokens}
+        selectedToken={selectedToken}
+        onSelectToken={(sym) => {
+          setSelectedToken(sym as SupportedBridgeToken)
+          setShowTokenModal(false)
+          setAmount('')
+          setError(null)
+          setIsCanceledError(false)
+        }}
+        title="Select Token to Bridge"
       />
     </FintechCard>
   )

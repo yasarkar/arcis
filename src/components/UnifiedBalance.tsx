@@ -198,6 +198,7 @@ export default function UnifiedBalance({
             {walletAddress && pendingDelta > 0 && (
               <span
                 className="ub-pending-badge"
+                title={`Circle Gateway is still indexing ${formatUsdcAmount(pendingDelta)} USDC. This usually takes 20–30 seconds.`}
               >
                 +{formatUsdcAmount(pendingDelta)} PENDING
               </span>

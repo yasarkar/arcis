@@ -1,6 +1,6 @@
 import { AppKit, type ChainDefinition } from '@circle-fin/app-kit'
 import { formatUnits } from 'viem'
-import type { BridgeExecuteParams, BridgeStepProgress, BridgeStepName } from '../types/bridge'
+import type { BridgeExecuteParams, BridgeStepProgress, BridgeStepName, SupportedBridgeToken } from '../types/bridge'
 import { watchArcToken } from './tokenAssetService'
 import { getResilientPublicClient } from './rpc'
 import { resolveArcActualFeeUsdc } from './arcGasService'
@@ -20,6 +20,21 @@ export function getSupportedBridgeChains(isTestnet?: boolean): ChainDefinition[]
     return chains.filter((c) => c.isTestnet === isTestnet)
   }
   return chains
+}
+
+/**
+ * Normalizes token symbol or alias for Circle App Kit CCTP bridging.
+ * App Kit recognizes 'USDC', 'EURC', 'wETH', 'cirBTC' (or contract addresses).
+ */
+export function normalizeBridgeToken(token?: SupportedBridgeToken | string): string {
+  if (!token) return 'USDC'
+  const trimmed = token.trim()
+  const upper = trimmed.toUpperCase()
+  if (upper === 'WETH') return 'wETH'
+  if (upper === 'EURC') return 'EURC'
+  if (upper === 'CIRBTC') return 'cirBTC'
+  if (upper === 'USDC') return 'USDC'
+  return trimmed
 }
 
 /**
@@ -46,11 +61,14 @@ function buildBridgeParams(params: BridgeExecuteParams) {
     }
   }
 
+  const token = normalizeBridgeToken(params.token)
+  const isUsdc = token.toUpperCase() === 'USDC'
+
   const bridgeParams: any = {
     from,
     to,
     amount: params.amount,
-    token: 'USDC' as const
+    token
   }
 
   // Inject optional configuration.
@@ -68,10 +86,19 @@ function buildBridgeParams(params: BridgeExecuteParams) {
   // wallet_sendCalls) so the approve -> burn flow always runs sequentially.
   // Some wallets (e.g. MetaMask) do not support wallet_sendCalls and this can
   // cause a generic revert on the source chain.
-  if (params.transferSpeed || params.customFee) {
+  //
+  // Non-USDC CCTP routes (EURC, wETH, cirBTC) do not support custom bridge fees
+  // (per Circle docs: "CCTP for non-USDC tokens does not support custom bridge fees").
+  // Therefore, customFee is only applied for USDC transfers.
+  if (isUsdc && (params.transferSpeed || params.customFee)) {
     bridgeParams.config = {
       ...(params.transferSpeed && { transferSpeed: params.transferSpeed }),
       ...(params.customFee && { customFee: params.customFee }),
+      batchTransactions: false
+    }
+  } else if (params.transferSpeed) {
+    bridgeParams.config = {
+      transferSpeed: params.transferSpeed,
       batchTransactions: false
     }
   } else {
@@ -142,7 +169,9 @@ export async function executeBridge(
 ) {
   if (params.fromChain === 'Arc_Testnet' || params.toChain === 'Arc_Testnet') {
     const provider = params.sourceAdapter?.provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
-    watchArcToken('USDC', provider).catch(() => {})
+    const rawToken = params.token || 'USDC'
+    const tokenToWatch = rawToken.toUpperCase() === 'WETH' ? 'WETH' : rawToken
+    watchArcToken(tokenToWatch, provider).catch(() => {})
   }
 
   // Event listener to capture CCTP lifecycle events

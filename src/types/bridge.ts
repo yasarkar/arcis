@@ -2,6 +2,8 @@ export type BridgeSpeed = 'FAST' | 'SLOW'
 
 export type BridgeStepName = 'approve' | 'burn' | 'fetchAttestation' | 'mint'
 
+export type SupportedBridgeToken = 'USDC' | 'EURC' | 'WETH' | 'cirBTC'
+
 export interface CustomFeeConfig {
   value: string
   recipientAddress: string
@@ -11,6 +13,7 @@ export interface BridgeExecuteParams {
   fromChain: string
   toChain: string
   amount: string
+  token?: SupportedBridgeToken | string
   sourceAdapter: any
   destinationAdapter?: any
   recipientAddress?: string

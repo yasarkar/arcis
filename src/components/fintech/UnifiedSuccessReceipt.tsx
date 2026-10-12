@@ -378,7 +378,12 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
     })
   }, [networkFee])
 
-  const sourceFeeValue = formattedNetworkFee ?? '0.00 USDC'
+  const sourceFeeValue = (type === 'bridge' ? networkFee : formattedNetworkFee) ?? '0.00 USDC'
+  const sourceFeeTooltip = networkFee
+    ? type === 'bridge'
+      ? 'Actual gas paid for the source-chain bridge transaction, read from its mined receipt (gasUsed × effectiveGasPrice).'
+      : 'Exact fee charged by the network for this transaction, read from the mined receipt (gasUsed × effectiveGasPrice) — matches the block explorer.'
+    : 'Gateway Fast Transfer authorizes the source burn with an off-chain EIP-712 burn intent: your wallet never submits a source-chain transaction, so you pay no source gas. The mint gas actually paid on the destination chain is shown as the Destination Network Fee.'
 
   const formattedActualGasUsdc = useMemo(() => {
     if (actualGasUsdc == null) return null
@@ -751,6 +756,14 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             </div>
           )}
 
+          {/* Priority Tier (Swap) */}
+          {speedTier && (
+            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+              <span>Priority Tier:</span>
+              <span className="text-slate-200 capitalize font-medium">{speedTier}</span>
+            </div>
+          )}
+
           {/* Platform fee — its own stacked row, matching every other receipt.
               A Gateway Fast bridge never carries one: it is a route Circle and Arc
               provide end to end, so the row is suppressed here no matter which
@@ -781,6 +794,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           {showSourceFeeRow ? (
             <div
               className="text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              title={sourceFeeTooltip}
             >
               <div className="flex items-center justify-between">
                 <span>{sourceFeeLabel}</span>
