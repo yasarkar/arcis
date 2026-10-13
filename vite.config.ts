@@ -146,7 +146,15 @@ export default defineConfig(({ mode }) => {
   Object.assign(process.env, env)
 
   return {
-    plugins: [react(), tailwindcss(), nodePolyfills(), apiPlugin(), shimMissingConnectorsPlugin()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      nodePolyfills({
+        protocolImports: false,
+      }),
+      apiPlugin(),
+      shimMissingConnectorsPlugin(),
+    ],
     resolve: {
       alias: {
         'wagmi/connectors': path.resolve(__dirname, 'src/config/wagmiConnectorsShim.ts'),

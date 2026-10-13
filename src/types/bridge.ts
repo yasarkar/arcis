@@ -2,7 +2,7 @@ export type BridgeSpeed = 'FAST' | 'SLOW'
 
 export type BridgeStepName = 'approve' | 'burn' | 'fetchAttestation' | 'mint'
 
-export type SupportedBridgeToken = 'USDC' | 'EURC' | 'WETH' | 'cirBTC'
+export type SupportedBridgeToken = 'USDC' | 'EURC' | 'WETH' | 'cirBTC' | 'ETH'
 
 export interface CustomFeeConfig {
   value: string

@@ -30,9 +30,9 @@ export function normalizeBridgeToken(token?: SupportedBridgeToken | string): str
   if (!token) return 'USDC'
   const trimmed = token.trim()
   const upper = trimmed.toUpperCase()
-  if (upper === 'WETH') return 'wETH'
+  if (upper === 'WETH' || upper === 'ETH') return 'wETH'
   if (upper === 'EURC') return 'EURC'
-  if (upper === 'CIRBTC') return 'cirBTC'
+  if (upper === 'CIRBTC' || upper === 'BTC') return 'cirBTC'
   if (upper === 'USDC') return 'USDC'
   return trimmed
 }

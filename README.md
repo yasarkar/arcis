@@ -260,7 +260,7 @@ Arcis is connected to **13+ blockchain networks** using Circle Gateway's sub-sec
 
 ### 2. 💸 Fast Send with On-Chain Memos & Privacy Masking
 - Send USDC natively on Arc with attached 32-byte hash identifiers and UTF-8 memo text via `sendUsdcWithMemo()`.
-- Client-side privacy mode (`PrivacyToggle.tsx`) masks sensitive portfolio balances with post-quantum token placeholders (`aps_pq_...`).
+- Client-side privacy mode masks sensitive portfolio balances with post-quantum token placeholders (`aps_pq_...`).
 
 ### 3. 🔄 Instant Swaps & Bridge Routing
 - **Dual Bridge Modes**:

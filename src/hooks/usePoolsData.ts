@@ -561,7 +561,7 @@ export async function fetchOnchainPoolBalances(
 export async function fetchUserPoolPositions(
   walletAddress: string,
   passedPoolState?: Record<string, any>,
-  passedPrices?: { btc?: number; eurc?: number }
+  passedPrices?: { btc?: number; eurc?: number; weth?: number; eth?: number }
 ): Promise<Record<string, UserPoolPosition>> {
   const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
   if (!isAddressValid) return {}
@@ -592,6 +592,12 @@ export async function fetchUserPoolPositions(
     passedPrices?.eurc && passedPrices.eurc > 0 ? passedPrices.eurc : getCachedTokenPrice('EURC')
   const liveBtcPrice =
     passedPrices?.btc && passedPrices.btc > 0 ? passedPrices.btc : getCachedTokenPrice('BTC')
+  const liveEthPrice =
+    passedPrices?.weth && passedPrices.weth > 0
+      ? passedPrices.weth
+      : passedPrices?.eth && passedPrices.eth > 0
+      ? passedPrices.eth
+      : getCachedTokenPrice('WETH') || getCachedTokenPrice('ETH') || 2600
   // Funds-affecting USD→LP mappings may only trust oracle-verified prices. When false, the
   // valuation below is a static approximation and withdrawals are refused (H3 guard, O4).
   const isValuationTrusted = isLivePriceAvailable()
@@ -977,8 +983,6 @@ export async function fetchUserPoolPositions(
         let userEarnedUsd = 0
         let rawFeeShareUsd = 0
 
-        const liveEthPrice = tokenPrices?.WETH || tokenPrices?.ETH || getCachedTokenPrice('WETH') || 2600
-
         if (totalLp > 0n) {
           const userARaw = (reserveA * lpRaw) / totalLp
           const userBRaw = (reserveB * lpRaw) / totalLp
@@ -1181,6 +1185,7 @@ export function usePoolsData(
       fetchUserPoolPositions(walletAddress, onchainPoolState, {
         btc: liveBtcPrice,
         eurc: liveEurcPrice,
+        weth: liveWethPrice,
       }),
     enabled: isAddressValid,
     staleTime: 20_000,

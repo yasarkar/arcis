@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc -b --pretty false",
@@ -11,6 +14,7 @@
     "serve": "tsx server.ts",
     "preview": "vite preview",
     "test": "vitest run",
+    "ci": "npm run typecheck && npm test",
     "preflight:x402": "node scripts/x402-staging-preflight.mjs",
     "check:circle": "node scripts/verify-circle-email-auth.mjs"
   },

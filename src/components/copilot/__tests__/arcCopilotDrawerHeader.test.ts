@@ -48,7 +48,7 @@ describe('ArcCopilotDrawer Header & Dynamic Rotate-CCW Layer', () => {
     createdAt: Date.now(),
   }
 
-  it('renders Ask Arco title, AI AGENT badge, and cybernetic indicators', () => {
+  it('renders Ask Arco title, bot indicator, and autonomous-intelligence subtitle', () => {
     const html = renderToStaticMarkup(
       React.createElement(ArcCopilotDrawer, {
         isOpen: true,
@@ -67,7 +67,7 @@ describe('ArcCopilotDrawer Header & Dynamic Rotate-CCW Layer', () => {
     )
 
     expect(html).toContain('Ask Arco')
-    expect(html).toContain('AI AGENT')
+    expect(html).toContain('lucide-bot')
     expect(html).toContain('Arcis Autonomous Intelligence')
   })
 
@@ -89,9 +89,9 @@ describe('ArcCopilotDrawer Header & Dynamic Rotate-CCW Layer', () => {
       })
     )
 
-    // Verify title and accessible labels
-    expect(html).toContain('Sohbeti Sıfırla (Temizle)')
+    // Verify the reset button's accessible label and RotateCcw icon
     expect(html).toContain('Sohbet geçmişini sıfırla')
+    expect(html).toContain('lucide-rotate-ccw')
     // Verify dynamic visual layer styling (cyber rounded-xl, gradient aura)
     expect(html).toContain('from-cyan-500/25')
   })

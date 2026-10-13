@@ -1778,21 +1778,6 @@ export default function BridgeModal({
             disabled={isTransferring}
           />
 
-          {/* 1:1 Auto-Wrap Informational Banner when ETH is selected */}
-          {selectedToken === 'ETH' && (
-            <div className="text-[11px] text-cyan-300 bg-cyan-500/10 border border-cyan-500/25 rounded-xl p-3 flex items-start gap-2.5 animate-fade-in">
-              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-              <div className="flex-1 space-y-1">
-                <div className="font-semibold text-cyan-200 flex items-center gap-1.5">
-                  <span>⚡ 1:1 Auto-Wrap Enabled</span>
-                </div>
-                <p className="text-slate-300/90 leading-relaxed text-[11px]">
-                  Native ETH on {getChainDisplayName(sourceChain)} will automatically be wrapped into WETH (1:1 with zero slippage) before bridging via Circle CCTP. You will receive canonical <strong>WETH</strong> on Arc Testnet.
-                </p>
-              </div>
-            </div>
-          )}
-
           {/* Smart Gateway Balance Helper: suggest switching to Direct CCTP if user has wallet balance */}
           {bridgeMode === 'gateway' && isInsufficient && parseFloat(sourceWalletBalance) > 0 && (
             <div className="text-[11px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/25 rounded-xl p-3 flex items-start gap-2.5 animate-fade-in">
