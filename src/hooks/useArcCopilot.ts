@@ -1459,7 +1459,7 @@ You can redeem af-USDC for the underlying principal and all earned yield at any 
 Single-asset USDC deposit earning institutional borrower interest + protocol fees. Zero impermanent loss — the flagship 'set & forget' option.
 
 • <strong>Gateway Cross-Chain Settlement Pool (7.25% APR):</strong>
-USDC routed through Circle Gateway earns routing yield while staying instantly spendable across 12+ chains.
+USDC routed through Circle Gateway earns routing yield while staying instantly spendable across 13 chains.
 
 • <strong>USDC / EURC Stable Pool (6.15% APR):</strong>
 Stablecoin LP pair with near-zero impermanent loss, earning FX fees from euro (EURC) swaps.

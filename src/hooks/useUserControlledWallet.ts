@@ -93,18 +93,96 @@ export function parseCircleAuthError(err: any): string {
   return msg || 'İşlem sırasında bir hata oluştu.';
 }
 
+/**
+ * The Circle user token for the life of this tab.
+ *
+ * It authorizes challenge signing on the user's wallet, so it is deliberately
+ * NOT persisted in browser storage: it lives here, and the API mirrors it into a
+ * signed httpOnly cookie (`/api/ucw?action=establishSession`) that no script on
+ * this origin can read. Server-side wallet operations therefore resolve the token
+ * from the cookie, and this memory copy is only a convenience for the calls this
+ * tab makes itself.
+ *
+ * `encryptionKey` is different and stays in storage: Circle's own web SDK needs
+ * it *in the browser* to run `setAuthentication(...)`/`execute(...)` for a user
+ * challenge, so it cannot be moved behind an httpOnly cookie without replacing
+ * the wallet architecture.
+ */
+let ucwSessionUserToken = ''
+/**
+ * Device tokens for Circle's social-login re-auth, held in this tab's memory.
+ * They are credentials as well, so they follow the same rule as the user token:
+ * memory plus the session cookie, never browser storage.
+ */
+let ucwSessionDeviceToken = ''
+let ucwSessionDeviceEncryptionKey = ''
+
+/** Mirrors the session into the API's httpOnly cookie. Never throws. */
+async function persistUcwSession(payload: {
+  userToken?: string;
+  encryptionKey?: string;
+  walletId?: string;
+  address?: string;
+  deviceToken?: string;
+  deviceEncryptionKey?: string;
+}): Promise<boolean> {
+  try {
+    const res = await fetch('/api/ucw?action=establishSession', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    return Boolean(res.ok && data?.success)
+  } catch {
+    // The cookie is an optimization over the in-memory token: a failure here must
+    // not break a login that already succeeded.
+    return false
+  }
+}
+
+/** Drops the server-side session cookie (best effort). */
+async function clearUcwSession(): Promise<void> {
+  try {
+    await fetch('/api/ucw?action=clearSession', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+  } catch {
+    // Ignore: the local state is cleared by the caller regardless.
+  }
+}
+
+/**
+ * Removes the legacy credential keys an earlier build left in localStorage.
+ * Called after the session has been re-established from them, so a returning user
+ * is migrated instead of logged out.
+ */
+function purgeLegacyUcwCredentials(): void {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem('arc_ucw_user_token')
+  localStorage.removeItem('arc_ucw_device_token')
+  localStorage.removeItem('arc_ucw_device_encryption_key')
+}
+
+/**
+ * Whether this tab may restore a UCW identity on load. The token is no longer in
+ * storage, so the address + expiry are the local evidence; the API's cookie is
+ * the authority and `getSession` reconciles the two on mount.
+ */
 function isStoredTokenValid(): boolean {
   if (typeof window === 'undefined') return false;
-  const token = localStorage.getItem('arc_ucw_user_token');
+  const address = localStorage.getItem('arc_ucw_address');
   const expiresAt = Number(localStorage.getItem('arc_ucw_token_expires_at') || 0);
-  if (!token) return false;
+  if (!address) return false;
   if (Date.now() > expiresAt) {
     // Session expired, purge stale storage
     localStorage.removeItem('arc_ucw_address');
-    localStorage.removeItem('arc_ucw_user_token');
     localStorage.removeItem('arc_ucw_encryption_key');
     localStorage.removeItem('arc_ucw_auth_method');
     localStorage.removeItem('arc_ucw_token_expires_at');
+    purgeLegacyUcwCredentials();
     return false;
   }
   return true;
@@ -117,7 +195,7 @@ export function useUserControlledWallet() {
     return isInitialValid ? localStorage.getItem('arc_ucw_address') || '' : '';
   });
   const [userToken, setUserToken] = useState<string>(() => {
-    return isInitialValid ? localStorage.getItem('arc_ucw_user_token') || '' : '';
+    return isInitialValid ? ucwSessionUserToken : '';
   });
   const [encryptionKey, setEncryptionKey] = useState<string>(() => {
     return isInitialValid ? localStorage.getItem('arc_ucw_encryption_key') || '' : '';
@@ -145,6 +223,62 @@ export function useUserControlledWallet() {
   const initPromiseRef = useRef<Promise<any> | null>(null);
   const onLoginCompleteRef = useRef<((err: unknown, result: unknown) => void) | null>(null);
 
+  /**
+   * Restores this tab's UCW session on load.
+   *
+   * Two steps, in order:
+   *   1. Migration — a build before the session cookie left `arc_ucw_user_token`
+   *      in localStorage. Re-establish the cookie from it once, then delete it, so
+   *      a returning user is migrated instead of logged out.
+   *   2. Rehydration — the token itself is not in storage, so ask the API (which
+   *      reads its own httpOnly cookie) for it and keep it in memory only.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let cancelled = false
+
+    const restoreSession = async () => {
+      const legacyToken = localStorage.getItem('arc_ucw_user_token')
+      if (legacyToken) {
+        ucwSessionUserToken = legacyToken
+        setUserToken(legacyToken)
+        await persistUcwSession({
+          userToken: legacyToken,
+          encryptionKey: localStorage.getItem('arc_ucw_encryption_key') || undefined,
+          address: localStorage.getItem('arc_ucw_address') || undefined,
+        })
+        purgeLegacyUcwCredentials()
+      }
+
+      if (cancelled || ucwSessionUserToken) return
+      if (!isStoredTokenValid()) return
+
+      try {
+        const res = await fetch('/api/ucw?action=issueSessionToken', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (cancelled || !res.ok || !data?.success || typeof data.userToken !== 'string' || !data.userToken) {
+          return
+        }
+        ucwSessionUserToken = data.userToken
+        setUserToken(data.userToken)
+        if (typeof data.encryptionKey === 'string' && data.encryptionKey) setEncryptionKey(data.encryptionKey)
+        if (typeof data.address === 'string' && data.address) setUcwAddress(data.address)
+      } catch {
+        // Offline: the tab keeps the identity-only state and the next request to
+        // an authenticated action will report that the session is gone.
+      }
+    }
+
+    void restoreSession()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Circle Official Authentication Completion Callback (for Social & Email OTP)
   const onLoginComplete = useCallback(async (err: unknown, result: unknown) => {
     if (err) {
@@ -164,7 +298,10 @@ export function useUserControlledWallet() {
         setIsLoading(true);
         setUserToken(uToken);
         setEncryptionKey(eKey);
-        localStorage.setItem('arc_ucw_user_token', uToken);
+        // Memory + httpOnly cookie for the token; only the SDK key (which Circle's
+        // web SDK must read in the browser) stays in storage.
+        ucwSessionUserToken = uToken;
+        void persistUcwSession({ userToken: uToken, encryptionKey: eKey });
         localStorage.setItem('arc_ucw_encryption_key', eKey);
         localStorage.setItem('arc_ucw_token_expires_at', String(Date.now() + UCW_TOKEN_EXPIRY_MS));
 
@@ -307,8 +444,11 @@ export function useUserControlledWallet() {
       try {
         const { W3SSdk } = await import('@circle-fin/w3s-pw-web-sdk');
 
-        const storedDeviceToken = localStorage.getItem('arc_ucw_device_token') || '';
-        const storedDeviceEncryptionKey = localStorage.getItem('arc_ucw_device_encryption_key') || '';
+        // From this tab's memory: a device token is a credential and is never
+        // written to browser storage. A reload re-authenticates (which is what
+        // refreshing a device token is for), so no restore path is needed here.
+        const storedDeviceToken = ucwSessionDeviceToken;
+        const storedDeviceEncryptionKey = ucwSessionDeviceEncryptionKey;
 
         const sdk = new W3SSdk(
           {
@@ -465,9 +605,13 @@ export function useUserControlledWallet() {
         },
       });
 
-      // Store device tokens for state continuity
-      localStorage.setItem('arc_ucw_device_token', data.deviceToken);
-      localStorage.setItem('arc_ucw_device_encryption_key', data.deviceEncryptionKey);
+      // Device tokens are credentials too: they go to the session cookie rather
+      // than to browser storage.
+      void persistUcwSession({
+        userToken: userToken || ucwSessionUserToken,
+        deviceToken: data.deviceToken,
+        deviceEncryptionKey: data.deviceEncryptionKey,
+      });
 
       // Launch Circle's hosted OTP input UI modal
       activeSdk.verifyOtp();
@@ -604,7 +748,8 @@ export function useUserControlledWallet() {
 
       setUserToken(data.userToken);
       setEncryptionKey(data.encryptionKey);
-      localStorage.setItem('arc_ucw_user_token', data.userToken);
+      ucwSessionUserToken = data.userToken;
+      void persistUcwSession({ userToken: data.userToken, encryptionKey: data.encryptionKey });
       localStorage.setItem('arc_ucw_encryption_key', data.encryptionKey);
       localStorage.setItem('arc_ucw_token_expires_at', String(Date.now() + UCW_TOKEN_EXPIRY_MS));
 
@@ -727,9 +872,15 @@ export function useUserControlledWallet() {
         throw new Error(data.error || 'Failed to create social device token');
       }
 
-      // Store device tokens for post-OAuth redirect restoration
-      localStorage.setItem('arc_ucw_device_token', data.deviceToken);
-      localStorage.setItem('arc_ucw_device_encryption_key', data.deviceEncryptionKey);
+      // Device tokens for post-OAuth redirect restoration: kept in memory for this
+      // tab and mirrored into the httpOnly session cookie, never in storage.
+      ucwSessionDeviceToken = data.deviceToken;
+      ucwSessionDeviceEncryptionKey = data.deviceEncryptionKey;
+      void persistUcwSession({
+        userToken: userToken || ucwSessionUserToken,
+        deviceToken: data.deviceToken,
+        deviceEncryptionKey: data.deviceEncryptionKey,
+      });
 
       activeSdk.updateConfigs({
         appSettings: { appId: circleAppId },
@@ -867,6 +1018,25 @@ export function useUserControlledWallet() {
     []
   );
 
+  /**
+   * Resolves the broadcast hash of a challenge that has already executed.
+   *
+   * This lives next to the session on purpose: fund-moving services receive it
+   * as a callback instead of reading `arc_ucw_user_token` out of browser storage
+   * themselves. Returns `undefined` while Circle has not published the hash yet;
+   * callers must treat that as "still pending", never as success.
+   */
+  const pollChallengeTx = useCallback(
+    async (challengeId?: string, blockchain?: string): Promise<string | undefined> => {
+      // The API resolves the token from its own httpOnly cookie; this memory copy
+      // is only what this tab still holds for the current session.
+      const uToken = userToken || ucwSessionUserToken
+      if (!challengeId) return undefined
+      return pollForTxHash(uToken, challengeId, undefined, blockchain)
+    },
+    [userToken, pollForTxHash]
+  )
+
   // ── Action: Execute Smart Contract Call via Circle Challenge ─────────
   const executeContractCall = useCallback(
     async (params: {
@@ -886,9 +1056,7 @@ export function useUserControlledWallet() {
       error?: string;
     }> => {
       try {
-        const uToken =
-          userToken ||
-          (typeof window !== 'undefined' ? localStorage.getItem('arc_ucw_user_token') || '' : '');
+        const uToken = userToken || ucwSessionUserToken;
         const eKey =
           encryptionKey ||
           (typeof window !== 'undefined' ? localStorage.getItem('arc_ucw_encryption_key') || '' : '');
@@ -899,6 +1067,9 @@ export function useUserControlledWallet() {
             error: 'Oturum süresi doldu veya cüzdan bağlı değil. Lütfen yeniden giriş yapın.',
           };
         }
+
+
+
 
         const activeSdk = sdkRef.current || sdkInstance || (await ensureSdk());
         if (!activeSdk) {
@@ -1003,9 +1174,7 @@ export function useUserControlledWallet() {
       walletId?: string;
     }): Promise<{ success: boolean; signature?: string; error?: string }> => {
       try {
-        const uToken =
-          userToken ||
-          (typeof window !== 'undefined' ? localStorage.getItem('arc_ucw_user_token') || '' : '');
+        const uToken = userToken || ucwSessionUserToken;
         const eKey =
           encryptionKey ||
           (typeof window !== 'undefined' ? localStorage.getItem('arc_ucw_encryption_key') || '' : '');
@@ -1016,6 +1185,9 @@ export function useUserControlledWallet() {
             error: 'Oturum süresi doldu veya cüzdan bağlı değil. Lütfen yeniden giriş yapın.',
           };
         }
+
+
+
 
         const activeSdk = sdkRef.current || sdkInstance || (await ensureSdk());
         if (!activeSdk) {
@@ -1125,9 +1297,7 @@ export function useUserControlledWallet() {
       error?: string;
     }> => {
       try {
-        const uToken =
-          userToken ||
-          (typeof window !== 'undefined' ? localStorage.getItem('arc_ucw_user_token') || '' : '');
+        const uToken = userToken || ucwSessionUserToken;
         const eKey =
           encryptionKey ||
           (typeof window !== 'undefined' ? localStorage.getItem('arc_ucw_encryption_key') || '' : '');
@@ -1138,6 +1308,9 @@ export function useUserControlledWallet() {
             error: 'Oturum süresi doldu veya cüzdan bağlı değil. Lütfen yeniden giriş yapın.',
           };
         }
+
+
+
 
         const activeSdk = sdkRef.current || sdkInstance || (await ensureSdk());
         if (!activeSdk) {
@@ -1241,12 +1414,14 @@ export function useUserControlledWallet() {
     setAuthPhase('idle');
     setPendingEmail('');
     localStorage.removeItem('arc_ucw_address');
-    localStorage.removeItem('arc_ucw_user_token');
     localStorage.removeItem('arc_ucw_encryption_key');
     localStorage.removeItem('arc_ucw_auth_method');
     localStorage.removeItem('arc_ucw_token_expires_at');
-    localStorage.removeItem('arc_ucw_device_token');
-    localStorage.removeItem('arc_ucw_device_encryption_key');
+    ucwSessionUserToken = '';
+    // Drop the server session too, so a signed-out tab cannot keep acting for the
+    // wallet through the cookie alone.
+    void clearUcwSession();
+    purgeLegacyUcwCredentials();
   }, []);
 
   return {
@@ -1270,6 +1445,7 @@ export function useUserControlledWallet() {
     executeContractCall,
     signTypedData,
     executeTransfer,
+    pollChallengeTx,
     disconnectUcw,
     setOtpStep,
     setAuthPhase,
