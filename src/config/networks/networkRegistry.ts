@@ -355,9 +355,10 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     tokens: {
       USDC: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
       EURC: '0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4',
-      WETH: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9',
+      WETH: '0xfff9976782d46cc05630d1f6ebab18b2324d6b14',
+      cirBTC: '0x3a3fe695f684bf9b9e43cf43c2b895ea5e392bb3',
     },
-    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
+    tokenDecimals: { USDC: 6, EURC: 6, WETH: 18, cirBTC: 8 },
     ui: {
       iconId: 'ethereum',
       name: 'Ethereum Sepolia',
@@ -385,7 +386,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'BaseScan', url: 'https://sepolia.basescan.org' },
     tokens: {
       USDC: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-      EURC: '0x808007a79a5b6f3d99d3e8e21adbfcecfec11124',
+      EURC: '0x808456652fdb597867f38412077A9182bf77359F',
       WETH: '0x4200000000000000000000000000000000000006',
     },
     tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },

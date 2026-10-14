@@ -1214,7 +1214,7 @@ The quoted price on your screen matches the exact on-chain execution price with 
 <strong>Step-by-Step Swap Process:</strong>
 
 1. <strong>Select Token Pair:</strong>
-Choose your input asset (e.g. USDC) and your target output asset (e.g. WETH, EURC, WBTC).
+Choose your input asset (e.g. USDC) and your target output asset (e.g. EURC or cirBTC — the pairs the Arc pools actually list).
 
 2. <strong>Automated Route Calculation:</strong>
 The Arcis Smart Router queries all Arc L1 liquidity pools in parallel (<50ms) to compute the route with the highest output and lowest price impact.
@@ -1304,11 +1304,8 @@ Native gas token and primary settlement base currency (Circle standard).
 • <strong>EURC:</strong>
 Circle 100% Euro-backed stablecoin for FX settlement and zero-spread euro swaps.
 
-• <strong>WETH:</strong>
-Wrapped Ethereum for decentralized layer-1 asset exposure.
-
-• <strong>WBTC:</strong>
-Wrapped Bitcoin for premier digital store of value trading.
+• <strong>cirBTC:</strong>
+Circle Wrapped Bitcoin for premier digital store of value trading (there is no WBTC on Arc).
 
 • <strong>af-USDC:</strong>
 Arcis Real-Yield Vault interest-bearing share token earning 8.42% APY.`,

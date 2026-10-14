@@ -3,6 +3,7 @@ import {
   BRIDGE_SELECTABLE_CHAINS,
   BRIDGE_CHAIN_META,
   getBridgeChainDisplayName,
+  isBridgeSelectableChain,
 } from '../bridgeConfig'
 import { isSolanaChain } from '../chainMeta'
 import { GATEWAY_SUPPORTED_CHAINS } from '../gatewayConfig'
@@ -34,6 +35,19 @@ describe('BRIDGE_SELECTABLE_CHAINS', () => {
       expect(BRIDGE_CHAIN_META[chainKey]).toBeTruthy()
       expect(getBridgeChainDisplayName(chainKey)).toBeTruthy()
     }
+  })
+
+  it('accepts an entry-point chain hint only when this tab can serve it', () => {
+    for (const chainKey of BRIDGE_SELECTABLE_CHAINS) {
+      expect(isBridgeSelectableChain(chainKey)).toBe(true)
+    }
+    // A Solana balance or a stale link must not become the tab's source chain:
+    // the pair would be unbridgeable and the destination list empty.
+    expect(isBridgeSelectableChain('Solana_Devnet')).toBe(false)
+    expect(isBridgeSelectableChain('')).toBe(false)
+    expect(isBridgeSelectableChain(undefined)).toBe(false)
+    expect(isBridgeSelectableChain(null)).toBe(false)
+    expect(isBridgeSelectableChain('Base')).toBe(false)
   })
 })
 

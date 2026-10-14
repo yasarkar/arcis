@@ -1,6 +1,13 @@
 export type BridgeSpeed = 'FAST' | 'SLOW'
 
-export type BridgeStepName = 'approve' | 'burn' | 'fetchAttestation' | 'mint'
+export type BridgeStepName =
+  | 'approve'
+  | 'burn'
+  | 'fetchAttestation'
+  | 'mint'
+  | 'transfer'
+  | 'forward'
+  | 'approveFee'
 
 export type SupportedBridgeToken = 'USDC' | 'EURC' | 'WETH' | 'cirBTC' | 'ETH'
 

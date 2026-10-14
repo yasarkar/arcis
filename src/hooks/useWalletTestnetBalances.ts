@@ -38,6 +38,7 @@ export interface WalletChainBalance {
   cirbtc?: string
   weth?: string
   usyc?: string
+  legacyWeth?: string
   nativeAmount: string
   nativeSymbol: string
   nativeName: string
@@ -223,6 +224,23 @@ export async function fetchWalletTestnetBalancesData(
         }
       }
 
+      let legacyWethFormatted: string | undefined = undefined
+      if (chainKey === 'Ethereum_Sepolia') {
+        try {
+          const legacyBal = await client.readContract({
+            address: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9' as `0x${string}`,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [readAddress],
+          })
+          if (legacyBal > 0n) {
+            legacyWethFormatted = floorToPlaces(parseFloat(formatUnits(legacyBal, 18)), 4).toFixed(4)
+          }
+        } catch {
+          // ignore non-critical legacy check
+        }
+      }
+
       return {
         chainKey,
         usdc: usdcFormatted,
@@ -230,6 +248,7 @@ export async function fetchWalletTestnetBalancesData(
         cirbtc: cirbtcFormatted,
         weth: wethFormatted,
         usyc: usycFormatted,
+        legacyWeth: legacyWethFormatted,
         nativeAmount: nativeFormatted,
         nativeSymbol,
         nativeName,
@@ -261,6 +280,7 @@ export async function fetchWalletTestnetBalancesData(
         cirbtc: res.value.cirbtc,
         weth: res.value.weth,
         usyc: res.value.usyc,
+        legacyWeth: res.value.legacyWeth,
         nativeAmount: res.value.nativeAmount,
         nativeSymbol: res.value.nativeSymbol,
         nativeName: res.value.nativeName,

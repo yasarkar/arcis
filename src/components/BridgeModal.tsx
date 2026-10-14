@@ -19,8 +19,15 @@ import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import { transferFromGateway, ensureChain, verifyDestinationUsdcMint, gatewayTransferFeeCeiling, resolveDestinationUsdcMintAmount, gatewayDeliveredUsdc } from '../services/gatewayService'
 import { executeBridge, estimateBridgeCost, resolveBridgeNetworkFee } from '../services/bridgeService'
-import { canAutoWrapEth, wrapEth } from '../services/wethService'
-import { executeUcwBridgeTransfer, pollCctpDestinationTx, fetchCctpFastFeeBps, fetchCctpForwardQuote } from '../services/bridgeUcwService'
+import { canAutoWrapEth, wrapEth, unwrapWeth, LEGACY_SEPOLIA_WETH } from '../services/wethService'
+import {
+  canUcwBridgeTokenFrom,
+  executeUcwBridgeTransfer,
+  pollCctpDestinationTx,
+  fetchCctpFastFeeBps,
+  fetchCctpForwardQuote,
+} from '../services/bridgeUcwService'
+import { executeUcwCctpxBridge, quoteUcwCctpxRelayerFee } from '../services/bridgeUcwCctpxService'
 import {
   executeUcwGatewayTransfer,
   pollForwardedGatewayTransfer,
@@ -46,8 +53,16 @@ import {
   getChainDisplayName,
   getChainIconId,
   BRIDGE_SELECTABLE_CHAINS,
+  isBridgeSelectableChain,
   resolveCanonicalChainKey,
 } from '../config/bridgeConfig'
+import {
+  filterBridgeableTokens,
+  filterReachableDestinations,
+  filterReachableSources,
+  getUcwBridgeMechanism,
+  isBridgeRouteSupported,
+} from '../config/bridgeRouteMatrix'
 import {
   getBridgeFeeRecipient,
   isBridgePlatformFeeCharged,
@@ -146,36 +161,42 @@ export default function BridgeModal({
     setBridgeMode('direct')
   }
 
-  const [sourceChain, setSourceChain] = useState(() => {
-    if (initialSourceChain) {
-      return resolveCanonicalChainKey(initialSourceChain)
-    }
-    return 'Arc_Testnet'
-  })
-  const [destChain, setDestChain] = useState(() => {
-    if (initialSourceChain) {
-      const canonical = resolveCanonicalChainKey(initialSourceChain)
-      if (canonical !== 'Arc_Testnet') {
-        return 'Arc_Testnet'
-      }
-    }
-    return 'Base_Sepolia'
-  })
+  // A chain hint only ever names a chain this tab can serve; anything else (a
+  // Solana balance, a stale link) is ignored so the pair cannot start out
+  // unbridgeable. See `isBridgeSelectableChain`.
+  const initialSelectableChain = useMemo(() => {
+    const canonical = initialSourceChain ? resolveCanonicalChainKey(initialSourceChain) : ''
+    return isBridgeSelectableChain(canonical) ? canonical : ''
+  }, [initialSourceChain])
+
+  const [sourceChain, setSourceChain] = useState(() =>
+    initialSelectableChain || 'Arc_Testnet'
+  )
+  const [destChain, setDestChain] = useState(() =>
+    initialSelectableChain && initialSelectableChain !== 'Arc_Testnet'
+      ? 'Arc_Testnet'
+      : 'Base_Sepolia'
+  )
 
   // Sync sourceChain and destChain when initialSourceChain updates (e.g. from Portfolio quick action)
   useEffect(() => {
-    if (initialSourceChain) {
-      const canonical = resolveCanonicalChainKey(initialSourceChain)
-      setSourceChain(canonical)
-      if (canonical === 'Arc_Testnet') {
-        // If bridging out of Arc Testnet, default destination to Base Sepolia
-        setDestChain('Base_Sepolia')
-      } else {
-        // If bridging from any external network (Base Sepolia, Ethereum Sepolia, etc.), destination is Arc Testnet
-        setDestChain('Arc_Testnet')
-      }
+    if (!initialSourceChain) return
+    if (!isBridgeSelectableChain(initialSelectableChain)) {
+      // Clamp back to the defaults rather than leaving an unbridgeable pair on
+      // screen: an off-matrix hint is not a route the app can complete.
+      setSourceChain('Arc_Testnet')
+      setDestChain('Base_Sepolia')
+      return
     }
-  }, [initialSourceChain, initialChainNonce])
+    setSourceChain(initialSelectableChain)
+    if (initialSelectableChain === 'Arc_Testnet') {
+      // If bridging out of Arc Testnet, default destination to Base Sepolia
+      setDestChain('Base_Sepolia')
+    } else {
+      // If bridging from any external network (Base Sepolia, Ethereum Sepolia, etc.), destination is Arc Testnet
+      setDestChain('Arc_Testnet')
+    }
+  }, [initialSourceChain, initialChainNonce, initialSelectableChain])
 
   const [amount, setAmount] = useState('')
   const [recipient, setRecipient] = useState('')
@@ -199,9 +220,22 @@ export default function BridgeModal({
   const isDestInjective = destChain.toLowerCase().includes('injective')
   const isSourceSolana = sourceChain.toLowerCase().includes('solana')
 
-  // Non-USDC CCTP Expanded Assets bridging is supported exclusively on Direct EVM-to-EVM routes
+  // Non-USDC CCTP Expanded Assets bridging is supported exclusively on Direct EVM-to-EVM routes.
+  const isUcwDirect = bridgeMode === 'direct' && authSource === 'ucw'
   const canBridgeNonUsdc = bridgeMode === 'direct' && !isSourceSolana && !isDestSolana
-  const isSourceEthAutoWrap = canBridgeNonUsdc && canAutoWrapEth(sourceChain)
+  // Wrapping native ETH needs an EIP-1193 provider to sign `deposit()`; a Circle
+  // UCW wallet only signs challenges, so the auto-wrap tier stays EOA/passkey-only.
+  const isSourceEthAutoWrap =
+    canBridgeNonUsdc && authSource !== 'ucw' && canAutoWrapEth(sourceChain)
+  // UCW direct bridges split by mechanism: CCTP v2 for USDC/EURC, CCTP-X for
+  // wETH/cirBTC. CCTP-X fees are quoted separately (see below).
+  const isUcwCctpxRoute =
+    isUcwDirect && getUcwBridgeMechanism(selectedToken) === 'cctpx'
+
+  // Circle only routes a non-USDC token where its registry lists a deployment on
+  // BOTH ends, so token availability is a property of the selected pair rather
+  // than of a chain (see config/bridgeRouteMatrix.ts).
+  const isCurrentBridgeRouteSupported = isBridgeRouteSupported(selectedToken, sourceChain, destChain)
 
   // Auto-reset token to USDC or WETH if current mode or route does not support non-USDC or ETH auto-wrap
   useEffect(() => {
@@ -209,8 +243,12 @@ export default function BridgeModal({
       setSelectedToken('USDC')
     } else if (selectedToken === 'ETH' && !isSourceEthAutoWrap) {
       setSelectedToken('WETH')
+    } else if (!isCurrentBridgeRouteSupported && selectedToken !== 'USDC') {
+      // This pair cannot carry the token (no CCTP-X deployment on both ends); USDC
+      // is the only token exempt from that rule, so it is the safe fallback.
+      setSelectedToken('USDC')
     }
-  }, [canBridgeNonUsdc, isSourceEthAutoWrap, selectedToken])
+  }, [canBridgeNonUsdc, isSourceEthAutoWrap, isCurrentBridgeRouteSupported, selectedToken])
 
   const recipientIsValid = useMemo(() => {
     if (!recipient) return false
@@ -244,6 +282,21 @@ export default function BridgeModal({
     if (selectedToken === 'cirBTC') return walletBalances[sourceChain]?.cirbtc || '0.00000'
     return '0.00'
   }, [selectedToken, bridgeMode, sourceWalletBalance, sourceGatewayBalance, walletBalances, sourceChain])
+
+  // Tokens the selected pair can actually carry, straight from the route matrix.
+  // The token dropdown is the only place this shows: a token the pair cannot
+  // carry is simply absent, with no explanatory banner (the list is the answer).
+  const pairBridgeableTokens = useMemo(
+    () => filterBridgeableTokens(['USDC', 'EURC', 'WETH', 'ETH', 'cirBTC'], sourceChain, [destChain]),
+    [sourceChain, destChain]
+  )
+
+  // A UCW wallet signs through Circle challenges, and each mechanism needs the
+  // token's own contract to exist on the source chain: EURC and the CCTP-X tokens
+  // (wETH, cirBTC) can only leave a chain that has their ERC-20 deployed.
+  const isTokenAvailableOnSource = (symbol: string) =>
+    canUcwBridgeTokenFrom(sourceChain, symbol)
+
 
   const availableBridgeTokens = useMemo<TokenItem[]>(() => {
     const usdcItem: TokenItem = {
@@ -289,8 +342,11 @@ export default function BridgeModal({
       balance: walletBalances[sourceChain]?.cirbtc || '0.00000',
     })
 
-    return tokens
-  }, [canBridgeNonUsdc, isSourceEthAutoWrap, bridgeMode, sourceGatewayBalance, sourceWalletBalance, walletBalances, sourceChain])
+    return tokens.filter(
+      (token) => pairBridgeableTokens.includes(token.symbol) && isTokenAvailableOnSource(token.symbol)
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canBridgeNonUsdc, isSourceEthAutoWrap, bridgeMode, sourceGatewayBalance, sourceWalletBalance, walletBalances, sourceChain, pairBridgeableTokens, authSource])
 
   // Dynamic Platform Fee configuration from Arcis Treasury Fee Engine
   // (VITE_BRIDGE_FEE_BPS + VITE_BRIDGE_FEE_MIN_USDC + VITE_BRIDGE_FEE_MAX_USDC).
@@ -320,6 +376,7 @@ export default function BridgeModal({
   // Transfer execution states
   const [isTransferring, setIsTransferring] = useState(false)
   const [isWrapping, setIsWrapping] = useState(false)
+  const [isUnwrappingLegacy, setIsUnwrappingLegacy] = useState(false)
   const [successReceipt, setSuccessReceipt] = useState<any>(null)
   const [isBridgePending, setIsBridgePending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -327,6 +384,10 @@ export default function BridgeModal({
 
   // Fee estimation
   const [estimatedFee, setEstimatedFee] = useState<string | null>(null)
+  // Circle's CCTP-X relayer fee, quoted in the source chain's native token. It
+  // is paid on top of the transfer (never deducted from it), so it is shown
+  // beside the gas estimate instead of inside Net Received.
+  const [ucwCctpxRelayerFee, setUcwCctpxRelayerFee] = useState<string | null>(null)
 
   // Systematic input and state clearing on wallet disconnect
   const resetFormInputs = useCallback(() => {
@@ -408,6 +469,7 @@ export default function BridgeModal({
     // quote as soon as an input changes so the breakdown never pairs a stale
     // fee with a new amount; the debounced quote below replaces it.
     setEstimatedFee(null)
+    setUcwCctpxRelayerFee(null)
 
     if (!amount || parseFloat(amount) <= 0) {
       return
@@ -423,7 +485,32 @@ export default function BridgeModal({
         if (bridgeMode === 'gateway') return
 
         if (authSource === 'ucw') {
-          // Circle UCW CCTP transfer fee estimation (live Circle fee quote)
+          if (isUcwCctpxRoute) {
+            // CCTP-X (wETH, cirBTC): Circle's relayer fee is paid in the source
+            // chain's native token ON TOP of the transfer, so nothing is
+            // deducted from the bridged amount. The relayer fee is disclosed in
+            // the Source Network Fee row instead of a Net Received haircut.
+            const relayerFee = await quoteUcwCctpxRelayerFee({
+              tokenSymbol: selectedToken,
+              amount,
+              sourceChain,
+              destChain,
+              recipientAddress: recipient || connectedAddress,
+              speed: speedTier === 'standard' ? 'SLOW' : 'FAST',
+            })
+              .then((quote) => quote.feeAmount)
+              .catch((feeErr: any) => {
+                console.debug('[BridgeModal] CCTP-X fee quote unavailable:', feeErr?.message || feeErr)
+                return null
+              })
+            if (isMounted) {
+              setEstimatedFee('0.00')
+              setUcwCctpxRelayerFee(relayerFee)
+            }
+            return
+          }
+
+          // Circle UCW CCTP v2 transfer fee estimation (live Circle fee quote)
           if (isMounted) {
             setEstimatedFee(await quoteUcwDirectBridgeFee())
           }
@@ -463,7 +550,9 @@ export default function BridgeModal({
         }
       } catch (err) {
         if (isMounted && bridgeMode !== 'gateway') {
-          setEstimatedFee(await quoteDirectCctpFee())
+          // A CCTP-X fee is quoted in the source native token, so the CCTP v2
+          // USDC estimate would be both wrong and in the wrong unit.
+          setEstimatedFee(isUcwCctpxRoute ? '0.00' : await quoteDirectCctpFee())
         }
       }
     }
@@ -486,30 +575,62 @@ export default function BridgeModal({
     isTransferring,
     platformFeeAmount,
     authSource,
+    selectedToken,
+    isUcwCctpxRoute,
     quoteDirectCctpFee,
     quoteUcwDirectBridgeFee,
   ])
 
-  // Chains formatting for selector modal
+  // Chains formatting for selector modal. Both lists are narrowed by the matrix so
+  // the route selectors can only produce a pair the selected token can bridge.
   const sourceChainsList = useMemo(() => {
-    return BRIDGE_SELECTABLE_CHAINS.map((c) => ({
+    return filterReachableSources(selectedToken, destChain, BRIDGE_SELECTABLE_CHAINS).map((c) => ({
       chain: c,
       name: getChainDisplayName(c),
     }))
-  }, [])
+  }, [selectedToken, destChain])
 
   const destChainsList = useMemo(() => {
-    return BRIDGE_SELECTABLE_CHAINS.map((c) => ({
-      chain: c,
-      name: getChainDisplayName(c),
-    }))
-  }, [])
+    return filterReachableDestinations(selectedToken, sourceChain, BRIDGE_SELECTABLE_CHAINS).map(
+      (c) => ({
+        chain: c,
+        name: getChainDisplayName(c),
+      })
+    )
+  }, [selectedToken, sourceChain])
 
   const handleSwapChains = () => {
     setSourceChain(destChain)
     setDestChain(sourceChain)
     setError(null)
     setIsCanceledError(false)
+  }
+
+  const handleUnwrapLegacyWeth = async () => {
+    const legacyBal = walletBalances['Ethereum_Sepolia']?.legacyWeth
+    if (!legacyBal || parseFloat(legacyBal) <= 0) return
+    setIsUnwrappingLegacy(true)
+    setError(null)
+    try {
+      const activeProvider =
+        provider ||
+        (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
+      if (!activeProvider) throw new Error('No wallet provider available.')
+      await unwrapWeth({
+        provider: activeProvider,
+        chainKey: 'Ethereum_Sepolia',
+        amount: legacyBal,
+        wethAddress: LEGACY_SEPOLIA_WETH,
+        fromAddress: connectedAddress,
+      })
+      await refetchWalletBalances()
+    } catch (err: any) {
+      console.error('[BridgeModal] Failed to unwrap legacy WETH:', err)
+      const normalized = normalizeAppError(err)
+      setError(normalized.message)
+    } finally {
+      setIsUnwrappingLegacy(false)
+    }
   }
 
   const handleTransfer = async (e?: React.FormEvent) => {
@@ -550,6 +671,24 @@ export default function BridgeModal({
 
     if (sourceChain === destChain) {
       setError('Source and destination chains must be different')
+      return
+    }
+
+    // Fail closed on the pair itself. The token effect keeps `selectedToken` in
+    // step with the route, but an execution must never depend on that: a chain
+    // swap or a restored session can still race it, and the SDK error for an
+    // unsupported pair is far less clear than this one.
+    if (!isCurrentBridgeRouteSupported) {
+      setError(
+        `${selectedToken} cannot be bridged from ${getChainDisplayName(sourceChain)} to ${getChainDisplayName(destChain)}. Choose a supported route.`
+      )
+      return
+    }
+
+    if (isUcwDirect && !isTokenAvailableOnSource(selectedToken)) {
+      setError(
+        `${selectedToken} cannot be bridged from ${getChainDisplayName(sourceChain)} with a Circle wallet. Choose another token or network.`
+      )
       return
     }
 
@@ -600,15 +739,15 @@ export default function BridgeModal({
       },
     })
 
-    try {
-      let mintTxHash = ''
-      let burnTxHash = ''
-      let destExplorerUrl: string | undefined = undefined
-      let sourceExplorerUrl: string | undefined = undefined
-      let ucwChallengeId: string | undefined = undefined
-      let gatewayTransferId: string | undefined = undefined
-      let confirmedCctpReceivedAmount: string | undefined = undefined
+    let mintTxHash = ''
+    let burnTxHash = ''
+    let destExplorerUrl: string | undefined = undefined
+    let sourceExplorerUrl: string | undefined = undefined
+    let ucwChallengeId: string | undefined = undefined
+    let gatewayTransferId: string | undefined = undefined
+    let confirmedCctpReceivedAmount: string | undefined = undefined
 
+    try {
       if (authSource === 'ucw') {
         if (bridgeMode === 'gateway') {
           // Circle UCW Gateway Fast Transfer via EIP-712 BurnIntent & destination gatewayMint
@@ -668,8 +807,46 @@ export default function BridgeModal({
           sourceExplorerUrl = undefined
           destExplorerUrl = gatewayUcwResult.destExplorerUrl
           ucwChallengeId = gatewayUcwResult.challengeId
+        } else if (getUcwBridgeMechanism(selectedToken) === 'cctpx') {
+          // Circle UCW CCTP-X (wETH, cirBTC): the UCW wallet signs the exact
+          // calldata Circle's own encoder produces for the route's CCTP-X proxy,
+          // instead of a TokenMessenger burn. The quote carries the forward leg
+          // and its fee, which is paid as the challenge's native amount.
+          if (!executeUcwContract) {
+            throw new Error('Wallet contract execution module is not initialized. Please refresh or re-authenticate.')
+          }
+
+          const ucwCctpxResult = await executeUcwCctpxBridge({
+            tokenSymbol: selectedToken,
+            amount,
+            sourceChain,
+            destChain,
+            recipientAddress: targetRecipient,
+            connectedAddress,
+            executeUcwContract,
+            speed: speedTier === 'standard' ? 'SLOW' : 'FAST',
+            onStepProgress: (step) => {
+              if (step === 'approving') {
+                updateBroadcast(broadcastId, {
+                  title: `Approving ${selectedToken} Allowance...`,
+                  badgeText: 'Approving',
+                })
+              } else if (step === 'burning') {
+                updateBroadcast(broadcastId, {
+                  title: 'Initiating CCTP-X Bridge...',
+                  badgeText: 'Bridging',
+                })
+              }
+            },
+          })
+
+          burnTxHash = ucwCctpxResult.burnTxHash
+          mintTxHash = '' // Destination tx is submitted by Circle's relayer (forwarded)
+          sourceExplorerUrl = ucwCctpxResult.sourceExplorerUrl
+          destExplorerUrl = undefined
+          ucwChallengeId = ucwCctpxResult.challengeId
         } else {
-          // Circle UCW Direct CCTP Bridge via smart contract execution
+          // Circle UCW Direct CCTP v2 Bridge via smart contract execution (USDC, EURC)
           if (!executeUcwContract) {
             throw new Error('Wallet contract execution module is not initialized. Please refresh or re-authenticate.')
           }
@@ -679,6 +856,9 @@ export default function BridgeModal({
             // submitted on the destination chain; without the hook nothing
             // mints and the transfer stays pending forever.
             useForwarder: true,
+            // EURC uses the same TokenMessengerV2; only the token address and
+            // decimals differ, which the service resolves from the matrix.
+            tokenSymbol: selectedToken,
             minFinalityThreshold: speedTier === 'standard' ? 2000 : 1000,
             amount,
             sourceChain,
@@ -689,7 +869,7 @@ export default function BridgeModal({
             onStepProgress: (step) => {
               if (step === 'approving') {
                 updateBroadcast(broadcastId, {
-                  title: 'Approving USDC Allowance...',
+                  title: `Approving ${selectedToken} Allowance...`,
                   badgeText: 'Approving',
                 })
               } else if (step === 'burning') {
@@ -767,22 +947,65 @@ export default function BridgeModal({
         const adapter = await createViemAdapter(provider)
         const bridgeToken = selectedToken === 'ETH' ? 'WETH' : selectedToken
 
-        const result: any = await executeBridge({
-          fromChain: sourceChain,
-          toChain: destChain,
-          amount,
-          token: bridgeToken,
-          sourceAdapter: adapter,
-          recipientAddress: targetRecipient,
-          useForwarder: true,
-          transferSpeed: speedTier === 'standard' ? 'SLOW' : 'FAST',
-          ...(platformFeeCharged && {
-            customFee: {
-              value: formatFeeDecimals(platformFeeAmount),
-              recipientAddress: getBridgeFeeRecipient(sourceChain),
-            },
-          }),
-        })
+        const result: any = await executeBridge(
+          {
+            fromChain: sourceChain,
+            toChain: destChain,
+            amount,
+            token: bridgeToken,
+            sourceAdapter: adapter,
+            recipientAddress: targetRecipient,
+            useForwarder: true,
+            transferSpeed: speedTier === 'standard' ? 'SLOW' : 'FAST',
+            ...(platformFeeCharged && {
+              customFee: {
+                value: formatFeeDecimals(platformFeeAmount),
+                recipientAddress: getBridgeFeeRecipient(sourceChain),
+              },
+            }),
+          },
+          (step) => {
+            const isBurnLike = step.name === 'burn' || step.name === 'transfer'
+            const isMintLike = step.name === 'mint' || step.name === 'forward'
+
+            if (isBurnLike && step.txHash) {
+              burnTxHash = step.txHash
+              sourceExplorerUrl = step.explorerUrl || getExplorerTxUrl(sourceChain, step.txHash)
+              updateBroadcast(broadcastId, {
+                title: 'Burn Confirmed — Awaiting Destination Mint...',
+                badgeText: 'Attesting',
+                status: 'pending',
+                message: `Source burn confirmed on ${getChainDisplayName(sourceChain)}. Destination mint in progress.`,
+                details: {
+                  amount,
+                  tokenSymbol: deliveredTokenSymbol,
+                  tokenIcon: deliveredTokenIcon,
+                  sourceChain,
+                  destChain,
+                  bridgeMode,
+                  network: sourceChain,
+                  txHash: step.txHash,
+                  sourceTxHash: step.txHash,
+                  sourceExplorerUrl,
+                },
+              })
+            } else if (step.name === 'fetchAttestation') {
+              updateBroadcast(broadcastId, {
+                title: 'Retrieving Circle Attestation...',
+                badgeText: 'Attesting',
+              })
+            } else if (isMintLike) {
+              if (step.txHash) {
+                mintTxHash = step.txHash
+                destExplorerUrl = step.explorerUrl || getExplorerTxUrl(destChain, step.txHash)
+              }
+              updateBroadcast(broadcastId, {
+                title: `Minting ${deliveredTokenSymbol} on ${getChainDisplayName(destChain)}...`,
+                badgeText: 'Minting',
+              })
+            }
+          }
+        )
 
         // Strict verification: Ensure result is valid and not in error state
         if (
@@ -803,17 +1026,33 @@ export default function BridgeModal({
           throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg))
         }
 
-        const mintStep = result?.steps?.find((s: any) => s.name === 'mint')
-        const burnStep = result?.steps?.find((s: any) => s.name === 'burn')
+        const mintStep = result?.steps?.find((s: any) => s.name === 'mint' || s.name === 'forward')
+        const burnStep = result?.steps?.find((s: any) => s.name === 'burn' || s.name === 'transfer')
 
         // `result.txHash` and the burn step are source-chain transactions; they are never a mint.
-        mintTxHash = result?.mintTxHash || mintStep?.txHash || ''
-        burnTxHash = burnStep?.txHash || result?.burnTxHash || result?.txHash || ''
+        mintTxHash =
+          result?.mintTxHash ||
+          result?.forwardTxHash ||
+          mintStep?.txHash ||
+          mintStep?.transactionHash ||
+          mintStep?.data?.forwardTxHash ||
+          mintTxHash ||
+          ''
+        burnTxHash =
+          burnStep?.txHash ||
+          burnStep?.transactionHash ||
+          result?.burnTxHash ||
+          result?.transferTxHash ||
+          result?.txHash ||
+          burnTxHash ||
+          ''
 
         destExplorerUrl =
+          destExplorerUrl ||
           mintStep?.explorerUrl ||
           (mintTxHash ? getExplorerTxUrl(destChain, mintTxHash) : undefined)
         sourceExplorerUrl =
+          sourceExplorerUrl ||
           burnStep?.explorerUrl ||
           (burnTxHash ? getExplorerTxUrl(sourceChain, burnTxHash) : undefined)
       } else {
@@ -863,6 +1102,8 @@ export default function BridgeModal({
       if (!isGateway && mintTxHash && /^0x[0-9a-fA-F]{64}$/.test(mintTxHash)) {
         const cctpDestination = await pollCctpDestinationTx({
           sourceChain, destChain, burnTxHash, recipientAddress: targetRecipient, amount,
+          tokenSymbol: deliveredTokenSymbol,
+          mintTxHash,
           maxAttempts: 1, intervalMs: 0,
         })
         destinationConfirmed = cctpDestination.status === 'confirmed' && cctpDestination.destTxHash?.toLowerCase() === mintTxHash.toLowerCase()
@@ -878,7 +1119,8 @@ export default function BridgeModal({
         gatewayReceivedAmount = mintedSubunits === null ? undefined : gatewayDeliveredUsdc(mintedSubunits) ?? undefined
       }
 
-      if (!destinationConfirmed) mintTxHash = ''
+      const candidateMintHash = mintTxHash
+      const confirmedMintTxHash = destinationConfirmed ? candidateMintHash : ''
       setIsBridgePending(!destinationConfirmed)
       // Net Received. The CCTP routes deduct a protocol fee from the minted
       // amount; Gateway never does, so it settles on the full bridged amount
@@ -890,21 +1132,26 @@ export default function BridgeModal({
           netAmount = gatewayReceivedAmount ?? amount
         } else {
           const fallbackFee =
-            estimatedFee || (authSource === 'ucw' ? await quoteUcwDirectBridgeFee() : await quoteDirectCctpFee())
+            estimatedFee ||
+            (isUcwCctpxRoute
+              ? '0.00'
+              : authSource === 'ucw'
+                ? await quoteUcwDirectBridgeFee()
+                : await quoteDirectCctpFee())
           netAmount =
             confirmedCctpReceivedAmount ??
             Math.max(0, parseFloat(amount) - parseFloat(fallbackFee)).toFixed(6)
         }
       }
-      const primaryTxHash = isGateway ? mintTxHash : (burnTxHash || mintTxHash || '')
-      const explorerUrl = destinationConfirmed && mintTxHash
-        ? getExplorerTxUrl(destChain, mintTxHash)
+      const primaryTxHash = isGateway ? confirmedMintTxHash : (burnTxHash || confirmedMintTxHash || '')
+      const explorerUrl = destinationConfirmed && confirmedMintTxHash
+        ? getExplorerTxUrl(destChain, confirmedMintTxHash)
         : undefined
       const primaryExplorerUrl = isGateway
         ? explorerUrl
         : (burnTxHash && sourceExplorerUrl ? sourceExplorerUrl : explorerUrl)
       const broadcastNetwork = isGateway ? destChain : sourceChain
-      const hasRealDestTx = destinationConfirmed && Boolean(mintTxHash)
+      const hasRealDestTx = destinationConfirmed && Boolean(confirmedMintTxHash)
 
       // Real source-chain gas for the receipt's Network Fee row, read from the
       // mined burn receipt. Undefined → the row is omitted; never an estimate.
@@ -919,14 +1166,14 @@ export default function BridgeModal({
       // The mint is submitted by Circle's Forwarding Service, so this is the
       // gas the destination network charged for the mint, never an estimate.
       const destFeeText =
-        hasRealDestTx && mintTxHash
-          ? await resolveBridgeNetworkFee(destChain, mintTxHash)
+        hasRealDestTx && confirmedMintTxHash
+          ? await resolveBridgeNetworkFee(destChain, confirmedMintTxHash)
           : undefined
 
       setSuccessReceipt({
-        txHash: destinationConfirmed ? (isGateway ? mintTxHash : burnTxHash) : undefined,
+        txHash: destinationConfirmed ? (isGateway ? confirmedMintTxHash : burnTxHash) : (isGateway ? undefined : burnTxHash),
         sourceTxHash: isGateway ? undefined : burnTxHash,
-        destTxHash: hasRealDestTx ? mintTxHash : undefined,
+        destTxHash: hasRealDestTx ? confirmedMintTxHash : undefined,
         explorerUrl: primaryExplorerUrl,
         sourceExplorerUrl: isGateway || !burnTxHash ? undefined : sourceExplorerUrl,
         destExplorerUrl: hasRealDestTx ? explorerUrl : undefined,
@@ -1008,6 +1255,8 @@ export default function BridgeModal({
                 burnTxHash,
                 recipientAddress: targetRecipient,
                 amount,
+                tokenSymbol: deliveredTokenSymbol,
+                mintTxHash: mintTxHash || undefined,
                 // Slow destinations (e.g. Ethereum Sepolia standard finality)
                 // can take ~13 minutes to mint; a 2-minute budget stranded the
                 // receipt on "Bridge Pending" even after a successful burn.
@@ -1105,15 +1354,38 @@ export default function BridgeModal({
       // would invite a retry that burns a second time, so fall back to the
       // pending receipt and keep polling for the destination mint.
       const failedBridgeResult = err?.bridgeResult
-      const burnedTxHash: string | undefined = failedBridgeResult?.steps?.find(
-        (s: any) => s?.name === 'burn' && s?.state === 'success' && /^0x[0-9a-fA-F]{64}$/.test(s?.txHash || '')
-      )?.txHash
+      const burnedTxHash: string | undefined =
+        failedBridgeResult?.steps?.find(
+          (s: any) =>
+            (s?.name === 'burn' || s?.name === 'transfer') &&
+            s?.state === 'success' &&
+            /^0x[0-9a-fA-F]{64}$/.test(s?.txHash || s?.transactionHash || '')
+        )?.txHash ||
+        failedBridgeResult?.steps?.find(
+          (s: any) =>
+            (s?.name === 'burn' || s?.name === 'transfer') &&
+            s?.state === 'success' &&
+            /^0x[0-9a-fA-F]{64}$/.test(s?.txHash || s?.transactionHash || '')
+        )?.transactionHash ||
+        (burnTxHash && /^0x[0-9a-fA-F]{64}$/.test(burnTxHash) ? burnTxHash : undefined)
+
+      const candidateMintInFailure = failedBridgeResult?.steps?.find(
+        (s: any) =>
+          (s?.name === 'mint' || s?.name === 'forward') &&
+          /^0x[0-9a-fA-F]{64}$/.test(s?.txHash || s?.transactionHash || s?.data?.forwardTxHash || '')
+      )
+      const failedMintTxHash =
+        candidateMintInFailure?.txHash ||
+        candidateMintInFailure?.transactionHash ||
+        candidateMintInFailure?.data?.forwardTxHash ||
+        mintTxHash ||
+        undefined
 
       if (burnedTxHash && bridgeMode === 'direct' && authSource !== 'ucw') {
         const sourceExplorer = getExplorerTxUrl(sourceChain, burnedTxHash)
         setError(null)
         setIsCanceledError(false)
-        const pendingNetworkFee = await resolveBridgeNetworkFee(sourceChain, burnedTxHash)
+        const pendingNetworkFee = await resolveBridgeNetworkFee(sourceChain, burnedTxHash).catch(() => undefined)
         setSuccessReceipt({
           txHash: burnedTxHash,
           sourceTxHash: burnedTxHash,
@@ -1162,9 +1434,15 @@ export default function BridgeModal({
         ;(async () => {
           try {
             const cctpDest = await pollCctpDestinationTx({
-              sourceChain, destChain, burnTxHash: burnedTxHash,
-              recipientAddress: targetRecipient, amount,
-              maxAttempts: 300, intervalMs: 3000,
+              sourceChain,
+              destChain,
+              burnTxHash: burnedTxHash,
+              recipientAddress: targetRecipient,
+              amount,
+              tokenSymbol: deliveredTokenSymbol,
+              mintTxHash: failedMintTxHash,
+              maxAttempts: 300,
+              intervalMs: 3000,
             })
             const resolvedDestTx =
               cctpDest.status === 'confirmed' && cctpDest.destTxHash && /^0x[0-9a-fA-F]{64}$/.test(cctpDest.destTxHash)
@@ -1176,7 +1454,7 @@ export default function BridgeModal({
             }
             const resolvedExplorerUrl = getExplorerTxUrl(destChain, resolvedDestTx)
             // Destination-chain gas, read from the resolved mint receipt.
-            const resolvedDestFeeText = await resolveBridgeNetworkFee(destChain, resolvedDestTx)
+            const resolvedDestFeeText = await resolveBridgeNetworkFee(destChain, resolvedDestTx).catch(() => undefined)
             setSuccessReceipt((prev: any) =>
               prev
                 ? {
@@ -1321,6 +1599,13 @@ export default function BridgeModal({
         loading: false,
       }
     }
+    if (!isCurrentBridgeRouteSupported) {
+      return {
+        disabled: true,
+        text: 'ROUTE NOT SUPPORTED',
+        loading: false,
+      }
+    }
     return {
       disabled: false,
       text:
@@ -1345,6 +1630,7 @@ export default function BridgeModal({
     bridgeMode,
     selectedToken,
     isUsdc,
+    isCurrentBridgeRouteSupported,
   ])
 
   // Clean, standardized Fee & Route breakdown
@@ -1357,7 +1643,9 @@ export default function BridgeModal({
       bridgeMode === 'gateway'
         ? '0.00'
         : (estimatedFee ? formatFeeDecimals(estimatedFee) : null) ||
-          (speedTier === 'standard' ? '0.00' : '0.20')
+          // A CCTP-X transfer is never haircut: its fee is paid in source native
+          // tokens, so the amount that arrives is the amount that was sent.
+          (isUcwCctpxRoute || speedTier === 'standard' ? '0.00' : '0.20')
 
     const computedFeeNum = parseFloat(computedFee)
     const netReceived = Math.max(
@@ -1413,7 +1701,9 @@ export default function BridgeModal({
         tooltip:
           selectedToken === 'ETH'
             ? `1:1 Auto-Wrap: ${amount} ETH wrapped into WETH on ${sourceName}, arriving as WETH in your Arc destination wallet.`
-            : `The final net amount of ${selectedToken} that will arrive in your destination wallet.`,
+            : isUcwCctpxRoute
+              ? `1:1: Circle's CCTP-X relayer fee is paid on ${sourceName} in its native token, so the full ${amount} ${selectedToken} arrives in your destination wallet.`
+              : `The final net amount of ${selectedToken} that will arrive in your destination wallet.`,
         value: `${formatFeeDecimals(netReceived)} ${selectedToken === 'ETH' ? 'WETH' : selectedToken}`,
         highlight: true,
         highlightColor: 'text-indigo-400',
@@ -1423,13 +1713,19 @@ export default function BridgeModal({
         tooltip:
           bridgeMode === 'gateway'
             ? 'Gateway Fast Transfer authorizes the burn with an off-chain EIP-712 signature: your wallet never submits a source-chain transaction, so you pay no source gas.'
-            : 'Transaction gas fee required to initiate the bridge deposit on the source chain.',
+            : isUcwCctpxRoute
+              ? `Transaction gas to submit the bridge on ${sourceName}, plus Circle's CCTP-X relayer fee, which is paid in ${sourceName}'s native ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'} on top of the bridged amount.`
+              : 'Transaction gas fee required to initiate the bridge deposit on the source chain.',
         value:
           bridgeMode === 'gateway'
             ? '0.00 USDC'
-            : sourceChain === 'Arc_Testnet'
-              ? `~${((150000 * SPEED_TIERS[speedTier].arcGas.maxFeePerGasGwei) / 1_000_000_000).toFixed(4)} USDC`
-              : `< 0.001 ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}`,
+            : isUcwCctpxRoute
+              ? `${sourceChain === 'Arc_Testnet'
+                  ? `~${((150000 * SPEED_TIERS[speedTier].arcGas.maxFeePerGasGwei) / 1_000_000_000).toFixed(4)} USDC`
+                  : `< 0.001 ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}`}${ucwCctpxRelayerFee ? ` + ~${formatFeeDecimals(ucwCctpxRelayerFee)} ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}` : ''}`
+              : sourceChain === 'Arc_Testnet'
+                ? `~${((150000 * SPEED_TIERS[speedTier].arcGas.maxFeePerGasGwei) / 1_000_000_000).toFixed(4)} USDC`
+                : `< 0.001 ${CHAIN_NATIVE_MAP[sourceChain]?.symbol || 'ETH'}`,
       },
       {
         label: 'Platform Fee',
@@ -1470,6 +1766,8 @@ export default function BridgeModal({
     authSource,
     selectedToken,
     isUsdc,
+    isUcwCctpxRoute,
+    ucwCctpxRelayerFee,
   ])
 
   // NOTE: Keep every hook above this line unconditional. The render bailout for
@@ -1642,6 +1940,33 @@ export default function BridgeModal({
             disabled={isTransferring}
           />
 
+          {/* Legacy Sepolia WETH Migration Notice */}
+          {sourceChain === 'Ethereum_Sepolia' &&
+            walletBalances['Ethereum_Sepolia']?.legacyWeth &&
+            parseFloat(walletBalances['Ethereum_Sepolia'].legacyWeth) > 0 && (
+              <div className="p-3 rounded-2xl border bg-amber-500/10 border-amber-500/25 text-amber-300 text-xs flex items-center justify-between gap-3 animate-fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-amber-200">
+                      Legacy Sepolia WETH ({walletBalances['Ethereum_Sepolia'].legacyWeth} WETH)
+                    </p>
+                    <p className="text-[11px] text-amber-300/80 truncate">
+                      CCTP-X routes via official Sepolia WETH (0xfff9...). Unwrap legacy token back to ETH to bridge.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isUnwrappingLegacy || isTransferring}
+                  onClick={handleUnwrapLegacyWeth}
+                  className="px-3 py-1.5 rounded-xl font-medium text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 transition shrink-0 disabled:opacity-50 cursor-pointer"
+                >
+                  {isUnwrappingLegacy ? 'Unwrapping...' : 'Unwrap to ETH'}
+                </button>
+              </div>
+            )}
+
           {/* Error / Rejection Alert */}
           {error && (
             <div
@@ -1745,7 +2070,7 @@ export default function BridgeModal({
             }}
             tokenSymbol={selectedToken}
             tokenIcon={TOKEN_ICON_MAP[selectedToken] || UsdcIcon}
-            tokenListAvailable={canBridgeNonUsdc}
+            tokenListAvailable={canBridgeNonUsdc && availableBridgeTokens.length > 1}
             onSelectToken={() => setShowTokenModal(true)}
             maxDecimals={tokenDecimals}
             balance={activeBalance}

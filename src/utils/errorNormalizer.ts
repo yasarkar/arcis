@@ -98,6 +98,9 @@ export function isUserCanceledError(err: any): boolean {
  */
 function extractRevertReason(err: any): string | null {
   const searchTexts = [
+    err?.cause?.trace?.reason,
+    err?.cause?.reason,
+    err?.errorMessage,
     err?.shortMessage,
     err?.cause?.details,
     err?.details,
@@ -131,6 +134,13 @@ function extractRevertReason(err: any): string | null {
     const p4 = text.match(/revert:\s*([^\n\r]+)/i)
     if (p4 && p4[1]?.trim()) {
       const r = p4[1].trim()
+      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      return r
+    }
+
+    const p5 = text.match(/simulation failed on [^:]+:\s*([^\n\r]+)/i)
+    if (p5 && p5[1]?.trim()) {
+      const r = p5[1].trim()
       if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
       return r
     }
