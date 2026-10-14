@@ -15,9 +15,9 @@ describe('wethService', () => {
   })
 
   describe('getWethAddress', () => {
-    it('returns official canonical Sepolia WETH address', () => {
+    it('returns official canonical Sepolia WETH address (Circle CCTPx deployment)', () => {
       const addr = getWethAddress('Ethereum_Sepolia')
-      expect(addr).toBe('0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9')
+      expect(addr).toBe('0xfff9976782d46cc05630d1f6ebab18b2324d6b14')
     })
 
     it('returns official Base Sepolia WETH address', () => {
@@ -107,7 +107,7 @@ describe('wethService', () => {
       })
 
       expect(result.txHash).toBe(mockTxHash)
-      expect(result.wethAddress).toBe('0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9')
+      expect(result.wethAddress).toBe('0xfff9976782d46cc05630d1f6ebab18b2324d6b14')
       expect(result.amount).toBe('0.25')
 
       expect(mockProvider.request).toHaveBeenCalledWith({
@@ -115,7 +115,7 @@ describe('wethService', () => {
         params: [
           expect.objectContaining({
             from: '0x1111111111111111111111111111111111111111',
-            to: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9',
+            to: '0xfff9976782d46cc05630d1f6ebab18b2324d6b14',
             value: '0x3782dace9d90000', // 0.25 ETH in hex
             data: '0xd0e30db0', // deposit() function selector
           }),
@@ -150,7 +150,37 @@ describe('wethService', () => {
         params: [
           expect.objectContaining({
             from: '0x1111111111111111111111111111111111111111',
-            to: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9',
+            to: '0xfff9976782d46cc05630d1f6ebab18b2324d6b14',
+          }),
+        ],
+      })
+    })
+
+    it('supports unwrapping custom wethAddress such as legacy Sepolia WETH', async () => {
+      const mockTxHash = '0x11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff'
+      const mockProvider = {
+        request: vi.fn().mockImplementation(async ({ method }) => {
+          if (method === 'eth_accounts') return ['0x1111111111111111111111111111111111111111']
+          if (method === 'eth_sendTransaction') return mockTxHash
+          return null
+        }),
+      }
+
+      const legacyAddr = '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9' as const
+      const result = await unwrapWeth({
+        provider: mockProvider,
+        chainKey: 'Ethereum_Sepolia',
+        amount: '0.1',
+        wethAddress: legacyAddr,
+        fromAddress: '0x1111111111111111111111111111111111111111',
+      })
+
+      expect(result.txHash).toBe(mockTxHash)
+      expect(mockProvider.request).toHaveBeenCalledWith({
+        method: 'eth_sendTransaction',
+        params: [
+          expect.objectContaining({
+            to: legacyAddr,
           }),
         ],
       })

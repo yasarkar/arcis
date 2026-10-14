@@ -7,6 +7,12 @@ interface CacheEntry<T> {
   expiresAt: number
 }
 
+// Keys that are publicly readable from /api/cache backend (SEC-01)
+const ALLOWED_BACKEND_READ_KEYS = new Set([
+  'arcis:token_prices:v1',
+  'arcis:pools:state',
+])
+
 class RedisCacheService {
   private localMemory = new Map<string, CacheEntry<any>>()
 
@@ -23,61 +29,47 @@ class RedisCacheService {
       return local.value as T
     }
 
-    // 2. Fetch from backend Redis API
-    try {
-      const res = await fetch(`/api/cache?key=${encodeURIComponent(key)}`)
-      if (res.ok) {
-        const json = await res.json()
-        if (json.success && json.hit && json.data !== null && json.data !== undefined) {
-          const ttlRemaining = (json.ttlRemainingSeconds || 30) * 1000
-          this.localMemory.set(key, {
-            value: json.data,
-            expiresAt: now + ttlRemaining,
-          })
-          return json.data as T
+    // 2. Fetch from backend Redis API only for allowed public keys
+    if (ALLOWED_BACKEND_READ_KEYS.has(key)) {
+      try {
+        const res = await fetch(`/api/cache?key=${encodeURIComponent(key)}`)
+        if (res.ok) {
+          const json = await res.json()
+          if (json.success && json.hit && json.data !== null && json.data !== undefined) {
+            const ttlRemaining = (json.ttlRemainingSeconds || 30) * 1000
+            this.localMemory.set(key, {
+              value: json.data,
+              expiresAt: now + ttlRemaining,
+            })
+            return json.data as T
+          }
         }
+      } catch (err) {
+        // Non-blocking fallback
+        console.warn(`[RedisCache] Backend fetch failed for key "${key}", checking local:`, err)
       }
-    } catch (err) {
-      // Non-blocking fallback
-      console.warn(`[RedisCache] Backend fetch failed for key "${key}", checking local:`, err)
     }
 
     return null
   }
 
   /**
-   * Stores an item in Redis with a specified TTL in seconds (default: 30s).
+   * Stores an item in local memory cache with a specified TTL in seconds (default: 30s).
+   * Note: Client-side writes to /api/cache are disabled on the backend for security (SEC-01).
    */
   async set<T>(key: string, value: T, ttlSeconds: number = 30): Promise<void> {
     const expiresAt = Date.now() + ttlSeconds * 1000
 
-    // 1. Immediately store in local memory cache
+    // Store in local memory cache
     this.localMemory.set(key, { value, expiresAt })
-
-    // 2. Persist to Redis backend asynchronously
-    try {
-      await fetch('/api/cache', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, value, ttlSeconds }),
-      })
-    } catch (err) {
-      console.warn(`[RedisCache] Backend save failed for key "${key}":`, err)
-    }
   }
 
   /**
-   * Deletes an item from Redis and local cache.
+   * Deletes an item from local memory cache.
+   * Note: Client-side deletion on /api/cache is disabled on the backend for security (SEC-01).
    */
   async del(key: string): Promise<void> {
     this.localMemory.delete(key)
-    try {
-      await fetch(`/api/cache?key=${encodeURIComponent(key)}`, {
-        method: 'DELETE',
-      })
-    } catch (err) {
-      console.warn(`[RedisCache] Backend delete failed for key "${key}":`, err)
-    }
   }
 }
 

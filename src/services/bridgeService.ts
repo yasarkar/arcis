@@ -174,27 +174,41 @@ export async function executeBridge(
     watchArcToken(tokenToWatch, provider).catch(() => {})
   }
 
+  const observedSteps: Record<string, BridgeStepProgress> = {}
+
   // Event listener to capture CCTP lifecycle events
   const handler = (payload: any) => {
     try {
       // Resolve step name (handles both event payload styles)
       const stepNameRaw = payload?.values?.name || payload?.action?.split('.').pop()
-      const stepName = stepNameRaw as BridgeStepName
+      let stepName = stepNameRaw as BridgeStepName
 
-      if (['approve', 'burn', 'fetchAttestation', 'mint'].includes(stepName)) {
+      // Normalize CCTPx step names so listeners targeting standard CCTP steps receive them seamlessly
+      if (stepName === 'transfer') stepName = 'burn'
+      else if (stepName === 'forward') stepName = 'mint'
+      else if (stepName === 'approveFee') stepName = 'approve'
+
+      if (['approve', 'burn', 'fetchAttestation', 'mint', 'transfer', 'forward', 'approveFee'].includes(stepNameRaw)) {
         const stepState = payload?.values?.state || payload?.state || 'pending'
-        const txHash = payload?.values?.txHash || payload?.txHash
+        const txHash =
+          payload?.values?.transactionHash ||
+          payload?.values?.forwardTxHash ||
+          payload?.values?.txHash ||
+          payload?.txHash ||
+          payload?.transactionHash
         const explorerUrl = payload?.values?.explorerUrl || payload?.explorerUrl
         const errorMessage = payload?.values?.error || payload?.values?.errorMessage || payload?.error || payload?.errorMessage
 
         const normalizedState = stepState === 'noop' ? 'success' : stepState
-        onStepUpdate?.({
+        const stepProgress: BridgeStepProgress = {
           name: stepName,
           state: normalizedState as 'pending' | 'success' | 'error',
           txHash,
           explorerUrl,
-          errorMessage
-        })
+          errorMessage,
+        }
+        observedSteps[stepName] = stepProgress
+        onStepUpdate?.(stepProgress)
       }
     } catch (eventErr) {
       console.warn('[bridgeService] Error parsing lifecycle event:', eventErr)
@@ -238,14 +252,32 @@ export async function executeBridge(
       throw errorObj
     }
 
+    // Enrich result with burn and mint hashes if present in steps (covers CCTPx transfer/forward steps)
+    if (result && Array.isArray(result.steps)) {
+      const burnStep = result.steps.find((s: any) => s.name === 'burn' || s.name === 'transfer')
+      const mintStep = result.steps.find((s: any) => s.name === 'mint' || s.name === 'forward')
+      if (burnStep && !result.burnTxHash) {
+        result.burnTxHash = burnStep.txHash || burnStep.transactionHash
+      }
+      if (mintStep && !result.mintTxHash) {
+        result.mintTxHash = mintStep.txHash || mintStep.transactionHash || mintStep.data?.forwardTxHash
+      }
+    }
+
     return result
   } catch (err) {
     // Preserve the partial step state on the thrown error so callers can recover
     // from the exact CCTP step that failed. Without it, a transfer that failed
     // AFTER the source burn would look like a plain failure and a "retry" would
     // burn the user's funds a second time.
-    if (result && err && typeof err === 'object' && !(err as any).bridgeResult) {
-      ;(err as any).bridgeResult = sanitizeBridgeResult(result)
+    if (err && typeof err === 'object' && !(err as any).bridgeResult) {
+      if (result) {
+        ;(err as any).bridgeResult = sanitizeBridgeResult(result)
+      } else if (Object.keys(observedSteps).length > 0) {
+        ;(err as any).bridgeResult = {
+          steps: Object.values(observedSteps),
+        }
+      }
     }
     console.error('[bridgeService] Bridge execution failed:', err)
     throw err

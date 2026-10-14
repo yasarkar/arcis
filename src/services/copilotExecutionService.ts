@@ -60,6 +60,7 @@ import {
   poolMinOut,
 } from '../config/poolsConfig'
 import { resolveCanonicalChainKey, getChainDisplayName } from '../config/chainMeta'
+import { isBridgeRouteSupported } from '../config/bridgeRouteMatrix'
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { addTransaction } from '../utils/history'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
@@ -1274,6 +1275,20 @@ async function executeCopilotActionUnreserved(
       return failedActionReceipt('bridge', 'Invalid Bridge Recipient', 'A destination recipient is required; no transaction was sent.', startTime)
     }
 
+    // The assistant can name any pair; this app can only complete the routes in
+    // the shared matrix (which is also what the Bridge tab offers). Refuse here,
+    // before any signer is touched, so an unsupported route is one clear message
+    // instead of a burn that fails mid-flight. Copilot bridges are USDC-only.
+    if (!isBridgeRouteSupported('USDC', sourceChainKey, destChainKey)) {
+      if (onProgress) onProgress('failed')
+      return failedActionReceipt(
+        'bridge',
+        'Route Not Supported',
+        `USDC cannot be bridged from ${fromDisplayName} to ${toDisplayName} in this app. No transaction was sent.`,
+        startTime
+      )
+    }
+
     const limitCheck = verifySessionLimits('bridge', amount, activeWallet)
     if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
       if (onProgress) onProgress('failed')
@@ -1382,13 +1397,13 @@ async function executeCopilotActionUnreserved(
           transferSpeed: 'FAST',
         },
         (step) => {
-          if (step.name === 'approve') {
+          if (step.name === 'approve' || step.name === 'approveFee') {
             if (onProgress) onProgress('signing')
-          } else if (step.name === 'burn') {
+          } else if (step.name === 'burn' || step.name === 'transfer') {
             if (onProgress) onProgress('broadcasting')
           } else if (step.name === 'fetchAttestation') {
             if (onProgress) onProgress('routing')
-          } else if (step.name === 'mint') {
+          } else if (step.name === 'mint' || step.name === 'forward') {
             if (onProgress) onProgress('broadcasting')
           }
         }
@@ -1400,8 +1415,16 @@ async function executeCopilotActionUnreserved(
         throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg))
       }
 
-      const mintTxHash = result?.mintTxHash || result?.steps?.find((s: any) => s.name === 'mint')?.txHash
-      const burnTxHash = result?.burnTxHash || result?.txHash || result?.steps?.find((s: any) => s.name === 'burn')?.txHash
+      const mintTxHash =
+        result?.mintTxHash ||
+        result?.forwardTxHash ||
+        result?.steps?.find((s: any) => s.name === 'mint' || s.name === 'forward')?.txHash ||
+        result?.steps?.find((s: any) => s.name === 'mint' || s.name === 'forward')?.data?.forwardTxHash
+      const burnTxHash =
+        result?.burnTxHash ||
+        result?.transferTxHash ||
+        result?.txHash ||
+        result?.steps?.find((s: any) => s.name === 'burn' || s.name === 'transfer')?.txHash
       const sourceHash = isTransactionHash(burnTxHash) ? burnTxHash : ''
       const destinationHash = isTransactionHash(mintTxHash) ? mintTxHash : ''
       if (!sourceHash && !destinationHash) {

@@ -56,11 +56,14 @@ export function canAutoWrapEth(chainKey: string): boolean {
   return Boolean(isNativeEth && hasWeth)
 }
 
+export const LEGACY_SEPOLIA_WETH = '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9' as const
+
 export interface WrapEthParams {
   provider: any
   chainKey: string
   amount: string
   fromAddress?: string
+  wethAddress?: `0x${string}`
 }
 
 export interface WrapEthResult {
@@ -80,7 +83,7 @@ export async function wrapEth(params: WrapEthParams): Promise<WrapEthResult> {
     throw new Error('No wallet provider available for ETH wrapping.')
   }
 
-  const wethAddress = getWethAddress(chainKey)
+  const wethAddress = params.wethAddress || getWethAddress(chainKey)
   if (!wethAddress) {
     throw new Error(`WETH contract is not configured on network: ${chainKey}`)
   }
@@ -161,7 +164,7 @@ export async function unwrapWeth(params: WrapEthParams): Promise<{ txHash: strin
     throw new Error('No wallet provider available for WETH unwrapping.')
   }
 
-  const wethAddress = getWethAddress(chainKey)
+  const wethAddress = params.wethAddress || getWethAddress(chainKey)
   if (!wethAddress) {
     throw new Error(`WETH contract is not configured on network: ${chainKey}`)
   }

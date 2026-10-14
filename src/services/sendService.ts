@@ -7,7 +7,7 @@ import { CHAIN_DEFS } from '../config/chainMeta'
 import { getResilientPublicClient, resilientReadContract } from './rpc'
 import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
 import { ensureNetwork } from './chainSwitchService'
-import { USDC_ADDRESSES } from '../config/gatewayConfig'
+import { USDC_ADDRESSES, EURC_ADDRESSES, WETH_ADDRESSES, CIRBTC_ADDRESSES } from '../config/gatewayConfig'
 import { CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 
 // Single instance of AppKit to be used for Send operations
@@ -200,8 +200,23 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
       action === 'usdc.approve'
     ) {
       try {
+        let tokenSymbol = 'USDC'
+        let tokenDecimals = 6
+        const tokenCandidate = (params?.tokenAddress || params?.token || '').toLowerCase()
+        if (tokenCandidate) {
+          if (Object.values(EURC_ADDRESSES).some((a) => a.toLowerCase() === tokenCandidate)) {
+            tokenSymbol = 'EURC'
+            tokenDecimals = 6
+          } else if (Object.values(WETH_ADDRESSES).some((a) => a.toLowerCase() === tokenCandidate)) {
+            tokenSymbol = 'WETH'
+            tokenDecimals = 18
+          } else if (Object.values(CIRBTC_ADDRESSES).some((a) => a.toLowerCase() === tokenCandidate)) {
+            tokenSymbol = 'cirBTC'
+            tokenDecimals = 8
+          }
+        }
+
         const requiredAmountBigInt = BigInt(params?.amount ?? 0n)
-        const tokenDecimals = 6
         const amountNum = Number(requiredAmountBigInt) / 10 ** tokenDecimals
         const amountStr = amountNum.toString()
 
@@ -212,13 +227,22 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           (typeof adapter.getAddress === 'function' ? await adapter.getAddress(params?.chain || ctx?.chain) : '')
 
         if (walletAddress && amountNum > 0) {
-          const ceilingStatus = checkCeilingStatus(walletAddress, 'USDC', amountStr)
+          const ceilingStatus = checkCeilingStatus(walletAddress, tokenSymbol, amountStr)
 
           // Read on-chain allowance with robust chain/token address resolution
           let onChainAllowance = 0n
           let readSuccessful = false
           try {
-            const chainParam = params?.chain || ctx?.chain
+            let chainParam = params?.chain || ctx?.chain || adapter?.chain || adapter?.walletClient?.chain
+            if (!chainParam && adapter?.provider && typeof adapter.provider.request === 'function') {
+              try {
+                const hexId = await adapter.provider.request({ method: 'eth_chainId' })
+                if (hexId) chainParam = parseInt(hexId, 16)
+              } catch {
+                // ignore
+              }
+            }
+
             const { viemChain } = resolveViemChainAndRpc(chainParam)
             const publicClient = getResilientPublicClient(viemChain)
 
@@ -253,43 +277,18 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           }
 
           console.log(
-            `[ViemAdapter Ceiling] Action: ${action} | Amount: ${amountStr} USDC | Ceiling: ${ceilingStatus.currentCeiling} USDC | OnChainAllowance: ${onChainAllowance.toString()} (ReadSuccess: ${readSuccessful})`
+            `[ViemAdapter Ceiling] Action: ${action} | Amount: ${amountStr} ${tokenSymbol} | Ceiling: ${ceilingStatus.currentCeiling} ${tokenSymbol} | OnChainAllowance: ${onChainAllowance.toString()} (ReadSuccess: ${readSuccessful})`
           )
-
-          // 1. If on-chain allowance is ALREADY sufficient for this transaction:
-          // Skip approval completely to prevent any addition overflow and give instant 1-click execution!
-          if (readSuccessful && onChainAllowance >= requiredAmountBigInt) {
-            console.log(
-              `[ViemAdapter Ceiling] Skipping approval! On-chain allowance (${(Number(onChainAllowance) / 10 ** tokenDecimals).toFixed(2)} USDC) >= required (${amountStr} USDC). Returning noop.`
-            )
-            if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
-              setSpendingCeiling(walletAddress, 'USDC', ceilingStatus.suggestedCeiling)
-            }
-            return {
-              type: 'noop',
-              execute: async () => '0xnoop',
-            }
-          }
-
-          // Fallback: If allowance read failed but user already confirmed within local ceiling:
-          if (!readSuccessful && ceilingStatus.isWithinCeiling) {
-            console.log(
-              `[ViemAdapter Ceiling] Skipping approval! Amount (${amountStr} USDC) is within authorized ceiling (${ceilingStatus.currentCeiling} USDC). Returning noop.`
-            )
-            return {
-              type: 'noop',
-              execute: async () => '0xnoop',
-            }
-          }
 
           // 2. On-chain approval is genuinely required.
           // CRITICAL OVERFLOW FIX:
           // For 'increaseAllowance', passing maxUint256 will cause "SafeMath: addition overflow" if onChainAllowance > 0.
-          // Instead, compute a safe high ceiling that will never overflow uint256 (e.g. 10M USDC).
+          // Instead, compute a safe high ceiling that will never overflow uint256.
           const isIncreaseAllowance =
             action === 'usdc.increaseAllowance' || action === 'token.increaseAllowance'
 
-          const SAFE_CEILING_CAP = 10_000_000n * 10n ** BigInt(tokenDecimals)
+          const defaultCap = tokenSymbol === 'cirBTC' ? 1_000n : tokenSymbol === 'WETH' ? 10_000n : 10_000_000n
+          const SAFE_CEILING_CAP = defaultCap * 10n ** BigInt(tokenDecimals)
           const targetCap = requiredAmountBigInt > SAFE_CEILING_CAP ? requiredAmountBigInt : SAFE_CEILING_CAP
 
           let safeAmount: bigint
@@ -306,7 +305,7 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           }
 
           console.log(
-            `[ViemAdapter Ceiling] Preparing safe approval: action=${action}, amount=${safeAmount.toString()} (ceiling=${ceilingStatus.suggestedCeiling} USDC)`
+            `[ViemAdapter Ceiling] Preparing safe approval: action=${action}, amount=${safeAmount.toString()} (ceiling=${ceilingStatus.suggestedCeiling} ${tokenSymbol})`
           )
           const prepared = await originalPrepareAction(action, modifiedParams, ctx)
 
@@ -317,9 +316,9 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
               const txHash = await originalExecute(overrides)
               if (txHash && txHash !== '0xnoop') {
                 try {
-                  setSpendingCeiling(walletAddress, 'USDC', ceilingStatus.suggestedCeiling, txHash)
+                  setSpendingCeiling(walletAddress, tokenSymbol, ceilingStatus.suggestedCeiling, txHash)
                   console.log(
-                    `[ViemAdapter Ceiling] Persisted new ceiling: ${ceilingStatus.suggestedCeiling} USDC (tx: ${txHash})`
+                    `[ViemAdapter Ceiling] Persisted new ceiling: ${ceilingStatus.suggestedCeiling} ${tokenSymbol} (tx: ${txHash})`
                   )
                 } catch (persistErr) {
                   console.warn('[ViemAdapter Ceiling] Failed to persist ceiling:', persistErr)

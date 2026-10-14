@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { executeDirectCopilotAction } from '../copilotExecutionService'
+import { executeBridge } from '../bridgeService'
 import {
   sendModularUserOperation,
   createModularUsdcTransferCall,
@@ -691,6 +692,47 @@ describe('Ask Arco → Circle UCW routing', () => {
     expect(receipt.status).toBe('FAILED')
     expect(receipt.errorMessage).toContain('yeterli bakiye bulunamadı')
     expect(executeUcwContract).not.toHaveBeenCalled()
+  })
+
+  it('refuses a bridge pair this app cannot complete, before any signer runs', async () => {
+    // The assistant can name any pair; only the shared route matrix decides what
+    // the app can actually deliver. Solana has a CCTP domain but no route here.
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_bridge',
+        title: '',
+        data: { fromChain: 'Solana Devnet', toChain: 'Arc Testnet', amount: 5, recipient: RECIPIENT },
+      },
+      UCW_WALLET,
+      { request: vi.fn() }
+    )
+
+    expect(receipt.status).toBe('FAILED')
+    expect(receipt.title).toBe('Route Not Supported')
+    expect(receipt.errorMessage).toContain('No transaction was sent')
+    expect(executeBridge).not.toHaveBeenCalled()
+  })
+
+  it('still executes a pair the matrix supports', async () => {
+    vi.mocked(executeBridge).mockResolvedValue({
+      state: 'success',
+      burnTxHash: TX_HASH,
+      mintTxHash: TX_HASH,
+      steps: [],
+    })
+
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_bridge',
+        title: '',
+        data: { fromChain: 'Arc Testnet', toChain: 'Base Sepolia', amount: 5, recipient: RECIPIENT },
+      },
+      UCW_WALLET,
+      { request: vi.fn() }
+    )
+
+    expect(executeBridge).toHaveBeenCalledTimes(1)
+    expect(receipt.actionType).toBe('bridge')
   })
 })
 

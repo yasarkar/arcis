@@ -138,5 +138,69 @@ describe('Multi-Token Bridging Service Tests', () => {
       expect(estimateBridgeMock).toHaveBeenCalledTimes(1)
       expect(estimateBridgeMock.mock.calls[0][0].token).toBe('wETH')
     })
+
+    it('enriches result with burnTxHash and mintTxHash when App Kit returns CCTPx transfer and forward steps', async () => {
+      const mockBurnHash = '0xaaaa111122223333444455556666777788889999aaaabbbbccccddddeeeeffff'
+      const mockMintHash = '0xbbbb111122223333444455556666777788889999aaaabbbbccccddddeeeeffff'
+
+      bridgeMock.mockResolvedValueOnce({
+        state: 'success',
+        steps: [
+          { name: 'approve', state: 'success', txHash: '0x1111' },
+          { name: 'transfer', state: 'success', txHash: mockBurnHash },
+          { name: 'fetchAttestation', state: 'success' },
+          { name: 'forward', state: 'success', txHash: mockMintHash, data: { forwardTxHash: mockMintHash } },
+        ],
+      })
+
+      const observedSteps: any[] = []
+      const res = await executeBridge(
+        {
+          ...baseParams,
+          token: 'EURC',
+        },
+        (step) => observedSteps.push(step)
+      )
+
+      expect(res.burnTxHash).toBe(mockBurnHash)
+      expect(res.mintTxHash).toBe(mockMintHash)
+    })
+  })
+
+  describe('Multi-token resolution and polling helpers', () => {
+    it('resolves correct addresses and decimals for EURC, WETH, cirBTC, and USDC', async () => {
+      const { getBridgeTokenAddress, getBridgeTokenDecimals } = await import('../bridgeUcwService')
+      const { EURC_ADDRESSES, WETH_ADDRESSES, CIRBTC_ADDRESSES, USDC_ADDRESSES } = await import('../../config/gatewayConfig')
+
+      expect(getBridgeTokenAddress('Arc_Testnet', 'EURC')).toBe(EURC_ADDRESSES['Arc_Testnet'])
+      expect(getBridgeTokenAddress('Base_Sepolia', 'EURC')).toBe(EURC_ADDRESSES['Base_Sepolia'])
+      expect(getBridgeTokenAddress('Ethereum_Sepolia', 'WETH')).toBe(WETH_ADDRESSES['Ethereum_Sepolia'])
+      expect(getBridgeTokenAddress('Ethereum_Sepolia', 'cirBTC')).toBe(CIRBTC_ADDRESSES['Ethereum_Sepolia'])
+      expect(getBridgeTokenAddress('Arc_Testnet', 'USDC')).toBe(USDC_ADDRESSES['Arc_Testnet'])
+
+      expect(getBridgeTokenDecimals('EURC')).toBe(6)
+      expect(getBridgeTokenDecimals('USDC')).toBe(6)
+      expect(getBridgeTokenDecimals('WETH')).toBe(18)
+      expect(getBridgeTokenDecimals('ETH')).toBe(18)
+      expect(getBridgeTokenDecimals('cirBTC')).toBe(8)
+    })
+
+    it('verifies Base Sepolia EURC matches canonical Circle deployment 0x808456652fdb597867f38412077A9182bf77359F', async () => {
+      const { EURC_ADDRESSES } = await import('../../config/gatewayConfig')
+      expect(EURC_ADDRESSES['Base_Sepolia'].toLowerCase()).toBe('0x808456652fdb597867f38412077a9182bf77359f')
+    })
+
+    it('accurately equates 20-byte and 32-byte 0-padded addresses with isSameAddress', async () => {
+      const { isSameAddress } = await import('../bridgeUcwService')
+      const raw = '0x5f8f4cC0403332fC9c22a23222DDb9B267BF2E70'
+      const padded = '0x0000000000000000000000005f8f4cc0403332fc9c22a23222ddb9b267bf2e70'
+
+      expect(isSameAddress(raw, padded)).toBe(true)
+      expect(isSameAddress(padded, raw)).toBe(true)
+      expect(isSameAddress(raw, raw.toLowerCase())).toBe(true)
+      expect(isSameAddress(raw, '0x0000000000000000000000000000000000000000')).toBe(false)
+      expect(isSameAddress(undefined, raw)).toBe(false)
+    })
   })
 })
+

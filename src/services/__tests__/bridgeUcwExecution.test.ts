@@ -20,9 +20,11 @@ import {
   cctpMessageAmountMatches,
   CCTP_FORWARD_HOOK_DATA,
   CCTP_MESSAGE_RECEIVED_ABI,
+  getBridgeTokenAddress,
+  canUcwBridgeTokenFrom,
 } from '../bridgeUcwService'
 import * as rpcModule from '../rpc'
-import { USDC_ADDRESSES, GATEWAY_DOMAINS } from '../../config/gatewayConfig'
+import { USDC_ADDRESSES, EURC_ADDRESSES, GATEWAY_DOMAINS } from '../../config/gatewayConfig'
 import { decodeEventLog, encodeAbiParameters, encodeEventTopics, parseUnits } from 'viem'
 
 function successfulReceipt(hash: string) {
@@ -32,6 +34,46 @@ function successfulReceipt(hash: string) {
 describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  // Which tokens a Circle UCW wallet may sign for, per source chain. The Bridge
+  // tab's token list is this rule AND-ed with the pair rule, so a regression here
+  // offers a token whose mechanism the wallet cannot execute (or hides one it can).
+  describe('UCW token availability (mechanism + source deployment)', () => {
+    it('offers USDC everywhere the wallet can bridge from', () => {
+      for (const chain of ['Arc_Testnet', 'Base_Sepolia', 'Ethereum_Sepolia']) {
+        expect(canUcwBridgeTokenFrom(chain, 'USDC')).toBe(true)
+      }
+    })
+
+    it('offers EURC only where the token is deployed on the source chain', () => {
+      expect(canUcwBridgeTokenFrom('Arc_Testnet', 'EURC')).toBe(true)
+      expect(canUcwBridgeTokenFrom('Ethereum_Sepolia', 'EURC')).toBe(true)
+      expect(canUcwBridgeTokenFrom('Base_Sepolia', 'EURC')).toBe(true)
+      // No EURC in the registry for these chains, so nothing could be approved.
+      expect(canUcwBridgeTokenFrom('Polygon_Amoy_Testnet', 'EURC')).toBe(false)
+      expect(canUcwBridgeTokenFrom('Sei_Testnet', 'EURC')).toBe(false)
+    })
+
+    it('offers the CCTP-X tokens where they are deployed', () => {
+      for (const chain of ['Arc_Testnet', 'Ethereum_Sepolia']) {
+        expect(canUcwBridgeTokenFrom(chain, 'cirBTC')).toBe(true)
+        expect(canUcwBridgeTokenFrom(chain, 'wETH')).toBe(true)
+      }
+      expect(canUcwBridgeTokenFrom('Base_Sepolia', 'cirBTC')).toBe(false)
+      expect(canUcwBridgeTokenFrom('Polygon_Amoy_Testnet', 'wETH')).toBe(false)
+    })
+
+    it('never offers native ETH, whose wrap step needs an EIP-1193 provider', () => {
+      for (const chain of ['Arc_Testnet', 'Ethereum_Sepolia', 'Base_Sepolia']) {
+        expect(canUcwBridgeTokenFrom(chain, 'ETH')).toBe(false)
+      }
+    })
+
+    it('refuses a token no mechanism can carry', () => {
+      expect(canUcwBridgeTokenFrom('Arc_Testnet', 'DAI')).toBe(false)
+      expect(canUcwBridgeTokenFrom('Arc_Testnet', '')).toBe(false)
+    })
   })
 
   describe('Contract and Address Resolution', () => {
@@ -841,6 +883,169 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
           blockchain: 'ARC-TESTNET',
         })
       )
+    })
+  })
+
+  // Circle carries USDC *and* EURC over standard CCTP v2, so the UCW path only
+  // had to stop hardcoding the USDC address and its 6-decimal assumption. These
+  // pin that: the same burn must move the selected token, and a token with no
+  // deployment on the source chain must fail before any challenge is raised.
+  describe('CCTP v2 token parameterisation (EURC)', () => {
+    const mockExecuteContract = vi.fn()
+
+    const FORWARD_QUOTE = [{
+      finalityThreshold: 1000,
+      minimumFee: 0,
+      forwardFee: { low: 54324, med: 54324, high: 54664 },
+    }]
+
+    const stubFeeEndpoints = () => {
+      vi.stubGlobal('fetch', vi.fn(async (input: any) => ({
+        ok: true,
+        json: async () =>
+          String(input).includes('forward=true') ? FORWARD_QUOTE : [{ minimumFee: 0 }],
+      })))
+    }
+
+    beforeEach(() => {
+      mockExecuteContract.mockReset()
+      stubFeeEndpoints()
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('burns EURC through its own contract instead of the USDC address', async () => {
+      const eurcOnArc = getBridgeTokenAddress('Arc_Testnet', 'EURC')
+      expect(eurcOnArc).toBeTruthy()
+      expect(eurcOnArc).not.toBe(ARC_USDC_ADDRESS)
+
+      vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({} as any)
+      vi.spyOn(rpcModule, 'resilientReadContract').mockResolvedValue(parseUnits('500', 6))
+      vi.spyOn(rpcModule, 'resilientWaitForReceipt').mockResolvedValue(successfulReceipt(`0x${'e'.repeat(64)}`) as any)
+      mockExecuteContract.mockResolvedValue({ success: true, txHash: `0x${'e'.repeat(64)}` })
+
+      await executeUcwBridgeTransfer({
+        amount: '25',
+        tokenSymbol: 'EURC',
+        sourceChain: 'Arc_Testnet',
+        destChain: 'Base_Sepolia',
+        recipientAddress: '0x9999999999999999999999999999999999999999',
+        connectedAddress: '0x1234567890123456789012345678901234567890',
+        executeUcwContract: mockExecuteContract,
+      })
+
+      expect(mockExecuteContract).toHaveBeenCalledTimes(1)
+      const call = mockExecuteContract.mock.calls[0][0]
+      expect(call.contractAddress).toBe(ARC_CCTP_TOKEN_MESSENGER)
+      // Index 3 is burnToken: it must be the EURC contract, never USDC.
+      expect(call.abiParameters[3]).toBe(eurcOnArc)
+      expect(call.abiParameters[3]).not.toBe(ARC_USDC_ADDRESS)
+      // EURC is 6 decimals, quoted as such rather than assumed.
+      expect(call.abiParameters[0]).toBe(parseUnits('25', 6).toString())
+    })
+
+    it('approves the EURC contract itself and names EURC in the approve copy', async () => {
+      const eurcOnBase = getBridgeTokenAddress('Base_Sepolia', 'EURC')
+      expect(eurcOnBase).toBeTruthy()
+
+      vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({} as any)
+      vi.spyOn(rpcModule, 'resilientReadContract').mockResolvedValue(0n)
+      vi.spyOn(rpcModule, 'resilientWaitForReceipt')
+        .mockResolvedValueOnce(successfulReceipt(`0x${'f'.repeat(64)}`) as any)
+        .mockResolvedValueOnce(successfulReceipt(`0x${'1'.repeat(64)}`) as any)
+      mockExecuteContract
+        .mockResolvedValueOnce({ success: true, txHash: `0x${'f'.repeat(64)}` })
+        .mockResolvedValueOnce({ success: true, txHash: `0x${'1'.repeat(64)}` })
+
+      await executeUcwBridgeTransfer({
+        amount: '10',
+        tokenSymbol: 'EURC',
+        sourceChain: 'Base_Sepolia',
+        destChain: 'Arc_Testnet',
+        recipientAddress: '0x2222222222222222222222222222222222222222',
+        connectedAddress: '0x1234567890123456789012345678901234567890',
+        executeUcwContract: mockExecuteContract,
+      })
+
+      expect(mockExecuteContract).toHaveBeenCalledTimes(2)
+      expect(mockExecuteContract.mock.calls[0][0].contractAddress).toBe(eurcOnBase)
+      expect(mockExecuteContract.mock.calls[0][0].contractAddress).not.toBe(USDC_ADDRESSES['Base_Sepolia'])
+      expect(mockExecuteContract.mock.calls[0][0].abiFunctionSignature).toBe('approve(address,uint256)')
+      expect(mockExecuteContract.mock.calls[1][0].abiParameters[3]).toBe(eurcOnBase)
+    })
+
+    it('reports an EURC approval rejection as EURC, not USDC', async () => {
+      vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({} as any)
+      vi.spyOn(rpcModule, 'resilientReadContract').mockResolvedValue(0n)
+      mockExecuteContract.mockResolvedValue({ success: false })
+
+      await expect(
+        executeUcwBridgeTransfer({
+          amount: '10',
+          tokenSymbol: 'EURC',
+          sourceChain: 'Base_Sepolia',
+          destChain: 'Arc_Testnet',
+          recipientAddress: '0x2222222222222222222222222222222222222222',
+          connectedAddress: '0x1234567890123456789012345678901234567890',
+          executeUcwContract: mockExecuteContract,
+        })
+      ).rejects.toThrow(/EURC spending approval was rejected/)
+    })
+
+    it('validates the amount against the selected token and its decimals', async () => {
+      await expect(
+        executeUcwBridgeTransfer({
+          amount: '1.1234567',
+          tokenSymbol: 'EURC',
+          sourceChain: 'Arc_Testnet',
+          destChain: 'Base_Sepolia',
+          recipientAddress: '0x9999999999999999999999999999999999999999',
+          connectedAddress: '0x1234567890123456789012345678901234567890',
+          executeUcwContract: mockExecuteContract,
+        })
+      ).rejects.toThrow(/valid EURC amount \(up to 6 decimals\)/)
+      expect(mockExecuteContract).not.toHaveBeenCalled()
+    })
+
+    it('refuses a token with no deployment on the source chain before any challenge', async () => {
+      const saved = EURC_ADDRESSES['Base_Sepolia']
+      delete EURC_ADDRESSES['Base_Sepolia']
+      try {
+        await expect(
+          executeUcwBridgeTransfer({
+            amount: '10',
+            tokenSymbol: 'EURC',
+            sourceChain: 'Base_Sepolia',
+            destChain: 'Arc_Testnet',
+            recipientAddress: '0x2222222222222222222222222222222222222222',
+            connectedAddress: '0x1234567890123456789012345678901234567890',
+            executeUcwContract: mockExecuteContract,
+          })
+        ).rejects.toThrow(/EURC is not deployed on Base_Sepolia/)
+        expect(mockExecuteContract).not.toHaveBeenCalled()
+      } finally {
+        if (saved) EURC_ADDRESSES['Base_Sepolia'] = saved
+      }
+    })
+
+    it('still defaults to USDC when no token is supplied', async () => {
+      vi.spyOn(rpcModule, 'getResilientPublicClient').mockReturnValue({} as any)
+      vi.spyOn(rpcModule, 'resilientReadContract').mockResolvedValue(parseUnits('500', 6))
+      vi.spyOn(rpcModule, 'resilientWaitForReceipt').mockResolvedValue(successfulReceipt(`0x${'2'.repeat(64)}`) as any)
+      mockExecuteContract.mockResolvedValue({ success: true, txHash: `0x${'2'.repeat(64)}` })
+
+      await executeUcwBridgeTransfer({
+        amount: '25',
+        sourceChain: 'Arc_Testnet',
+        destChain: 'Base_Sepolia',
+        recipientAddress: '0x9999999999999999999999999999999999999999',
+        connectedAddress: '0x1234567890123456789012345678901234567890',
+        executeUcwContract: mockExecuteContract,
+      })
+
+      expect(mockExecuteContract.mock.calls[0][0].abiParameters[3]).toBe(ARC_USDC_ADDRESS)
     })
   })
 })
