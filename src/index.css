@@ -66,7 +66,7 @@
   -webkit-text-fill-color: transparent;
 }
 
-/* Crypto Raindrop Shower Animation for 12+ Chains card */
+/* Crypto Raindrop Shower Animation for 13 Chains card */
 @keyframes cryptoRainDrop {
   0% {
     transform: translate3d(0, -44px, 0) scale(0.85);

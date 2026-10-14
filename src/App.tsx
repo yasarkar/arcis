@@ -87,6 +87,7 @@ export default function App() {
     executeContractCall: executeUcwContract,
     signTypedData: executeUcwSignTypedData,
     executeTransfer: executeUcwTransfer,
+    pollChallengeTx: pollUcwChallengeTx,
     disconnectUcw,
     setOtpStep,
   } = useUserControlledWallet()
@@ -223,6 +224,9 @@ export default function App() {
     authSource: activeAuthSource,
     executeUcwTransfer,
     executeUcwContract,
+    // The copilot's UCW bridge resolves its burn hash through this callback
+    // rather than reading the Circle session token from browser storage.
+    pollChallengeTx: pollUcwChallengeTx,
   })
 
   return (
@@ -381,6 +385,7 @@ export default function App() {
                   initialChainNonce={chainPrefill?.timestamp}
                   executeUcwContract={executeUcwContract}
                   signTypedData={executeUcwSignTypedData}
+                  resolveUcwChallengeTx={pollUcwChallengeTx}
                   onSuccess={() => {
                     refreshBalances()
                   }}
