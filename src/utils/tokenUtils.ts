@@ -5,34 +5,34 @@ export interface NativeTokenInfo {
 }
 
 export const CHAIN_NATIVE_MAP: Record<string, NativeTokenInfo> = {
-  // Avalanche
-  Avalanche_Fuji: { symbol: 'AVAX', name: 'Avalanche Fuji AVAX', decimals: 18 },
-
-  // Ethereum & EVM L2/L3s
   Ethereum_Sepolia: { symbol: 'ETH', name: 'Sepolia Ether', decimals: 18 },
   Base_Sepolia: { symbol: 'ETH', name: 'Base Sepolia Ether', decimals: 18 },
   Arbitrum_Sepolia: { symbol: 'ETH', name: 'Arbitrum Sepolia Ether', decimals: 18 },
-  Optimism: { symbol: 'ETH', name: 'Optimism Ether', decimals: 18 },
   Optimism_Sepolia: { symbol: 'ETH', name: 'Optimism Sepolia Ether', decimals: 18 },
   Linea_Sepolia: { symbol: 'ETH', name: 'Linea Sepolia Ether', decimals: 18 },
   Unichain_Sepolia: { symbol: 'ETH', name: 'Unichain Sepolia Ether', decimals: 18 },
   Ink_Testnet: { symbol: 'ETH', name: 'Ink Testnet Ether', decimals: 18 },
   World_Chain_Sepolia: { symbol: 'ETH', name: 'World Chain Sepolia Ether', decimals: 18 },
-
-  // Polygon
+  Plume_Testnet: { symbol: 'ETH', name: 'Plume Testnet Ether', decimals: 18 },
+  Codex_Testnet: { symbol: 'ETH', name: 'Codex Testnet Ether', decimals: 18 },
+  Edge_Testnet: { symbol: 'ETH', name: 'Edge Testnet Ether', decimals: 18 },
+  Morph_Testnet: { symbol: 'ETH', name: 'Morph Testnet Ether', decimals: 18 },
+  
+  Avalanche_Fuji: { symbol: 'AVAX', name: 'Avalanche Fuji AVAX', decimals: 18 },
   Polygon_Amoy_Testnet: { symbol: 'POL', name: 'Amoy POL', decimals: 18 },
-
-  // Solana
   Solana_Devnet: { symbol: 'SOL', name: 'Solana Devnet SOL', decimals: 9 },
-
-  // Other Networks
   Sonic_Testnet: { symbol: 'S', name: 'Sonic Testnet Token', decimals: 18 },
   Sei_Testnet: { symbol: 'SEI', name: 'Sei Testnet Token', decimals: 6 },
   Cronos_Testnet: { symbol: 'CRO', name: 'Cronos Testnet Token', decimals: 18 },
   XDC_Apothem: { symbol: 'XDC', name: 'XDC Apothem Token', decimals: 18 },
-
-  // Arc
-  Arc_Testnet: { symbol: 'USDC', name: 'Arc Testnet USDC', decimals: 18 }
+  Monad_Testnet: { symbol: 'MON', name: 'Monad Testnet Token', decimals: 18 },
+  Injective_Testnet: { symbol: 'INJ', name: 'Injective Testnet Token', decimals: 18 },
+  X_Layer_Testnet: { symbol: 'OKB', name: 'X Layer OKB', decimals: 18 },
+  OKB_Testnet: { symbol: 'OKB', name: 'X Layer OKB', decimals: 18 },
+  Plasma_Testnet: { symbol: 'XPL', name: 'Plasma Testnet Token', decimals: 18 },
+  Arc_Testnet: { symbol: 'USDC', name: 'Arc Testnet USDC', decimals: 18 },
+  HyperEVM_Testnet: { symbol: 'HYPE', name: 'HyperEVM Testnet', decimals: 18 },
+  Pharos_Testnet: { symbol: 'PHRS', name: 'Pharos Atlantic PHRS', decimals: 18 }
 }
 
 // Returns the symbol to be shown in the UI based on the chain name and token.
@@ -41,6 +41,49 @@ export function getDisplayTokenSymbol(chain: string, token: string): string {
     return CHAIN_NATIVE_MAP[chain]?.symbol || 'NATIVE'
   }
   return token
+}
+
+/**
+ * Returns a human-friendly standard name for native gas tokens (e.g. 'Ethereum', 'Avalanche', 'Polygon').
+ */
+export function getCleanNativeTokenName(symbol: string): string {
+  switch (symbol.toUpperCase()) {
+    case 'ETH':
+      return 'Ethereum'
+    case 'AVAX':
+      return 'Avalanche'
+    case 'POL':
+    case 'MATIC':
+      return 'Polygon'
+    case 'SOL':
+      return 'Solana'
+    case 'S':
+      return 'Sonic'
+    case 'SEI':
+      return 'Sei'
+    case 'CRO':
+      return 'Cronos'
+    case 'XDC':
+      return 'XDC Network'
+    case 'MON':
+      return 'Monad'
+    case 'INJ':
+      return 'Injective'
+    case 'OKB':
+    case 'XLAYER':
+    case 'X_LAYER':
+      return 'OKB'
+    case 'XPL':
+      return 'Plasma'
+    case 'HYPE':
+      return 'HyperEVM'
+    case 'PHRS':
+      return 'Pharos'
+    case 'USDC':
+      return 'USD Coin'
+    default:
+      return 'Native Gas Token'
+  }
 }
 
 /**
