@@ -2,6 +2,13 @@ import { initiateUserControlledWalletsClient } from "@circle-fin/user-controlled
 import { checkRateLimit } from "./_utils/rateLimiter";
 import { apiSuccess, apiError, safeJsonParse } from "./_utils/apiResponse";
 import { extractTrustedClientIp } from "./_utils/trustedIp";
+import {
+  buildClearUcwSessionCookie,
+  buildUcwSessionCookie,
+  isSecureRequest,
+  readUcwSession,
+  resolveUcwUserToken,
+} from "./_utils/ucwSession";
 
 // ─────────────────────────────────────────────────────────────
 // 2. INPUT SANITIZATION & VALIDATION HELPERS
@@ -62,6 +69,99 @@ export async function POST(req: Request) {
   const body = jsonResult.data || {};
 
   try {
+    // ── Action: Establish the httpOnly UCW Session ────────────
+    // The Circle userToken authorizes signing challenges on the user's wallet,
+    // so it is handed to this endpoint once — over the same origin — and kept in
+    // a signed httpOnly cookie instead of browser storage. Every other action
+    // then reads it from that cookie (`resolveUcwUserToken`), which still accepts
+    // a body token so older clients keep working during the rollout.
+    if (action === "establishSession") {
+      const secure = isSecureRequest(req);
+      // The BODY token wins here, never an existing cookie: a user signing in as
+      // a different account must replace the session, not re-issue the old one.
+      const userToken = sanitizeString(body.userToken, 1024);
+      const encryptionKey = sanitizeString(body.encryptionKey, 1024);
+      const walletId = sanitizeString(body.walletId, 128);
+      const address = sanitizeString(body.address, 128);
+      const deviceToken = sanitizeString(body.deviceToken, 1024);
+      const deviceEncryptionKey = sanitizeString(body.deviceEncryptionKey, 1024);
+
+      if (!userToken) {
+        return apiError("userToken is required.", "MISSING_USER_TOKEN", 400);
+      }
+
+      try {
+        const setCookie = await buildUcwSessionCookie(
+          { userToken, encryptionKey, walletId, address, deviceToken, deviceEncryptionKey },
+          { secure }
+        );
+        return apiSuccess(
+          { session: true, walletId: walletId || undefined, address: address || undefined },
+          200,
+          { "Set-Cookie": setCookie, "Cache-Control": "no-store" }
+        );
+      } catch (sessionErr: any) {
+        // No signing secret configured: refuse to issue a forgeable credential
+        // cookie rather than degrading to an unsigned session.
+        console.error("[UCW API] Session could not be established:", sessionErr?.message || sessionErr);
+        return apiError(
+          "Wallet sessions are unavailable on this server. Please try again later.",
+          "UCW_SESSION_UNAVAILABLE",
+          503
+        );
+      }
+    }
+
+    // ── Action: Hand the Session Token Back to the Browser SDK ──
+    // Circle's user-controlled web SDK runs a user's challenge IN THE BROWSER, so
+    // it needs the token in memory there. The cookie is still the credential
+    // store: a token can only be obtained by a same-origin request that already
+    // presents the signed cookie, and it is never written to storage — so a
+    // stolen localStorage/disk snapshot can no longer sign anything.
+    if (action === "issueSessionToken") {
+      const session = await readUcwSession(req);
+      if (!session) {
+        return apiError("No active wallet session.", "NO_SESSION", 401);
+      }
+      return apiSuccess(
+        {
+          userToken: session.userToken,
+          encryptionKey: session.encryptionKey || "",
+          walletId: session.walletId || "",
+          address: session.address || "",
+        },
+        200,
+        { "Cache-Control": "no-store" }
+      );
+    }
+
+    // ── Action: Read the Current UCW Session (never returns the token) ──
+    if (action === "getSession") {
+      const session = await readUcwSession(req);
+      return apiSuccess(
+        {
+          active: Boolean(session),
+          walletId: session?.walletId || "",
+          address: session?.address || "",
+          hasDeviceToken: Boolean(session?.deviceToken),
+        },
+        200,
+        { "Cache-Control": "no-store" }
+      );
+    }
+
+    // ── Action: Clear the UCW Session ────────────────────────
+    if (action === "clearSession") {
+      return apiSuccess(
+        { session: false },
+        200,
+        {
+          "Set-Cookie": buildClearUcwSessionCookie({ secure: isSecureRequest(req) }),
+          "Cache-Control": "no-store",
+        }
+      );
+    }
+
     // ── Action: Create User & Obtain userToken ────────────────
     if (action === "createUserToken") {
       // Security (SEC-02): Disable arbitrary user token generation until verified application sessions are implemented
@@ -164,7 +264,7 @@ export async function POST(req: Request) {
         );
       }
 
-      const userToken = sanitizeString(body.userToken, 1024);
+      const userToken = await resolveUcwUserToken(req, body);
       if (!userToken) {
         return apiError("userToken is required.", "MISSING_USER_TOKEN", 400);
       }
@@ -223,7 +323,7 @@ export async function POST(req: Request) {
 
     // ── Action: Fetch User Wallets ────────────────────────────
     if (action === "getUserWallets" || action === "listWallets") {
-      const userToken = sanitizeString(body.userToken, 1024);
+      const userToken = await resolveUcwUserToken(req, body);
       if (!userToken) {
         return apiError("userToken is required.", "MISSING_USER_TOKEN", 400);
       }
@@ -240,7 +340,7 @@ export async function POST(req: Request) {
     // must own a wallet (same EVM address) on every chain they act on. Without
     // this, a destination-chain mint would silently run on the source chain.
     if (action === "createUserWallet") {
-      const userToken = sanitizeString(body.userToken, 1024);
+      const userToken = await resolveUcwUserToken(req, body);
       const blockchain = sanitizeString(body.blockchain, 64).toUpperCase();
 
       if (!userToken || !blockchain) {
@@ -292,7 +392,7 @@ export async function POST(req: Request) {
 
     // ── Action: Create Contract Execution Challenge ──────────
     if (action === "createContractExecution") {
-      const userToken = sanitizeString(body.userToken, 1024);
+      const userToken = await resolveUcwUserToken(req, body);
       let walletId = sanitizeString(body.walletId, 128);
       const walletAddress = body.walletAddress ? sanitizeString(body.walletAddress, 128) : undefined;
       const contractAddress = sanitizeString(body.contractAddress, 128);
@@ -392,7 +492,7 @@ export async function POST(req: Request) {
 
     // ── Action: Sign Typed Data (EIP-712) ────────────────────
     if (action === "signTypedData") {
-      const userToken = sanitizeString(body.userToken, 1024);
+      const userToken = await resolveUcwUserToken(req, body);
       let walletId = sanitizeString(body.walletId, 128);
       const rawData = body.data;
       const memo = body.memo ? sanitizeString(body.memo, 128) : undefined;
@@ -466,7 +566,7 @@ export async function POST(req: Request) {
 
     // ── Action: Create Transfer Challenge ─────────────────────
     if (action === "createTransfer") {
-      const userToken = sanitizeString(body.userToken, 1024);
+      const userToken = await resolveUcwUserToken(req, body);
       let walletId = sanitizeString(body.walletId, 128);
       const destinationAddress = sanitizeString(body.destinationAddress, 128);
       const amount = sanitizeString(body.amount, 64);
@@ -561,6 +661,26 @@ export async function POST(req: Request) {
         }
       }
 
+      // If tokenAddress is provided but tokenId is not, check wallet balances for a matching tokenId
+      if (!resolvedTokenId && resolvedTokenAddress) {
+        try {
+          const balanceRes = await client.getWalletTokenBalance({ walletId, userToken });
+          const balances = balanceRes.data?.tokenBalances || [];
+          const matchedToken = balances.find((t: any) =>
+            t.token?.tokenAddress?.toLowerCase() === resolvedTokenAddress.toLowerCase() ||
+            (tokenSymbol && (
+              t.token?.symbol?.toUpperCase() === tokenSymbol.toUpperCase() ||
+              t.token?.name?.toUpperCase() === tokenSymbol.toUpperCase()
+            ))
+          );
+          if (matchedToken?.token?.id) {
+            resolvedTokenId = matchedToken.token.id;
+          }
+        } catch (bErr) {
+          console.warn("[UCW API] Balance lookup for tokenId fallback warning:", bErr);
+        }
+      }
+
       const feeLevel = sanitizeString(body.feeLevel, 16).toUpperCase() || "MEDIUM";
       const validFeeLevel = (feeLevel === "LOW" || feeLevel === "HIGH") ? feeLevel : "MEDIUM";
 
@@ -594,7 +714,7 @@ export async function POST(req: Request) {
 
     // ── Action: Get Latest On-Chain Transaction Hash ──────────
     if (action === "getLatestTransaction" || action === "pollTransactionHash") {
-      const userToken = sanitizeString(body.userToken, 1024);
+      const userToken = await resolveUcwUserToken(req, body);
       const challengeId = sanitizeString(body.challengeId, 128);
       const walletId = sanitizeString(body.walletId, 128);
       const blockchain = sanitizeString(body.blockchain, 64);
