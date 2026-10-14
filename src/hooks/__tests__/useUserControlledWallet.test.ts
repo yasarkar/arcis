@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   parseCircleAuthError,
   cleanupCircleIframe,
 } from '../useUserControlledWallet'
+
+const hookSource = readFileSync(new URL('../useUserControlledWallet.ts', import.meta.url), 'utf8')
 
 describe('useUserControlledWallet Unit Tests', () => {
   let mockStorage: Record<string, string> = {}
@@ -81,6 +84,30 @@ describe('useUserControlledWallet Unit Tests', () => {
 
       const isExpired = Date.now() > Number(localStorage.getItem('arc_ucw_token_expires_at') || 0)
       expect(isExpired).toBe(true)
+    })
+  })
+
+  describe('UCW credentials are kept out of browser storage', () => {
+    // The Circle userToken authorizes signing challenges on the user's wallet: an
+    // XSS that can read localStorage must not be able to walk away with it. The
+    // session lives in the API's httpOnly cookie instead, and only the SDK key
+    // (which Circle's web SDK has to read in the browser) stays behind.
+    it('never writes the user or device token into storage', () => {
+      expect(hookSource).not.toContain("setItem('arc_ucw_user_token'")
+      expect(hookSource).not.toContain("setItem('arc_ucw_device_token'")
+      expect(hookSource).not.toContain("setItem('arc_ucw_device_encryption_key'")
+    })
+
+    it('keeps the session in the httpOnly cookie instead', () => {
+      expect(hookSource).toContain("/api/ucw?action=establishSession")
+      expect(hookSource).toContain("/api/ucw?action=clearSession")
+      expect(hookSource).toContain("/api/ucw?action=issueSessionToken")
+    })
+
+    it('migrates a legacy stored token once instead of leaving it behind', () => {
+      // It may READ the legacy key to migrate it, but must delete it afterwards.
+      expect(hookSource).toContain("localStorage.removeItem('arc_ucw_user_token')")
+      expect(hookSource).toContain('purgeLegacyUcwCredentials')
     })
   })
 })

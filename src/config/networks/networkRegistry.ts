@@ -20,8 +20,8 @@ import {
   polygon,
   avalanche,
 } from 'viem/chains'
-import type { NetworkConfig, NetworkUiConfig } from './types'
-export type { NetworkConfig, NetworkUiConfig }
+import type { NetworkConfig, NetworkUiConfig, NetworkCapabilities, NetworkAdapters } from './types'
+export type { NetworkConfig, NetworkUiConfig, NetworkCapabilities, NetworkAdapters }
 
 // ─────────────────────────────────────────────────────────────
 // 1. ENVIRONMENT & NETWORK SELECTION
@@ -266,6 +266,212 @@ export const ethereumSepolia = defineChain({
   },
 })
 
+export const monadTestnet = defineChain({
+  id: 10143,
+  name: 'Monad Testnet',
+  nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ['https://testnet-rpc.monad.xyz', 'https://monad-testnet.drpc.org'],
+    },
+    public: {
+      http: ['https://testnet-rpc.monad.xyz', 'https://monad-testnet.drpc.org'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'Monad Explorer', url: 'https://testnet.monadexplorer.com' },
+  },
+  testnet: true,
+})
+
+export const inkTestnet = defineChain({
+  id: 763373,
+  name: 'Ink Sepolia',
+  nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc-gel-sepolia.inkonchain.com', 'https://ink-sepolia.drpc.org'],
+    },
+    public: {
+      http: ['https://rpc-gel-sepolia.inkonchain.com', 'https://ink-sepolia.drpc.org'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'Ink Explorer', url: 'https://explorer.sepolia.inkonchain.com' },
+  },
+  testnet: true,
+})
+
+export const lineaSepolia = defineChain({
+  id: 59141,
+  name: 'Linea Sepolia',
+  nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc.sepolia.linea.build', 'https://linea-sepolia.drpc.org'],
+    },
+    public: {
+      http: ['https://rpc.sepolia.linea.build', 'https://linea-sepolia.drpc.org'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'LineaScan', url: 'https://sepolia.lineascan.build' },
+  },
+  testnet: true,
+})
+
+export const plumeTestnet = defineChain({
+  id: 98864,
+  name: 'Plume Testnet',
+  nativeCurrency: { name: 'Plume ETH', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ['https://testnet-rpc.plumenetwork.xyz', 'https://plume-testnet.drpc.org'],
+    },
+    public: {
+      http: ['https://testnet-rpc.plumenetwork.xyz', 'https://plume-testnet.drpc.org'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'Plume Explorer', url: 'https://testnet-explorer.plumenetwork.xyz' },
+  },
+  testnet: true,
+})
+
+export const injectiveTestnet = defineChain({
+  id: 14801,
+  name: 'Injective Testnet',
+  nativeCurrency: { name: 'Injective', symbol: 'INJ', decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ['https://testnet.inevm.com/http', 'https://k8s.testnet.json-rpc.injective.network'],
+    },
+    public: {
+      http: ['https://testnet.inevm.com/http', 'https://k8s.testnet.json-rpc.injective.network'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'Injective Explorer', url: 'https://testnet.explorer.injective.network' },
+  },
+  testnet: true,
+})
+
+export const xdcApothem = defineChain({
+  id: 51,
+  name: 'XDC Apothem',
+  nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
+  rpcUrls: {
+    default: {
+      http: ['https://erpc.apothem.network', 'https://rpc.apothem.network'],
+    },
+    public: {
+      http: ['https://erpc.apothem.network', 'https://rpc.apothem.network'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'Blocksscan', url: 'https://apothem.blocksscan.io' },
+  },
+  testnet: true,
+})
+
+export const codexTestnet = defineChain({
+  id: 812242,
+  name: 'Codex Testnet',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.codex-stg.xyz'] },
+    public: { http: ['https://rpc.codex-stg.xyz'] },
+  },
+  blockExplorers: {
+    default: { name: 'Codex Explorer', url: 'https://explorer.codex-stg.xyz' },
+  },
+  testnet: true,
+})
+
+export const cronosTestnet = defineChain({
+  id: 338,
+  name: 'Cronos Testnet',
+  nativeCurrency: { name: 'Cronos', symbol: 'tCRO', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://evm-t3.cronos.org'] },
+    public: { http: ['https://evm-t3.cronos.org'] },
+  },
+  blockExplorers: {
+    default: { name: 'Cronos Explorer', url: 'https://explorer.cronos.org/testnet' },
+  },
+  testnet: true,
+})
+
+export const edgeTestnet = defineChain({
+  id: 33431,
+  name: 'Edge Testnet',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://edge-testnet.g.alchemy.com/public'] },
+    public: { http: ['https://edge-testnet.g.alchemy.com/public'] },
+  },
+  blockExplorers: {
+    default: { name: 'Edge Explorer', url: 'https://edge-testnet.explorer.alchemy.com' },
+  },
+  testnet: true,
+})
+
+export const morphTestnet = defineChain({
+  id: 2910,
+  name: 'Morph Hoodi Testnet',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc-hoodi.morphl2.io'] },
+    public: { http: ['https://rpc-hoodi.morphl2.io'] },
+  },
+  blockExplorers: {
+    default: { name: 'Morph Explorer', url: 'https://explorer-hoodi.morphl2.io' },
+  },
+  testnet: true,
+})
+
+export const pharosTestnet = defineChain({
+  id: 688689,
+  name: 'Pharos Atlantic Testnet',
+  nativeCurrency: { name: 'Pharos', symbol: 'PHRS', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://atlantic.dplabs-internal.com'] },
+    public: { http: ['https://atlantic.dplabs-internal.com'] },
+  },
+  blockExplorers: {
+    default: { name: 'Pharos Scan', url: 'https://atlantic.pharosscan.xyz' },
+  },
+  testnet: true,
+})
+
+export const plasmaTestnet = defineChain({
+  id: 9746,
+  name: 'Plasma Testnet',
+  nativeCurrency: { name: 'Plasma', symbol: 'XPL', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://testnet-rpc.plasma.to'] },
+    public: { http: ['https://testnet-rpc.plasma.to'] },
+  },
+  blockExplorers: {
+    default: { name: 'Plasma Scan', url: 'https://testnet.plasmascan.to' },
+  },
+  testnet: true,
+})
+
+export const xLayerTestnet = defineChain({
+  id: 1952,
+  name: 'X Layer Testnet',
+  nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://testrpc.xlayer.tech'] },
+    public: { http: ['https://testrpc.xlayer.tech'] },
+  },
+  blockExplorers: {
+    default: { name: 'OKX Explorer', url: 'https://web3.okx.com/explorer/x-layer-testnet' },
+  },
+  testnet: true,
+})
+
 // Simulated chain for Solana (for UI & address book purposes)
 const solanaDevnetChain = defineChain({
   id: 999001,
@@ -302,9 +508,30 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Arc_Testnet: {
     key: 'Arc_Testnet',
     name: 'Arc Testnet',
+    shortName: 'ARC',
     chainId: arcTestnet.id,
     testnet: true,
     cctpDomain: 26,
+    circleBlockchain: 'ARC-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      onramp: true,
+      earn: true,
+      borrow: true,
+      faucet: true,
+      privacy: true,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
     rpcUrls: {
       primary: customArcRpc || 'https://rpc.testnet.arc.network',
@@ -339,9 +566,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Ethereum_Sepolia: {
     key: 'Ethereum_Sepolia',
     name: 'Ethereum Sepolia',
+    shortName: 'ETH',
     chainId: sepolia.id,
     testnet: true,
     cctpDomain: 0,
+    circleBlockchain: 'ETH-SEPOLIA',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://ethereum-sepolia.publicnode.com',
@@ -371,9 +616,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Base_Sepolia: {
     key: 'Base_Sepolia',
     name: 'Base Sepolia',
+    shortName: 'BASE',
     chainId: baseSepolia.id,
     testnet: true,
     cctpDomain: 6,
+    circleBlockchain: 'BASE-SEPOLIA',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://sepolia.base.org',
@@ -402,9 +665,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Arbitrum_Sepolia: {
     key: 'Arbitrum_Sepolia',
     name: 'Arbitrum Sepolia',
+    shortName: 'ARB',
     chainId: arbitrumSepolia.id,
     testnet: true,
     cctpDomain: 3,
+    circleBlockchain: 'ARB-SEPOLIA',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://sepolia-rollup.arbitrum.io/rpc',
@@ -432,9 +713,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Optimism_Sepolia: {
     key: 'Optimism_Sepolia',
     name: 'Optimism Sepolia',
+    shortName: 'OP',
     chainId: optimismSepolia.id,
     testnet: true,
     cctpDomain: 2,
+    circleBlockchain: 'OP-SEPOLIA',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://sepolia.optimism.io',
@@ -462,9 +761,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Polygon_Amoy_Testnet: {
     key: 'Polygon_Amoy_Testnet',
     name: 'Polygon PoS Amoy',
+    shortName: 'POL',
     chainId: polygonAmoy.id,
     testnet: true,
     cctpDomain: 7,
+    circleBlockchain: 'MATIC-AMOY',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
     rpcUrls: {
       primary: 'https://polygon-amoy-bor-rpc.publicnode.com',
@@ -490,9 +807,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Avalanche_Fuji: {
     key: 'Avalanche_Fuji',
     name: 'Avalanche Fuji',
+    shortName: 'AVAX',
     chainId: avalancheFuji.id,
     testnet: true,
     cctpDomain: 1,
+    circleBlockchain: 'AVAX-FUJI',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
     rpcUrls: {
       primary: 'https://api.avax-test.network/ext/bc/C/rpc',
@@ -519,9 +854,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   HyperEVM_Testnet: {
     key: 'HyperEVM_Testnet',
     name: 'HyperEVM Testnet',
+    shortName: 'HYPER',
     chainId: hyperEVMTestnet.id,
     testnet: true,
     cctpDomain: 19,
+    circleBlockchain: 'HYPEREVM-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
     nativeCurrency: { name: 'HIP', symbol: 'HIP', decimals: 18 },
     rpcUrls: {
       primary: 'https://rpc.hyperliquid-testnet.xyz/evm',
@@ -544,9 +897,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Sei_Testnet: {
     key: 'Sei_Testnet',
     name: 'Sei Testnet',
+    shortName: 'SEI',
     chainId: seiTestnet.id,
     testnet: true,
     cctpDomain: 16,
+    circleBlockchain: 'SEI-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
     nativeCurrency: { name: 'SEI', symbol: 'SEI', decimals: 18 },
     rpcUrls: {
       primary: 'https://evm-rpc-testnet.sei-apis.com',
@@ -572,9 +943,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Sonic_Testnet: {
     key: 'Sonic_Testnet',
     name: 'Sonic Testnet',
+    shortName: 'SONIC',
     chainId: sonicTestnet.id,
     testnet: true,
     cctpDomain: 13,
+    circleBlockchain: 'SONIC-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
     nativeCurrency: { name: 'S', symbol: 'S', decimals: 18 },
     rpcUrls: {
       primary: 'https://rpc.testnet.soniclabs.com',
@@ -600,9 +989,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Unichain_Sepolia: {
     key: 'Unichain_Sepolia',
     name: 'Unichain Sepolia',
+    shortName: 'UNI',
     chainId: unichainSepolia.id,
     testnet: true,
     cctpDomain: 10,
+    circleBlockchain: 'UNI-SEPOLIA',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://sepolia.unichain.org',
@@ -625,9 +1032,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   World_Chain_Sepolia: {
     key: 'World_Chain_Sepolia',
     name: 'World Chain Sepolia',
+    shortName: 'WLD',
     chainId: worldChainSepolia.id,
     testnet: true,
     cctpDomain: 14,
+    circleBlockchain: 'WORLDCHAIN-SEPOLIA',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
     nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://worldchain-sepolia.drpc.org',
@@ -650,9 +1075,27 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
   Solana_Devnet: {
     key: 'Solana_Devnet',
     name: 'Solana Devnet',
+    shortName: 'SOL',
     chainId: 999001,
     testnet: true,
     cctpDomain: 5,
+    circleBlockchain: 'SOL-DEVNET',
+    capabilities: {
+      send: true,
+      bridge: false,
+      swap: false,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: false,
+      ethers: false,
+      circleWallets: true,
+      solana: true,
+    },
     nativeCurrency: { name: 'SOL', symbol: 'SOL', decimals: 9 },
     rpcUrls: {
       primary: 'https://api.devnet.solana.com',
@@ -672,6 +1115,561 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     viemChain: solanaDevnetChain,
   },
+
+  Monad_Testnet: {
+    key: 'Monad_Testnet',
+    name: 'Monad Testnet',
+    shortName: 'MON',
+    chainId: monadTestnet.id,
+    testnet: true,
+    circleBlockchain: 'MONAD-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://testnet-rpc.monad.xyz',
+      fallbacks: ['https://monad-testnet.drpc.org'],
+    },
+    blockExplorers: { name: 'Monad Explorer', url: 'https://testnet.monadexplorer.com' },
+    tokens: {
+      USDC: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'monad-testnet',
+      name: 'Monad Testnet',
+      color: '#8b5cf6',
+      gradient: 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
+    },
+    viemChain: monadTestnet,
+  },
+
+  Ink_Testnet: {
+    key: 'Ink_Testnet',
+    name: 'Ink Sepolia',
+    shortName: 'INK',
+    chainId: inkTestnet.id,
+    testnet: true,
+    circleBlockchain: 'INK-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://rpc-gel-sepolia.inkonchain.com',
+      fallbacks: ['https://ink-sepolia.drpc.org'],
+    },
+    blockExplorers: { name: 'Ink Explorer', url: 'https://explorer.sepolia.inkonchain.com' },
+    tokens: {
+      USDC: '0x266854124190e44720D45B3878bC165eb3F01C60',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'ink',
+      name: 'Ink Sepolia',
+      color: '#a855f7',
+      gradient: 'linear-gradient(135deg, #a855f7, #7e22ce)',
+    },
+    viemChain: inkTestnet,
+  },
+
+  Linea_Sepolia: {
+    key: 'Linea_Sepolia',
+    name: 'Linea Sepolia',
+    shortName: 'LINEA',
+    chainId: lineaSepolia.id,
+    testnet: true,
+    circleBlockchain: 'LINEA-SEPOLIA',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Sepolia Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://rpc.sepolia.linea.build',
+      fallbacks: ['https://linea-sepolia.drpc.org'],
+    },
+    blockExplorers: { name: 'LineaScan', url: 'https://sepolia.lineascan.build' },
+    tokens: {
+      USDC: '0xFE224D5154DE6f536F52f010c223c2a07530e84b',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'linea-sepolia',
+      name: 'Linea Sepolia',
+      color: '#6366f1',
+      gradient: 'linear-gradient(135deg, #6366f1, #4338ca)',
+    },
+    viemChain: lineaSepolia,
+  },
+
+  Plume_Testnet: {
+    key: 'Plume_Testnet',
+    name: 'Plume Testnet',
+    shortName: 'PLUME',
+    chainId: plumeTestnet.id,
+    testnet: true,
+    circleBlockchain: 'PLUME-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Plume ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://testnet-rpc.plumenetwork.xyz',
+      fallbacks: ['https://plume-testnet.drpc.org'],
+    },
+    blockExplorers: { name: 'Plume Explorer', url: 'https://testnet-explorer.plumenetwork.xyz' },
+    tokens: {
+      USDC: '0xba228a0C6cf5Cd2B9F4f74d64B79c0926d2e3b2e',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'plume',
+      name: 'Plume Testnet',
+      color: '#ec4899',
+      gradient: 'linear-gradient(135deg, #ec4899, #be185d)',
+    },
+    viemChain: plumeTestnet,
+  },
+
+  Injective_Testnet: {
+    key: 'Injective_Testnet',
+    name: 'Injective Testnet',
+    shortName: 'INJ',
+    chainId: injectiveTestnet.id,
+    testnet: true,
+    circleBlockchain: 'INJECTIVE-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Injective', symbol: 'INJ', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://testnet.inevm.com/http',
+      fallbacks: ['https://k8s.testnet.json-rpc.injective.network'],
+    },
+    blockExplorers: { name: 'Injective Explorer', url: 'https://testnet.explorer.injective.network' },
+    tokens: {
+      USDC: '0x7b66C729ee944749f7b13F89A5A4e99f0BfFf191',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'injective',
+      name: 'Injective Testnet',
+      color: '#06b6d4',
+      gradient: 'linear-gradient(135deg, #06b6d4, #0891b2)',
+    },
+    viemChain: injectiveTestnet,
+  },
+
+  XDC_Apothem: {
+    key: 'XDC_Apothem',
+    name: 'Apothem Network',
+    shortName: 'XDC',
+    chainId: xdcApothem.id,
+    testnet: true,
+    circleBlockchain: 'XDC-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://erpc.apothem.network',
+      fallbacks: ['https://rpc.apothem.network'],
+    },
+    blockExplorers: { name: 'Blocksscan', url: 'https://apothem.blocksscan.io' },
+    tokens: {
+      USDC: '0x3234ff14F44621c1ea3E6Eca4a194165682Ffe5a',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'xdc',
+      name: 'Apothem Network',
+      color: '#0284c7',
+      gradient: 'linear-gradient(135deg, #0284c7, #0369a1)',
+    },
+    viemChain: xdcApothem,
+  },
+
+  Codex_Testnet: {
+    key: 'Codex_Testnet',
+    name: 'Codex Testnet',
+    shortName: 'CDX',
+    chainId: codexTestnet.id,
+    testnet: true,
+    cctpDomain: 12,
+    circleBlockchain: 'CODEX-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://rpc.codex-stg.xyz',
+      fallbacks: [],
+    },
+    blockExplorers: { name: 'Codex Explorer', url: 'https://explorer.codex-stg.xyz' },
+    tokens: {
+      USDC: '0x6d7f141b6819C2c9CC2f818e6ad549E7Ca090F8f',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'codex',
+      name: 'Codex Testnet',
+      color: '#00d1ff',
+      gradient: 'linear-gradient(135deg, #00d1ff, #0077fe)',
+    },
+    viemChain: codexTestnet,
+  },
+
+  Cronos_Testnet: {
+    key: 'Cronos_Testnet',
+    name: 'Cronos Testnet',
+    shortName: 'CRO',
+    chainId: cronosTestnet.id,
+    testnet: true,
+    cctpDomain: 32,
+    circleBlockchain: 'CRONOS-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Cronos', symbol: 'tCRO', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://evm-t3.cronos.org',
+      fallbacks: [],
+    },
+    blockExplorers: { name: 'Cronos Explorer', url: 'https://explorer.cronos.org/testnet' },
+    tokens: {
+      USDC: '0xEb33dc5fac03833e132593659e1dE7256aB59794',
+      EURC: '0x31f7538adb53cF16350e6B0c89d03D91b7D12c46',
+    },
+    tokenDecimals: { USDC: 6, EURC: 6 },
+    ui: {
+      iconId: 'cronos',
+      name: 'Cronos Testnet',
+      color: '#002d74',
+      gradient: 'linear-gradient(135deg, #002d74, #0056b3)',
+    },
+    viemChain: cronosTestnet,
+  },
+
+  Edge_Testnet: {
+    key: 'Edge_Testnet',
+    name: 'Edge Testnet',
+    shortName: 'EDGE',
+    chainId: edgeTestnet.id,
+    testnet: true,
+    cctpDomain: 28,
+    circleBlockchain: 'EDGE-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://edge-testnet.g.alchemy.com/public',
+      fallbacks: [],
+    },
+    blockExplorers: { name: 'Edge Explorer', url: 'https://edge-testnet.explorer.alchemy.com' },
+    tokens: {
+      USDC: '0x2d9F7CAD728051AA35Ecdc472a14cf8cDF5CFD6B',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'edgeless',
+      name: 'Edge Testnet',
+      color: '#10b981',
+      gradient: 'linear-gradient(135deg, #10b981, #059669)',
+    },
+    viemChain: edgeTestnet,
+  },
+
+  Morph_Testnet: {
+    key: 'Morph_Testnet',
+    name: 'Morph Hoodi Testnet',
+    shortName: 'MORPH',
+    chainId: morphTestnet.id,
+    testnet: true,
+    cctpDomain: 30,
+    circleBlockchain: 'MORPH-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://rpc-hoodi.morphl2.io',
+      fallbacks: [],
+    },
+    blockExplorers: { name: 'Morph Explorer', url: 'https://explorer-hoodi.morphl2.io' },
+    tokens: {
+      USDC: '0x7433b41C6c5e1d58D4Da99483609520255ab661B',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'morph',
+      name: 'Morph Hoodi Testnet',
+      color: '#38d68b',
+      gradient: 'linear-gradient(135deg, #38d68b, #10b981)',
+    },
+    viemChain: morphTestnet,
+  },
+
+  Pharos_Testnet: {
+    key: 'Pharos_Testnet',
+    name: 'Pharos Atlantic Testnet',
+    shortName: 'PHAROS',
+    chainId: pharosTestnet.id,
+    testnet: true,
+    cctpDomain: 31,
+    circleBlockchain: 'PHAROS-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Pharos', symbol: 'PHRS', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://atlantic.dplabs-internal.com',
+      fallbacks: [],
+    },
+    blockExplorers: { name: 'Pharos Scan', url: 'https://atlantic.pharosscan.xyz' },
+    tokens: {
+      USDC: '0xcfC8330f4BCAB529c625D12781b1C19466A9Fc8B',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'pharos',
+      name: 'Pharos Atlantic Testnet',
+      color: '#6366f1',
+      gradient: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+    },
+    viemChain: pharosTestnet,
+  },
+
+  Plasma_Testnet: {
+    key: 'Plasma_Testnet',
+    name: 'Plasma Testnet',
+    shortName: 'PLASM',
+    chainId: plasmaTestnet.id,
+    testnet: true,
+    cctpDomain: 33,
+    circleBlockchain: 'PLASMA-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: true,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
+    nativeCurrency: { name: 'Plasma', symbol: 'XPL', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://testnet-rpc.plasma.to',
+      fallbacks: [],
+    },
+    blockExplorers: { name: 'Plasma Scan', url: 'https://testnet.plasmascan.to' },
+    tokens: {
+      USDC: '0xE67Fb267022cBA8064Dd388CC2FED724F3120D9D',
+      EURC: '0x98AfA0F93Dd993B736399f9074eDcEBD1985A330',
+    },
+    tokenDecimals: { USDC: 6, EURC: 6 },
+    ui: {
+      iconId: 'plasma',
+      name: 'Plasma Testnet',
+      color: '#f59e0b',
+      gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
+    },
+    viemChain: plasmaTestnet,
+  },
+
+  X_Layer_Testnet: {
+    key: 'X_Layer_Testnet',
+    name: 'X Layer Testnet',
+    shortName: 'XLAYER',
+    chainId: xLayerTestnet.id,
+    testnet: true,
+    cctpDomain: 37,
+    circleBlockchain: 'XLAYER-TESTNET',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: false,
+      gateway: false,
+      unifiedBalance: false,
+      ucw: false,
+      faucet: true,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: false,
+      solana: false,
+    },
+    nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
+    rpcUrls: {
+      primary: 'https://testrpc.xlayer.tech',
+      fallbacks: [],
+    },
+    blockExplorers: { name: 'OKX Explorer', url: 'https://web3.okx.com/explorer/x-layer-testnet' },
+    tokens: {
+      USDC: '0xDec90b78111Ba2fc6FC6d84d8B9ec159A2d4b9B3',
+    },
+    tokenDecimals: { USDC: 6 },
+    ui: {
+      iconId: 'x-layer',
+      name: 'X Layer Testnet',
+      color: '#000000',
+      gradient: 'linear-gradient(135deg, #1e293b, #0f172a)',
+    },
+    viemChain: xLayerTestnet,
+  },
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -681,9 +1679,30 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Arc: {
     key: 'Arc',
     name: 'Arc',
+    shortName: 'ARC',
     chainId: arcMainnet.id,
     testnet: false,
     cctpDomain: 26,
+    circleBlockchain: 'ARC',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      onramp: true,
+      earn: true,
+      borrow: true,
+      faucet: false,
+      privacy: true,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
     rpcUrls: {
       primary: customArcRpc || 'https://rpc.arc.io',
@@ -715,9 +1734,27 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Ethereum: {
     key: 'Ethereum',
     name: 'Ethereum',
+    shortName: 'ETH',
     chainId: mainnet.id,
     testnet: false,
     cctpDomain: 0,
+    circleBlockchain: 'ETH',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: false,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://eth.llamarpc.com',
@@ -742,9 +1779,27 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Base: {
     key: 'Base',
     name: 'Base',
+    shortName: 'BASE',
     chainId: base.id,
     testnet: false,
     cctpDomain: 6,
+    circleBlockchain: 'BASE',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: false,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://mainnet.base.org',
@@ -769,9 +1824,27 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Arbitrum: {
     key: 'Arbitrum',
     name: 'Arbitrum One',
+    shortName: 'ARB',
     chainId: arbitrum.id,
     testnet: false,
     cctpDomain: 3,
+    circleBlockchain: 'ARB',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: false,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://arb1.arbitrum.io/rpc',
@@ -795,9 +1868,27 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Optimism: {
     key: 'Optimism',
     name: 'OP Mainnet',
+    shortName: 'OP',
     chainId: optimism.id,
     testnet: false,
     cctpDomain: 2,
+    circleBlockchain: 'OP',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: false,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
       primary: 'https://mainnet.optimism.io',
@@ -821,9 +1912,27 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Polygon: {
     key: 'Polygon',
     name: 'Polygon PoS',
+    shortName: 'POL',
     chainId: polygon.id,
     testnet: false,
     cctpDomain: 7,
+    circleBlockchain: 'MATIC',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: false,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
     rpcUrls: {
       primary: 'https://polygon-rpc.com',
@@ -846,9 +1955,27 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Avalanche: {
     key: 'Avalanche',
     name: 'Avalanche C-Chain',
+    shortName: 'AVAX',
     chainId: avalanche.id,
     testnet: false,
     cctpDomain: 1,
+    circleBlockchain: 'AVAX',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: true,
+      faucet: false,
+      privacy: false,
+    },
+    adapters: {
+      viem: true,
+      ethers: true,
+      circleWallets: true,
+      solana: false,
+    },
     nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
     rpcUrls: {
       primary: 'https://api.avax.network/ext/bc/C/rpc',
@@ -872,9 +1999,27 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
   Solana: {
     key: 'Solana',
     name: 'Solana',
+    shortName: 'SOL',
     chainId: 999000,
     testnet: false,
     cctpDomain: 5,
+    circleBlockchain: 'SOL',
+    capabilities: {
+      send: true,
+      bridge: true,
+      swap: true,
+      gateway: true,
+      unifiedBalance: true,
+      ucw: false,
+      faucet: false,
+      privacy: false,
+    },
+    adapters: {
+      viem: false,
+      ethers: false,
+      circleWallets: true,
+      solana: true,
+    },
     nativeCurrency: { name: 'SOL', symbol: 'SOL', decimals: 9 },
     rpcUrls: {
       primary: 'https://api.mainnet-beta.solana.com',
@@ -988,6 +2133,89 @@ export function getDecimals(chainKey: string, symbol?: string): number {
     return net.nativeCurrency.decimals
   }
   return net.tokenDecimals?.[symbol] ?? 6
+}
+
+/** Retrieve all networks supporting a given capability (send, bridge, swap, gateway, unifiedBalance, ucw, etc.) */
+export function getNetworksByCapability(
+  capability: keyof NetworkCapabilities,
+  testnetOnly?: boolean
+): NetworkConfig[] {
+  const pool = testnetOnly === undefined
+    ? Object.values(ACTIVE_NETWORKS)
+    : testnetOnly
+    ? Object.values(TESTNET_NETWORKS)
+    : Object.values(MAINNET_NETWORKS)
+
+  return pool.filter((net) => {
+    if (capability === 'unifiedBalance') {
+      return Boolean(net.capabilities?.unifiedBalance ?? net.capabilities?.gateway)
+    }
+    return Boolean(net.capabilities?.[capability])
+  })
+}
+
+/** Check if a network supports a specific capability */
+export function supportsCapability(
+  target?: string | number | Chain,
+  capability?: keyof NetworkCapabilities
+): boolean {
+  if (!target || !capability) return false
+  const net = typeof target === 'number'
+    ? getNetworkByChainId(target)
+    : typeof target === 'string'
+    ? getNetwork(target)
+    : getNetworkByChainId((target as Chain)?.id)
+
+  if (!net?.capabilities) return false
+  if (capability === 'unifiedBalance') {
+    return Boolean(net.capabilities.unifiedBalance ?? net.capabilities.gateway)
+  }
+  return Boolean(net.capabilities[capability])
+}
+
+/** Retrieve network capabilities object */
+export function getNetworkCapabilities(chainKey?: string): NetworkCapabilities | undefined {
+  return getNetwork(chainKey)?.capabilities
+}
+
+/** Retrieve all networks supporting a given wallet adapter (viem, ethers, circleWallets, solana) */
+export function getNetworksByAdapter(
+  adapter: keyof NetworkAdapters,
+  testnetOnly?: boolean
+): NetworkConfig[] {
+  const pool = testnetOnly === undefined
+    ? Object.values(ACTIVE_NETWORKS)
+    : testnetOnly
+    ? Object.values(TESTNET_NETWORKS)
+    : Object.values(MAINNET_NETWORKS)
+
+  return pool.filter((net) => Boolean(net.adapters?.[adapter]))
+}
+
+/** Check if a network supports a specific wallet adapter */
+export function supportsAdapter(
+  target?: string | number | Chain,
+  adapter?: keyof NetworkAdapters
+): boolean {
+  if (!target || !adapter) return false
+  const net = typeof target === 'number'
+    ? getNetworkByChainId(target)
+    : typeof target === 'string'
+    ? getNetwork(target)
+    : getNetworkByChainId((target as Chain)?.id)
+
+  return Boolean(net?.adapters?.[adapter])
+}
+
+/** Retrieve network adapters object */
+export function getNetworkAdapters(chainKey?: string): NetworkAdapters | undefined {
+  return getNetwork(chainKey)?.adapters
+}
+
+/** Retrieve network short name / abbreviation (e.g. 'ARC', 'ETH', 'BASE', 'MON') */
+export function getNetworkShortName(chainKey?: string): string {
+  const net = getNetwork(chainKey)
+  return net?.shortName || net?.name || chainKey || ''
 }
 
 // ─────────────────────────────────────────────────────────────

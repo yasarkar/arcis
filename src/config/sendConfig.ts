@@ -11,6 +11,9 @@ import {
 import {
   ACTIVE_NETWORKS,
   getNetwork,
+  getNetworksByCapability,
+  supportsCapability,
+  IS_TESTNET,
   type NetworkConfig,
 } from './networks/networkRegistry'
 
@@ -22,6 +25,7 @@ export const getSendChainIconId = getChainIconId
 export interface ChainConfig {
   chain: string
   name: string
+  shortName: string
   tokens: string[]
   nativeSymbol: string
   explorerUrl: string
@@ -29,19 +33,41 @@ export interface ChainConfig {
 
 /**
  * Dynamically derived supported chains for Send / Transfer operations.
- * Single source of truth from ACTIVE_NETWORKS.
+ * Single source of truth filtered by capability: 'send' from Master Network Registry.
  */
-export const SUPPORTED_SEND_CHAINS: ChainConfig[] = Object.values(ACTIVE_NETWORKS).map((net) => {
+export const SUPPORTED_SEND_CHAINS: ChainConfig[] = getNetworksByCapability('send', IS_TESTNET).map((net) => {
   const explorerBase = net.blockExplorers?.url || 'https://testnet.arcscan.app'
   const isTxPath = net.key.toLowerCase().includes('injective') ? '/transaction/{hash}' : '/tx/{hash}'
   return {
     chain: net.key,
     name: net.name,
+    shortName: net.shortName || net.name,
     tokens: Object.keys(net.tokens),
     nativeSymbol: net.nativeCurrency.symbol,
     explorerUrl: `${explorerBase}${isTxPath}`,
   }
 })
+
+/**
+ * Helper to get the list of supported send tokens for a given chain from the Master Network Registry.
+ */
+export function getSendTokensForChain(chainKey: string): string[] {
+  const net = getNetwork(chainKey)
+  if (!net) return ['USDC']
+  const tokenSet = new Set<string>(Object.keys(net.tokens))
+  if (net.nativeCurrency?.symbol && net.nativeCurrency.symbol !== 'USDC') {
+    tokenSet.add(net.nativeCurrency.symbol)
+  }
+  return Array.from(tokenSet)
+}
+
+/**
+ * Check if a token symbol is supported for send on a given chain.
+ */
+export function isTokenSupportedOnSendChain(chainKey: string, tokenSymbol: string): boolean {
+  return getSendTokensForChain(chainKey).includes(tokenSymbol)
+}
+
 
 /**
  * Resolves the transaction link on the appropriate block explorer for any chain.

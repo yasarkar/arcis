@@ -58,11 +58,19 @@ export const SLIPPAGE_CONSTRAINTS = {
 // ─────────────────────────────────────────────────────────────
 
 export const BRIDGE_CONSTRAINTS = {
-  /** Minimum transfer amount for direct CCTP bridge (0.10 USDC) to clear relayer forwarding fee */
+  /** Minimum transfer amount for a direct CCTP bridge (0.50 USDC) to clear the relayer forwarding fee */
   MIN_DIRECT_BRIDGE_AMOUNT_USDC: 0.5,
 
   /** Approximate CCTP forwarder acceleration fee on testnet (0.055 USDC) */
   CCTP_RELAYER_FORWARDING_FEE_USDC: 0.055,
+
+  /**
+   * Nominal gas a source-chain CCTP burn consumes. Used ONLY for the
+   * pre-execution "Source Network Fee" line, which is presented as an estimate
+   * (`~`): the receipt never uses it and instead reads the real
+   * gasUsed × effectiveGasPrice of the mined transaction.
+   */
+  ESTIMATED_CCTP_BURN_GAS: 150_000,
 
   /** Minimum token transfer granularity on Arc L1 (1 micro-USDC = 0.000001) */
   MIN_TRANSFER_AMOUNT_USDC: 0.000001,
@@ -153,6 +161,12 @@ export const UI_CONSTRAINTS = {
 // ─────────────────────────────────────────────────────────────
 
 export const MIN_DIRECT_BRIDGE_AMOUNT = BRIDGE_CONSTRAINTS.MIN_DIRECT_BRIDGE_AMOUNT_USDC
+/**
+ * Estimated gas units a CCTP `depositForBurn` consumes. Used only to price the
+ * burn in the Source Network Fee row when the receipt's real gas is not yet
+ * readable — never to decide whether a transfer may proceed.
+ */
+export const ESTIMATED_CCTP_BURN_GAS = BRIDGE_CONSTRAINTS.ESTIMATED_CCTP_BURN_GAS
 export const DEFAULT_SLIPPAGE_BPS = SLIPPAGE_CONSTRAINTS.DEFAULT_BPS
 export const DEFAULT_COPILOT_SLIPPAGE = SLIPPAGE_CONSTRAINTS.DEFAULT_COPILOT_PERCENT
 export const RPC_DEFAULT_TIMEOUT_MS: number = RPC_CONSTRAINTS.TIMEOUT_DEFAULT_MS

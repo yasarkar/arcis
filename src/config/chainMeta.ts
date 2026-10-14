@@ -5,7 +5,16 @@ import {
   CHAIN_META as REGISTRY_CHAIN_META,
   CHAIN_DEFS as REGISTRY_CHAIN_DEFS,
   getNetwork,
+  getNetworksByCapability,
+  supportsCapability,
+  getNetworkCapabilities,
+  getNetworksByAdapter,
+  supportsAdapter,
+  getNetworkAdapters,
+  getNetworkShortName,
   type NetworkConfig,
+  type NetworkCapabilities,
+  type NetworkAdapters,
 } from './networks/networkRegistry'
 import type { NetworkUiConfig } from './networks/types'
 
@@ -49,6 +58,13 @@ export function getChainIconId(chainKey?: string): string {
   if (clean.includes('monad')) return 'monad-testnet'
   if (clean.includes('plume')) return 'plume'
   if (clean.includes('xdc') || clean.includes('apothem')) return 'xdc'
+  if (clean.includes('cronos')) return 'cronos'
+  if (clean.includes('codex')) return 'codex'
+  if (clean.includes('edge')) return 'edgeless'
+  if (clean.includes('morph')) return 'morph'
+  if (clean.includes('pharos')) return 'pharos'
+  if (clean.includes('plasma')) return 'plasma'
+  if (clean.includes('xlayer') || clean.includes('x_layer') || clean.includes('okb')) return 'x-layer'
   if (clean.includes('sepolia') || clean.includes('ether')) return 'ethereum'
 
   return 'ethereum'
@@ -95,7 +111,9 @@ export function isKnownChain(chainKey?: string): boolean {
   const knownKeywords = [
     'arc', 'arbitrum', 'base', 'optimism', 'polygon', 'amoy', 'avalanche',
     'fuji', 'hyper', 'sei', 'solana', 'sonic', 'unichain', 'world',
-    'injective', 'ink', 'linea', 'monad', 'plume', 'xdc', 'apothem', 'sepolia'
+    'injective', 'ink', 'linea', 'monad', 'plume', 'xdc', 'apothem',
+    'codex', 'cronos', 'edge', 'morph', 'pharos', 'plasma', 'xlayer', 'x_layer',
+    'sepolia'
   ]
   return knownKeywords.some(kw => clean.includes(kw))
 }
@@ -132,9 +150,28 @@ export function resolveCanonicalChainKey(chainNameOrKey?: string): string {
   if (clean.includes('monad')) return 'Monad_Testnet'
   if (clean.includes('plume')) return 'Plume_Testnet'
   if (clean.includes('xdc') || clean.includes('apothem')) return 'XDC_Apothem'
+  if (clean.includes('codex')) return 'Codex_Testnet'
+  if (clean.includes('cronos')) return 'Cronos_Testnet'
+  if (clean.includes('edge')) return 'Edge_Testnet'
+  if (clean.includes('morph')) return 'Morph_Testnet'
+  if (clean.includes('pharos')) return 'Pharos_Testnet'
+  if (clean.includes('plasma')) return 'Plasma_Testnet'
+  if (clean.includes('xlayer') || clean.includes('x_layer')) return 'X_Layer_Testnet'
   if (clean.includes('sepolia') || clean.includes('ether') || clean.includes('eth')) return 'Ethereum_Sepolia'
 
   return 'Arc_Testnet'
 }
 
-export { getNetwork, type NetworkConfig }
+export {
+  getNetwork,
+  getNetworksByCapability,
+  supportsCapability,
+  getNetworkCapabilities,
+  getNetworksByAdapter,
+  supportsAdapter,
+  getNetworkAdapters,
+  getNetworkShortName,
+  type NetworkConfig,
+  type NetworkCapabilities,
+  type NetworkAdapters,
+}

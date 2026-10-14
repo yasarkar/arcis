@@ -406,8 +406,12 @@ function loadBridgeFeeConfig(): BridgeCustomFeeConfig {
   const minUsdc = Number.isFinite(envMin) && envMin >= 0 ? envMin : 0.10
   const maxUsdc = Number.isFinite(envMax) && envMax >= minUsdc ? envMax : 1.00
   const recipient = isLikelyAddress(envRecipient) ? envRecipient! : (TREASURY_ADDRESSES.evm || '')
-  const hasValidTreasury = !!recipient || !!TREASURY_ADDRESSES.solana || !!TREASURY_ADDRESSES.injective
-  const enabled = envEnabled === 'true' && hasValidTreasury
+  // The Bridge tab is EVM-only, and Circle's rule is that the custom-fee
+  // recipient must exist on the SOURCE chain where the fee is debited — so a
+  // Solana/Injective treasury can never satisfy an EVM bridge fee. Requiring the
+  // EVM address specifically is what keeps `customFee.recipientAddress` from
+  // being empty (or undefined) while the fee is marked enabled.
+  const enabled = envEnabled === 'true' && isLikelyAddress(recipient)
 
   return { enabled, percentageBps: bps, minUsdc, maxUsdc, recipientAddress: recipient }
 }
@@ -419,8 +423,11 @@ function loadSwapFeeConfig(): SwapCustomFeeConfig {
 
   const bps = Number.isFinite(envBps) && envBps >= 0 ? Math.round(envBps) : 25
   const recipient = isLikelyAddress(envRecipient) ? envRecipient! : (TREASURY_ADDRESSES.evm || '')
-  const hasValidTreasury = !!recipient || !!TREASURY_ADDRESSES.solana || !!TREASURY_ADDRESSES.injective
-  const enabled = envEnabled === 'true' && hasValidTreasury
+  // Same rule as the bridge fee: the Swap tab is Arc(EVM)-only and the fee is
+  // debited on the source chain, so only an EVM-format recipient can carry it.
+  // Accepting a Solana/Injective-only treasury would mark the fee enabled while
+  // `recipientAddress` stayed empty, sending an unusable custom-fee recipient.
+  const enabled = envEnabled === 'true' && isLikelyAddress(recipient)
 
   return { enabled, percentageBps: bps, recipientAddress: recipient }
 }

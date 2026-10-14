@@ -8,6 +8,8 @@ import {
   TESTNET_NETWORKS,
   MAINNET_NETWORKS,
   ACTIVE_NETWORKS,
+  getNetworksByCapability,
+  type NetworkConfig,
 } from './networks/networkRegistry'
 
 // ── Gateway REST API ─────────────────────────────────────────────────────────
@@ -35,17 +37,62 @@ export const ACTIVE_GATEWAY_CONTRACTS = IS_TESTNET ? GATEWAY_CONTRACTS.testnet :
 // ── Gateway Domain IDs (Derived dynamically from Master Network Registry) ────
 export const GATEWAY_DOMAINS_TESTNET: Record<string, number> = Object.fromEntries(
   Object.entries(TESTNET_NETWORKS)
-    .filter(([_, net]) => net.cctpDomain !== undefined)
+    .filter(([_, net]) => Boolean(net.capabilities?.unifiedBalance ?? net.capabilities?.gateway) && net.cctpDomain !== undefined)
     .map(([key, net]) => [key, net.cctpDomain!])
 )
 
 export const GATEWAY_DOMAINS_MAINNET: Record<string, number> = Object.fromEntries(
   Object.entries(MAINNET_NETWORKS)
-    .filter(([_, net]) => net.cctpDomain !== undefined)
+    .filter(([_, net]) => Boolean(net.capabilities?.unifiedBalance ?? net.capabilities?.gateway) && net.cctpDomain !== undefined)
     .map(([key, net]) => [key, net.cctpDomain!])
 )
 
 export const GATEWAY_DOMAINS = IS_TESTNET ? GATEWAY_DOMAINS_TESTNET : GATEWAY_DOMAINS_MAINNET
+
+/**
+ * Returns all NetworkConfig records supporting Circle Gateway (Unified Balance).
+ * Single source of truth from Master Network Registry.
+ */
+export function getGatewaySupportedNetworks(): NetworkConfig[] {
+  return getNetworksByCapability('unifiedBalance', IS_TESTNET)
+}
+
+export interface GatewayNetworkFeature {
+  chainKey: string
+  name: string
+  shortName: string
+  domainId: number
+  cctpDomain: number
+  isSolana: boolean
+  canDeposit: boolean
+  iconId: string
+  token: string
+  settlementSpeed: string
+  feeTier: string
+  explorerUrl?: string
+}
+
+/**
+ * Returns structured feature descriptors for each network supporting Unified Balance.
+ */
+export function getGatewayNetworkFeatures(): GatewayNetworkFeature[] {
+  const networks = getGatewaySupportedNetworks()
+  return networks.map((net) => ({
+    chainKey: net.key,
+    name: net.name,
+    shortName: net.shortName || net.name,
+    domainId: net.cctpDomain ?? 0,
+    cctpDomain: net.cctpDomain ?? 0,
+    isSolana: Boolean(net.ui?.isSolana || net.adapters?.solana),
+    canDeposit: !net.ui?.isSolana && Boolean(net.tokens?.USDC),
+    iconId: net.ui?.iconId || 'ethereum',
+    token: 'USDC',
+    settlementSpeed: '< 1s Instant',
+    feeTier: '0% Platform Fee',
+    explorerUrl: net.blockExplorers?.url,
+  }))
+}
+
 
 export const DOMAIN_TO_CHAIN: Record<number, string> = Object.entries(GATEWAY_DOMAINS).reduce(
   (acc, [chainKey, domainId]) => {

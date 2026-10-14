@@ -118,8 +118,10 @@ export function normalizeMatrixToken(token?: SupportedBridgeToken | string): str
   const upper = (token ?? '').trim().toUpperCase()
   if (upper === 'ETH' || upper === 'WETH') return 'WETH'
   // Registry symbols are case-sensitive (`cirBTC`), so fold the aliases back to
-  // the exact keys used above instead of returning the upper-cased form.
-  if (upper === 'CIRBTC') return 'cirBTC'
+  // the exact keys used above instead of returning the upper-cased form. `BTC`
+  // means cirBTC here: Arc has no WBTC, and leaving it as `BTC` would make the
+  // route check fall through to USDC.
+  if (upper === 'CIRBTC' || upper === 'BTC') return 'cirBTC'
   return upper
 }
 
