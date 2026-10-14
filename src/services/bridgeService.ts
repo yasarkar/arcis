@@ -1,40 +1,35 @@
-import { AppKit, type ChainDefinition } from '@circle-fin/app-kit'
+import { AppKit } from '@circle-fin/app-kit'
 import { formatUnits } from 'viem'
 import type { BridgeExecuteParams, BridgeStepProgress, BridgeStepName, SupportedBridgeToken } from '../types/bridge'
 import { watchArcToken } from './tokenAssetService'
 import { getResilientPublicClient } from './rpc'
 import { resolveArcActualFeeUsdc } from './arcGasService'
 import { CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
+import { normalizeMatrixToken } from '../config/bridgeRouteMatrix'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: bridge diagnostics must not be raw console output in production. */
+const log = logger.createScope('bridgeService')
 
 // Create a single instance of AppKit to manage CCTP transfers
 const kit = new AppKit()
 
 /**
- * Dynamic Chain Loading
- * Gets all chains that support CCTP bridging operations.
- * Allows filtering by testnet or mainnet.
- */
-export function getSupportedBridgeChains(isTestnet?: boolean): ChainDefinition[] {
-  const chains = kit.getSupportedChains('bridge')
-  if (isTestnet !== undefined) {
-    return chains.filter((c) => c.isTestnet === isTestnet)
-  }
-  return chains
-}
-
-/**
- * Normalizes token symbol or alias for Circle App Kit CCTP bridging.
- * App Kit recognizes 'USDC', 'EURC', 'wETH', 'cirBTC' (or contract addresses).
+ * Normalizes a token symbol or alias to the symbol App Kit expects: `USDC`,
+ * `EURC`, `wETH`, `cirBTC` (or a contract address, passed through untouched).
+ *
+ * The alias table itself lives in the route matrix (`normalizeMatrixToken`), so
+ * `ETH`/`WETH`/`wETH` and `BTC`/`cirBTC` resolve identically wherever this app
+ * decides a route; this function only renames the matrix's canonical keys.
  */
 export function normalizeBridgeToken(token?: SupportedBridgeToken | string): string {
-  if (!token) return 'USDC'
-  const trimmed = token.trim()
-  const upper = trimmed.toUpperCase()
-  if (upper === 'WETH' || upper === 'ETH') return 'wETH'
-  if (upper === 'EURC') return 'EURC'
-  if (upper === 'CIRBTC' || upper === 'BTC') return 'cirBTC'
-  if (upper === 'USDC') return 'USDC'
-  return trimmed
+  if (!token || !token.trim()) return 'USDC'
+  const canonical = normalizeMatrixToken(token)
+  if (canonical === 'USDC') return 'USDC'
+  if (canonical === 'EURC') return 'EURC'
+  if (canonical === 'WETH') return 'wETH'
+  if (canonical === 'cirBTC') return 'cirBTC'
+  return token.trim()
 }
 
 /**
@@ -155,7 +150,7 @@ export async function estimateBridgeCost(params: BridgeExecuteParams) {
     const bridgeParams = buildBridgeParams(params)
     return await kit.estimateBridge(bridgeParams)
   } catch (err) {
-    console.error('[bridgeService] Failed to estimate bridge cost:', err)
+    log.error('Failed to estimate bridge cost', err)
     throw err
   }
 }
@@ -211,7 +206,7 @@ export async function executeBridge(
         onStepUpdate?.(stepProgress)
       }
     } catch (eventErr) {
-      console.warn('[bridgeService] Error parsing lifecycle event:', eventErr)
+      log.warn('Error parsing lifecycle event', eventErr)
     }
   }
 
@@ -279,74 +274,7 @@ export async function executeBridge(
         }
       }
     }
-    console.error('[bridgeService] Bridge execution failed:', err)
-    throw err
-  } finally {
-    // Safely unsubscribe the event listener once the promise resolves or rejects
-    kit.off('*', handler)
-  }
-}
-
-/**
- * Retries a failed bridge transfer from the exact CCTP step that failed.
- */
-export async function retryFailedBridge(
-  failedResult: any,
-  sourceAdapter: any,
-  destinationAdapter?: any,
-  onStepUpdate?: (step: BridgeStepProgress) => void
-) {
-  if (!failedResult) {
-    throw new Error('No bridge result provided for retry.')
-  }
-
-  if (failedResult.state !== 'error') {
-    throw new Error('Transaction is not in an error state. Retry is not needed.')
-  }
-
-  // Event listener to capture CCTP lifecycle events during retry
-  const handler = (payload: any) => {
-    try {
-      const stepNameRaw = payload?.values?.name || payload?.action?.split('.').pop()
-      const stepName = stepNameRaw as BridgeStepName
-
-      if (['approve', 'burn', 'fetchAttestation', 'mint'].includes(stepName)) {
-        const stepState = payload?.values?.state || payload?.state || 'pending'
-        const txHash = payload?.values?.txHash || payload?.txHash
-        const explorerUrl = payload?.values?.explorerUrl || payload?.explorerUrl
-        const errorMessage = payload?.values?.error || payload?.values?.errorMessage || payload?.error || payload?.errorMessage
-
-        onStepUpdate?.({
-          name: stepName,
-          state: stepState as 'pending' | 'success' | 'error',
-          txHash,
-          explorerUrl,
-          errorMessage
-        })
-      }
-    } catch (eventErr) {
-      console.warn('[bridgeService] Error parsing lifecycle event:', eventErr)
-    }
-  }
-
-  // Subscribe to all App Kit events during retry
-  kit.on('*', handler)
-
-  const retryContext = {
-    from: sourceAdapter,
-    to: destinationAdapter
-  }
-
-  try {
-    if (typeof (kit as any).retry === 'function') {
-      return await (kit as any).retry(failedResult, retryContext)
-    } else if (typeof (kit as any).retryBridge === 'function') {
-      return await (kit as any).retryBridge(failedResult, retryContext)
-    } else {
-      throw new Error('Retry method not found on AppKit SDK instance.')
-    }
-  } catch (err) {
-    console.error('[bridgeService] Retry execution failed:', err)
+    log.error('Bridge execution failed', err)
     throw err
   } finally {
     // Safely unsubscribe the event listener once the promise resolves or rejects

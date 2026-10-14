@@ -403,6 +403,30 @@ export async function createViemAdapter(provider: any): Promise<any> {
 }
 
 /**
+ * Resolves a token identifier for App Kit send/estimateSend operations.
+ * App Kit's TOKEN_ALIASES strictly only supports USDC, USDT, NATIVE, EURC as symbols.
+ * Non-alias ERC-20 tokens (e.g. cirBTC, WETH) must pass their contract address.
+ */
+export function resolveSendTokenIdentifier(chain: string, token: string): string {
+  if (!token) return 'USDC'
+  if (token.startsWith('0x') && token.length === 42) {
+    return token
+  }
+  const clean = token.trim()
+  if (clean === 'cirBTC' || clean === 'BTC') {
+    return CIRBTC_ADDRESSES[chain] || token
+  }
+  if (clean === 'WETH') {
+    return WETH_ADDRESSES[chain] || token
+  }
+  const nativeSymbol = CHAIN_NATIVE_MAP[chain]?.symbol
+  if (clean === 'NATIVE' || (nativeSymbol && clean === nativeSymbol && nativeSymbol !== 'USDC')) {
+    return 'NATIVE'
+  }
+  return token
+}
+
+/**
  * Estimates the gas fee for sending a token on a specific chain.
  */
 export async function estimateGas(
@@ -418,11 +442,13 @@ export async function estimateGas(
     ? '11111111111111111111111111111111'
     : '0x000000000000000000000000000000000000dEaD'
 
+  const resolvedToken = resolveSendTokenIdentifier(chain, token || 'USDC')
+
   const sendParams: SendParams = {
     from: { adapter, chain: chain as Blockchain },
     to: recipientAddress || defaultRecipient,
     amount: amount || '1',
-    token: (token || 'USDC') as any
+    token: resolvedToken as any
   }
   return kit.estimateSend(sendParams)
 }
@@ -441,11 +467,12 @@ export async function sendToken(
     throw new Error('Mainnet execution is disabled until deployments and signing routes are verified.')
   }
   const adapter = await createViemAdapter(provider)
+  const resolvedToken = resolveSendTokenIdentifier(chain, token)
   const sendParams: SendParams = {
     from: { adapter, chain: chain as Blockchain },
     to: recipientAddress,
     amount,
-    token: token as any
+    token: resolvedToken as any
   }
   return kit.send(sendParams)
 }

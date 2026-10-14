@@ -16,6 +16,10 @@ import {
 } from 'viem'
 import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: gateway diagnostics must not be raw console output in production. */
+const gatewayLog = logger.createScope('gatewayService')
 import {
   ACTIVE_GATEWAY_API,
   ACTIVE_GATEWAY_CONTRACTS,
@@ -258,11 +262,11 @@ export async function fetchGatewayWithRetry(
     }
 
     if (!retryable || attempt === attempts) break
-    console.warn(`[GatewayAPI] ↻ attempt ${attempt}/${attempts} failed (${lastError.message}), retrying...`)
+    gatewayLog.warn(`[GatewayAPI] ↻ attempt ${attempt}/${attempts} failed (${lastError.message}), retrying...`)
     await sleep(baseDelayMs * attempt)
   }
 
-  console.error('[GatewayAPI] ✗ Request failed:', lastError.message)
+  gatewayLog.error('[GatewayAPI] ✗ Request failed:', lastError.message)
   throw lastError
 }
 
@@ -292,9 +296,9 @@ export async function getGatewayBalances(
       depositor: address,
     }))
 
-  console.log(`[GatewayAPI] → POST ${url}`)
-  console.log(`[GatewayAPI]   Address type: ${isEvmAddress ? 'EVM' : isSolanaAddress ? 'Solana' : 'unknown'}`)
-  console.log(`[GatewayAPI]   Body:`, JSON.stringify({ token: 'USDC', sources }))
+  gatewayLog.debug(`[GatewayAPI] → POST ${url}`)
+  gatewayLog.debug(`[GatewayAPI]   Address type: ${isEvmAddress ? 'EVM' : isSolanaAddress ? 'Solana' : 'unknown'}`)
+  gatewayLog.debug(`[GatewayAPI]   Body:`, JSON.stringify({ token: 'USDC', sources }))
 
   const response = await fetchGatewayWithRetry(url, {
     method: 'POST',
@@ -305,10 +309,10 @@ export async function getGatewayBalances(
     }),
   })
 
-  console.log(`[GatewayAPI] ← Status: ${response.status} ${response.statusText}`)
+  gatewayLog.debug(`[GatewayAPI] ← Status: ${response.status} ${response.statusText}`)
 
   const data = (await response.json()) as GatewayBalanceResponse
-  console.log(`[GatewayAPI] ✓ Success response:`, data)
+  gatewayLog.debug(`[GatewayAPI] ✓ Success response:`, data)
   return data
 }
 
@@ -324,7 +328,7 @@ export async function getGatewayTotalBalance(
     (sum, item) => sum + parseFloat(item.balance),
     0
   )
-  console.log(`[GatewayAPI] Total balance for ${address}: ${total.toFixed(6)} USDC`)
+  gatewayLog.debug(`[GatewayAPI] Total balance for ${address}: ${total.toFixed(6)} USDC`)
   return total.toFixed(6)
 }
 
@@ -418,16 +422,16 @@ export async function depositToGateway(
       functionName: 'allowance',
       args: [address, gatewayWallet],
     })
-    console.log(`[Gateway Deposit] Current allowance for ${gatewayWallet}: ${(Number(currentAllowance) / 1e6).toFixed(6)} ${tokenSymbol}`)
+    gatewayLog.debug(`[Gateway Deposit] Current allowance for ${gatewayWallet}: ${(Number(currentAllowance) / 1e6).toFixed(6)} ${tokenSymbol}`)
   } catch (allowanceErr) {
-    console.warn(`[Gateway Deposit] Could not read allowance, will attempt approve:`, allowanceErr)
+    gatewayLog.warn(`[Gateway Deposit] Could not read allowance, will attempt approve:`, allowanceErr)
   }
 
   const ceilingStatus = checkCeilingStatus(address, tokenSymbol, amount)
   const requiresApprove = currentAllowance < amountBaseUnits
 
   if (requiresApprove) {
-    console.log(
+    gatewayLog.debug(
       `[Gateway Deposit] Step 1/2: Approving ceiling ${ceilingStatus.suggestedCeiling} ${tokenSymbol} on ${chainKey} (Current Ceiling: ${ceilingStatus.currentCeiling})...`
     )
 
@@ -443,7 +447,7 @@ export async function depositToGateway(
       })
       gasLimit = (estimatedGas * 130n) / 100n // +30% buffer
     } catch (gasErr) {
-      console.warn(`[Gateway Deposit] Approve gas estimate fallback to 100_000:`, gasErr)
+      gatewayLog.warn(`[Gateway Deposit] Approve gas estimate fallback to 100_000:`, gasErr)
       gasLimit = 100_000n
     }
 
@@ -457,7 +461,7 @@ export async function depositToGateway(
         account: address,
         gas: gasLimit,
       })
-      console.log(`[Gateway Deposit] Approve tx submitted: ${approveTxHash}`)
+      gatewayLog.debug(`[Gateway Deposit] Approve tx submitted: ${approveTxHash}`)
       const approveRes = await resilientWaitForReceipt(
         publicClient,
         approveTxHash as `0x${string}`,
@@ -469,16 +473,16 @@ export async function depositToGateway(
       }
       approvalFee = paidNetworkFeeFromReceipt(approveRes.receipt, chainKey)
       setSpendingCeiling(address, tokenSymbol, ceilingStatus.suggestedCeiling, approveTxHash)
-      console.log(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}, ceiling recorded: ${ceilingStatus.suggestedCeiling} ${tokenSymbol}`)
+      gatewayLog.debug(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}, ceiling recorded: ${ceilingStatus.suggestedCeiling} ${tokenSymbol}`)
     } catch (err: any) {
-      console.error(`[Gateway Deposit] Approve failed:`, err)
+      gatewayLog.error(`[Gateway Deposit] Approve failed:`, err)
       throw err
     }
   } else {
     if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
       setSpendingCeiling(address, tokenSymbol, ceilingStatus.suggestedCeiling)
     }
-    console.log(
+    gatewayLog.debug(
       `[Gateway Deposit] Step 1/2 skipped: Allowance already sufficient on-chain (${(Number(currentAllowance) / 1e6).toFixed(2)} >= ${amount} ${tokenSymbol})`
     )
   }
@@ -495,11 +499,11 @@ export async function depositToGateway(
     })
     depositGasLimit = (estimatedGas * 130n) / 100n
   } catch (gasErr) {
-    console.warn(`[Gateway Deposit] Deposit gas estimate fallback to 150_000:`, gasErr)
+    gatewayLog.warn(`[Gateway Deposit] Deposit gas estimate fallback to 150_000:`, gasErr)
     depositGasLimit = 150_000n
   }
 
-  console.log(`[Gateway Deposit] Step 2/2: Depositing ${amount} ${tokenSymbol} into Gateway...`)
+  gatewayLog.debug(`[Gateway Deposit] Step 2/2: Depositing ${amount} ${tokenSymbol} into Gateway...`)
   const depositTxHash = await walletClient.writeContract({
     address: gatewayWallet,
     abi: GATEWAY_WALLET_ABI,
@@ -509,7 +513,7 @@ export async function depositToGateway(
     account: address,
     gas: depositGasLimit,
   })
-  console.log(`[Gateway Deposit] Deposit tx submitted: ${depositTxHash}`)
+  gatewayLog.debug(`[Gateway Deposit] Deposit tx submitted: ${depositTxHash}`)
   const depositRes = await resilientWaitForReceipt(
     publicClient,
     depositTxHash as `0x${string}`,
@@ -520,10 +524,10 @@ export async function depositToGateway(
     throw new Error(depositRes.status === 'reverted' ? 'Gateway deposit transaction reverted on-chain.' : 'Gateway deposit receipt is not confirmed; balance remains pending.')
   }
   const depositFee = paidNetworkFeeFromReceipt(depositRes.receipt, chainKey)
-  console.log(`[Gateway Deposit] Deposit confirmed in block ${depositRes.blockNumber}`)
-  console.log(`[Gateway Deposit] Deposit tx: ${depositTxHash}`)
+  gatewayLog.debug(`[Gateway Deposit] Deposit confirmed in block ${depositRes.blockNumber}`)
+  gatewayLog.debug(`[Gateway Deposit] Deposit tx: ${depositTxHash}`)
   if (depositFee) {
-    console.log(`[Gateway Deposit] Network fee paid: ${depositFee.amount} ${depositFee.symbol}`)
+    gatewayLog.debug(`[Gateway Deposit] Network fee paid: ${depositFee.amount} ${depositFee.symbol}`)
   }
 
   return {
@@ -676,7 +680,7 @@ export async function estimateGatewayMaxFee(
     )
 
     if (!response.ok) {
-      console.warn(
+      gatewayLog.warn(
         `[estimateGatewayMaxFee] /estimate returned HTTP ${response.status}; no fee quote available.`
       )
       return null
@@ -686,7 +690,7 @@ export async function estimateGatewayMaxFee(
     const item = Array.isArray(payload) ? payload[0] : payload?.body?.[0]
     const burnIntent = item?.burnIntent
     if (!burnIntent?.maxFee) {
-      console.warn('[estimateGatewayMaxFee] /estimate response did not contain maxFee; no fee quote available.')
+      gatewayLog.warn('[estimateGatewayMaxFee] /estimate response did not contain maxFee; no fee quote available.')
       return null
     }
 
@@ -705,7 +709,7 @@ export async function estimateGatewayMaxFee(
       maxBlockHeight,
     }
   } catch (err) {
-    console.warn('[estimateGatewayMaxFee] /estimate request failed; no fee quote available:', err)
+    gatewayLog.warn('[estimateGatewayMaxFee] /estimate request failed; no fee quote available:', err)
     return null
   }
 }
@@ -805,11 +809,11 @@ export async function transferFromGateway(
     const quote = await estimateGatewayMaxFee(spec, false)
     if (quote) {
       if (quote.maxFee > maxFee) {
-        console.log(`[transferFromGateway] Adopting canonical /estimate maxFee ${quote.maxFee} (local floor was ${localMaxFee})`)
+        gatewayLog.debug(`[transferFromGateway] Adopting canonical /estimate maxFee ${quote.maxFee} (local floor was ${localMaxFee})`)
         maxFee = quote.maxFee
       }
     } else {
-      console.warn(`[transferFromGateway] Gateway /estimate unavailable; signing with the local maxFee floor (${localMaxFee}).`)
+      gatewayLog.warn(`[transferFromGateway] Gateway /estimate unavailable; signing with the local maxFee floor (${localMaxFee}).`)
     }
   }
 
@@ -917,7 +921,7 @@ export async function transferFromGateway(
     })
     mintGasLimit = (estimatedGas * 130n) / 100n
   } catch (gasErr) {
-    console.warn('[transferFromGateway] Mint gas estimate fallback to 250_000:', gasErr)
+    gatewayLog.warn('[transferFromGateway] Mint gas estimate fallback to 250_000:', gasErr)
     mintGasLimit = 250_000n
   }
 

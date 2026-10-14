@@ -5,11 +5,8 @@ import {
   getSourceUsdcAddress,
   checkUcwAllowanceSufficient,
   executeUcwBridgeTransfer,
-  fetchCctpAttestation,
   fetchCctpFastFeeBps,
   cctpFastFeeSubunits,
-  executeCctpReceiveMessage,
-  ARC_CCTP_TOKEN_MESSENGER,
   ARC_USDC_ADDRESS,
   CCTP_TOKEN_MESSENGER_TESTNET,
   CCTP_MESSAGE_TRANSMITTER_TESTNET,
@@ -18,6 +15,7 @@ import {
   CCTP_DEST_SCAN_LOOKBACK_BLOCKS,
   fetchCctpForwardQuote,
   cctpMessageAmountMatches,
+  forwardedAmountTolerance,
   CCTP_FORWARD_HOOK_DATA,
   CCTP_MESSAGE_RECEIVED_ABI,
   getBridgeTokenAddress,
@@ -80,7 +78,6 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
     it('resolves deterministic CCTP TokenMessengerV2 address on testnet', () => {
       const messenger = getCctpTokenMessenger('Base_Sepolia')
       expect(messenger).toBe(CCTP_TOKEN_MESSENGER_TESTNET)
-      expect(messenger).toBe(ARC_CCTP_TOKEN_MESSENGER)
       expect(messenger).toBe('0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA')
     })
 
@@ -207,7 +204,7 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       expect(mockExecuteContract).toHaveBeenCalledTimes(1)
       const call = mockExecuteContract.mock.calls[0][0]
       expect(call.blockchain).toBe('ARC-TESTNET')
-      expect(call.contractAddress).toBe(ARC_CCTP_TOKEN_MESSENGER)
+      expect(call.contractAddress).toBe(CCTP_TOKEN_MESSENGER_TESTNET)
       expect(call.abiFunctionSignature).toBe('depositForBurnWithHook(uint256,uint32,bytes32,address,bytes32,uint256,uint32,bytes)')
       expect(call.abiParameters[0]).toBe(parseUnits('25', 6).toString())
       expect(call.abiParameters[1]).toBe(GATEWAY_DOMAINS['Base_Sepolia'])
@@ -263,6 +260,9 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       expect(approveCall.blockchain).toBe('BASE-SEPOLIA')
       expect(approveCall.contractAddress).toBe(USDC_ADDRESSES['Base_Sepolia'])
       expect(approveCall.abiFunctionSignature).toBe('approve(address,uint256)')
+      // Audit #11: a bounded ceiling, never an unlimited (uint256 max) allowance.
+      expect(approveCall.abiParameters[1]).toBe((10_000_000n * 10n ** 6n).toString())
+      expect(approveCall.abiParameters[1]).not.toBe((2n ** 256n - 1n).toString())
 
       // Second call: depositForBurnWithHook on Base Sepolia CCTP TokenMessenger
       const burnCall = mockExecuteContract.mock.calls[1][0]
@@ -681,10 +681,12 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       })
 
       expect(result.status).toBe('pending')
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`after 2 attempts for burn ${burnTxHash}`)
-      )
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Iris HTTP misses: 2/2'))
+      // The diagnostic must still reach the console, now through the scoped
+      // logger (whose dev formatter passes a styling argument as well), so the
+      // assertion reads the emitted message rather than an exact argument list.
+      const emitted = warnSpy.mock.calls.map(([message]) => String(message)).join('\n')
+      expect(emitted).toContain(`after 2 attempts for burn ${burnTxHash}`)
+      expect(emitted).toContain('Iris HTTP misses: 2/2')
       warnSpy.mockRestore()
       vi.unstubAllGlobals()
     })
@@ -754,6 +756,40 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
         hookData: CCTP_FORWARD_HOOK_DATA,
       }, userAmount)).toBe(false)
       expect(cctpMessageAmountMatches(undefined, userAmount)).toBe(false)
+    })
+
+    it('matches the exact reserved fee when the burn declared it', () => {
+      const maxFee = parseUnits('0.55', 6)
+      expect(cctpMessageAmountMatches(
+        { amount: (userAmount + maxFee).toString(), hookData: CCTP_FORWARD_HOOK_DATA },
+        userAmount,
+        maxFee
+      )).toBe(true)
+      // A different reserved fee is not this transfer.
+      expect(cctpMessageAmountMatches(
+        { amount: (userAmount + maxFee).toString(), hookData: CCTP_FORWARD_HOOK_DATA },
+        userAmount,
+        maxFee + 1n
+      )).toBe(false)
+    })
+
+    it('caps the fee-less forwarding tolerance instead of allowing a 10% band', () => {
+      const tolerance = forwardedAmountTolerance(userAmount)
+      expect(tolerance).toBe(250_000n) // 1% of 25 USDC, below the 1 USDC cap
+
+      expect(cctpMessageAmountMatches(
+        { amount: (userAmount + tolerance).toString(), hookData: CCTP_FORWARD_HOOK_DATA },
+        userAmount
+      )).toBe(true)
+      expect(cctpMessageAmountMatches(
+        { amount: (userAmount + tolerance + 1n).toString(), hookData: CCTP_FORWARD_HOOK_DATA },
+        userAmount
+      )).toBe(false)
+      // A 10% difference (the old band) must no longer pass without a fee field.
+      expect(cctpMessageAmountMatches(
+        { amount: (userAmount + userAmount / 10n).toString(), hookData: CCTP_FORWARD_HOOK_DATA },
+        userAmount
+      )).toBe(false)
     })
   })
 
@@ -831,61 +867,6 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
     })
   })
 
-  describe('fetchCctpAttestation', () => {
-    it('returns complete status when Circle Iris API confirms attestation', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          status: 'complete',
-          attestation: '0xattestation_signature_bytes_123',
-        }),
-      })
-      global.fetch = mockFetch
-
-      const result = await fetchCctpAttestation('0xmessagehash123', true, 1, 10)
-      expect(result.status).toBe('complete')
-      expect(result.attestation).toBe('0xattestation_signature_bytes_123')
-    })
-
-    it('returns pending when attestation is not yet available after attempts', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ status: 'pending_confirmations' }),
-      })
-      global.fetch = mockFetch
-
-      const result = await fetchCctpAttestation('0xmessagehash123', true, 2, 10)
-      expect(result.status).toBe('pending')
-      expect(result.attestation).toBeUndefined()
-    })
-  })
-
-  describe('executeCctpReceiveMessage', () => {
-    it('dispatches receiveMessage to MessageTransmitter on target chain', async () => {
-      const mockExecuteContract = vi.fn().mockResolvedValue({
-        success: true,
-        txHash: `0x${'d'.repeat(64)}`,
-      })
-
-      const res = await executeCctpReceiveMessage({
-        destChain: 'Arc_Testnet',
-        messageBytes: '0x11223344',
-        attestationBytes: '0x55667788',
-        executeUcwContract: mockExecuteContract,
-      })
-
-      expect(res.success).toBe(true)
-      expect(res.txHash).toBe(`0x${'d'.repeat(64)}`)
-      expect(mockExecuteContract).toHaveBeenCalledWith(
-        expect.objectContaining({
-          contractAddress: CCTP_MESSAGE_TRANSMITTER_TESTNET,
-          abiFunctionSignature: 'receiveMessage(bytes,bytes)',
-          blockchain: 'ARC-TESTNET',
-        })
-      )
-    })
-  })
-
   // Circle carries USDC *and* EURC over standard CCTP v2, so the UCW path only
   // had to stop hardcoding the USDC address and its 6-decimal assumption. These
   // pin that: the same burn must move the selected token, and a token with no
@@ -938,7 +919,7 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
 
       expect(mockExecuteContract).toHaveBeenCalledTimes(1)
       const call = mockExecuteContract.mock.calls[0][0]
-      expect(call.contractAddress).toBe(ARC_CCTP_TOKEN_MESSENGER)
+      expect(call.contractAddress).toBe(CCTP_TOKEN_MESSENGER_TESTNET)
       // Index 3 is burnToken: it must be the EURC contract, never USDC.
       expect(call.abiParameters[3]).toBe(eurcOnArc)
       expect(call.abiParameters[3]).not.toBe(ARC_USDC_ADDRESS)

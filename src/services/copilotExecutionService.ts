@@ -83,6 +83,13 @@ export interface CopilotUcwHandlers {
     amount?: string
     blockchain?: string
   }) => Promise<{ success: boolean; txHash?: string; error?: string }>
+  /**
+   * Resolves the broadcast hash of an already-executed Circle challenge. The UCW
+   * bridge needs it when Circle's execute response carries no `txHash`: the
+   * session token that the poll needs lives with the wallet hook, not in the
+   * fund-moving services.
+   */
+  pollChallengeTx?: (challengeId?: string, blockchain?: string) => Promise<string | undefined>
 }
 
 function isTransactionHash(value: unknown): value is Hex {
@@ -1319,6 +1326,7 @@ async function executeCopilotActionUnreserved(
           amount: numberToExactDecimal(amount)!, sourceChain: sourceChainKey, destChain: destChainKey,
           recipientAddress: bridgeRecipient, connectedAddress: activeWallet,
           executeUcwContract: ucwHandlers.executeUcwContract,
+          resolveChallengeTx: ucwHandlers.pollChallengeTx,
           onStepProgress: (step) => {
             if (step === 'approving') onProgress?.('signing')
             else if (step === 'burning') onProgress?.('broadcasting')

@@ -40,6 +40,11 @@ import { getExplorerTxUrl } from '../config/sendConfig'
 import { CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
 import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import { mapChainKeyToCircleBlockchain } from './gatewayUcwService'
+import { singleFlightWithBackoff } from '../utils/singleFlight'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: bridge diagnostics must not be raw console output in production. */
+const cctpxLog = logger.createScope('bridgeUcwCctpxService')
 
 /** Same challenge shape `bridgeUcwService` declares; kept structurally identical. */
 export type ExecuteUcwContractFn = (params: {
@@ -401,16 +406,23 @@ export async function quoteUcwCctpxRelayerFee(
   }
 
   const speed: 'FAST' | 'SLOW' = params.speed ?? 'FAST'
-  const quote = await (deps.fetchQuote ?? fetchQuoteFromIris)(
-    {
-      tokenId,
-      sourceDomain,
-      destinationDomain: destDomain,
-      amountUnits,
-      destinationAddress: params.recipientAddress,
-      speed,
-    },
-    deps.fetchImpl ?? params.fetchImpl
+  // Preview path only (execution calls `fetchQuoteFromIris` directly, never
+  // through here): identical concurrent questions share one request, and a 429
+  // parks the key briefly instead of repeating it on every keystroke.
+  const quote = await singleFlightWithBackoff(
+    `cctpx-quote:${tokenId}:${sourceDomain}:${destDomain}:${amountUnits.toString()}:${speed}:${params.recipientAddress.trim().toLowerCase()}`,
+    () =>
+      (deps.fetchQuote ?? fetchQuoteFromIris)(
+        {
+          tokenId,
+          sourceDomain,
+          destinationDomain: destDomain,
+          amountUnits,
+          destinationAddress: params.recipientAddress,
+          speed,
+        },
+        deps.fetchImpl ?? params.fetchImpl
+      )
   )
 
   if (!DECIMAL_AMOUNT.test(quote.feeTotalAmount)) {
@@ -604,7 +616,7 @@ async function readManagerAllowance(
     })) as bigint
     return typeof allowance === 'bigint' ? allowance : 0n
   } catch (err) {
-    console.warn('[bridgeUcwCctpxService] Could not read the token-manager allowance:', err)
+    cctpxLog.warn('Could not read the token-manager allowance', err)
     return 0n
   }
 }

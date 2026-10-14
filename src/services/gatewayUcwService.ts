@@ -24,6 +24,10 @@ import {
 } from './gatewayService'
 import { getExplorerTxUrl } from '../config/sendConfig'
 import { normalizeCircleBlockchain } from '../utils/circleBlockchain'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: gateway diagnostics must not be raw console output in production. */
+const gatewayLog = logger.createScope('gatewayUcwService')
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +58,12 @@ export interface UcwGatewayTransferParams {
     amount?: string
     blockchain?: string
   }) => Promise<{ success: boolean; txHash?: string; error?: string }>
+  /**
+   * Resolves a challenge's broadcast hash when Circle has not published it yet.
+   * Injected by the caller that owns the UCW session, so this service never
+   * reads browser storage.
+   */
+  resolveChallengeTx?: (challengeId: string, blockchain: string) => Promise<string | undefined>
   onStepProgress?: (
     step: 'checking_balance' | 'preparing_wallet' | 'signing' | 'gateway_api' | 'forwarding' | 'minting' | 'completed'
   ) => void
@@ -101,15 +111,17 @@ function randomHex32(): `0x${string}` {
  */
 export async function pollForwardedGatewayTransfer(
   transferId: string,
-  options: { maxAttempts?: number; intervalMs?: number; destChain?: string; recipient?: string; amount?: string } = {}
+  options: { maxAttempts?: number; intervalMs?: number; destChain?: string; recipient?: string; amount?: string; signal?: AbortSignal } = {}
 ): Promise<{ status: string; txHash?: string; failureReason?: string }> {
-  const { maxAttempts = 40, intervalMs = 3000, destChain, recipient, amount } = options
+  const { maxAttempts = 40, intervalMs = 3000, destChain, recipient, amount, signal } = options
   if (!transferId || !/^[a-zA-Z0-9_-]{1,160}$/.test(transferId)) return { status: 'invalid_transfer_id' }
+  if (signal?.aborted) return { status: 'aborted' }
 
   let lastStatus = 'pending'
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (signal?.aborted) return { status: 'aborted' }
     try {
-      const res = await fetch(`${ACTIVE_GATEWAY_API}/transfer/${transferId}`)
+      const res = await fetch(`${ACTIVE_GATEWAY_API}/transfer/${transferId}`, signal ? { signal } : undefined)
       if (res.ok) {
         const details: any = await res.json()
         lastStatus = details?.status || lastStatus
@@ -143,7 +155,7 @@ export async function pollForwardedGatewayTransfer(
         }
       }
     } catch (err) {
-      console.warn(`[executeUcwGatewayTransfer] Forwarding status poll ${attempt} failed:`, err)
+      gatewayLog.warn(`[executeUcwGatewayTransfer] Forwarding status poll ${attempt} failed:`, err)
     }
 
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
@@ -194,6 +206,7 @@ export async function executeUcwGatewayTransfer(
     useForwarder = true,
     signTypedData,
     executeUcwContract,
+    resolveChallengeTx,
     onStepProgress,
   } = params
 
@@ -269,7 +282,7 @@ export async function executeUcwGatewayTransfer(
     maxBlockHeight = estimate.maxBlockHeight
   }
 
-  console.log(
+  gatewayLog.debug(
     `[executeUcwGatewayTransfer] Burn intent fee: maxFee=${(Number(maxFee) / 1e6).toFixed(6)} USDC, ` +
     `maxBlockHeight=${maxBlockHeight.toString()}, forwarder=${useForwarder}`
   )
@@ -329,7 +342,7 @@ export async function executeUcwGatewayTransfer(
 
   // Step 3: Sign BurnIntent via Circle UCW Challenge
   onStepProgress?.('signing')
-  console.log(`[executeUcwGatewayTransfer] Requesting signTypedData challenge on ${sourceBlockchainCircle}...`)
+  gatewayLog.debug(`[executeUcwGatewayTransfer] Requesting signTypedData challenge on ${sourceBlockchainCircle}...`)
 
   const signRes = await signTypedData({
     data: typedData,
@@ -342,12 +355,12 @@ export async function executeUcwGatewayTransfer(
   }
 
   const signature = signRes.signature
-  console.log('[executeUcwGatewayTransfer] Signature acquired successfully:', signature.slice(0, 16) + '...')
+  gatewayLog.debug('[executeUcwGatewayTransfer] Signature acquired successfully:', signature.slice(0, 16) + '...')
 
   // Step 4: Submit to Circle Gateway API
   onStepProgress?.('gateway_api')
   const transferUrl = `${ACTIVE_GATEWAY_API}/transfer?enableForwarder=${useForwarder ? 'true' : 'false'}`
-  console.log(`[executeUcwGatewayTransfer] Submitting to Gateway API: ${transferUrl}...`)
+  gatewayLog.debug(`[executeUcwGatewayTransfer] Submitting to Gateway API: ${transferUrl}...`)
 
   const apiResponse = await fetch(transferUrl, {
     method: 'POST',
@@ -388,7 +401,7 @@ export async function executeUcwGatewayTransfer(
     }
 
     onStepProgress?.('forwarding')
-    console.log(`[executeUcwGatewayTransfer] Forwarding Service transferId: ${transferId}. Polling status...`)
+    gatewayLog.debug(`[executeUcwGatewayTransfer] Forwarding Service transferId: ${transferId}. Polling status...`)
 
     const forwarded = await pollForwardedGatewayTransfer(transferId, {
       destChain,
@@ -406,7 +419,7 @@ export async function executeUcwGatewayTransfer(
     if ((forwarded.status === 'confirmed' || forwarded.status === 'finalized') && !/^0x[0-9a-fA-F]{64}$/.test(forwardedTxHash)) {
       throw new Error('Gateway reported completion without a valid destination transaction hash.')
     }
-    console.log(
+    gatewayLog.debug(
       `[executeUcwGatewayTransfer] Forwarding status=${forwarded.status}, destTxHash=${forwardedTxHash || '(pending)'}`
     )
 
@@ -431,10 +444,10 @@ export async function executeUcwGatewayTransfer(
     throw new Error('Circle Gateway response did not include an attestation or mint signature.')
   }
 
-  console.log('[executeUcwGatewayTransfer] Gateway API returned attestation & mintSignature.')
+  gatewayLog.debug('[executeUcwGatewayTransfer] Gateway API returned attestation & mintSignature.')
 
   onStepProgress?.('minting')
-  console.log(`[executeUcwGatewayTransfer] Executing gatewayMint on ${destBlockchainCircle} at minter: ${gatewayMinter}...`)
+  gatewayLog.debug(`[executeUcwGatewayTransfer] Executing gatewayMint on ${destBlockchainCircle} at minter: ${gatewayMinter}...`)
 
   const mintRes = await executeUcwContract({
     contractAddress: gatewayMinter,
@@ -449,32 +462,17 @@ export async function executeUcwGatewayTransfer(
 
   let mintTxHash = mintRes.txHash || ''
   const challengeId = (mintRes as any).challengeId
-  if (!mintTxHash || !mintTxHash.startsWith('0x')) {
+  if ((!mintTxHash || !mintTxHash.startsWith('0x')) && resolveChallengeTx && challengeId) {
+    // The challenge executed but Circle has not published the hash yet. The
+    // caller that owns the UCW session resolves it: this service never reads
+    // browser storage, so the user token lives in exactly one place.
     try {
-      const uToken = localStorage.getItem('arc_ucw_user_token')
-      const wId = localStorage.getItem('arc_ucw_wallet_id')
-      if (uToken) {
-        for (let i = 0; i < 6; i++) {
-          await new Promise((r) => setTimeout(r, 1200))
-          const pollRes = await fetch('/api/ucw?action=getLatestTransaction', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userToken: uToken,
-              walletId: wId,
-              challengeId,
-              blockchain: destBlockchainCircle,
-            }),
-          })
-          const pollData = await pollRes.json()
-          if (pollData.success && pollData.txHash && pollData.txHash.startsWith('0x')) {
-            mintTxHash = pollData.txHash
-            break
-          }
-        }
+      const resolved = await resolveChallengeTx(challengeId, destBlockchainCircle)
+      if (resolved && /^0x[0-9a-fA-F]{64}$/.test(resolved)) {
+        mintTxHash = resolved
       }
     } catch (pollErr) {
-      console.warn('[executeUcwGatewayTransfer] Polling fallback warning for mint txHash:', pollErr)
+      gatewayLog.warn('Could not resolve the mint hash for the executed challenge', pollErr)
     }
   }
 

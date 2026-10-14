@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { resolveUcwTokenAddress } from '../../components/SendModal'
 import { normalizeCircleBlockchain } from '../../utils/circleBlockchain'
-import { USDC_ADDRESSES, EURC_ADDRESSES } from '../../config/gatewayConfig'
+import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES } from '../../config/gatewayConfig'
+import { resolveSendTokenIdentifier } from '../sendService'
 import { mapChainKeyToCircleBlockchain } from '../gatewayUcwService'
 import { getExplorerTxUrl } from '../../config/sendConfig'
 
@@ -62,15 +63,40 @@ describe('SendModal UCW Multi-Chain & Token Resolution Tests', () => {
       expect(address).toBe(EURC_ADDRESSES['Base_Sepolia'])
     })
 
+    it('resolves cirBTC token contract address on Arc Testnet', () => {
+      const address = resolveUcwTokenAddress('Arc_Testnet', 'cirBTC', false)
+      expect(address).toBe(CIRBTC_ADDRESSES['Arc_Testnet'])
+      expect(address).toMatch(/^0x[a-fA-F0-9]{40}$/)
+    })
+
+    it('resolves WETH token contract address on Arc Testnet', () => {
+      const address = resolveUcwTokenAddress('Arc_Testnet', 'WETH', false)
+      expect(address).toBe(WETH_ADDRESSES['Arc_Testnet'])
+      expect(address).toMatch(/^0x[a-fA-F0-9]{40}$/)
+    })
+
     it('resolves empty string for NATIVE currency (e.g. Sepolia ETH, POL)', () => {
-      const address = resolveUcwTokenAddress('Base_Sepolia', 'NATIVE', false)
-      expect(address).toBe('')
+      expect(resolveUcwTokenAddress('Base_Sepolia', 'NATIVE', false)).toBe('')
+      expect(resolveUcwTokenAddress('Ethereum_Sepolia', 'ETH', false)).toBe('')
+      expect(resolveUcwTokenAddress('Avalanche_Fuji', 'AVAX', false)).toBe('')
+      expect(resolveUcwTokenAddress('Polygon_Amoy_Testnet', 'POL', false)).toBe('')
     })
 
     it('returns custom token address verbatim when isCustomToken is true', () => {
       const customAddr = '0x1234567890123456789012345678901234567890'
       const address = resolveUcwTokenAddress('Arc_Testnet', 'CUSTOM', true, customAddr)
       expect(address).toBe(customAddr)
+    })
+
+    it('resolveSendTokenIdentifier properly maps non-alias symbols to contract addresses and native symbols to NATIVE', () => {
+      expect(resolveSendTokenIdentifier('Arc_Testnet', 'cirBTC')).toBe(CIRBTC_ADDRESSES['Arc_Testnet'])
+      expect(resolveSendTokenIdentifier('Arc_Testnet', 'BTC')).toBe(CIRBTC_ADDRESSES['Arc_Testnet'])
+      expect(resolveSendTokenIdentifier('Arc_Testnet', 'WETH')).toBe(WETH_ADDRESSES['Arc_Testnet'])
+      expect(resolveSendTokenIdentifier('Arc_Testnet', 'USDC')).toBe('USDC')
+      expect(resolveSendTokenIdentifier('Arc_Testnet', 'EURC')).toBe('EURC')
+      expect(resolveSendTokenIdentifier('Ethereum_Sepolia', 'ETH')).toBe('NATIVE')
+      expect(resolveSendTokenIdentifier('Avalanche_Fuji', 'AVAX')).toBe('NATIVE')
+      expect(resolveSendTokenIdentifier('Polygon_Amoy_Testnet', 'POL')).toBe('NATIVE')
     })
   })
 

@@ -28,8 +28,8 @@ export async function prefetchGlobalData(queryClient: QueryClient): Promise<void
 
 /**
  * Prefetches all wallet-dependent data across multi-chain & DeFi systems:
- * - Circle Gateway unified balances (12+ supported domains)
- * - Native & token testnet balances across 12+ chains
+ * - Circle Gateway unified balances (13 supported domains)
+ * - Native & token testnet balances across 13 chains
  * - User Arc liquidity pool & vault positions
  * - Transaction history from explorer/indexer
  * - Live portfolio snapshot (Ask Arcis Copilot AI context)
