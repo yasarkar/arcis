@@ -12,7 +12,7 @@ import {
   ChevronDown,
   Clipboard,
 } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from './common/ChainIcon'
 import { isAddress } from 'viem'
 import { useBroadcast } from './BroadcastNotification'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
@@ -500,9 +500,9 @@ export default function FaucetModal({
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-6 h-6 rounded-full flex items-center justify-center p-0.5 overflow-hidden">
-                      <NetworkIcon
-                        name={getChainIconId(selectedNetwork.iconId)}
-                        variant={selectedNetwork.isSolana ? 'branded' : 'background'}
+                      <ChainIcon
+                        chainKeyOrIconId={selectedNetwork.name || selectedNetwork.iconId}
+                        name={selectedNetwork.name}
                         size={18}
                       />
                     </div>
@@ -601,7 +601,7 @@ export default function FaucetModal({
           <div className="flex items-center gap-2.5 text-left w-full sm:w-auto">
             <img src={CircleIcon} alt="Circle" className="w-5 h-5 object-contain flex-shrink-0" />
             <div className="text-[11px] text-slate-400">
-              <span className="text-slate-200 font-medium block">Official Web Faucet</span>
+              <span className="text-slate-200 font-medium block">Official Circle Faucet</span>
               For manual requests and additional networks
             </div>
           </div>

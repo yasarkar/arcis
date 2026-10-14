@@ -13,7 +13,7 @@ import {
   Droplets,
   Sparkles,
 } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 import { getChainIconId, getChainDisplayName } from '../../config/chainMeta'
 import { getExplorerTxUrl, getExplorerName } from '../../config/sendConfig'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
@@ -640,9 +640,9 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             {isMultiChain && toChainDisplayName ? (
               <div className="flex items-center gap-1.5 text-xs text-slate-200 font-medium">
                 <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                  <NetworkIcon
-                    name={fromChainIcon}
-                    variant={fromChainIcon === 'solana' ? 'branded' : 'background'}
+                  <ChainIcon
+                    chainKeyOrIconId={effectiveSourceChain || fromChainIcon}
+                    name={fromChainDisplayName}
                     size={16}
                     className="rounded-full"
                   />
@@ -650,9 +650,9 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                 <span>{fromChainDisplayName}</span>
                 <span className="text-indigo-400 font-bold">→</span>
                 <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                  <NetworkIcon
-                    name={toChainIcon || 'ethereum'}
-                    variant={toChainIcon === 'solana' ? 'branded' : 'background'}
+                  <ChainIcon
+                    chainKeyOrIconId={effectiveDestChain || toChainIcon || 'ethereum'}
+                    name={toChainDisplayName}
                     size={16}
                     className="rounded-full"
                   />
@@ -662,9 +662,9 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             ) : (
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                  <NetworkIcon
-                    name={fromChainIcon}
-                    variant={fromChainIcon === 'solana' ? 'branded' : 'background'}
+                  <ChainIcon
+                    chainKeyOrIconId={effectiveSourceChain || fromChainIcon}
+                    name={fromChainDisplayName}
                     size={16}
                     className="rounded-full"
                   />

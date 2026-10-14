@@ -40,7 +40,7 @@ import {
 import ServiceActionCard from './ServiceActionCard'
 import { soundService } from '../../services/soundService'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 import ArcLogo from '../../assets/Arc-Icon.svg'
 import { getChainIconId, getChainDisplayName } from '../../config/chainMeta'
 
@@ -889,16 +889,12 @@ export default function ServicePlaygroundModal({
                           title={`${net.fullName} • ${net.role}`}
                         >
                           <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                            {net.isArc || net.iconId === 'arc' ? (
-                              <img src={ArcLogo} alt={net.name} className="w-4 h-4 object-contain" />
-                            ) : (
-                              <NetworkIcon
-                                name={net.iconId}
-                                variant={net.iconId === 'solana' ? 'branded' : 'background'}
-                                size={16}
-                                className="rounded-full"
-                              />
-                            )}
+                            <ChainIcon
+                              chainKeyOrIconId={net.name}
+                              name={net.name}
+                              size={16}
+                              className="rounded-full"
+                            />
                           </div>
                           <span className="font-sans text-[11px] font-medium text-slate-200">{net.name}</span>
                         </div>

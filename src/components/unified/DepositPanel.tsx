@@ -10,7 +10,7 @@ import {
   ArrowDownRight,
   Fuel,
 } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 
 import { depositToGateway, resolvePaidNetworkFee } from '../../services/gatewayService'
@@ -582,9 +582,9 @@ export default function DepositPanel({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <NetworkIcon
-                name={CHAIN_META[depositChain]?.iconId || 'ethereum'}
-                variant={CHAIN_META[depositChain]?.iconId === 'solana' ? 'branded' : 'background'}
+              <ChainIcon
+                chainKeyOrIconId={depositChain}
+                name={getChainDisplayName(depositChain)}
                 size={24}
               />
               <span style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -635,9 +635,9 @@ export default function DepositPanel({
                     className="ub-select-option"
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                      <NetworkIcon
-                        name={iconId}
-                        variant={iconId === 'solana' ? 'branded' : 'background'}
+                      <ChainIcon
+                        chainKeyOrIconId={c}
+                        name={getChainDisplayName(c)}
                         size={22}
                       />
                       <span style={{ fontWeight: isSelected ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

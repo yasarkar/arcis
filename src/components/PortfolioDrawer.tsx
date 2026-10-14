@@ -15,11 +15,12 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { NetworkIcon, TokenIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from './common/ChainIcon'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 import { getChainDisplayName, getChainIconId } from '../config/chainMeta'
 import { EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, USYC_ADDRESSES } from '../config/gatewayConfig'
-import { UsdcIcon, EurcIcon, CirBtcIcon, UsycIcon } from '../config/tokenIcons'
+import { UsdcIcon, EurcIcon, CirBtcIcon, UsycIcon, PhrsIcon } from '../config/tokenIcons'
 
 interface PortfolioDrawerProps {
   isOpen: boolean
@@ -78,7 +79,16 @@ function renderAssetIcon(symbol: string) {
     return <TokenIcon symbol="sei" variant="branded" size={24} className="w-full h-full object-contain" />
   }
   if (s === 's' || s === 'sonic') {
-    return <NetworkIcon name="sonic" variant="background" size={28} className="rounded-full overflow-hidden" />
+    return <NetworkIcon name="sonic" variant="mono" size={24} className="text-white" />
+  }
+  if (s === 'phrs' || s === 'pharos') {
+    return <img src={PhrsIcon} alt="PHRS" className="w-full h-full object-contain" />
+  }
+  if (s === 'xpl' || s === 'plasma') {
+    return <TokenIcon symbol="xpl" variant="mono" size={24} className="text-white" />
+  }
+  if (s === 'okb' || s === 'xlayer' || s === 'x-layer') {
+    return <TokenIcon symbol="okb" variant="mono" size={24} className="text-white" />
   }
   return <TokenIcon symbol={s} variant="branded" size={24} className="w-full h-full object-contain" />
 }
@@ -755,9 +765,9 @@ export default function PortfolioDrawer({
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="relative w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform overflow-hidden shadow-inner">
                           <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center shrink-0 shadow-sm">
-                            <NetworkIcon
-                              name={iconId}
-                              variant={iconId === 'solana' ? 'branded' : 'background'}
+                            <ChainIcon
+                              chainKeyOrIconId={chainKey}
+                              name={chainName}
                               size={36}
                               className="rounded-full overflow-hidden"
                             />
@@ -809,7 +819,13 @@ export default function PortfolioDrawer({
                             <div className="flex items-center gap-2.5">
                               <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
                                 {nativeSymbol.toLowerCase() === 's' || iconId === 'sonic' ? (
-                                  <NetworkIcon name="sonic" variant="background" size={36} className="rounded-full overflow-hidden" />
+                                  <NetworkIcon name="sonic" variant="mono" size={24} className="text-white" />
+                                ) : nativeSymbol.toLowerCase() === 'xpl' || iconId === 'plasma' ? (
+                                  <TokenIcon symbol="xpl" variant="mono" size={24} className="text-white" />
+                                ) : nativeSymbol.toLowerCase() === 'phrs' || iconId === 'pharos' ? (
+                                  <img src={PhrsIcon} alt="PHRS" className="w-full h-full object-contain rounded-full" />
+                                ) : nativeSymbol.toLowerCase() === 'okb' || iconId === 'x-layer' || iconId === 'xlayer' ? (
+                                  <TokenIcon symbol="okb" variant="mono" size={24} className="text-white" />
                                 ) : (
                                   <TokenIcon
                                     symbol={nativeSymbol.toLowerCase() === 'pol' ? 'pol' : nativeSymbol.toLowerCase()}

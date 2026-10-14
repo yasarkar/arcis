@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useMultiChainWallet } from '../hooks/useMultiChainWallet'
+import { useWalletSettings } from '../hooks/useWalletSettings'
 import {
   X,
   ArrowRightLeft,
@@ -13,6 +15,7 @@ import {
   Save,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from './common/ChainIcon'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
@@ -66,6 +69,7 @@ import {
 } from './fintech'
 import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 import { Tooltip } from './common/Tooltip'
+import { saveRecipient } from '../utils/recentRecipients'
 
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
@@ -152,11 +156,33 @@ export default function SwapModal({
   const [amountIn, setAmountIn] = useState('')
   const [allowanceStrategy] = useState<'permit' | 'approve'>('permit')
 
+  // Wallet-scoped transaction settings (isolated per connected wallet)
+  const { settings: walletSettings, updateSettings: updateWalletSettings } = useWalletSettings(connectedAddress)
+
   // Settings & Slippage
   const [showSettings, setShowSettings] = useState(false)
-  const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>('0.5')
-  const lastPresetSlippageRef = useRef<'0.1' | '0.5' | '1.0'>('0.5')
-  const [customSlippage, setCustomSlippage] = useState('')
+  const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>(
+    walletSettings.swapSlippageType
+  )
+
+  useBodyScrollLock(showSettings || (!isInline && isOpen))
+  const lastPresetSlippageRef = useRef<'0.1' | '0.5' | '1.0'>(
+    walletSettings.swapSlippageType === 'custom' ? '0.5' : walletSettings.swapSlippageType
+  )
+  const [customSlippage, setCustomSlippage] = useState(walletSettings.swapCustomSlippage || '')
+
+  // Speed & Network Execution Priority
+  const [speedTier, setSpeedTier] = useState<SpeedTier>(walletSettings.swapSpeedTier)
+
+  // Sync state whenever wallet settings change (e.g. user connects another wallet)
+  useEffect(() => {
+    setSelectedSlippageType(walletSettings.swapSlippageType)
+    if (walletSettings.swapSlippageType !== 'custom') {
+      lastPresetSlippageRef.current = walletSettings.swapSlippageType
+    }
+    setCustomSlippage(walletSettings.swapCustomSlippage || '')
+    setSpeedTier(walletSettings.swapSpeedTier)
+  }, [walletSettings.swapSlippageType, walletSettings.swapCustomSlippage, walletSettings.swapSpeedTier])
 
   // Recipient Address (Matching BridgeModal exactly)
   const [recipient, setRecipient] = useState('')
@@ -198,8 +224,6 @@ export default function SwapModal({
     setAmountIn('')
     setRecipient('')
     setStopLimit('')
-    setCustomSlippage('')
-    setSelectedSlippageType('0.5')
     setEstimatedOutput('')
     setRate('')
     setQuoteFees([])
@@ -231,9 +255,6 @@ export default function SwapModal({
 
   const isHighSlippageWarning =
     selectedSlippageType === 'custom' && parseFloat(customSlippage) > POOL_MAX_SLIPPAGE_BPS / 100 * 0.75
-
-  // Speed & Network Execution Priority
-  const [speedTier, setSpeedTier] = useState<SpeedTier>('fast')
 
   // Treasury Platform Fee from SWAP_CUSTOM_FEE_CONFIG (.env: VITE_SWAP_FEE_BPS & VITE_SWAP_FEE_ENABLED)
   // Fix #9: when the custom fee is disabled NOTHING is charged, so there is no "fallback"
@@ -986,6 +1007,13 @@ export default function SwapModal({
             tokenOut,
             isPrivate: isPrivateSwap,
           })
+          if (targetRecipient) {
+            saveRecipient({
+              address: targetRecipient,
+              chainFamily: isDestSolana ? 'solana' : isDestInjective ? 'injective' : 'evm',
+              sourceChain: fromChain,
+            })
+          }
         }
 
         refetchWalletBalances()
@@ -1299,9 +1327,9 @@ export default function SwapModal({
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.16] text-xs font-medium text-slate-200 transition-all cursor-pointer select-none"
       >
         <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-          <NetworkIcon
-            name={getChainIconId(selectedChain)}
-            variant={getChainIconId(selectedChain) === 'solana' ? 'branded' : 'background'}
+          <ChainIcon
+            chainKeyOrIconId={selectedChain}
+            name={selectedChain}
             size={16}
             className="rounded-full"
           />
@@ -1518,6 +1546,8 @@ export default function SwapModal({
             isValid={recipientIsValid}
             disabled={isSwapping || !!pendingSwap}
             rightBadge={recipientBadge}
+            chainFamily={isDestSolana ? 'solana' : isDestInjective ? 'injective' : 'evm'}
+            connectedAddress={connectedAddress}
           />
 
           {/* Live Quote & Fee Breakdown Accordion */}
@@ -1595,7 +1625,7 @@ export default function SwapModal({
     showSettings && typeof document !== 'undefined'
       ? createPortal(
           <div
-            className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in"
+            className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in overscroll-contain touch-none"
             onClick={() => setShowSettings(false)}
           >
             <div
@@ -1653,6 +1683,7 @@ export default function SwapModal({
                           lastPresetSlippageRef.current = type
                           setSelectedSlippageType(type)
                           setCustomSlippage('')
+                          updateWalletSettings({ swapSlippageType: type, swapCustomSlippage: '' })
                         }}
                         className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
                           selectedSlippageType === type
@@ -1669,8 +1700,10 @@ export default function SwapModal({
                         if (selectedSlippageType === 'custom') {
                           setSelectedSlippageType(lastPresetSlippageRef.current)
                           setCustomSlippage('')
+                          updateWalletSettings({ swapSlippageType: lastPresetSlippageRef.current, swapCustomSlippage: '' })
                         } else {
                           setSelectedSlippageType('custom')
+                          updateWalletSettings({ swapSlippageType: 'custom' })
                         }
                       }}
                       className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
@@ -1693,7 +1726,10 @@ export default function SwapModal({
                           max={POOL_MAX_SLIPPAGE_BPS / 100}
                           placeholder="e.g. 1.5"
                           value={customSlippage}
-                          onChange={(e) => setCustomSlippage(e.target.value)}
+                          onChange={(e) => {
+                            setCustomSlippage(e.target.value)
+                            updateWalletSettings({ swapCustomSlippage: e.target.value, swapSlippageType: 'custom' })
+                          }}
                           autoFocus
                           className="w-full rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none transition-all pr-8 bg-white/[0.04] border border-indigo-500/40 focus:border-indigo-500"
                         />
@@ -1716,7 +1752,10 @@ export default function SwapModal({
               <div className="space-y-2 pt-1">
                 <SpeedFeeSelector
                   selectedTier={speedTier}
-                  onSelectTier={(tier) => setSpeedTier(tier)}
+                  onSelectTier={(tier) => {
+                    setSpeedTier(tier)
+                    updateWalletSettings({ swapSpeedTier: tier })
+                  }}
                   context="swap"
                   disabled={isSwapping}
                 />
@@ -1725,7 +1764,14 @@ export default function SwapModal({
               {/* Save button */}
               <button
                 type="button"
-                onClick={() => setShowSettings(false)}
+                onClick={() => {
+                  updateWalletSettings({
+                    swapSlippageType: selectedSlippageType,
+                    swapCustomSlippage: customSlippage,
+                    swapSpeedTier: speedTier,
+                  })
+                  setShowSettings(false)
+                }}
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
               >
                 <Save className="w-4 h-4" />
@@ -1757,7 +1803,7 @@ export default function SwapModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md overflow-y-auto">
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md overflow-y-auto overscroll-contain touch-none">
         <div className="flex flex-col xl:flex-row items-center xl:items-start justify-center gap-6 w-full max-w-7xl mx-auto my-auto py-4">
           <SwapPriceChartCard
             tokenIn={tokenIn}

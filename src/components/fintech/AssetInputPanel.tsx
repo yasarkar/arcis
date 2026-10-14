@@ -1,5 +1,6 @@
 import React from 'react'
 import { ChevronDown } from 'lucide-react'
+import { TokenIcon } from '@web3icons/react/dynamic'
 import { clampDecimalInput } from '../../utils/swapAmountUtils'
 
 interface AssetInputPanelProps {
@@ -13,6 +14,7 @@ interface AssetInputPanelProps {
   placeholder?: string
   tokenSymbol: string
   tokenIcon?: string
+  web3TokenSymbol?: string
   onSelectToken?: () => void
   tokenListAvailable?: boolean
   balance?: string
@@ -38,6 +40,7 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
   placeholder = '0.00',
   tokenSymbol,
   tokenIcon,
+  web3TokenSymbol,
   onSelectToken,
   tokenListAvailable = true,
   balance,
@@ -122,8 +125,30 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
             onClick={onSelectToken}
             className="shrink-0 flex items-center gap-2.5 px-4 py-2 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] hover:border-white/[0.2] transition-all cursor-pointer shadow-sm active:scale-95 text-white"
           >
-            {tokenIcon && (
+            {tokenIcon ? (
               <img src={tokenIcon} alt={tokenSymbol} className="w-6 h-6 object-contain rounded-full" />
+            ) : web3TokenSymbol ? (
+              <div className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                {web3TokenSymbol === 'okb' || web3TokenSymbol === 'xlayer' || web3TokenSymbol === 'x-layer' || web3TokenSymbol === 'xpl' || web3TokenSymbol === 'plasma' || web3TokenSymbol === 's' || web3TokenSymbol === 'sonic' ? (
+                  <TokenIcon
+                    symbol={web3TokenSymbol === 'plasma' ? 'xpl' : web3TokenSymbol === 'sonic' ? 's' : (web3TokenSymbol === 'xlayer' || web3TokenSymbol === 'x-layer') ? 'okb' : web3TokenSymbol}
+                    variant="mono"
+                    size={24}
+                    className="text-white"
+                  />
+                ) : (
+                  <TokenIcon
+                    symbol={web3TokenSymbol}
+                    variant="branded"
+                    size={24}
+                    className="rounded-full"
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center font-bold text-xs text-indigo-300 shrink-0">
+                T
+              </div>
             )}
             <span className="text-sm sm:text-base font-semibold tracking-wide" style={{ fontFamily: 'var(--font-app)' }}>
               {tokenSymbol}
@@ -132,8 +157,21 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
           </button>
         ) : (
           <div className="shrink-0 flex items-center gap-2.5 px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.08] text-white">
-            {tokenIcon && (
+            {tokenIcon ? (
               <img src={tokenIcon} alt={tokenSymbol} className="w-6 h-6 object-contain rounded-full" />
+            ) : web3TokenSymbol ? (
+              <div className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                <TokenIcon
+                  symbol={web3TokenSymbol}
+                  variant="branded"
+                  size={24}
+                  className="rounded-full"
+                />
+              </div>
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center font-bold text-xs text-indigo-300 shrink-0">
+                T
+              </div>
             )}
             <span className="text-sm sm:text-base font-semibold tracking-wide" style={{ fontFamily: 'var(--font-app)' }}>
               {tokenSymbol}

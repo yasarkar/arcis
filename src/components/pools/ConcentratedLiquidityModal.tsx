@@ -25,6 +25,7 @@ import {
   generateLiquidityBars,
 } from '../../utils/clammMath'
 import { Tooltip, InfoTooltip } from '../common/Tooltip'
+import { useWalletSettings } from '../../hooks/useWalletSettings'
 
 interface ConcentratedLiquidityModalProps {
   isOpen: boolean
@@ -106,9 +107,17 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   const [btcAmount, setBtcAmount] = useState<string>('')
   const [usdcAmount, setUsdcAmount] = useState<string>('')
 
+  // Wallet-scoped transaction settings (isolated per connected wallet)
+  const { settings: walletSettings, updateSettings: updateWalletSettings } = useWalletSettings(walletAddress)
+
   // Slippage tolerance
-  const [slippage, setSlippage] = useState<number>(2.0)
+  const [slippage, setSlippage] = useState<number>(walletSettings.poolSlippage || 2.0)
   const [showSlippageModal, setShowSlippageModal] = useState<boolean>(false)
+
+  // Sync slippage when connected wallet settings change
+  useEffect(() => {
+    setSlippage(walletSettings.poolSlippage || 2.0)
+  }, [walletSettings.poolSlippage])
 
   // Loading & submission state
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
@@ -666,6 +675,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                             type="button"
                             onClick={() => {
                               setSlippage(s)
+                              updateWalletSettings({ poolSlippage: s })
                               setShowSlippageModal(false)
                             }}
                             className={`flex-1 py-1 rounded-lg text-xs font-semibold ${

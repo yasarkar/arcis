@@ -17,7 +17,7 @@ import {
 import type { CopilotMessage, CopilotActionPayload } from '../../types/marketplace'
 import { arcTransferFeeFallbackUsdc } from '../../services/arcGasService'
 import { CopilotTokenIcon, CopilotNetworkBadge } from './CopilotTokenIcon'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 import ArcLogo from '../../assets/Arc-Icon.svg'
 import { getChainIconId } from '../../config/chainMeta'
 import { isCanceledReceipt } from '../../utils/errorUtils'
@@ -769,7 +769,7 @@ export default function InlineActionCard({
                           />
                         ) : (
                           <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                            <NetworkIcon id={getChainIconId(fromChain)} className="w-3.5 h-3.5" />
+                            <ChainIcon chainKeyOrIconId={fromChain} size={14} className="w-3.5 h-3.5" />
                           </span>
                         )}
                         <span>{fromChain}</span>
@@ -784,7 +784,7 @@ export default function InlineActionCard({
                           />
                         ) : (
                           <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                            <NetworkIcon id={getChainIconId(toChain)} className="w-3.5 h-3.5" />
+                            <ChainIcon chainKeyOrIconId={toChain} size={14} className="w-3.5 h-3.5" />
                           </span>
                         )}
                         <span>{toChain}</span>
@@ -942,7 +942,7 @@ export default function InlineActionCard({
                         />
                       ) : (
                         <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                          <NetworkIcon id={getChainIconId(networkName)} className="w-4 h-4" />
+                          <ChainIcon chainKeyOrIconId={networkName} size={16} className="w-4 h-4" />
                         </span>
                       )}
                       <span className='font-bold text-slate-300 text-[12px]'>{networkName}</span>

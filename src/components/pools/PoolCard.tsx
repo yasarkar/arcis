@@ -17,7 +17,7 @@ import {
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
-import WethIcon from '../../assets/Token-Icon/WETH Token.svg'
+import { WethIcon } from '../../config/tokenIcons'
 import ArcLogo from '../../assets/Arc-Icon.svg'
 import { POOL_RISK_LEVELS, type PoolConfig } from '../../config/poolsConfig'
 import { apySourceExplainer, feeAccrualExplainer, impermanentLossExplainer } from '../../config/poolEducation'

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useWalletSettings } from '../hooks/useWalletSettings'
 import {
   X,
   ArrowUpRight,
@@ -11,16 +13,16 @@ import {
   FileText,
   ChevronDown,
   Ban,
-  Shield,
   Save,
 } from 'lucide-react'
 import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from './common/ChainIcon'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import { formatUnits, erc20Abi, isAddress } from 'viem'
 import { getResilientPublicClient, getArcPublicClient, resilientGetBalance, resilientReadContract } from '../services/rpc'
-import { getDisplayTokenSymbol, CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
+import { getDisplayTokenSymbol, CHAIN_NATIVE_MAP, getCleanNativeTokenName } from '../utils/tokenUtils'
 import { useGatewayBalance } from '../hooks/useGatewayBalance'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { estimateGas, sendToken, resolveNativeActualFee } from '../services/sendService'
@@ -28,13 +30,15 @@ import { ensureNetwork } from '../services/chainSwitchService'
 import { sendUsdcWithMemo } from '../services/memoService'
 import { MEMO_PRESETS, type MemoPreset } from '../config/memoConfig'
 import { transferFromGateway } from '../services/gatewayService'
-import { GATEWAY_DOMAINS, USDC_ADDRESSES, EURC_ADDRESSES } from '../config/gatewayConfig'
+import { GATEWAY_DOMAINS, USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES } from '../config/gatewayConfig'
 import {
   SUPPORTED_SEND_CHAINS,
   CHAIN_DEFS,
   getChainIconId,
   getExplorerTxUrl,
 } from '../config/sendConfig'
+import { getNetwork, supportsAdapter, supportsCapability } from '../config/chainMeta'
+import { WethIcon, TOKEN_ICON_MAP, SonicIcon, PhrsIcon, XplIcon, OkbIcon } from '../config/tokenIcons'
 import { addTransaction } from '../utils/history'
 import { normalizeCircleBlockchain, isCircleUcwChain } from '../utils/circleBlockchain'
 import { gatewayMaxFeeUsdc } from '../utils/bridgeAmountUtils'
@@ -66,11 +70,22 @@ import {
   type ModeOption,
 } from './fintech'
 import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
+import { saveRecipient } from '../utils/recentRecipients'
 
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
   EURC: EurcIcon,
   cirBTC: CircleIcon,
+  WETH: WethIcon,
+  S: SonicIcon,
+  SONIC: SonicIcon,
+  PHRS: PhrsIcon,
+  PHAROS: PhrsIcon,
+  XPL: XplIcon,
+  PLASMA: XplIcon,
+  OKB: OkbIcon,
+  XLAYER: OkbIcon,
+  'X-LAYER': OkbIcon,
 }
 
 /**
@@ -160,7 +175,8 @@ export function resolveUcwTokenAddress(
   if (isCustomToken && customAddress) {
     return customAddress
   }
-  if (tokenSymbol === 'NATIVE') {
+  const nativeSymbol = CHAIN_NATIVE_MAP[chain]?.symbol
+  if (tokenSymbol === 'NATIVE' || (nativeSymbol && tokenSymbol === nativeSymbol && nativeSymbol !== 'USDC')) {
     return ''
   }
   if (tokenSymbol === 'USDC') {
@@ -172,6 +188,12 @@ export function resolveUcwTokenAddress(
   }
   if (tokenSymbol === 'EURC') {
     return EURC_ADDRESSES[chain] || ''
+  }
+  if (tokenSymbol === 'cirBTC' || tokenSymbol === 'BTC') {
+    return CIRBTC_ADDRESSES[chain] || ''
+  }
+  if (tokenSymbol === 'WETH') {
+    return WETH_ADDRESSES[chain] || ''
   }
   return ''
 }
@@ -259,10 +281,28 @@ export default function SendModal({
   // Mode Selection: 'direct' (Wallet Balance) or 'gateway' (Unified USDC Balance)
   const [sendMode, setSendMode] = useState<'direct' | 'gateway'>('direct')
 
+  // Wallet-scoped transaction settings (isolated per connected wallet)
+  const { settings: walletSettings, updateSettings: updateWalletSettings } = useWalletSettings(connectedAddress)
+
   // Speed & Network Execution Priority
-  const [speedTier, setSpeedTier] = useState<SpeedTier>('fast')
+  const [speedTier, setSpeedTier] = useState<SpeedTier>(walletSettings.sendSpeedTier)
   const [showSettings, setShowSettings] = useState(false)
   const [isPrivateSend, setIsPrivateSend] = useState(false)
+
+  // Sync speedTier when wallet settings change (e.g. user connects a different wallet)
+  useEffect(() => {
+    setSpeedTier(walletSettings.sendSpeedTier)
+  }, [walletSettings.sendSpeedTier])
+
+  const handleSpeedTierChange = useCallback(
+    (tier: SpeedTier) => {
+      setSpeedTier(tier)
+      updateWalletSettings({ sendSpeedTier: tier })
+    },
+    [updateWalletSettings]
+  )
+
+  useBodyScrollLock(showSettings || (!isInline && isOpen))
 
   const [recipient, setRecipient] = useState('')
   const [recipientError, setRecipientError] = useState<string | null>(null)
@@ -289,6 +329,13 @@ export default function SendModal({
       setSelectedChain('Arc_Testnet')
     }
   }, [authSource, selectedChain])
+
+  // Fallback to Gateway mode when Solana is selected, since Solana transfers ride Circle Gateway unified balance
+  useEffect(() => {
+    if (sendMode === 'direct' && selectedChain.toLowerCase().includes('solana')) {
+      setSendMode('gateway')
+    }
+  }, [sendMode, selectedChain])
 
   // Circle UCW can only execute on whitelisted chains (Solana additionally stays
   // EVM-only); unsupported chains are disabled so a transfer can never be signed
@@ -348,6 +395,16 @@ export default function SendModal({
   const [memoText, setMemoText] = useState('')
   const [customMemoId, setCustomMemoId] = useState('')
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null)
+
+  const recordRecipient = useCallback(() => {
+    if (recipient && recipient.trim()) {
+      saveRecipient({
+        address: recipient.trim(),
+        chainFamily: isChainSolana ? 'solana' : isChainInjective ? 'injective' : 'evm',
+        sourceChain: selectedChain,
+      })
+    }
+  }, [recipient, isChainSolana, isChainInjective, selectedChain])
 
   // Systematic input and state clearing on wallet disconnect
   const resetFormInputs = useCallback(() => {
@@ -422,6 +479,7 @@ export default function SendModal({
   const usdcWalletBalance = walletBalances[selectedChain]?.usdc || '0.00'
   const eurcWalletBalance = walletBalances[selectedChain]?.eurc || '0.00'
   const cirbtcWalletBalance = walletBalances[selectedChain]?.cirbtc || '0.00000'
+  const wethWalletBalance = walletBalances[selectedChain]?.weth || '0.0000'
 
   // Reset custom token state if switching to Gateway mode
   useEffect(() => {
@@ -430,6 +488,25 @@ export default function SendModal({
       if (token !== 'USDC') setToken('USDC')
     }
   }, [sendMode, isCustom, token])
+
+  // Reset to USDC if selected token is not supported on the active chain
+  useEffect(() => {
+    if (sendMode === 'gateway' || isCustom) return
+    const net = getNetwork(selectedChain)
+    if (!net) return
+    const supported = Object.keys(net.tokens)
+    const nativeSym = CHAIN_NATIVE_MAP[selectedChain]?.symbol || net.nativeCurrency?.symbol
+    const isTargetNative = Boolean(nativeSym && token === nativeSym)
+    if (token !== 'USDC' && token !== 'NATIVE' && !supported.includes(token) && !isTargetNative) {
+      setToken('USDC')
+    }
+  }, [selectedChain, sendMode, isCustom, token])
+
+  const nativeSymbol = CHAIN_NATIVE_MAP[selectedChain]?.symbol
+  const isNative =
+    !isCustom &&
+    (token === 'NATIVE' ||
+      (nativeSymbol && token === nativeSymbol && nativeSymbol !== 'USDC'))
 
   // Determine active balance depending on send mode and token selection
   const activeBalance =
@@ -443,7 +520,9 @@ export default function SendModal({
       ? eurcWalletBalance
       : token === 'cirBTC'
       ? cirbtcWalletBalance
-      : token === 'NATIVE'
+      : token === 'WETH'
+      ? wethWalletBalance
+      : isNative
       ? nativeBalance
       : '0.00'
 
@@ -453,15 +532,19 @@ export default function SendModal({
       ? 'USDC'
       : isCustom
       ? customTokenResult?.symbol || 'Custom Token'
+      : isNative && nativeSymbol
+      ? nativeSymbol
       : getDisplayTokenSymbol(selectedChain, token)
 
   // Amount precision rules per token (custom tokens expose their own decimals).
   const amountDecimals = isCustom
     ? customTokenResult?.decimals ?? 18
-    : token === 'NATIVE'
+    : isNative
     ? CHAIN_NATIVE_MAP[selectedChain]?.decimals ?? 18
     : token === 'cirBTC'
     ? 8
+    : token === 'WETH'
+    ? 18
     : 6
 
   // Gas is debited from the transferred asset itself when the native currency is
@@ -469,7 +552,7 @@ export default function SendModal({
   const feeInSentAsset =
     sendMode === 'direct' &&
     !isCustom &&
-    (token === 'NATIVE' || (selectedChain === 'Arc_Testnet' && token === 'USDC'))
+    (isNative || (selectedChain === 'Arc_Testnet' && token === 'USDC'))
 
   // Circle Gateway draws amount + maxFee (min 1.0 USDC) from the source domain —
   // reserve it the same way as gas-in-sent-asset so MAX / the balance check stay honest.
@@ -492,11 +575,11 @@ export default function SendModal({
   // Spendable balance after reserving that gas fee — used by MAX / quick percentages.
   const spendableBalance = Math.max((parseFloat(activeBalance) || 0) - feeReserve, 0)
 
-  // Fetch native token balance from RPC when "NATIVE" is selected in Direct mode
+  // Fetch native token balance from RPC when native token is selected in Direct mode
   useEffect(() => {
     if (!connectedAddress || !isOpen) return
 
-    if (sendMode !== 'direct' || isCustom) return
+    if (sendMode !== 'direct' || isCustom || !isNative) return
 
     let isMounted = true
     const fetchNativeBal = async () => {
@@ -518,7 +601,7 @@ export default function SendModal({
     return () => {
       isMounted = false
     }
-  }, [selectedChain, token, isCustom, connectedAddress, isOpen, sendMode])
+  }, [selectedChain, token, isCustom, connectedAddress, isOpen, sendMode, isNative])
 
   // Custom ERC-20 Token Contract Inspection Effect
   useEffect(() => {
@@ -908,6 +991,7 @@ export default function SendModal({
           gasFee: gasFeeText,
           blockNumber: 'Circle MPC Confirmed',
         })
+        recordRecipient()
         // Keep the form locked until the receipt is on screen — unlocking earlier
         // re-enabled the form mid-await and allowed a second (double) send.
         setIsSending(false)
@@ -1073,6 +1157,7 @@ export default function SendModal({
               : `0.005% Gateway transfer fee ≈ ${(sendAmt * 0.00005).toFixed(6)} USDC (max fee buffer reserved)`,
             blockNumber: 'Instant Gateway Finalized',
           })
+          recordRecipient()
           setIsSending(false)
 
           updateBroadcast(broadcastId, {
@@ -1136,6 +1221,7 @@ export default function SendModal({
               memoText: memoResult.memoText,
               memoId: memoResult.memoId,
             })
+            recordRecipient()
             setIsSending(false)
 
             updateBroadcast(broadcastId, {
@@ -1190,6 +1276,7 @@ export default function SendModal({
               gasFee: gasFeeText,
               blockNumber: 'Instant BFT Finalized',
             })
+            recordRecipient()
             setIsSending(false)
 
             updateBroadcast(broadcastId, {
@@ -1283,21 +1370,48 @@ export default function SendModal({
     setAmount(truncateToDecimal(calculated, amountDecimals))
   }
 
-  // Token list for selector modal (includes the chain's native asset when it is
-  // a distinct token from the listed stablecoins; custom ERC-20 import is offered
-  // by the modal itself).
+  // Token list for selector modal (derived dynamically from the active network configuration
+  // in Master Network Registry; only tokens actually deployed on this network are offered).
   const tokenList: TokenItem[] = useMemo(() => {
-    const list: TokenItem[] = [
-      { symbol: 'USDC', name: 'USD Coin', icon: TOKEN_ICONS.USDC, balance: usdcWalletBalance },
-      { symbol: 'EURC', name: 'Euro Coin', icon: TOKEN_ICONS.EURC, balance: eurcWalletBalance },
-      { symbol: 'cirBTC', name: 'Circle Bitcoin', icon: TOKEN_ICONS.cirBTC, balance: cirbtcWalletBalance },
-    ]
-    const nativeInfo = CHAIN_NATIVE_MAP[selectedChain]
-    if (nativeInfo && nativeInfo.symbol !== 'USDC') {
-      list.push({ symbol: 'NATIVE', name: `Native ${nativeInfo.name}`, balance: nativeBalance })
+    const net = getNetwork(selectedChain)
+    const list: TokenItem[] = []
+
+    // 1. USDC is supported across Arc & Circle send networks
+    const hasUsdc = net ? Boolean(net.tokens.USDC) : true
+    if (hasUsdc) {
+      list.push({ symbol: 'USDC', name: 'USD Coin', icon: TOKEN_ICONS.USDC, balance: usdcWalletBalance })
     }
+
+    // 2. EURC: only include if the network configuration has EURC deployed
+    if (net?.tokens.EURC) {
+      list.push({ symbol: 'EURC', name: 'Euro Coin', icon: TOKEN_ICONS.EURC, balance: eurcWalletBalance })
+    }
+
+    // 3. cirBTC: only include if the network configuration has cirBTC deployed
+    if (net?.tokens.cirBTC) {
+      list.push({ symbol: 'cirBTC', name: 'Circle Bitcoin', icon: TOKEN_ICONS.cirBTC, balance: cirbtcWalletBalance })
+    }
+
+    // 4. WETH: only include if the network configuration has WETH deployed
+    if (net?.tokens.WETH) {
+      list.push({ symbol: 'WETH', name: 'Wrapped Ether', icon: TOKEN_ICONS.WETH || TOKEN_ICON_MAP.WETH, balance: wethWalletBalance })
+    }
+
+    // 5. Native gas asset when distinct from USDC (e.g. Sepolia ETH, AVAX, POL, INJ, etc.)
+    const nativeInfo = CHAIN_NATIVE_MAP[selectedChain] || net?.nativeCurrency
+    if (nativeInfo && nativeInfo.symbol !== 'USDC' && !net?.tokens[nativeInfo.symbol]) {
+      const nativeIcon = TOKEN_ICON_MAP[nativeInfo.symbol] || TOKEN_ICONS[nativeInfo.symbol]
+      list.push({
+        symbol: nativeInfo.symbol,
+        name: getCleanNativeTokenName(nativeInfo.symbol),
+        icon: nativeIcon,
+        web3TokenSymbol: nativeIcon ? undefined : nativeInfo.symbol.toLowerCase(),
+        balance: nativeBalance,
+      })
+    }
+
     return list
-  }, [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, nativeBalance, selectedChain])
+  }, [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, wethWalletBalance, nativeBalance, selectedChain])
 
   // Mode Options
   const modeOptions: ModeOption[] = [
@@ -1328,9 +1442,9 @@ export default function SendModal({
         value: (
           <div className="flex items-center gap-1.5 font-medium text-slate-200">
             <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-              <NetworkIcon
-                name={chainIconId}
-                variant={chainIconId === 'solana' ? 'branded' : 'background'}
+              <ChainIcon
+                chainKeyOrIconId={selectedChain}
+                name={chainDisplayName}
                 size={16}
                 className="rounded-full"
               />
@@ -1360,11 +1474,6 @@ export default function SendModal({
           ) : (
             `<0.001 ${CHAIN_NATIVE_MAP[selectedChain]?.symbol || 'USDC'}`
           ),
-      },
-      {
-        label: 'Platform Fee',
-        tooltip: 'Arcis charges 0% platform fee for standard wallet-to-wallet transfers.',
-        value: '0.00 USDC',
       },
       {
         label: 'Estimated Arrival',
@@ -1461,9 +1570,9 @@ export default function SendModal({
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.16] text-xs font-medium text-slate-200 transition-all cursor-pointer select-none"
       >
         <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-          <NetworkIcon
-            name={getChainIconId(selectedChain)}
-            variant={getChainIconId(selectedChain) === 'solana' ? 'branded' : 'background'}
+          <ChainIcon
+            chainKeyOrIconId={selectedChain}
+            name={selectedChain.replace(/_/g, ' ')}
             size={16}
             className="rounded-full"
           />
@@ -1553,6 +1662,9 @@ export default function SendModal({
             options={modeOptions}
             activeId={sendMode}
             onChange={(mode) => {
+              if (mode === 'direct' && selectedChain.toLowerCase().includes('solana')) {
+                setSelectedChain('Arc_Testnet')
+              }
               setSendMode(mode)
               setError(null)
               setIsCanceledError(false)
@@ -1585,7 +1697,8 @@ export default function SendModal({
             amount={amount}
             onAmountChange={(val) => setAmount(val)}
             tokenSymbol={tokenSymbol}
-            tokenIcon={isCustom ? undefined : TOKEN_ICONS[token]}
+            tokenIcon={isCustom ? undefined : (isNative && nativeSymbol ? (TOKEN_ICON_MAP[nativeSymbol] || TOKEN_ICONS[nativeSymbol]) : TOKEN_ICONS[token])}
+            web3TokenSymbol={isNative && (!nativeSymbol || !(TOKEN_ICON_MAP[nativeSymbol] || TOKEN_ICONS[nativeSymbol])) ? nativeSymbol?.toLowerCase() : undefined}
             onSelectToken={sendMode === 'direct' ? () => setShowTokenModal(true) : undefined}
             tokenListAvailable={sendMode === 'direct'}
             balance={activeBalance}
@@ -1615,44 +1728,9 @@ export default function SendModal({
             onBlur={handleRecipientBlur}
             error={recipientError}
             disabled={isSending}
+            chainFamily={isChainSolana ? 'solana' : isChainInjective ? 'injective' : 'evm'}
+            connectedAddress={connectedAddress}
           />
-
-          {/* Custom ERC-20 Address Panel (if isCustom is active in direct mode) */}
-          {isCustom && sendMode === 'direct' && (
-            <div className="p-3.5 rounded-2xl bg-[#101323]/70 border border-white/[0.08] space-y-2 animate-fade-in">
-              <div className="flex justify-between items-center text-xs text-slate-300">
-                <span className="font-semibold">Custom ERC-20 Token Contract</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCustom(false)
-                    setToken('USDC')
-                    setCustomTokenAddress('')
-                    setCustomTokenResult(null)
-                  }}
-                  className="text-indigo-400 hover:text-indigo-300 text-[11px]"
-                >
-                  Switch to Standard Tokens
-                </button>
-              </div>
-              <input
-                type="text"
-                placeholder="0x... contract address"
-                value={customTokenAddress}
-                onChange={(e) => setCustomTokenAddress(e.target.value.trim())}
-                className="w-full rounded-xl px-3 py-2 text-xs font-mono text-white bg-white/[0.04] border border-white/[0.08] focus:border-indigo-500/50 focus:outline-none"
-              />
-              {customTokenResult && (
-                <div className="text-xs text-indigo-300 flex justify-between pt-1">
-                  <span>Symbol: {customTokenResult.symbol}</span>
-                  <span>Balance: {customTokenResult.balance}</span>
-                </div>
-              )}
-              {customTokenError && (
-                <p className="text-xs text-rose-400">{customTokenError}</p>
-              )}
-            </div>
-          )}
 
           {/* Arc Transaction Memo Collapsible (on Arc Testnet) */}
           {selectedChain === 'Arc_Testnet' && sendMode === 'direct' && activeToken === 'USDC' && (
@@ -1759,20 +1837,28 @@ export default function SendModal({
         </form>
       )}
 
-      {/* Token Selector Modal */}        <TokenSelectorModal
-          isOpen={showTokenModal}
-          onClose={() => setShowTokenModal(false)}
-          tokens={tokenList}
-          selectedToken={token}
-          onSelectToken={(sym) => {
-            setToken(sym)
-            setIsCustom(false)
-          }}
-          onSelectCustom={() => {
-            setIsCustom(true)
-            setToken('USDC')
-          }}
-        />
+      {/* Token Selector Modal */}
+      <TokenSelectorModal
+        isOpen={showTokenModal}
+        onClose={() => setShowTokenModal(false)}
+        tokens={tokenList}
+        selectedToken={isCustom ? customTokenResult?.symbol || 'Custom' : tokenSymbol}
+        onSelectToken={(sym) => {
+          setToken(sym)
+          setIsCustom(false)
+          setCustomTokenAddress('')
+          setCustomTokenResult(null)
+        }}
+        onSelectCustomToken={(customInfo) => {
+          setIsCustom(true)
+          setCustomTokenAddress(customInfo.address)
+          setCustomTokenResult(customInfo)
+          setToken(customInfo.symbol)
+        }}
+        chainKey={selectedChain}
+        connectedAddress={connectedAddress}
+        selectedCustomToken={isCustom ? customTokenResult : null}
+      />
 
       {/* Network Selector Modal */}
       <ChainSelectorModal
@@ -1781,14 +1867,31 @@ export default function SendModal({
         chains={availableSendChains}
         selectedChain={selectedChain}
         onSelectChain={(chainKey) => {
-          setSelectedChain(chainKey)
-          setRecipientError(null)
-          // Ask the wallet extension to switch networks immediately (with the
-          // wallet_addEthereumChain fallback for unregistered testnets) so the
-          // send never dies on a stale-network error later.
-          if (provider && authSource !== 'ucw') {
+          const targetNet = getNetwork(chainKey)
+          const oldNative = CHAIN_NATIVE_MAP[selectedChain]?.symbol
+          const newNative = CHAIN_NATIVE_MAP[chainKey]?.symbol || targetNet?.nativeCurrency.symbol
+          if (token === oldNative || token === 'NATIVE') {
+            if (newNative && newNative !== 'USDC') {
+              setToken(newNative)
+            } else {
+              setToken('USDC')
+            }
+          } else if (token !== 'USDC' && !isCustom) {
+            const supported = targetNet ? Object.keys(targetNet.tokens) : ['USDC']
+            const isTargetNative = Boolean(newNative && token === newNative)
+            if (!supported.includes(token) && !isTargetNative) {
+              setToken('USDC')
+            }
+          }
+          if (chainKey.toLowerCase().includes('solana')) {
+            if (sendMode === 'direct') {
+              setSendMode('gateway')
+            }
+          } else if (provider && authSource !== 'ucw') {
             ensureNetwork(chainKey, provider).catch(() => {})
           }
+          setSelectedChain(chainKey)
+          setRecipientError(null)
         }}
         getChainIconId={getChainIconId}
       />
@@ -1800,7 +1903,7 @@ export default function SendModal({
     showSettings && typeof document !== 'undefined'
       ? createPortal(
           <div
-            className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in"
+            className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in overscroll-contain touch-none"
             onClick={() => setShowSettings(false)}
           >
             <div
@@ -1839,7 +1942,7 @@ export default function SendModal({
               <div className="space-y-2 pt-1">
                 <SpeedFeeSelector
                   selectedTier={speedTier}
-                  onSelectTier={(tier) => setSpeedTier(tier)}
+                  onSelectTier={handleSpeedTierChange}
                   context="send"
                   disabled={isSending}
                 />
@@ -1848,7 +1951,10 @@ export default function SendModal({
               {/* Save button */}
               <button
                 type="button"
-                onClick={() => setShowSettings(false)}
+                onClick={() => {
+                  updateWalletSettings({ sendSpeedTier: speedTier })
+                  setShowSettings(false)
+                }}
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
               >
                 <Save className="w-4 h-4" />
@@ -1873,7 +1979,7 @@ export default function SendModal({
     <>
       {createPortal(
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md overscroll-contain touch-none"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose()
           }}

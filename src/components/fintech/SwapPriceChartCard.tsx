@@ -9,7 +9,7 @@ import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
-import WethIcon from '../../assets/Token-Icon/WETH Token.svg'
+import { WethIcon, SonicIcon, PhrsIcon, XplIcon, OkbIcon } from '../../config/tokenIcons'
 import { usePairChartData } from '../../hooks/usePairChartData'
 import { type ChartCandlePoint } from '../../services/chartDataService'
 import { Tooltip } from '../common/Tooltip'
@@ -22,6 +22,15 @@ const TOKEN_ICON_MAP: Record<string, string> = {
   WBTC: CirBtcIcon || CircleIcon,
   WETH: WethIcon,
   ETH: WethIcon,
+  S: SonicIcon,
+  SONIC: SonicIcon,
+  PHRS: PhrsIcon,
+  PHAROS: PhrsIcon,
+  XPL: XplIcon,
+  PLASMA: XplIcon,
+  OKB: OkbIcon,
+  XLAYER: OkbIcon,
+  'X-LAYER': OkbIcon,
 }
 
 const TOKEN_COLOR_MAP: Record<string, string> = {
@@ -34,6 +43,15 @@ const TOKEN_COLOR_MAP: Record<string, string> = {
   SOL: '#14F195',
   AVAX: '#E84142',
   USDC: '#2775CA',
+  S: '#FFFFFF',
+  SONIC: '#FFFFFF',
+  PHRS: '#0007B9',
+  PHAROS: '#0007B9',
+  XPL: '#FFFFFF',
+  PLASMA: '#FFFFFF',
+  OKB: '#FFFFFF',
+  XLAYER: '#FFFFFF',
+  'X-LAYER': '#FFFFFF',
 }
 
 interface SwapPriceChartCardProps {

@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, ChevronDown, Layers, Plus } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { CHAIN_META, getChainDisplayName } from '../../config/chainMeta'
+import { getGatewaySupportedNetworks } from '../../config/gatewayConfig'
 import type { GatewayBalance } from '../../hooks/useGatewayBalance'
-import { sortGatewayBalances } from '../../utils/depositFlow'
 import { formatPercent, formatUsdcAmount } from '../../utils/formatNumber'
 
 const INITIAL_SHOW = 6
@@ -21,7 +21,8 @@ interface AssetDistributionListProps {
 }
 
 /**
- * Stat strip + per-chain Gateway balance breakdown.
+ * Stat strip + unified per-chain Gateway balance breakdown.
+ * Feeds the 13 official Circle Gateway testnet networks directly from the Master Network Registry.
  * While the first Gateway response is in flight a skeleton list is rendered instead of a
  * misleading "no deposits" state; on error, stale data is shown honestly.
  */
@@ -36,16 +37,66 @@ export default function AssetDistributionList({
 }: AssetDistributionListProps) {
   const [showAll, setShowAll] = useState(false)
 
-  const sortedBalances = useMemo(() => sortGatewayBalances(balances), [balances])
+  // 1. Master 13 Gateway networks derived from centralized registry
+  const supportedNetworks = useMemo(() => getGatewaySupportedNetworks(), [])
+
+  // 2. Merge all 13 supported networks with live balance responses from Gateway
+  const all13Balances = useMemo<GatewayBalance[]>(() => {
+    const balanceMap = new Map<string, GatewayBalance>()
+    for (const b of balances) {
+      balanceMap.set(b.chainKey, b)
+    }
+
+    const merged: GatewayBalance[] = supportedNetworks.map((net) => {
+      const existing = balanceMap.get(net.key)
+      if (existing) {
+        balanceMap.delete(net.key)
+        return {
+          ...existing,
+          name: net.name || existing.name,
+        }
+      }
+      return {
+        domain: net.cctpDomain ?? 0,
+        chainKey: net.key,
+        name: net.name,
+        chainName: net.name,
+        balance: '0.00',
+        status: 'success' as const,
+      }
+    })
+
+    // Include any remaining custom rows from test fixtures
+    for (const remaining of balanceMap.values()) {
+      merged.push(remaining)
+    }
+
+    return merged
+  }, [supportedNetworks, balances])
+
+  // 3. Sort balances: chains with active funds first (descending), then 0-balance chains (Arc prioritized)
+  const sortedBalances = useMemo(() => {
+    return [...all13Balances].sort((a, b) => {
+      const balA = Number.parseFloat(a.balance || '0')
+      const balB = Number.parseFloat(b.balance || '0')
+      if (balB !== balA) return balB - balA
+      if (a.chainKey === 'Arc_Testnet') return -1
+      if (b.chainKey === 'Arc_Testnet') return 1
+      return a.name.localeCompare(b.name)
+    })
+  }, [all13Balances])
+
   const activeChains = sortedBalances.filter(
     (b) => Number.parseFloat(b.balance) > 0 && b.status === 'success'
   ).length
+
   const topChain = sortedBalances.find(
     (b) => Number.parseFloat(b.balance) > 0 && b.status === 'success'
   )
+
   const visibleBalances = showAll ? sortedBalances : sortedBalances.slice(0, INITIAL_SHOW)
   const hasMore = sortedBalances.length > INITIAL_SHOW
-  const showSkeleton = Boolean(walletAddress) && loading && sortedBalances.length === 0
+  const showSkeleton = Boolean(walletAddress) && loading && balances.length === 0
 
   return (
     <>
@@ -54,7 +105,7 @@ export default function AssetDistributionList({
         <div className="ub-stat-strip">
           <div className="ub-stat-item">
             <div className="ub-stat-label">Total Chains</div>
-            <div className="ub-stat-value">{sortedBalances.length}</div>
+            <div className="ub-stat-value">{supportedNetworks.length}</div>
           </div>
           <div className="ub-stat-item">
             <div className="ub-stat-label">Active Deposits</div>
@@ -65,9 +116,9 @@ export default function AssetDistributionList({
             <div className="ub-stat-value" style={{ fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               {topChain ? (
                 <>
-                  <NetworkIcon
-                    name={CHAIN_META[topChain.chainKey]?.iconId || 'ethereum'}
-                    variant={CHAIN_META[topChain.chainKey]?.iconId === 'solana' ? 'branded' : 'background'}
+                  <ChainIcon
+                    chainKeyOrIconId={topChain.chainKey}
+                    name={topChain.name || getChainDisplayName(topChain.chainKey)}
                     size={16}
                   />
                   <span>{topChain.name || getChainDisplayName(topChain.chainKey)}</span>
@@ -90,7 +141,7 @@ export default function AssetDistributionList({
 
           {walletAddress && (
             <span style={{ fontSize: 12, color: 'var(--fp-3)', fontFamily: 'var(--font-app)', fontWeight: 500 }}>
-              {activeChains} of {sortedBalances.length} chains funded
+              {activeChains} of {supportedNetworks.length} chains funded
             </span>
           )}
         </div>
@@ -119,26 +170,66 @@ export default function AssetDistributionList({
             </>
           )}
 
-          {!showSkeleton && visibleBalances.map((item) => {
+          {!showSkeleton && walletAddress && hasError && activeChains === 0 && (
+            <div className="ub-empty-state" style={{ padding: '24px 0', textAlign: 'center' }}>
+              <AlertTriangle size={24} style={{ color: '#f87171', marginBottom: 8 }} aria-hidden="true" />
+              <p style={{ color: 'var(--fp-3)', fontSize: 13, fontFamily: 'var(--font-app)', margin: 0 }}>
+                Gateway balance breakdown is temporarily unavailable. Your funds are safe; retry the live sync above.
+              </p>
+            </div>
+          )}
+
+          {!showSkeleton && walletAddress && !hasError && activeChains === 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                marginBottom: 16,
+                background: 'rgba(152, 150, 255, 0.06)',
+                border: '1px solid rgba(152, 150, 255, 0.15)',
+                borderRadius: 12,
+                fontSize: 12,
+                color: 'var(--fp-3)',
+                flexWrap: 'wrap',
+                gap: 10,
+              }}
+            >
+              <span>No active Gateway deposits yet. You can deposit USDC from any of the {supportedNetworks.length} supported networks below.</span>
+              <button
+                type="button"
+                onClick={onDeposit}
+                className="ub-action-btn"
+                style={{ padding: '4px 10px', fontSize: 11, borderRadius: 99, flexShrink: 0 }}
+              >
+                <Plus size={11} aria-hidden="true" />
+                <span>Deposit USDC</span>
+              </button>
+            </div>
+          )}
+
+          {!showSkeleton && walletAddress && visibleBalances.map((item) => {
             const meta = CHAIN_META[item.chainKey] || { iconId: 'ethereum', color: '#64748b', gradient: 'linear-gradient(135deg, #64748b, #475569)' }
-            const balance = Number.parseFloat(item.balance)
+            const balance = Number.parseFloat(item.balance || '0')
             const pct = total > 0 ? (balance / total) * 100 : 0
             const pending = pendingByChain?.[item.chainKey]
+            const isZero = balance <= 0
 
             return (
               <div key={item.chainKey} className="ub-asset-row">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-                    <div className="ub-chain-icon">
-                      <NetworkIcon
-                        name={meta.iconId}
-                        variant={meta.iconId === 'solana' ? 'branded' : 'background'}
+                    <div className="ub-chain-icon" style={{ opacity: isZero ? 0.75 : 1 }}>
+                      <ChainIcon
+                        chainKeyOrIconId={item.chainKey}
+                        name={item.name || getChainDisplayName(item.chainKey)}
                         size={36}
                         className="rounded-full overflow-hidden"
                       />
                     </div>
                     <div style={{ minWidth: 0 }}>
-                      <span style={{ fontFamily: 'var(--font-app)', fontSize: 14, fontWeight: 500, color: 'var(--base-colors--white)', display: 'block', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span style={{ fontFamily: 'var(--font-app)', fontSize: 14, fontWeight: 500, color: isZero ? 'var(--fp-2)' : 'var(--base-colors--white)', display: 'block', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {item.name || getChainDisplayName(item.chainKey)}
                       </span>
                       {pending ? (
@@ -157,12 +248,22 @@ export default function AssetDistributionList({
                     {item.status === 'success' && (
                       <>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontFamily: 'var(--fonts--space-grotesk)', fontSize: 16, fontWeight: 600, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                          <span style={{ fontFamily: 'var(--fonts--space-grotesk)', fontSize: 16, fontWeight: 600, color: isZero ? 'var(--fp-3)' : '#fff', fontVariantNumeric: 'tabular-nums' }}>
                             {formatUsdcAmount(balance)}
                           </span>
-                          <img src={UsdcIcon} alt="USDC" style={{ height: '16px', width: 'auto', display: 'block' }} />
+                          <img src={UsdcIcon} alt="USDC" style={{ height: '16px', width: 'auto', display: 'block', opacity: isZero ? 0.5 : 1 }} />
                         </div>
-                        <span className="ub-pct-badge">{formatPercent(pct)}</span>
+                        <span
+                          className="ub-pct-badge"
+                          style={{
+                            opacity: isZero ? 0.45 : 1,
+                            background: isZero ? 'rgba(255, 255, 255, 0.04)' : undefined,
+                            borderColor: isZero ? 'rgba(255, 255, 255, 0.08)' : undefined,
+                            color: isZero ? 'var(--fp-3)' : undefined,
+                          }}
+                        >
+                          {formatPercent(pct)}
+                        </span>
                       </>
                     )}
                   </div>
@@ -177,28 +278,6 @@ export default function AssetDistributionList({
             )
           })}
 
-          {!showSkeleton && walletAddress && hasError && sortedBalances.length === 0 && (
-            <div className="ub-empty-state" style={{ padding: '36px 0', textAlign: 'center' }}>
-              <AlertTriangle size={28} style={{ color: '#f87171', marginBottom: 8 }} aria-hidden="true" />
-              <p style={{ color: 'var(--fp-3)', fontSize: 13, fontFamily: 'var(--font-app)', margin: 0 }}>
-                Gateway balance breakdown is temporarily unavailable. Your funds are safe; retry the live sync above.
-              </p>
-            </div>
-          )}
-
-          {!showSkeleton && walletAddress && !hasError && sortedBalances.length === 0 && (
-            <div className="ub-empty-state" style={{ padding: '36px 0', textAlign: 'center' }}>
-              <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.5 }} aria-hidden="true">⬡</div>
-              <p style={{ color: 'var(--fp-3)', fontSize: 13, fontFamily: 'var(--font-app)', marginBottom: 14 }}>
-                No Gateway deposits found yet.
-              </p>
-              <button type="button" onClick={onDeposit} className="ub-action-btn" style={{ margin: '0 auto' }}>
-                <Plus size={13} aria-hidden="true" />
-                <span>Deposit USDC</span>
-              </button>
-            </div>
-          )}
-
           {!walletAddress && (
             <div className="ub-empty-state" style={{ padding: '36px 0', textAlign: 'center' }}>
               <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.5 }} aria-hidden="true">⬡</div>
@@ -208,7 +287,7 @@ export default function AssetDistributionList({
             </div>
           )}
 
-          {hasMore && !showSkeleton && (
+          {hasMore && !showSkeleton && walletAddress && (
             <div style={{ paddingTop: 16, textAlign: 'center' }}>
               <button
                 type="button"

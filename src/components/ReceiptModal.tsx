@@ -15,7 +15,7 @@ import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from './common/ChainIcon'
 import { generateQrMatrix } from '../utils/qrGenerator'
 import { SUPPORTED_SEND_CHAINS, getExplorerTxUrl, getExplorerAddressUrl } from '../config/sendConfig'
 
@@ -308,22 +308,20 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
               <span className="text-slate-400">Chain</span>
               <div className="flex items-center gap-1.5 flex-wrap justify-end">
                 <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                  <NetworkIcon
-                    name={sourceIconId}
+                  <ChainIcon
+                    chainKeyOrIconId={sourceChain}
                     size={16}
-                    variant={sourceIconId === 'solana' ? 'branded' : 'background'}
                     className="rounded-full"
                   />
                 </div>
                 <span className="text-white font-medium">{getChainDisplayName(sourceChain)}</span>
-                {destChain && destChain !== sourceChain && destIconId && (
+                {destChain && destChain !== sourceChain && (
                   <>
                     <span className="text-indigo-400 font-bold text-xs">→</span>
                     <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                      <NetworkIcon
-                        name={destIconId}
+                      <ChainIcon
+                        chainKeyOrIconId={destChain}
                         size={16}
-                        variant={destIconId === 'solana' ? 'branded' : 'background'}
                         className="rounded-full"
                       />
                     </div>

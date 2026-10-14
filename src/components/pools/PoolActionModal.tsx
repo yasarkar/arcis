@@ -29,7 +29,7 @@ import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import { useWalletTestnetBalances } from '../../hooks/useWalletTestnetBalances'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
 import { GATEWAY_CHAIN_NAMES } from '../../config/gatewayConfig'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 import { CHAIN_META, getChainDisplayName, getChainIconId } from '../../config/bridgeConfig'
 import { AssetInputPanel, ChainSelectorModal } from '../fintech'
 import { isUserCanceled, formatWalletError } from '../../utils/errorUtils'
@@ -41,6 +41,7 @@ import { useAccount } from 'wagmi'
 import { POOLS_CHAIN_DEFS, STABLE_SWAP_AMP, STABLE_SWAP_LP_FEE_BPS, CONSTANT_PRODUCT_LP_FEE_BPS, POOL_MAX_SLIPPAGE_BPS, poolMinOut, poolSlippageBps } from '../../config/poolsConfig'
 import { ensureNetwork } from '../../services/chainSwitchService'
 import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
+import { useWalletSettings } from '../../hooks/useWalletSettings'
 
 interface PoolActionModalProps {
   isOpen: boolean
@@ -179,11 +180,23 @@ export default function PoolActionModal({
   // LP Withdraw mode
   const [lpPayoutMode, setLpPayoutMode] = useState<'usdc' | 'dual'>('usdc')
 
+  // Wallet-scoped transaction settings (isolated per connected wallet)
+  const { settings: walletSettings, updateSettings: updateWalletSettings } = useWalletSettings(walletAddress)
+
   // Slippage & Settings
-  const [slippage, setSlippage] = useState<number>(0.5)
+  const [slippage, setSlippage] = useState<number>(walletSettings.poolSlippage)
   const [showSettings, setShowSettings] = useState<boolean>(false)
-  const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>('0.5')
-  const [customSlippage, setCustomSlippage] = useState<string>('')
+  const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>(
+    walletSettings.poolSlippageType
+  )
+  const [customSlippage, setCustomSlippage] = useState<string>(walletSettings.poolCustomSlippage || '')
+
+  // Sync state whenever wallet settings change (e.g. user switches wallet account)
+  useEffect(() => {
+    setSelectedSlippageType(walletSettings.poolSlippageType)
+    setCustomSlippage(walletSettings.poolCustomSlippage || '')
+    setSlippage(walletSettings.poolSlippage)
+  }, [walletSettings.poolSlippageType, walletSettings.poolCustomSlippage, walletSettings.poolSlippage])
 
   // Sync slippage numeric value with active toggle or custom input
   useEffect(() => {
@@ -209,8 +222,6 @@ export default function PoolActionModal({
     setPercentage(0)
     setAmountA('')
     setAmountB('')
-    setCustomSlippage('')
-    setSelectedSlippageType('0.5')
     setSwapAmountIn('')
     setErrorMsg(null)
     setIsCanceledError(false)
@@ -263,14 +274,14 @@ export default function PoolActionModal({
     setLpDepositMethod(isModalPoolEmpty ? 'dual' : 'zap')
     setLpPayoutMode('usdc')
     setShowSettings(false)
-    setSelectedSlippageType('0.5')
-    setCustomSlippage('')
+    setSelectedSlippageType(walletSettings.poolSlippageType)
+    setCustomSlippage(walletSettings.poolCustomSlippage || '')
 
     if (pool?.tokens && pool.tokens.length >= 2) {
       setSwapTokenIn(pool.tokens[0].symbol)
       setSwapTokenOut(pool.tokens[1].symbol)
     }
-  }, [initialMode, pool, isOpen, getPreferredSourceChain])
+  }, [initialMode, pool, isOpen, getPreferredSourceChain, walletSettings.poolSlippageType, walletSettings.poolCustomSlippage])
 
   // Cross-Chain balance on selected source chain (shows Circle Gateway balance)
   const crossChainBalNum = useMemo(() => {
@@ -1112,6 +1123,8 @@ export default function PoolActionModal({
                     onClick={() => {
                       setSelectedSlippageType(type)
                       setCustomSlippage('')
+                      const num = parseFloat(type)
+                      updateWalletSettings({ poolSlippageType: type, poolCustomSlippage: '', poolSlippage: num })
                     }}
                     style={{
                       padding: '6px 0',
@@ -1130,7 +1143,10 @@ export default function PoolActionModal({
                 ))}
                 <button
                   type="button"
-                  onClick={() => setSelectedSlippageType('custom')}
+                  onClick={() => {
+                    setSelectedSlippageType('custom')
+                    updateWalletSettings({ poolSlippageType: 'custom' })
+                  }}
                   style={{
                     padding: '6px 0',
                     borderRadius: 10,
@@ -1160,11 +1176,11 @@ export default function PoolActionModal({
                       onChange={(e) => {
                         const val = parseFloat(e.target.value)
                         const maxPercent = POOL_MAX_SLIPPAGE_BPS / 100
-                        if (!isNaN(val) && val > maxPercent) {
-                          setCustomSlippage(String(maxPercent))
-                        } else {
-                          setCustomSlippage(e.target.value)
-                        }
+                        const finalVal = !isNaN(val) && val > maxPercent ? String(maxPercent) : e.target.value
+                        setCustomSlippage(finalVal)
+                        const parsedNum = parseFloat(finalVal)
+                        const safeNum = !isNaN(parsedNum) && parsedNum > 0 ? Math.min(parsedNum, maxPercent) : 0.5
+                        updateWalletSettings({ poolCustomSlippage: finalVal, poolSlippageType: 'custom', poolSlippage: safeNum })
                       }}
                       autoFocus
                       style={{
@@ -1434,9 +1450,9 @@ export default function PoolActionModal({
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                      <NetworkIcon
-                        name={CHAIN_META[selectedSourceChain]?.iconId || getChainIconId(selectedSourceChain)}
-                        variant={selectedSourceChain === 'Solana_Devnet' ? 'branded' : 'background'}
+                      <ChainIcon
+                        chainKeyOrIconId={selectedSourceChain}
+                        name={CHAIN_META[selectedSourceChain]?.name || getChainDisplayName(selectedSourceChain)}
                         size={20}
                         className="rounded-full"
                       />

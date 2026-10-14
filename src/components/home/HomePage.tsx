@@ -83,7 +83,7 @@ export default function HomePage({
         silhouetteType: 'usdc',
       },
       {
-        value: '12+ Chains',
+        value: '13 Chains',
         label: 'Liquidity',
         desc: 'One unified balance across major networks',
         color: '#38bdf8',
@@ -268,7 +268,7 @@ export default function HomePage({
   const corePillars = [
     {
       id: 'unified',
-      title: 'One Unified Balance across 12+ Chains',
+      title: 'One Unified Balance across 13 Chains',
       headline: 'Your USDC everywhere, without fragmented wallets or bridging hassle',
       description:
         'Stop juggling balances across different networks. Arcis pools your USDC across Ethereum, Solana, Base, Arbitrum, and Arc into a single balance you can spend or transfer instantly anywhere.',
@@ -385,7 +385,7 @@ export default function HomePage({
     {
       feature: 'Cross-Chain Liquidity',
       legacy: 'Fragmented pools, wrapped tokens, slow bridging',
-      arcis: '12+ Chains unified balance via Circle Gateway (<500ms)',
+      arcis: '13 Chains unified balance via Circle Gateway (<500ms)',
     },
     {
       feature: 'Wallet Onboarding',
@@ -542,7 +542,7 @@ export default function HomePage({
           {/* Motto / Slogan */}
           <p className="text-base sm:text-lg md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl">
             <strong className="text-white font-semibold">Arcis</strong> is the all-in-one financial operating system built on Arc.
-            Pay gas in native USDC, access unified liquidity across 12+ chains, and earn sustainable real yield without bridges or seed phrases.
+            Pay gas in native USDC, access unified liquidity across 13 chains, and earn sustainable real yield without bridges or seed phrases.
           </p>
 
           {/* Fast Bullet Points */}

@@ -13,7 +13,7 @@ import {
   ArrowUpRightFromSquare,
   Sparkles,
 } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from './common/ChainIcon'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
@@ -161,9 +161,9 @@ export function ChainIconBadge({
       className={className}
       title={meta.name || chain}
     >
-      <NetworkIcon
-        name={meta.iconId}
-        variant={meta.isSolana ? 'branded' : 'background'}
+      <ChainIcon
+        chainKeyOrIconId={chain || meta.iconId || 'arc'}
+        name={meta.name}
         size={size}
         className="rounded-full overflow-hidden"
       />

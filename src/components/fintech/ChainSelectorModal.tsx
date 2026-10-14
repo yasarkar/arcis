@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { Search, X, Check } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 
 export interface ChainItem {
   chain: string
   name: string
+  shortName?: string
   balance?: string
   disabled?: boolean
   disabledReason?: string
@@ -38,6 +40,8 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
     setSearch('')
   })
 
+  useBodyScrollLock(isOpen)
+
   useEffect(() => {
     if (isOpen) {
       setSearch('')
@@ -62,13 +66,14 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
     const query = search.toLowerCase().trim()
     return (
       c.name.toLowerCase().includes(query) ||
-      c.chain.toLowerCase().includes(query)
+      c.chain.toLowerCase().includes(query) ||
+      (c.shortName && c.shortName.toLowerCase().includes(query))
     )
   })
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in"
+      className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overscroll-contain touch-none"
       onClick={onClose}
     >
       <div
@@ -109,7 +114,7 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
         </div>
 
         {/* Chain List */}
-        <div className="max-h-[300px] overflow-y-auto space-y-1 pr-1">
+        <div className="max-h-[300px] overflow-y-auto overscroll-contain space-y-1 pr-1">
           {filteredChains.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-400">
               No networks found.
@@ -139,16 +144,18 @@ export const ChainSelectorModal: React.FC<ChainSelectorModalProps> = ({
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className={`w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0 ${isDisabled ? 'grayscale opacity-50' : ''}`}>
-                      <NetworkIcon
-                        name={iconId}
-                        variant={iconId === 'solana' ? 'branded' : 'background'}
+                      <ChainIcon
+                        chainKeyOrIconId={c.chain}
+                        name={c.name}
                         size={22}
                         className="rounded-full overflow-hidden"
                       />
                     </div>
-                    <span className={`font-semibold text-xs truncate ${isDisabled ? 'text-slate-400' : 'text-white'}`}>
-                      {c.name}
-                    </span>
+                    <div className="flex items-center gap-1.5 min-w-0 truncate">
+                      <span className={`font-semibold text-xs truncate ${isDisabled ? 'text-slate-400' : 'text-white'}`}>
+                        {c.name}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">

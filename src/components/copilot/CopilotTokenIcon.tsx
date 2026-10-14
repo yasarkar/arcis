@@ -1,5 +1,5 @@
 // Unified token and network icon components for Arcis Copilot
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { ChainIcon } from '../common/ChainIcon'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
@@ -67,7 +67,7 @@ export function CopilotNetworkBadge({ chainName, className = '', iconOnly = fals
     }
     return (
       <span className="w-5 h-5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900">
-        <NetworkIcon id={iconId} className="w-5 h-5" />
+        <ChainIcon chainKeyOrIconId={chainName} size={20} className="w-5 h-5 rounded-full" />
       </span>
     )
   }
@@ -77,7 +77,7 @@ export function CopilotNetworkBadge({ chainName, className = '', iconOnly = fals
       {isArc ? (
         <img src={ArcLogo} alt="Arc" className="w-5 h-5 object-contain" />
       ) : (
-        <NetworkIcon id={iconId} className="w-5 h-5" />
+        <ChainIcon chainKeyOrIconId={chainName} size={20} className="w-5 h-5 rounded-full" />
       )}
       <span className="select-text">{chainName}</span>
     </span>

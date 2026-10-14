@@ -5,7 +5,7 @@ import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
-import WethIcon from '../../assets/Token-Icon/WETH Token.svg'
+import { WethIcon } from '../../config/tokenIcons'
 import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
 
 export interface PositionItem {
