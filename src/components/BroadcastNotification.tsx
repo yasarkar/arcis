@@ -25,7 +25,7 @@ import {
   isKnownChain,
 } from '../config/chainMeta'
 import { ARCIS_POOLS } from '../config/poolsConfig'
-import { TOKEN_ICON_MAP } from '../config/tokenIcons'
+import { TOKEN_ICON_MAP, WethIcon } from '../config/tokenIcons'
 
 export type BroadcastStatus = 'pending' | 'success' | 'failed' | 'canceled' | 'info'
 export type BroadcastType = 'send' | 'bridge' | 'swap' | 'deposit' | 'pool' | 'faucet' | 'system'
@@ -968,9 +968,11 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
   const amount = details.amount || details.rewardAmount || details.lpAmount || ''
   const resolvedLpSymbol = details.poolId === 'usdc-cirbtc-pool' || poolName.toLowerCase().includes('cirbtc') || poolName.toLowerCase().includes('btc')
     ? 'af-USDC-cirBTC'
-    : details.poolId === 'usdc-eurc-stable-pool' || poolName.toLowerCase().includes('eurc')
-      ? 'af-USDC-EURC'
-      : 'af-USDC'
+    : details.poolId === 'usdc-weth-pool' || poolName.toLowerCase().includes('weth') || poolName.toLowerCase().includes('eth')
+      ? 'af-USDC-WETH'
+      : details.poolId === 'usdc-eurc-stable-pool' || poolName.toLowerCase().includes('eurc')
+        ? 'af-USDC-EURC'
+        : 'af-USDC'
 
   const tokenSym = details.tokenSymbol && details.tokenSymbol !== 'LP'
     ? details.tokenSymbol
@@ -979,9 +981,11 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
   const tokenIconSrc = details.tokenIcon || TOKEN_ICON_MAP[tokenSym] || (
     tokenSym.includes('cirBTC') || tokenSym.includes('BTC')
       ? CirBtcIcon
-      : tokenSym.includes('EURC')
-        ? EurcIcon
-        : UsdcIcon
+      : tokenSym.includes('WETH') || tokenSym.includes('ETH')
+        ? WethIcon
+        : tokenSym.includes('EURC')
+          ? EurcIcon
+          : UsdcIcon
   )
 
   const amountA = details.amountA || amount

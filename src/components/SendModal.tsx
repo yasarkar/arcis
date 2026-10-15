@@ -15,11 +15,10 @@ import {
   Ban,
   Save,
 } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
 import { ChainIcon } from './common/ChainIcon'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
-import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
+import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
 import { formatUnits, erc20Abi, isAddress } from 'viem'
 import { getResilientPublicClient, getArcPublicClient, resilientGetBalance, resilientReadContract } from '../services/rpc'
 import { getDisplayTokenSymbol, CHAIN_NATIVE_MAP, getCleanNativeTokenName } from '../utils/tokenUtils'
@@ -37,7 +36,7 @@ import {
   getChainIconId,
   getExplorerTxUrl,
 } from '../config/sendConfig'
-import { getNetwork, supportsAdapter, supportsCapability } from '../config/chainMeta'
+import { getNetwork } from '../config/chainMeta'
 import { WethIcon, TOKEN_ICON_MAP, SonicIcon, PhrsIcon, XplIcon, OkbIcon } from '../config/tokenIcons'
 import { addTransaction } from '../utils/history'
 import { normalizeCircleBlockchain, isCircleUcwChain } from '../utils/circleBlockchain'
@@ -75,7 +74,8 @@ import { saveRecipient } from '../utils/recentRecipients'
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
   EURC: EurcIcon,
-  cirBTC: CircleIcon,
+  cirBTC: CirBtcIcon,
+  BTC: CirBtcIcon,
   WETH: WethIcon,
   S: SonicIcon,
   SONIC: SonicIcon,
@@ -337,27 +337,41 @@ export default function SendModal({
     }
   }, [sendMode, selectedChain])
 
+  // Fallback to Arc Testnet if in Gateway mode and an unsupported Gateway chain is currently selected
+  useEffect(() => {
+    if (sendMode === 'gateway' && GATEWAY_DOMAINS[selectedChain] === undefined) {
+      setSelectedChain('Arc_Testnet')
+    }
+  }, [sendMode, selectedChain])
+
   // Circle UCW can only execute on whitelisted chains (Solana additionally stays
-  // EVM-only); unsupported chains are disabled so a transfer can never be signed
-  // for the wrong blockchain.
+  // EVM-only); Gateway mode only operates on networks supporting Circle Gateway.
+  // Unsupported chains are disabled so a transfer can never be signed for the wrong blockchain.
   const availableSendChains = useMemo(() => {
-    if (authSource === 'ucw') {
-      return SUPPORTED_SEND_CHAINS.map((c) => {
-        const isSolana = c.chain.toLowerCase().includes('solana')
-        const supported = isCircleUcwChain(c.chain)
+    return SUPPORTED_SEND_CHAINS.map((c) => {
+      const isSolana = c.chain.toLowerCase().includes('solana')
+      const supportedByUcw = isCircleUcwChain(c.chain)
+      const supportedByGateway = GATEWAY_DOMAINS[c.chain] !== undefined
+
+      if (authSource === 'ucw' && (isSolana || !supportedByUcw)) {
         return {
           ...c,
-          disabled: isSolana || !supported,
-          disabledReason: isSolana
-            ? 'EVM Only'
-            : supported
-            ? undefined
-            : 'Not supported by Circle UCW',
+          disabled: true,
+          disabledReason: isSolana ? 'EVM Only' : 'Not supported by Circle UCW',
         }
-      })
-    }
-    return SUPPORTED_SEND_CHAINS
-  }, [authSource])
+      }
+
+      if (sendMode === 'gateway' && !supportedByGateway) {
+        return {
+          ...c,
+          disabled: true,
+          disabledReason: 'Gateway Unsupported',
+        }
+      }
+
+      return c
+    })
+  }, [authSource, sendMode])
 
   // Address validation helpers (EVM checksum, Solana base58, Injective bech32)
   // live at module scope above so they can be unit tested.
@@ -1064,7 +1078,7 @@ export default function SendModal({
       try {
         if (sendMode === 'gateway') {
           if (GATEWAY_DOMAINS[selectedChain] === undefined) {
-            const errorText = `Bridge is not supported on ${selectedChain.replace(/_/g, ' ')}.`
+            const errorText = `Circle Gateway is not supported on ${selectedChain.replace(/_/g, ' ')}. Please switch to Direct Wallet mode or select a Gateway-supported network.`
             setError(errorText)
             setIsSending(false)
             updateBroadcast(broadcastId, {
@@ -1512,6 +1526,13 @@ export default function SendModal({
     if (!connectedAddress) {
       return { disabled: true, text: 'CONNECT WALLET', loading: false }
     }
+    if (sendMode === 'gateway' && GATEWAY_DOMAINS[selectedChain] === undefined) {
+      return {
+        disabled: true,
+        text: `${selectedChain.replace(/_/g, ' ').toUpperCase()} NOT SUPPORTED ON GATEWAY`,
+        loading: false,
+      }
+    }
     if (!amount || parseFloat(amount) <= 0) {
       return { disabled: true, text: 'ENTER AN AMOUNT', loading: false }
     }
@@ -1555,6 +1576,12 @@ export default function SendModal({
     isSending,
     tokenSymbol,
     authSource,
+    sendMode,
+    selectedChain,
+    amountDecimals,
+    isCustom,
+    isInspectingCustomToken,
+    customTokenResult,
   ])
 
   if (!isOpen && !isInline) return null
@@ -1623,7 +1650,7 @@ export default function SendModal({
       icon={<ArrowUpRight className="w-5 h-5" />}
       isInline={isInline}
       maxWidth={isInline ? 640 : 540}
-      minHeight={isInline ? 680 : undefined}
+      minHeight={isInline ? (successReceipt ? 'auto' : 680) : undefined}
       headerActions={headerActions}
     >
       {/* Success View */}
@@ -1633,6 +1660,7 @@ export default function SendModal({
           tokenSymbol={tokenSymbol}
           tokenIcon={isCustom ? undefined : TOKEN_ICONS[token]}
           recipient={recipient}
+          connectedAddress={connectedAddress}
           network={selectedChain}
           networkIconId={getChainIconId(selectedChain)}
           txHash={successReceipt.txHash}
@@ -1663,6 +1691,9 @@ export default function SendModal({
             activeId={sendMode}
             onChange={(mode) => {
               if (mode === 'direct' && selectedChain.toLowerCase().includes('solana')) {
+                setSelectedChain('Arc_Testnet')
+              }
+              if (mode === 'gateway' && GATEWAY_DOMAINS[selectedChain] === undefined) {
                 setSelectedChain('Arc_Testnet')
               }
               setSendMode(mode)
@@ -1867,6 +1898,9 @@ export default function SendModal({
         chains={availableSendChains}
         selectedChain={selectedChain}
         onSelectChain={(chainKey) => {
+          if (sendMode === 'gateway' && GATEWAY_DOMAINS[chainKey] === undefined) {
+            return
+          }
           const targetNet = getNetwork(chainKey)
           const oldNative = CHAIN_NATIVE_MAP[selectedChain]?.symbol
           const newNative = CHAIN_NATIVE_MAP[chainKey]?.symbol || targetNet?.nativeCurrency.symbol

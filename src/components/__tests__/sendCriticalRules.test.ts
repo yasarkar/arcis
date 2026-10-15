@@ -1,9 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   isCircleUcwChain,
   normalizeCircleBlockchain,
 } from '../../utils/circleBlockchain'
 import { gatewayMaxFeeUsdc } from '../../utils/bridgeAmountUtils'
+import { GATEWAY_DOMAINS_TESTNET } from '../../config/gatewayConfig'
 
 describe('normalizeCircleBlockchain fail-closed mapping (critical fix #2)', () => {
   it('keeps resolving every whitelisted chain correctly', () => {
@@ -62,3 +64,27 @@ describe('gatewayMaxFeeUsdc — Circle amount + maxFee rule (critical fix #3)', 
     expect(100 + gatewayMaxFeeUsdc(100)).toBe(101)
   })
 })
+
+describe('SendModal Gateway mode network restrictions & safeguards', () => {
+  const sendModalSource = readFileSync(new URL('../SendModal.tsx', import.meta.url), 'utf8')
+
+  it('does not contain misleading "Bridge is not supported on" in Gateway send error message', () => {
+    expect(sendModalSource).not.toMatch(/Bridge is not supported on/)
+    expect(sendModalSource).toMatch(/Circle Gateway is not supported on/)
+  })
+
+  it('disables non-Gateway networks when sendMode is gateway', () => {
+    expect(sendModalSource).toMatch(/sendMode === 'gateway' && !supportedByGateway/)
+    expect(sendModalSource).toMatch(/disabledReason: 'Gateway Unsupported'/)
+  })
+
+  it('locks CTA button with explicit message if an unsupported Gateway network is active', () => {
+    expect(sendModalSource).toMatch(/sendMode === 'gateway' && GATEWAY_DOMAINS\[selectedChain\] === undefined/)
+    expect(sendModalSource).toMatch(/NOT SUPPORTED ON GATEWAY/)
+  })
+
+  it('guarantees Morph Testnet is not in GATEWAY_DOMAINS_TESTNET', () => {
+    expect(GATEWAY_DOMAINS_TESTNET['Morph_Testnet']).toBeUndefined()
+  })
+})
+

@@ -18,7 +18,7 @@ import { NetworkIcon } from '@web3icons/react/dynamic'
 import { ChainIcon } from './common/ChainIcon'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
-import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
+import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
 import { normalizeAppError } from '../utils/errorNormalizer'
 import { useQueryClient } from '@tanstack/react-query'
 import { redisCache } from '../services/redisCacheService'
@@ -43,11 +43,13 @@ import {
   getSwapFeeRecipient,
   SWAP_CUSTOM_FEE_CONFIG,
 } from '../config/treasuryConfig'
+import { WethIcon } from '../config/tokenIcons'
 import {
   poolSlippageBps,
   POOL_MAX_SLIPPAGE_BPS,
   STABLE_SWAP_LP_FEE_BPS,
   CONSTANT_PRODUCT_LP_FEE_BPS,
+  WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
 } from '../config/poolsConfig'
 import { getChainIconId } from '../config/swapConfig'
 import { getExplorerTxUrl } from '../config/sendConfig'
@@ -74,7 +76,10 @@ import { saveRecipient } from '../utils/recentRecipients'
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
   EURC: EurcIcon,
-  cirBTC: CircleIcon,
+  cirBTC: CirBtcIcon,
+  BTC: CirBtcIcon,
+  WETH: WethIcon,
+  ETH: WethIcon,
 }
 
 interface SwapModalProps {
@@ -184,6 +189,14 @@ export default function SwapModal({
     setSpeedTier(walletSettings.swapSpeedTier)
   }, [walletSettings.swapSlippageType, walletSettings.swapCustomSlippage, walletSettings.swapSpeedTier])
 
+  const handleSpeedTierChange = useCallback(
+    (tier: SpeedTier) => {
+      setSpeedTier(tier)
+      updateWalletSettings({ swapSpeedTier: tier })
+    },
+    [updateWalletSettings]
+  )
+
   // Recipient Address (Matching BridgeModal exactly)
   const [recipient, setRecipient] = useState('')
 
@@ -272,7 +285,7 @@ export default function SwapModal({
   const platformFeeAmount = useMemo(() => {
     if (rawPlatformFeeNum === null || rawPlatformFeeNum <= 0) return null
     if (rawPlatformFeeNum < 0.01) {
-      if (tokenIn === 'cirBTC') {
+      if (tokenIn === 'cirBTC' || tokenIn === 'WETH') {
         return parseFloat(rawPlatformFeeNum.toFixed(6)).toString()
       }
       return '< 0.01'
@@ -339,9 +352,8 @@ export default function SwapModal({
       setNotice(null)
       pendingPollCancelRef.current = true
       setShowSettings(false)
-      setSpeedTier('fast')
-      setSelectedSlippageType('0.5')
-      setCustomSlippage('')
+      // Note: speedTier, selectedSlippageType, and customSlippage are persisted in
+      // walletSettings (localStorage) and must not be reset on modal open/mount.
       setRecipient('')
       setSelectedChain('Arc_Testnet')
       setShowChainModal(false)
@@ -366,28 +378,31 @@ export default function SwapModal({
   const usdcWalletBalance = walletBalances[fromChain]?.usdc || '0.00'
   const eurcWalletBalance = walletBalances[fromChain]?.eurc || '0.00'
   const cirbtcWalletBalance = walletBalances[fromChain]?.cirbtc || '0.00000'
+  const wethWalletBalance = walletBalances[fromChain]?.weth || '0.0000'
 
   // Dynamic balance for selected tokenIn
   const tokenInBalance = useMemo(() => {
-    if (!connectedAddress) return tokenIn === 'cirBTC' ? '0.00000' : '0.00'
+    if (!connectedAddress) return tokenIn === 'cirBTC' ? '0.00000' : tokenIn === 'WETH' ? '0.0000' : '0.00'
     if (tokenIn === 'USDC') return usdcWalletBalance
     if (tokenIn === 'EURC') return eurcWalletBalance
     if (tokenIn === 'cirBTC') return cirbtcWalletBalance
+    if (tokenIn === 'WETH') return wethWalletBalance
     return '0.00'
-  }, [connectedAddress, tokenIn, usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance])
+  }, [connectedAddress, tokenIn, usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, wethWalletBalance])
 
   const tokenOutBalance = useMemo(() => {
-    if (!connectedAddress) return tokenOut === 'cirBTC' ? '0.00000' : '0.00'
+    if (!connectedAddress) return tokenOut === 'cirBTC' ? '0.00000' : tokenOut === 'WETH' ? '0.0000' : '0.00'
     if (tokenOut === 'USDC') return usdcWalletBalance
     if (tokenOut === 'EURC') return eurcWalletBalance
     if (tokenOut === 'cirBTC') return cirbtcWalletBalance
+    if (tokenOut === 'WETH') return wethWalletBalance
     return '0.00'
-  }, [connectedAddress, tokenOut, usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance])
+  }, [connectedAddress, tokenOut, usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, wethWalletBalance])
 
   // ── Spendable cap for MAX / quick-% (fix #4) ───────────────────────────────────
   // Balances are floored (never rounded up) and, on Arc where gas is paid in USDC, a gas
   // reserve is withheld so a MAX swap cannot consume the whole gas balance.
-  const tokenInPlaces = tokenIn === 'cirBTC' ? 5 : 2
+  const tokenInPlaces = tokenIn === 'cirBTC' ? 5 : tokenIn === 'WETH' ? 4 : 2
   const reservesGasBuffer = fromChain === 'Arc_Testnet' && tokenIn === 'USDC' && authSource !== 'passkey'
 
   const flooredBalance = floorToPlaces(parseFloat(tokenInBalance), tokenInPlaces)
@@ -406,8 +421,9 @@ export default function SwapModal({
       { symbol: 'USDC', name: 'USD Coin', icon: TOKEN_ICONS.USDC, balance: usdcWalletBalance },
       { symbol: 'EURC', name: 'Euro Coin', icon: TOKEN_ICONS.EURC, balance: eurcWalletBalance },
       { symbol: 'cirBTC', name: 'Circle Bitcoin', icon: TOKEN_ICONS.cirBTC, balance: cirbtcWalletBalance },
+      { symbol: 'WETH', name: 'Wrapped Ether', icon: TOKEN_ICONS.WETH, balance: wethWalletBalance },
     ],
-    [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance]
+    [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, wethWalletBalance]
   )
 
   // Swap Direction Switch
@@ -1081,10 +1097,14 @@ export default function SwapModal({
     if (!estimatedOutput || !rate || isEstimating) return []
 
     const isArcNative = fromChain === 'Arc_Testnet'
+    const isWethRoute = tokenIn === 'WETH' || tokenOut === 'WETH'
+    const isCirBtcRoute = tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
     const lpPoolName = isArcNative
-      ? tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
-        ? '(AMM LP Pool)'
-        : '(StableSwap LP)'
+      ? isWethRoute
+        ? '(USDC/WETH LP)'
+        : isCirBtcRoute
+          ? '(AMM LP Pool)'
+          : '(StableSwap LP)'
       : '(AppKit Route)'
 
     // Liquidity Provider fee calculation: show amount instead of percentage next to pool name
@@ -1095,16 +1115,18 @@ export default function SwapModal({
     // Pool LP fees come from the shared pool constants (audit #14) so the breakdown can never
     // drift from the deployed contracts.
     const lpBps = isArcNative
-      ? tokenIn === 'cirBTC' || tokenOut === 'cirBTC'
-        ? Number(CONSTANT_PRODUCT_LP_FEE_BPS)
-        : Number(STABLE_SWAP_LP_FEE_BPS)
+      ? isWethRoute
+        ? Number(WETH_CONSTANT_PRODUCT_LP_FEE_BPS)
+        : isCirBtcRoute
+          ? Number(CONSTANT_PRODUCT_LP_FEE_BPS)
+          : Number(STABLE_SWAP_LP_FEE_BPS)
       : 2
     const fallbackLpFeeNum = (netSwapAmtIn * lpBps) / 10000
     const lpFeeNum = lpQuoteFee ? parseFloat(lpQuoteFee.amount) : fallbackLpFeeNum
 
     let lpFeeFormatted = '0.00'
     if (lpFeeNum > 0) {
-      if (tokenIn === 'cirBTC') {
+      if (tokenIn === 'cirBTC' || tokenIn === 'WETH') {
         lpFeeFormatted = lpFeeNum < 0.000001 ? '< 0.000001' : parseFloat(lpFeeNum.toFixed(6)).toString()
       } else if (lpFeeNum < 0.01) {
         lpFeeFormatted = lpFeeNum < 0.0001 ? '< 0.0001' : parseFloat(lpFeeNum.toFixed(4)).toString()
@@ -1115,8 +1137,11 @@ export default function SwapModal({
 
     const lpFeeDisplay = `${lpFeeFormatted} ${tokenIn} ${lpPoolName}`
 
-    const routeName =
-      tokenIn === 'cirBTC' || tokenOut === 'cirBTC' ? 'Arcis AMM Pool' : 'Arcis StableSwap'
+    const routeName = isWethRoute
+      ? 'Arcis USDC/WETH Pool'
+      : isCirBtcRoute
+        ? 'Arcis AMM Pool'
+        : 'Arcis StableSwap'
 
     const tierConfig = SPEED_TIERS[speedTier] || SPEED_TIERS.fast
 
@@ -1380,7 +1405,7 @@ export default function SwapModal({
       icon={<ArrowRightLeft className="w-5 h-5" />}
       isInline={isInline}
       maxWidth={isInline ? 640 : 540}
-      minHeight={isInline ? 680 : undefined}
+      minHeight={isInline ? (successData ? 'auto' : 680) : undefined}
       headerActions={headerActions}
     >
       {/* Success View */}
@@ -1399,6 +1424,7 @@ export default function SwapModal({
           explorerUrl={getExplorerTxUrl(fromChain, successData.txHash)}
           isInline={isInline}
           recipient={successData.recipient}
+          connectedAddress={connectedAddress}
           rate={successData.rate}
           slippage={successData.slippage}
           speedTier={successData.speedTier}
@@ -1497,7 +1523,7 @@ export default function SwapModal({
               onSelectToken={() => setShowTokenInModal(true)}
               balance={tokenInBalance}
               onMaxClick={() => setAmountIn(maxSpendable.toFixed(tokenInPlaces))}
-              maxDecimals={tokenIn === 'cirBTC' ? 8 : 6}
+              maxDecimals={tokenIn === 'cirBTC' ? 8 : (tokenIn === 'WETH' ? 18 : 6)}
               quickPercentages={[25, 50, 75, 100]}
               onSelectPercentage={handleQuickPercentage}
               fiatEstimate={formatFiatEstimate(amountIn, tokenIn, tokenPrices)}
@@ -1516,7 +1542,7 @@ export default function SwapModal({
               label="YOU RECEIVE"
               amount={estimatedOutput}
               readOnly={true}
-              placeholder={tokenOut === 'cirBTC' ? '0.00000' : '0.00'}
+              placeholder={tokenOut === 'cirBTC' ? '0.00000' : (tokenOut === 'WETH' ? '0.0000' : '0.00')}
               tokenSymbol={tokenOut}
               tokenIcon={TOKEN_ICONS[tokenOut]}
               onSelectToken={() => setShowTokenOutModal(true)}
@@ -1584,7 +1610,7 @@ export default function SwapModal({
         onSelectToken={(sym) => {
           setTokenIn(sym)
           if (sym === tokenOut) {
-            const others = ['USDC', 'EURC', 'cirBTC'].filter((t) => t !== sym)
+            const others = ['USDC', 'EURC', 'cirBTC', 'WETH'].filter((t) => t !== sym)
             setTokenOut(others[0])
           }
         }}
@@ -1600,7 +1626,7 @@ export default function SwapModal({
         onSelectToken={(sym) => {
           setTokenOut(sym)
           if (sym === tokenIn) {
-            const others = ['USDC', 'EURC', 'cirBTC'].filter((t) => t !== sym)
+            const others = ['USDC', 'EURC', 'cirBTC', 'WETH'].filter((t) => t !== sym)
             setTokenIn(others[0])
           }
         }}
@@ -1752,10 +1778,7 @@ export default function SwapModal({
               <div className="space-y-2 pt-1">
                 <SpeedFeeSelector
                   selectedTier={speedTier}
-                  onSelectTier={(tier) => {
-                    setSpeedTier(tier)
-                    updateWalletSettings({ swapSpeedTier: tier })
-                  }}
+                  onSelectTier={handleSpeedTierChange}
                   context="swap"
                   disabled={isSwapping}
                 />

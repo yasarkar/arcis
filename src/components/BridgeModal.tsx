@@ -1941,7 +1941,7 @@ export default function BridgeModal({
       icon={<Globe className="w-5 h-5" />}
       isInline={isInline}
       maxWidth={isInline ? 640 : 540}
-      minHeight={isInline ? 680 : undefined}
+      minHeight={isInline ? (successReceipt ? 'auto' : 680) : undefined}
       headerActions={headerActions}
     >
       {/* Success Receipt Screen */}
@@ -1957,6 +1957,7 @@ export default function BridgeModal({
           sourceIconId={CHAIN_META[successReceipt.sourceChain]?.iconId || 'ethereum'}
           destIconId={CHAIN_META[successReceipt.destChain]?.iconId || 'ethereum'}
           recipient={recipient || connectedAddress}
+          connectedAddress={connectedAddress}
           mode={successReceipt.mode}
           pending={isBridgePending}
           txHash={successReceipt.txHash}

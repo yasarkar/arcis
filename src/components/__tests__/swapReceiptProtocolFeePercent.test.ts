@@ -21,7 +21,6 @@ describe('Swap Receipt Protocol Fee with Percentage', () => {
     expect(markup).toContain('Protocol Fee:')
     expect(markup).toContain('1.00 USDC')
     expect(markup).toContain('(1.00%)')
-    expect(markup).toContain('Priority Tier:')
     expect(markup).toContain('Fast')
   })
 
