@@ -23,6 +23,7 @@ export const POOL_TESTNET_BASE_VOLUME: Record<string, number> = {
   'usdc-eurc-stable-pool': 0.00,
   'usdc-cirbtc-pool': 0.00,
   'usdc-yield-vault': 0.00,
+  'usdc-weth-pool': 0.00,
 }
 
 export function clearSwapVolumeCache(): void {
@@ -142,9 +143,12 @@ export const recordClientSwapVolume = (poolId: string, volumeUsd: number, txHash
  */
 export function poolIdForSwapPair(tokenIn: string, tokenOut: string): string {
   const isCirBtc = (symbol: string) => symbol === 'CIRBTC' || symbol === 'BTC'
+  const isWeth = (symbol: string) => symbol === 'WETH' || symbol === 'ETH'
   const inSymbol = String(tokenIn || '').toUpperCase()
   const outSymbol = String(tokenOut || '').toUpperCase()
-  return isCirBtc(inSymbol) || isCirBtc(outSymbol) ? 'usdc-cirbtc-pool' : 'usdc-eurc-stable-pool'
+  if (isCirBtc(inSymbol) || isCirBtc(outSymbol)) return 'usdc-cirbtc-pool'
+  if (isWeth(inSymbol) || isWeth(outSymbol)) return 'usdc-weth-pool'
+  return 'usdc-eurc-stable-pool'
 }
 
 /**

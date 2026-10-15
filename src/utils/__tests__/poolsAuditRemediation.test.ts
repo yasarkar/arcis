@@ -19,6 +19,7 @@ describe('Pools Audit Remediation Verifications', () => {
       expect(POOL_TESTNET_BASE_VOLUME['usdc-eurc-stable-pool']).toBe(0)
       expect(POOL_TESTNET_BASE_VOLUME['usdc-cirbtc-pool']).toBe(0)
       expect(POOL_TESTNET_BASE_VOLUME['usdc-yield-vault']).toBe(0)
+      expect(POOL_TESTNET_BASE_VOLUME['usdc-weth-pool']).toBe(0)
     })
 
     it('startLiveVolumeSimulation is a clean no-op that does not increment volume', () => {

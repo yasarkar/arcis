@@ -299,6 +299,21 @@ export function estimateLpSharesForDeposit(params: {
       } catch {
         return null
       }
+    } else if (poolId === 'usdc-weth-pool') {
+      try {
+        const rawA = parseUnits(amountA.toFixed(6), 6)
+        const rawB = parseUnits(amountB.toFixed(6), 18)
+        const rawSqrt = sqrtBigInt(rawA * rawB)
+        const initialLp = rawSqrt * 1_000_000n // scale 12-decimal product sqrt to 18-decimal LP tokens
+        if (initialLp <= MINIMUM_LIQUIDITY) return null
+        const userLp = initialLp - MINIMUM_LIQUIDITY
+        const shares = parseFloat(formatUnits(userLp, 18))
+        const totalLpAfter = parseFloat(formatUnits(initialLp, 18))
+        if (!(shares > 0)) return null
+        return { shares, totalLpAfter }
+      } catch {
+        return null
+      }
     } else {
       try {
         const rawA = parseUnits(amountA.toFixed(6), 6)

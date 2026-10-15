@@ -142,7 +142,7 @@ export function calculateCounterTokenAmount(params: {
 }
 
 /**
- * Calculates Estimated APR based on 24h trading fees and concentration factor.
+ * Calculates Estimated APR based on 24h trading fees, pool base APY, and concentration factor.
  */
 export function calculateConcentratedApr(
   currentPrice: number,
@@ -150,21 +150,40 @@ export function calculateConcentratedApr(
   maxPrice: number,
   base24hFees: number = 126,
   poolTvl: number = 3129636,
-  feeTierPercent: number = 0.3
+  feeTierPercent: number = 0.3,
+  poolBaseApy?: number
 ): number {
-  if (minPrice >= maxPrice || minPrice <= 0 || maxPrice <= 0) return 2.14
+  if (minPrice >= maxPrice || minPrice <= 0 || maxPrice <= 0) return 0
+
+  // If price is completely out of range, active liquidity receives 0 swap fees
+  if (currentPrice < minPrice || currentPrice > maxPrice) {
+    return 0
+  }
 
   // Concentration multiplier vs full range
   const rangeRatio = Math.sqrt(minPrice / maxPrice)
   const concentrationFactor = rangeRatio < 1 ? 1 / (1 - rangeRatio) : 1
   const boundedConcentration = Math.max(1, Math.min(25, concentrationFactor))
 
-  // 24h fee yield annualized: (Fees_24h * 365 / TVL)
-  const baseAnnualYield = poolTvl > 0 ? (base24hFees * 365) / poolTvl : 0.015
-  const rawApr = (baseAnnualYield * boundedConcentration) * 100
+  // Reference concentration factor at default ~±20% range (0.8117 / 1.2280)
+  const defaultRefConcentration = 5.35
+
+  let rawApr: number
+  if (poolBaseApy && poolBaseApy > 0) {
+    // Scale the pool's base APY proportionally to concentration relative to the default range
+    rawApr = poolBaseApy * (boundedConcentration / defaultRefConcentration)
+  } else if (poolTvl >= 10000 && base24hFees > 0) {
+    // Live on-chain production volume / TVL
+    const baseAnnualYield = (base24hFees * 365) / poolTvl
+    rawApr = baseAnnualYield * boundedConcentration * 100
+  } else {
+    // Fallback model for testnet / mock pools
+    const fallbackAnnualYield = (126 * 365) / 3129636 // ~1.47%
+    rawApr = fallbackAnnualYield * boundedConcentration * 100
+  }
 
   // Clamped to a realistic DeFi APR range
-  const apr = Math.max(1.8, Math.min(48.5, Math.round(rawApr * 100) / 100))
+  const apr = Math.max(0.5, Math.min(95.0, Math.round(rawApr * 100) / 100))
   return apr
 }
 

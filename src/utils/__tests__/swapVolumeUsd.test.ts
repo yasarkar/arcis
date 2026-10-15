@@ -30,10 +30,13 @@ describe('approximateSwapVolumeUsd (single FX source — audit: hardcoded FX)', 
 })
 
 describe('poolIdForSwapPair', () => {
-  it('routes cirBTC pairs to the constant-product pool and everything else to stable', () => {
+  it('routes cirBTC pairs to cirbtc pool, WETH pairs to weth pool, and everything else to stable', () => {
     expect(poolIdForSwapPair('USDC', 'cirBTC')).toBe('usdc-cirbtc-pool')
     expect(poolIdForSwapPair('cirBTC', 'USDC')).toBe('usdc-cirbtc-pool')
     expect(poolIdForSwapPair('BTC', 'USDC')).toBe('usdc-cirbtc-pool')
+    expect(poolIdForSwapPair('USDC', 'WETH')).toBe('usdc-weth-pool')
+    expect(poolIdForSwapPair('WETH', 'USDC')).toBe('usdc-weth-pool')
+    expect(poolIdForSwapPair('ETH', 'USDC')).toBe('usdc-weth-pool')
     expect(poolIdForSwapPair('USDC', 'EURC')).toBe('usdc-eurc-stable-pool')
     expect(poolIdForSwapPair('EURC', 'USDC')).toBe('usdc-eurc-stable-pool')
   })

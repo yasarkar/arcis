@@ -53,6 +53,24 @@ describe('Concentrated Liquidity (CLAMM) Math Utilities', () => {
     expect(apr).toBeLessThan(50)
   })
 
+  it('dynamically changes Estimated APR as range narrows or widens', () => {
+    const wethPrice = 2600
+    const wethBaseApy = 15.4
+    const defaultRangeApr = calculateConcentratedApr(wethPrice, 2110, 3192, 0, 0, 0.3, wethBaseApy)
+    const narrowRangeApr = calculateConcentratedApr(wethPrice, 2450, 2750, 0, 0, 0.3, wethBaseApy)
+    const wideRangeApr = calculateConcentratedApr(wethPrice, 1300, 4800, 0, 0, 0.3, wethBaseApy)
+    const outOfRangeApr = calculateConcentratedApr(wethPrice, 1000, 2000, 0, 0, 0.3, wethBaseApy)
+
+    // Baseline should match WETH APY at reference range
+    expect(defaultRangeApr).toBeCloseTo(15.4, 0)
+    // Narrow range should have significantly higher concentrated APR
+    expect(narrowRangeApr).toBeGreaterThan(defaultRangeApr)
+    // Wide range should have lower APR than default range
+    expect(wideRangeApr).toBeLessThan(defaultRangeApr)
+    // Out of range should be 0
+    expect(outOfRangeApr).toBe(0)
+  })
+
   it('generates histogram depth bars with in-range flags', () => {
     const bars = generateLiquidityBars(currentPrice, minPrice, maxPrice, 38)
     expect(bars.length).toBe(38)
