@@ -26,7 +26,7 @@ export const FintechCard: React.FC<FintechCardProps> = ({
   className = '',
 }) => {
   const effectiveMaxWidth = typeof maxWidth === 'number' ? `${maxWidth}px` : maxWidth
-  const effectiveMinHeight = minHeight
+  const effectiveMinHeight = minHeight !== undefined
     ? typeof minHeight === 'number'
       ? `${minHeight}px`
       : minHeight

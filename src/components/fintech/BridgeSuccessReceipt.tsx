@@ -1,6 +1,6 @@
 import React from 'react'
 import { UnifiedSuccessReceipt } from './UnifiedSuccessReceipt'
-import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
+import { TOKEN_ICON_MAP } from '../../config/tokenIcons'
 
 export interface BridgeSuccessReceiptProps {
   amount: string
@@ -11,6 +11,8 @@ export interface BridgeSuccessReceiptProps {
   sourceIconId: string
   destIconId: string
   recipient: string
+  connectedAddress?: string
+  userAddress?: string
   mode: 'direct' | 'gateway'
   pending?: boolean
   txHash?: string
@@ -50,6 +52,8 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
   sourceIconId,
   destIconId,
   recipient,
+  connectedAddress,
+  userAddress,
   mode,
   pending = false,
   txHash,
@@ -64,7 +68,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
   destinationFee,
   netReceived,
   tokenSymbol = 'USDC',
-  tokenIcon = UsdcIcon,
+  tokenIcon,
   onBridgeAgain,
   onClose,
   isInline = false,
@@ -78,7 +82,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
       status={pending ? 'pending' : 'success'}
       amount={amount}
       tokenSymbol={tokenSymbol}
-      tokenIcon={tokenIcon}
+      tokenIcon={tokenIcon || (tokenSymbol ? TOKEN_ICON_MAP[tokenSymbol] : TOKEN_ICON_MAP.USDC)}
       sourceChain={sourceChain}
       destChain={destChain}
       sourceChainName={sourceChainName}
@@ -86,6 +90,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
       sourceIconId={sourceIconId}
       destIconId={destIconId}
       recipient={recipient}
+      connectedAddress={connectedAddress || userAddress}
       mode={mode}
       txHash={txHash}
       sourceTxHash={sourceTxHash}

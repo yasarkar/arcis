@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Zap,
   Coins,
   Globe,
   ArrowRight,
@@ -16,10 +15,9 @@ import {
 } from 'lucide-react'
 import type { CopilotMessage, CopilotActionPayload } from '../../types/marketplace'
 import { arcTransferFeeFallbackUsdc } from '../../services/arcGasService'
-import { CopilotTokenIcon, CopilotNetworkBadge } from './CopilotTokenIcon'
+import { CopilotTokenIcon} from './CopilotTokenIcon'
 import { ChainIcon } from '../common/ChainIcon'
 import ArcLogo from '../../assets/Arc-Icon.svg'
-import { getChainIconId } from '../../config/chainMeta'
 import { isCanceledReceipt } from '../../utils/errorUtils'
 import { playSound } from '../../services/soundService'
 import { getLiveTokenPrices, type TokenPriceMap } from '../../services/tokenPriceService'

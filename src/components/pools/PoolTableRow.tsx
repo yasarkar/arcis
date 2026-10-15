@@ -17,10 +17,8 @@ interface PoolTableRowProps {
 export const PoolTableRow: React.FC<PoolTableRowProps> = ({
   pool,
   onSelect,
-  walletConnected,
 }) => {
   const userStaked = parseFloat(pool.userPosition?.stakedAmount || '0')
-  const hasDeposit = userStaked > 0
 
   // Determine pair display name and tokens
   let primaryName = pool.name
@@ -31,7 +29,7 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
 
   if (pool.id === 'usdc-cirbtc-pool') {
     primaryName = 'cirBTC / USDC'
-    token1Icon = CirBtcIcon || CircleIcon
+    token1Icon = CirBtcIcon
     token2Icon = UsdcIcon
     feeTier = `${(pool.feeTierPercent || 0.25).toFixed(2)}%`
     version = POOL_VERSION_V4 ? 'V4' : 'V3'
@@ -50,7 +48,6 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
   } else if (pool.id === 'usdc-yield-vault') {
     primaryName = 'USDC Vault'
     token1Icon = UsdcIcon
-    token2Icon = CircleIcon
     feeTier = 'ERC-4626'
     version = POOL_VERSION_V4 ? 'V4' : 'V3'
   } else if (pool.tokens && pool.tokens.length >= 2) {

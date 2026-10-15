@@ -9,6 +9,7 @@ import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
+import { WethIcon } from '../../config/tokenIcons'
 
 interface PoolsHeroStatsProps {
   totalTvlUsd: number
@@ -66,6 +67,15 @@ export default function PoolsHeroStats({
       accentColor: '#f59e0b',
       icons: [UsdcIcon, CirBtcIcon],
       tvl: getPoolTvl('usdc-cirbtc-pool', 0),
+    },
+    {
+      id: 'usdc-weth-pool',
+      shortName: 'USDC / WETH',
+      name: 'USDC / WETH Liquidity Pool',
+      tag: 'AMM LP',
+      accentColor: '#6366f1',
+      icons: [UsdcIcon, WethIcon],
+      tvl: getPoolTvl('usdc-weth-pool', 0),
     },
     {
       id: 'usdc-yield-vault',

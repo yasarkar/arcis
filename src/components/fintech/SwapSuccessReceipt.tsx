@@ -18,6 +18,8 @@ export interface SwapSuccessReceiptProps {
   onClose?: () => void
   isInline?: boolean
   recipient?: string
+  connectedAddress?: string
+  userAddress?: string
   rate?: string
   slippage?: string
   speedTier?: string
@@ -43,6 +45,8 @@ export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
   onClose,
   isInline = false,
   recipient,
+  connectedAddress,
+  userAddress,
   rate,
   slippage,
   speedTier,
@@ -68,6 +72,7 @@ export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
       onClose={onClose}
       isInline={isInline}
       recipient={recipient}
+      connectedAddress={connectedAddress || userAddress}
       rate={rate}
       slippage={slippage}
       speedTier={speedTier}

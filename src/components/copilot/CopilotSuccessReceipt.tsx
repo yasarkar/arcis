@@ -208,6 +208,8 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
           destChain={receipt.toChain}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
+          recipient={receipt.recipient}
+          connectedAddress={receipt.userAddress || receipt.sender}
           onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
@@ -228,7 +230,8 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
           isCrossChain
           mode="direct"
           status={receipt.status === 'PENDING' ? 'pending' : 'success'}
-          recipient={receipt.recipient ? shortenRecipient(receipt.recipient) : undefined}
+          recipient={receipt.recipient}
+          connectedAddress={receipt.userAddress || receipt.sender}
           sourceTxHash={receipt.sourceTxHash || receipt.txHash || undefined}
           destTxHash={receipt.destTxHash}
           sourceExplorerUrl={receipt.sourceTxHash ? getExplorerTxUrl(receipt.fromChain || 'Arc_Testnet', receipt.sourceTxHash) : explorerUrl}
@@ -249,22 +252,7 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
           apy={receipt.apy}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
-          onActionAgain={onActionAgain || (() => {})}
-          isInline
-          {...feeProps}
-        />
-      )
-
-    case 'faucet':
-      return (
-        <UnifiedSuccessReceipt
-          type="faucet"
-          title={receipt.title}
-          amount={amountOut}
-          tokenSymbol="USDC"
-          recipient={receipt.recipient ? shortenRecipient(receipt.recipient) : undefined}
-          txHash={receipt.txHash || undefined}
-          explorerUrl={explorerUrl}
+          connectedAddress={receipt.userAddress || receipt.sender}
           onActionAgain={onActionAgain || (() => {})}
           isInline
           {...feeProps}
@@ -279,7 +267,25 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
           method="x402 AI Service Settlement"
           amount={amountIn}
           tokenSymbol="USDC"
-          recipient={receipt.recipient ? shortenRecipient(receipt.recipient) : undefined}
+          recipient={receipt.recipient}
+          connectedAddress={receipt.userAddress || receipt.sender}
+          txHash={receipt.txHash || undefined}
+          explorerUrl={explorerUrl}
+          onActionAgain={onActionAgain || (() => {})}
+          isInline
+          {...feeProps}
+        />
+      )
+
+    case 'faucet':
+      return (
+        <UnifiedSuccessReceipt
+          type="faucet"
+          title={receipt.title}
+          amount={amountOut}
+          tokenSymbol="USDC"
+          recipient={receipt.recipient}
+          connectedAddress={receipt.userAddress || receipt.sender}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
           onActionAgain={onActionAgain || (() => {})}
@@ -296,7 +302,8 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
           title={receipt.title}
           amount={amountIn}
           tokenSymbol={receipt.fromToken || 'USDC'}
-          recipient={receipt.recipient ? shortenRecipient(receipt.recipient) : undefined}
+          recipient={receipt.recipient}
+          connectedAddress={receipt.userAddress || receipt.sender}
           memoText={receipt.memo}
           network="Arc_Testnet"
           txHash={receipt.txHash || undefined}

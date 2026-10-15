@@ -33,7 +33,7 @@ import { type PoolCategory, type PoolConfig, type PoolRiskLevel, POOLS_CHAIN_DEF
 import { arcTestnet } from '../../config/arcChain'
 import { transferFromGateway } from '../../services/gatewayService'
 import { useBroadcast, type BroadcastType } from '../BroadcastNotification'
-import { TOKEN_ICON_MAP } from '../../config/tokenIcons'
+import { TOKEN_ICON_MAP, WethIcon } from '../../config/tokenIcons'
 import { isUserCanceled, formatWalletError } from '../../utils/errorUtils'
 import { addTransaction } from '../../utils/history'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
@@ -471,18 +471,22 @@ export default function PoolsTab({
     const lpTokenSymbol = targetPool?.lpTokenSymbol || (
       poolId === 'usdc-cirbtc-pool'
         ? 'af-USDC-cirBTC'
-        : poolId === 'usdc-eurc-stable-pool'
-          ? 'af-USDC-EURC'
-          : 'af-USDC'
+        : poolId === 'usdc-weth-pool'
+          ? 'af-USDC-WETH'
+          : poolId === 'usdc-eurc-stable-pool'
+            ? 'af-USDC-EURC'
+            : 'af-USDC'
     )
     const tokenSymbol = mode === 'withdraw'
       ? (isLp ? lpTokenSymbol : (targetPool?.tokens[0]?.symbol || 'USDC'))
       : (targetPool?.tokens[0]?.symbol || 'USDC')
     const tokenIcon = (tokenSymbol.includes('cirBTC') || tokenSymbol.includes('BTC'))
       ? CirBtcIcon
-      : (tokenSymbol.includes('EURC'))
-        ? EurcIcon
-        : (TOKEN_ICON_MAP[tokenSymbol] || UsdcIcon)
+      : (tokenSymbol.includes('WETH') || tokenSymbol.includes('ETH'))
+        ? WethIcon
+        : (tokenSymbol.includes('EURC'))
+          ? EurcIcon
+          : (TOKEN_ICON_MAP[tokenSymbol] || UsdcIcon)
     const poolApy = targetPool?.apy
 
     const pendingTitle = isPool
@@ -780,15 +784,19 @@ export default function PoolsTab({
     const lpTokenSymbol = targetPool?.lpTokenSymbol || (
       poolId === 'usdc-cirbtc-pool' || poolName.toLowerCase().includes('cirbtc') || poolName.toLowerCase().includes('btc')
         ? 'af-USDC-cirBTC'
-        : poolId === 'usdc-eurc-stable-pool' || poolName.toLowerCase().includes('eurc')
-          ? 'af-USDC-EURC'
-          : 'af-USDC'
+        : poolId === 'usdc-weth-pool' || poolName.toLowerCase().includes('weth') || poolName.toLowerCase().includes('eth')
+          ? 'af-USDC-WETH'
+          : poolId === 'usdc-eurc-stable-pool' || poolName.toLowerCase().includes('eurc')
+            ? 'af-USDC-EURC'
+            : 'af-USDC'
     )
     const tokenIcon = (lpTokenSymbol.includes('cirBTC') || lpTokenSymbol.includes('BTC') || poolId.includes('btc'))
       ? CirBtcIcon
-      : (lpTokenSymbol.includes('EURC') || poolId.includes('eurc'))
-        ? EurcIcon
-        : UsdcIcon
+      : (lpTokenSymbol.includes('WETH') || lpTokenSymbol.includes('ETH') || poolId.includes('weth'))
+        ? WethIcon
+        : (lpTokenSymbol.includes('EURC') || poolId.includes('eurc'))
+          ? EurcIcon
+          : UsdcIcon
 
     const notif = notifyPending(
       'Removing Liquidity...',
@@ -1176,7 +1184,7 @@ export default function PoolsTab({
 
       {/* ── Interactive Modals ── */}
       {isActionModalOpen && selectedPoolForAction && (
-        actionModalMode === 'deposit' && (selectedPoolForAction.id === 'usdc-cirbtc-pool' || selectedPoolForAction.tags?.includes('Concentrated Liquidity')) ? (
+        actionModalMode === 'deposit' && (selectedPoolForAction.id === 'usdc-cirbtc-pool' || selectedPoolForAction.id === 'usdc-weth-pool' || selectedPoolForAction.tags?.includes('Concentrated Liquidity')) ? (
           <ConcentratedLiquidityModal
             isOpen={isActionModalOpen}
             pool={selectedPoolForAction as any}
@@ -1184,8 +1192,9 @@ export default function PoolsTab({
             walletAddress={walletAddress}
             availableWalletUsdc={onchainBalances.usdc}
             availableWalletCirBtc={onchainBalances.cirbtc}
-            onExecuteDeposit={async (poolId, usdcAmt, btcAmt, slip) => {
-              await handleExecuteDual(poolId, usdcAmt, btcAmt, slip)
+            availableWalletWeth={onchainBalances.weth}
+            onExecuteDeposit={async (poolId, usdcAmt, counterAmt, slip) => {
+              await handleExecuteDual(poolId, usdcAmt, counterAmt, slip)
             }}
           />
         ) : (
@@ -1198,6 +1207,7 @@ export default function PoolsTab({
             availableWalletUsdc={onchainBalances.usdc}
             availableWalletEurc={onchainBalances.eurc}
             availableWalletCirBtc={onchainBalances.cirbtc}
+            availableWalletWeth={onchainBalances.weth}
             onExecute={handleExecuteModalAction}
             onExecuteZap={handleExecuteZap}
             onExecuteDual={handleExecuteDual}

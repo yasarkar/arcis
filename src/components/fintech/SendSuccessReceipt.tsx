@@ -6,6 +6,8 @@ export interface SendSuccessReceiptProps {
   tokenSymbol: string
   tokenIcon?: string
   recipient: string
+  connectedAddress?: string
+  userAddress?: string
   network: string
   networkIconId?: string
   txHash?: string
@@ -24,6 +26,8 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
   tokenSymbol,
   tokenIcon,
   recipient,
+  connectedAddress,
+  userAddress,
   network,
   networkIconId,
   txHash,
@@ -43,6 +47,7 @@ export const SendSuccessReceipt: React.FC<SendSuccessReceiptProps> = ({
       tokenSymbol={tokenSymbol}
       tokenIcon={tokenIcon}
       recipient={recipient}
+      connectedAddress={connectedAddress || userAddress}
       network={network}
       networkIconId={networkIconId}
       txHash={txHash}

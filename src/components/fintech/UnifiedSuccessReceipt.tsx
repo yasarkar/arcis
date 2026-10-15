@@ -10,25 +10,43 @@ import {
   Check,
   Loader2,
   Coins,
-  Droplets,
   Sparkles,
 } from 'lucide-react'
 import { ChainIcon } from '../common/ChainIcon'
 import { getChainIconId, getChainDisplayName } from '../../config/chainMeta'
 import { getExplorerTxUrl, getExplorerName } from '../../config/sendConfig'
-import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
-import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
-import BtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import { formatSubscriptZero } from '../../utils/formatNumber'
+import { TOKEN_ICON_MAP } from '../../config/tokenIcons'
 
-const DEFAULT_TOKEN_ICONS: Record<string, string> = {
-  USDC: UsdcIcon,
-  EURC: EurcIcon,
-  cirBTC: BtcIcon,
-  WBTC: BtcIcon,
+export function resolveReceiptTokenIcon(symbol?: string, explicitIcon?: string): string | undefined {
+  const clean = symbol?.trim()
+  const upper = clean?.toUpperCase()
+
+  // Guard against Circle corporate logo mistakenly passed for cirBTC/BTC/WBTC
+  if (upper && (upper === 'CIRBTC' || upper === 'BTC' || upper === 'WBTC')) {
+    if (explicitIcon && !explicitIcon.includes('CIRCLE') && !explicitIcon.includes('circle')) {
+      return explicitIcon
+    }
+    return TOKEN_ICON_MAP.cirBTC
+  }
+
+  if (explicitIcon) return explicitIcon
+  if (!clean) return undefined
+
+  if (TOKEN_ICON_MAP[clean]) return TOKEN_ICON_MAP[clean]
+  if (upper && TOKEN_ICON_MAP[upper]) return TOKEN_ICON_MAP[upper]
+  if (upper === 'WBTC' || upper === 'BTC') return TOKEN_ICON_MAP.cirBTC
+  if (upper === 'WETH' || upper === 'ETH') return TOKEN_ICON_MAP.WETH
+  if (upper === 'USDC') return TOKEN_ICON_MAP.USDC
+  if (upper === 'EURC') return TOKEN_ICON_MAP.EURC
+
+  const foundKey = Object.keys(TOKEN_ICON_MAP).find((k) => k.toLowerCase() === clean.toLowerCase())
+  if (foundKey) return TOKEN_ICON_MAP[foundKey]
+
+  return undefined
 }
 
-export type ReceiptOperationType = 'send' | 'swap' | 'bridge' | 'deposit' | 'faucet' | 'ai_service'
+export type ReceiptOperationType = 'send' | 'swap' | 'bridge' | 'deposit' | 'ai_service' | 'faucet'
 export type ReceiptVisualStatus = 'success' | 'pending'
 
 export interface UnifiedSuccessReceiptProps {
@@ -78,6 +96,8 @@ export interface UnifiedSuccessReceiptProps {
   method?: string
   mode?: 'direct' | 'gateway' // for bridge
   recipient?: string
+  connectedAddress?: string
+  userAddress?: string
 
   // Hashes & Explorers
   txHash?: string
@@ -166,6 +186,8 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
   method,
   mode,
   recipient,
+  connectedAddress,
+  userAddress,
 
   // Hashes
   txHash,
@@ -199,7 +221,6 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 }) => {
   const [copiedRecipient, setCopiedRecipient] = useState(false)
 
-  const [copiedTxKey, setCopiedTxKey] = useState<string | null>(null)
   const handleCopyRecipient = () => {
     if (recipient) {
       navigator.clipboard.writeText(recipient)
@@ -208,13 +229,14 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
     }
   }
 
-  const handleCopyTx = (hash: string, key: string) => {
-    if (hash) {
-      navigator.clipboard.writeText(hash)
-      setCopiedTxKey(key)
-      setTimeout(() => setCopiedTxKey(null), 2000)
-    }
-  }
+  // Recipient visibility rule: Only display the recipient address when sending / bridging / swapping
+  // to an external destination wallet that is different from the currently connected wallet.
+  const effectiveConnectedAddress = (connectedAddress || userAddress)?.trim()
+  const isExternalRecipient = useMemo(() => {
+    if (!recipient || !recipient.trim()) return false
+    if (!effectiveConnectedAddress) return true
+    return recipient.trim().toLowerCase() !== effectiveConnectedAddress.toLowerCase()
+  }, [recipient, effectiveConnectedAddress])
 
   // Network resolution
   const isGatewayBridge = type === 'bridge' && mode === 'gateway'
@@ -270,7 +292,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           : type === 'deposit'
             ? 'Deposit Finalized!'
             : type === 'faucet'
-              ? 'Faucet Claim Finalized!'
+              ? 'Faucet Claim Completed Successfully'
               : 'Service Call Finalized!')
 
   const defaultSubtitle =
@@ -290,7 +312,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           : type === 'deposit'
             ? 'Yield vault deposit confirmed onchain'
             : type === 'faucet'
-              ? 'Testnet USDC successfully claimed on Arc'
+              ? 'Testnet funds successfully credited to your wallet'
               : 'AI service executed and settled onchain')
 
   // Method string
@@ -307,15 +329,15 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
         : type === 'deposit'
           ? 'Arc Yield Vault Deposit'
           : type === 'faucet'
-            ? 'Arc Faucet Claim'
+            ? 'Arc Testnet Faucet Mint'
             : type === 'ai_service'
               ? 'x402 AI Service Settlement'
               : 'Arc L1 Direct Transfer')
 
   // Icons resolution
-  const resolvedTokenIcon = tokenIcon || DEFAULT_TOKEN_ICONS[tokenSymbol]
-  const resolvedTokenInIcon = tokenInIcon || DEFAULT_TOKEN_ICONS[tokenIn]
-  const resolvedTokenOutIcon = tokenOutIcon || DEFAULT_TOKEN_ICONS[tokenOut]
+  const resolvedTokenIcon = resolveReceiptTokenIcon(tokenSymbol, tokenIcon)
+  const resolvedTokenInIcon = resolveReceiptTokenIcon(tokenIn, tokenInIcon)
+  const resolvedTokenOutIcon = resolveReceiptTokenIcon(tokenOut, tokenOutIcon)
 
   // Fee display resolution with token name
   const effectiveFeeToken = type === 'swap' ? tokenIn : tokenSymbol
@@ -359,9 +381,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           ? Globe
           : type === 'deposit'
             ? Coins
-            : type === 'faucet'
-              ? Droplets
-              : Sparkles
+            : Sparkles
 
   // Source fee row: a real receipt-read gas value whenever one exists. A Gateway
   // route has no source-side transaction at all (off-chain EIP-712 burn intent),
@@ -395,30 +415,30 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
   return (
     <div
-      className={`flex flex-col flex-1 justify-between animate-fade-in text-center ${isInline ? 'py-1' : 'py-2'}`}
+      className={`flex flex-col animate-fade-in text-center ${isInline ? 'py-1' : 'py-2'}`}
       style={{ fontFamily: 'var(--font-app)' }}
     >
-      <div className={isInline ? 'space-y-2.5' : 'space-y-4'}>
+      <div className={isInline ? 'space-y-3.5' : 'space-y-4'}>
         {/* Status icon: pending must not use success coloring or checkmark. */}
         <div className="flex justify-center">
           <div className={status === 'pending'
-            ? `${isInline ? 'w-12 h-12' : 'w-20 h-20'} rounded-full bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-300`
-            : `${isInline ? 'w-12 h-12 shadow-[0_0_16px_rgba(16,185,129,0.2)]' : 'w-20 h-20 shadow-[0_0_24px_rgba(16,185,129,0.25)]'} rounded-full bg-emerald-500/15 border border-emerald-500/35 flex items-center justify-center text-emerald-300`}>
+            ? `${isInline ? 'w-16 h-16 sm:w-20 sm:h-20' : 'w-20 h-20'} rounded-full bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-300`
+            : `${isInline ? 'w-16 h-16 sm:w-20 sm:h-20 shadow-[0_0_20px_rgba(16,185,129,0.25)]' : 'w-20 h-20 shadow-[0_0_24px_rgba(16,185,129,0.25)]'} rounded-full bg-emerald-500/15 border border-emerald-500/35 flex items-center justify-center text-emerald-300`}>
             {status === 'pending' ? (
-              <Clock3 className={`${isInline ? 'w-6 h-6' : 'w-12 h-12'} text-amber-300`} />
+              <Clock3 className={`${isInline ? 'w-8 h-8 sm:w-11 sm:h-11' : 'w-12 h-12'} text-amber-300`} />
             ) : (
-              <CheckCircle2 className={`${isInline ? 'w-6 h-6' : 'w-12 h-12'} text-emerald-300 animate-pulse`} />
+              <CheckCircle2 className={`${isInline ? 'w-8 h-8 sm:w-11 sm:h-11' : 'w-12 h-12'} text-emerald-300 animate-pulse`} />
             )}
           </div>
         </div>
 
         {/* Title & Subtitle */}
         <div>
-          <h3 className={`${isInline ? 'text-base font-bold' : 'text-2xl font-semibold'} text-white tracking-wide`}>
+          <h3 className={`${isInline ? 'text-xl sm:text-2xl font-bold' : 'text-2xl sm:text-3xl font-bold'} text-white tracking-wide`}>
             {defaultTitle}
-            {titleSubline && <span className="block mt-0.5">{titleSubline}</span>}
+            {titleSubline && <span className="block mt-1 text-sm sm:text-base font-medium">{titleSubline}</span>}
           </h3>
-          <p className={`${isInline ? 'text-xs mt-0.5' : 'text-sm mt-1'} text-slate-400`}>{defaultSubtitle}</p>
+          <p className={`${isInline ? 'text-sm mt-1' : 'text-sm sm:text-base mt-1.5'} text-slate-300/85 leading-relaxed`}>{defaultSubtitle}</p>
         </div>
 
         {/* ── CARD 1: PRIMARY ASSET SUMMARY CARD ── */}
@@ -433,7 +453,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                     <img
                       src={resolvedTokenInIcon}
                       alt={tokenIn}
-                      className="w-4 h-4 object-contain rounded-full"
+                      className="w-5 h-5 object-contain rounded-full"
                     />
                   )}
                   <span className="font-semibold text-sm text-white tabular-nums" title={amountIn ? String(amountIn) : undefined}>
@@ -450,7 +470,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                     <img
                       src={resolvedTokenOutIcon}
                       alt={tokenOut}
-                      className="w-4 h-4 object-contain rounded-full"
+                      className="w-5 h-5 object-contain rounded-full"
                     />
                   )}
                   <span className="font-semibold text-sm text-white tabular-nums" title={amountOut ? String(amountOut) : undefined}>
@@ -524,35 +544,6 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                 </div>
               )}
             </>
-          ) : type === 'faucet' ? (
-            <>
-              {/* Faucet: Claimed Amount */}
-              <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-                <div className="text-xs text-slate-400">Claimed Amount</div>
-                <div className="flex items-center gap-1.5">
-                  {resolvedTokenIcon && (
-                    <img
-                      src={resolvedTokenIcon}
-                      alt={tokenSymbol}
-                      className="w-5 h-5 object-contain rounded-full"
-                    />
-                  )}
-                  <span className="font-semibold text-base text-white tabular-nums" title={amount ? String(amount) : undefined}>
-                    +{formatSubscriptZero(amount)} {tokenSymbol}
-                  </span>
-                </div>
-              </div>
-
-              {/* Faucet: Recipient (optional) */}
-              {recipient && (
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-400">Recipient</div>
-                  <span className="font-mono text-xs text-slate-200">
-                    {recipient.length > 16 ? `${recipient.slice(0, 8)}...${recipient.slice(-6)}` : recipient}
-                  </span>
-                </div>
-              )}
-            </>
           ) : type === 'ai_service' ? (
             <>
               {/* AI Service: Amount Paid */}
@@ -585,17 +576,36 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                 </div>
               )}
             </>
+          ) : type === 'faucet' ? (
+            <>
+              {/* Faucet: Claimed Amount */}
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-slate-400">Claimed Amount</div>
+                <div className="flex items-center gap-1.5">
+                  {resolvedTokenIcon && (
+                    <img
+                      src={resolvedTokenIcon}
+                      alt={tokenSymbol}
+                      className="w-5 h-5 object-contain rounded-full"
+                    />
+                  )}
+                  <span className="font-semibold text-base text-emerald-400 tabular-nums" title={amount ? String(amount) : undefined}>
+                    +{amount ? String(amount) : '0'} {tokenSymbol}
+                  </span>
+                </div>
+              </div>
+            </>
           ) : (
             <>
               {/* Send: Sent Amount */}
-              <div className={`flex items-center justify-between ${isInline ? 'pb-2' : 'pb-3'} border-b border-white/[0.06]`}>
+              <div className={`flex items-center justify-between ${isExternalRecipient ? (isInline ? 'pb-2 border-b border-white/[0.06]' : 'pb-3 border-b border-white/[0.06]') : ''}`}>
                 <div className="text-xs text-slate-400">Sent Amount</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenIcon && (
                     <img
                       src={resolvedTokenIcon}
                       alt={tokenSymbol}
-                      className={`${isInline ? 'w-4 h-4' : 'w-5 h-5'} object-contain rounded-full`}
+                      className="w-5 h-5 object-contain rounded-full"
                     />
                   )}
                   <span className={`font-semibold ${isInline ? 'text-sm' : 'text-base'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
@@ -604,8 +614,8 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                 </div>
               </div>
 
-              {/* Send: Recipient */}
-              {recipient && (
+              {/* Send: Recipient (shown only when sending to an external wallet) */}
+              {isExternalRecipient && recipient && (
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-slate-400">Recipient</div>
                   <div className="flex items-center gap-1.5">
@@ -674,14 +684,8 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             )}
           </div>
 
-          {/* Execution Method */}
-          <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
-            <span>Method:</span>
-            <span className="text-slate-200 font-medium">{effectiveMethod}</span>
-          </div>
-
-          {/* Recipient in Card 2 (for Swap & Bridge where not in Card 1) */}
-          {type !== 'send' && recipient && (
+          {/* Recipient in Card 2 (shown only when sending/bridging/swapping to an external wallet) */}
+          {type !== 'send' && isExternalRecipient && recipient && (
             <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
               <span>Recipient:</span>
               <div className="flex items-center gap-1.5 font-mono text-slate-200">
@@ -721,7 +725,6 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             </div>
           )}
 
-          {/* Protocol Fee (non-bridge receipts only) / Gas Fee / Speed Tier */}
           {/* Bridge receipts never render a protocol-fee row: Circle's CCTP fee is
               already reflected in Net Received, and the Bridge Fee row was removed
               from the receipt per product decision. A bridge receipt shows at most
@@ -753,14 +756,6 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
               <span>Network Fee:</span>
               <span className="text-slate-200 font-medium">{displayGasFee}</span>
-            </div>
-          )}
-
-          {/* Priority Tier (Swap) */}
-          {speedTier && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
-              <span>Priority Tier:</span>
-              <span className="text-slate-200 capitalize font-medium">{speedTier}</span>
             </div>
           )}
 
@@ -943,7 +938,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
       </div>
 
       {/* ── CARD FOOTER: ACTION BUTTONS ── */}
-      <div className={`mt-auto ${isInline ? 'pt-2.5 space-y-1.5' : 'pt-5 space-y-2'}`}>
+      <div className={`${isInline ? 'mt-4 pt-1 space-y-1.5' : 'mt-5 pt-1 space-y-2'}`}>
         {status === 'pending' ? (
           <div className={`w-full ${isInline ? 'py-2.5 px-3' : 'py-3.5 px-4'} rounded-xl text-xs font-semibold text-amber-200 bg-amber-500/10 border border-amber-500/25 flex items-center justify-center gap-2`}>
             <Loader2 className="w-4 h-4 animate-spin" />

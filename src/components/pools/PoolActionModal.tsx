@@ -24,9 +24,9 @@ import {
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
+import { WethIcon } from '../../config/tokenIcons'
 import type { PoolConfig } from '../../config/poolsConfig'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
-import { useWalletTestnetBalances } from '../../hooks/useWalletTestnetBalances'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
 import { GATEWAY_CHAIN_NAMES } from '../../config/gatewayConfig'
 import { ChainIcon } from '../common/ChainIcon'
@@ -52,6 +52,7 @@ interface PoolActionModalProps {
   availableWalletUsdc: string
   availableWalletEurc?: string
   availableWalletCirBtc?: string
+  availableWalletWeth?: string
   onExecute: (poolId: string, amount: string, mode: 'deposit' | 'withdraw') => Promise<void>
   onExecuteZap?: (poolId: string, inputToken: string, inputAmount: string, slippage: number) => Promise<void>
   onExecuteDual?: (poolId: string, amountA: string, amountB: string, slippage: number) => Promise<void>
@@ -72,6 +73,7 @@ export default function PoolActionModal({
   availableWalletUsdc,
   availableWalletEurc = '0.00',
   availableWalletCirBtc = '0.0000',
+  availableWalletWeth = '0.0000',
   onExecute,
   onExecuteZap,
   onExecuteDual,
@@ -304,14 +306,15 @@ export default function PoolActionModal({
   const walletBalUsdc = parseFloat(availableWalletUsdc || '0')
   const walletBalEurc = parseFloat(availableWalletEurc || '0')
   const walletBalCirBtc = parseFloat(availableWalletCirBtc || '0')
+  const walletBalWeth = parseFloat(availableWalletWeth || '0')
   const livePoolRate = pool?.reserves && pool.reserves.tokenB > 0 && pool.reserves.tokenA > 0
     ? pool.reserves.tokenA / pool.reserves.tokenB
     : 0
   const exchangeRate = livePoolRate > 0 ? livePoolRate : (pool?.exchangeRate || 0)
   const counterToken = pool.tokens[1]
   const counterTokenSymbol = counterToken?.symbol || 'cirBTC'
-  const counterTokenDecimals = counterToken?.decimals || 8
-  const feePercent = pool.feeTierPercent || (pool.id === 'usdc-eurc-stable-pool' ? 0.12 : 0.25)
+  const counterTokenDecimals = counterToken?.decimals || (counterTokenSymbol === 'WETH' ? 18 : counterTokenSymbol === 'cirBTC' ? 8 : 6)
+  const feePercent = pool.feeTierPercent || (pool.id === 'usdc-weth-pool' ? 0.30 : pool.id === 'usdc-eurc-stable-pool' ? 0.12 : 0.25)
 
   const crossChainBalStr = crossChainBalNum.toFixed(2)
 
@@ -338,9 +341,11 @@ export default function PoolActionModal({
 
   const depositTokenIcon = depositTokenSymbol === 'EURC' || depositTokenSymbol.includes('EURC')
     ? EurcIcon
-    : (depositTokenSymbol === 'cirBTC' || depositTokenSymbol === 'BTC' || depositTokenSymbol.includes('cirBTC') || depositTokenSymbol.includes('BTC'))
-      ? CirBtcIcon
-      : UsdcIcon
+    : (depositTokenSymbol === 'WETH' || depositTokenSymbol === 'ETH' || depositTokenSymbol.includes('WETH') || depositTokenSymbol.includes('ETH'))
+      ? WethIcon
+      : (depositTokenSymbol === 'cirBTC' || depositTokenSymbol === 'BTC' || depositTokenSymbol.includes('cirBTC') || depositTokenSymbol.includes('BTC'))
+        ? CirBtcIcon
+        : UsdcIcon
 
   const depositLabel = activeMode === 'withdraw'
     ? (isVault ? 'AMOUNT OF USDC TO REDEEM' : 'AMOUNT TO WITHDRAW (USD)')
@@ -355,17 +360,29 @@ export default function PoolActionModal({
     ? walletBalUsdc
     : swapTokenIn === 'EURC'
       ? walletBalEurc
-      : walletBalCirBtc
+      : swapTokenIn === 'WETH'
+        ? walletBalWeth
+        : walletBalCirBtc
 
   const swapWalletBalTokenInStr = swapTokenIn === 'USDC' || swapTokenIn === 'EURC'
     ? swapWalletBalTokenIn.toFixed(2)
-    : (swapWalletBalTokenIn > 0 && swapWalletBalTokenIn < 0.0001 ? swapWalletBalTokenIn.toFixed(8) : swapWalletBalTokenIn.toFixed(6))
+    : swapTokenIn === 'WETH'
+      ? (swapWalletBalTokenIn > 0 && swapWalletBalTokenIn < 0.0001 ? swapWalletBalTokenIn.toFixed(6) : swapWalletBalTokenIn.toFixed(4))
+      : (swapWalletBalTokenIn > 0 && swapWalletBalTokenIn < 0.0001 ? swapWalletBalTokenIn.toFixed(8) : swapWalletBalTokenIn.toFixed(6))
 
   // Dual-Asset deposit balance and validation calculations
   const aNum = parseFloat(amountA) || 0
   const bNum = parseFloat(amountB) || 0
-  const counterWalletBal = counterTokenSymbol === 'EURC' ? walletBalEurc : walletBalCirBtc
-  const counterWalletBalStr = counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc
+  const counterWalletBal = counterTokenSymbol === 'EURC'
+    ? walletBalEurc
+    : counterTokenSymbol === 'WETH'
+      ? walletBalWeth
+      : walletBalCirBtc
+  const counterWalletBalStr = counterTokenSymbol === 'EURC'
+    ? availableWalletEurc
+    : counterTokenSymbol === 'WETH'
+      ? availableWalletWeth
+      : availableWalletCirBtc
 
   const isDualMode = isLp && lpDepositMethod === 'dual' && depositSource === 'native'
   const isDualIncomplete = isDualMode && (aNum <= 0 || bNum <= 0)
@@ -507,7 +524,10 @@ export default function PoolActionModal({
     if (symbol === 'EURC') {
       return <img src={EurcIcon} alt="EURC" style={{ width: 18, height: 18, objectFit: 'contain' }} />
     }
-    if (symbol === 'cirBTC') {
+    if (symbol === 'WETH' || symbol === 'ETH') {
+      return <img src={WethIcon} alt="WETH" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+    }
+    if (symbol === 'cirBTC' || symbol === 'BTC') {
       return <img src={CirBtcIcon} alt="BTC" style={{ width: 18, height: 18, objectFit: 'contain' }} />
     }
     return <img src={UsdcIcon} alt="USDC" style={{ width: 18, height: 18, objectFit: 'contain' }} />
@@ -1638,15 +1658,17 @@ export default function PoolActionModal({
                     setSwapAmountIn(val)
                     setErrorMsg(null)
                   }}
-                  placeholder={swapTokenIn === 'cirBTC' || swapTokenIn.toLowerCase().includes('btc') ? '0.0000' : '0.00'}
+                  placeholder={swapTokenIn === 'cirBTC' || swapTokenIn.toLowerCase().includes('btc') ? '0.0000' : swapTokenIn === 'WETH' ? '0.0000' : '0.00'}
                   tokenSymbol={swapTokenIn}
-                  tokenIcon={swapTokenIn === 'EURC' ? EurcIcon : (swapTokenIn === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
+                  tokenIcon={swapTokenIn === 'EURC' ? EurcIcon : (swapTokenIn === 'WETH' ? WethIcon : (swapTokenIn === 'cirBTC' ? CirBtcIcon : UsdcIcon))}
                   tokenListAvailable={false}
                   balance={swapWalletBalTokenInStr}
                   onMaxClick={() => {
                     if (swapTokenIn === 'USDC') {
                       const maxUsdcWithGas = Math.max(0, swapWalletBalTokenIn - ARC_GAS_RESERVE_USDC)
                       setSwapAmountIn(maxUsdcWithGas.toFixed(2))
+                    } else if (swapTokenIn === 'WETH') {
+                      setSwapAmountIn(swapWalletBalTokenIn.toFixed(4))
                     } else {
                       setSwapAmountIn(swapWalletBalTokenIn.toString())
                     }
@@ -1657,7 +1679,7 @@ export default function PoolActionModal({
                     const max = swapTokenIn === 'USDC'
                       ? Math.max(0, swapWalletBalTokenIn - ARC_GAS_RESERVE_USDC)
                       : swapWalletBalTokenIn
-                    const decimals = swapTokenIn === 'cirBTC' ? 6 : 2
+                    const decimals = swapTokenIn === 'cirBTC' ? 6 : swapTokenIn === 'WETH' ? 4 : 2
                     setSwapAmountIn(((max * pct) / 100).toFixed(decimals))
                     setErrorMsg(null)
                   }}
@@ -1686,9 +1708,9 @@ export default function PoolActionModal({
                   label="YOU RECEIVE (ESTIMATED)"
                   amount={calculatedSwapOut}
                   readOnly={true}
-                  placeholder={swapTokenOut === 'cirBTC' || swapTokenOut.toLowerCase().includes('btc') ? '0.0000' : '0.00'}
+                  placeholder={swapTokenOut === 'cirBTC' || swapTokenOut.toLowerCase().includes('btc') ? '0.0000' : swapTokenOut === 'WETH' ? '0.0000' : '0.00'}
                   tokenSymbol={swapTokenOut}
-                  tokenIcon={swapTokenOut === 'EURC' ? EurcIcon : (swapTokenOut === 'cirBTC' ? CirBtcIcon : UsdcIcon)}
+                  tokenIcon={swapTokenOut === 'EURC' ? EurcIcon : (swapTokenOut === 'WETH' ? WethIcon : (swapTokenOut === 'cirBTC' ? CirBtcIcon : UsdcIcon))}
                   tokenListAvailable={false}
                   fiatEstimate={formatFiatEstimate(
                     calculatedSwapOut,
@@ -1726,19 +1748,18 @@ export default function PoolActionModal({
                   label="AMOUNT TO DEPOSIT"
                   amount={amountB}
                   onAmountChange={handleAmountBChange}
-                  placeholder={counterTokenSymbol === 'cirBTC' || counterTokenSymbol.toLowerCase().includes('btc') ? '0.0000' : '0.00'}
+                  placeholder={counterTokenSymbol === 'cirBTC' || counterTokenSymbol.toLowerCase().includes('btc') ? '0.0000' : counterTokenSymbol === 'WETH' ? '0.0000' : '0.00'}
                   tokenSymbol={counterTokenSymbol}
-                  tokenIcon={counterTokenSymbol === 'EURC' ? EurcIcon : CirBtcIcon}
+                  tokenIcon={counterTokenSymbol === 'EURC' ? EurcIcon : (counterTokenSymbol === 'WETH' ? WethIcon : CirBtcIcon)}
                   tokenListAvailable={false}
-                  balance={counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc}
+                  balance={counterWalletBalStr}
                   onMaxClick={() => {
-                    const bal = counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc
-                    handleAmountBChange(bal)
+                    handleAmountBChange(counterWalletBalStr)
                   }}
                   quickPercentages={[25, 50, 75, 100]}
                   onSelectPercentage={(pct) => {
-                    const balNum = parseFloat(counterTokenSymbol === 'EURC' ? availableWalletEurc : availableWalletCirBtc) || 0
-                    handleAmountBChange(((balNum * pct) / 100).toFixed(counterTokenSymbol === 'EURC' ? 2 : 6))
+                    const balNum = counterWalletBal || 0
+                    handleAmountBChange(((balNum * pct) / 100).toFixed(counterTokenSymbol === 'EURC' ? 2 : counterTokenSymbol === 'WETH' ? 4 : 6))
                   }}
                   fiatEstimate={formatFiatEstimate(
                     amountB,
