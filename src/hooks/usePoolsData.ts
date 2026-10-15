@@ -238,7 +238,7 @@ export function computeMinLpShares(
   const st = (poolState || {})[poolAddress] as any
   const slipBps = poolSlippageBps(slippage)
   const counterDecimals =
-    counterDecimalsInput ?? pool.tokens?.[1]?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : 6)
+    counterDecimalsInput ?? pool.tokens?.[1]?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
 
   const reserveARaw = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
   const totalLpRaw = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
@@ -246,7 +246,9 @@ export function computeMinLpShares(
 
   if (totalLpRaw <= 0n || reserveARaw <= 0n) return 0n
 
-  if (pool.id === 'usdc-cirbtc-pool') {
+  const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.tags?.includes('Constant Product')
+
+  if (isConstantProduct) {
     const reserveBRaw = st.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
     if (reserveBRaw <= 0n) return 0n
     const lpA = (amountA * totalLpRaw) / reserveARaw
@@ -490,10 +492,10 @@ export async function prefetchPoolsData(queryClient: QueryClient): Promise<void>
  */
 export async function fetchOnchainPoolBalances(
   walletAddress: string
-): Promise<{ usdc: string; usyc: string; eurc: string; cirbtc: string }> {
+): Promise<{ usdc: string; usyc: string; eurc: string; cirbtc: string; weth: string }> {
   const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
   if (!isAddressValid) {
-    return { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000' }
+    return { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000', weth: '0.0000' }
   }
 
   const cacheKey = `arcis:pools:balances:${walletAddress}`
@@ -507,6 +509,7 @@ export async function fetchOnchainPoolBalances(
   let usdcFormatted = '0.00'
   let eurcFormatted = '0.00'
   let cirbtcFormatted = '0.0000'
+  let wethFormatted = '0.0000'
 
   try {
     const usdcRaw = (await resilientReadContract(publicClient, {
@@ -545,11 +548,25 @@ export async function fetchOnchainPoolBalances(
     cirbtcFormatted = '0.000000'
   }
 
+  try {
+    const wethRaw = (await resilientReadContract(publicClient, {
+      address: POOL_CONTRACTS.WETH,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [targetAddr],
+    })) as bigint
+    const wethVal = parseFloat(formatUnits(wethRaw, 18))
+    wethFormatted = wethVal > 0 ? (wethVal < 0.0001 ? wethVal.toFixed(6) : wethVal.toFixed(4)) : '0.0000'
+  } catch {
+    wethFormatted = '0.0000'
+  }
+
   const result = {
     usdc: usdcFormatted,
     usyc: '0.00',
     eurc: eurcFormatted,
     cirbtc: cirbtcFormatted,
+    weth: wethFormatted,
   }
   await redisCache.set(cacheKey, result, 20)
   return result
@@ -1724,8 +1741,8 @@ export function usePoolsData(
       const poolRemainingUsdc = usdcAmount - halfUsdc
 
       const counterToken = pool.tokens[1]
-      const counterTokenAddress = (counterToken?.address || POOL_CONTRACTS.cirBTC) as `0x${string}`
-      const counterDecimals = counterToken?.decimals === 8 ? 8 : 6
+      const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
+      const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
 
       // Check if AMM pool has reserves before attempting swap
       const [resA, resB] = await Promise.all([
@@ -1752,11 +1769,12 @@ export function usePoolsData(
       }
 
       // Compute expected counter token output from reserves & apply user slippage tolerance
-      const feeBps = pool.feeTierPercent ? BigInt(Math.round(pool.feeTierPercent * 100)) : (pool.id === 'usdc-cirbtc-pool' ? 25n : 12n)
+      const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.tags?.includes('Constant Product')
+      const feeBps = pool.feeTierPercent ? BigInt(Math.round(pool.feeTierPercent * 100)) : (pool.id === 'usdc-weth-pool' ? 30n : pool.id === 'usdc-cirbtc-pool' ? 25n : 12n)
       const inAfterFee = (halfUsdc * (10000n - feeBps)) / 10000n
       let expectedOut = 0n
-      if (pool.id === 'usdc-cirbtc-pool') {
-        // Constant Product x * y = k AMM (resA: USDC 6-dec, resB: cirBTC 8-dec)
+      if (isConstantProduct) {
+        // Constant Product x * y = k AMM (resA: USDC 6-dec, resB: counterDecimals)
         expectedOut = (resB * inAfterFee) / (resA + inAfterFee)
       } else {
         // Exact Curve StableSwap invariant (K6)
@@ -2315,7 +2333,9 @@ export function usePoolsData(
 
       const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
         ? POOL_CONTRACTS.STABLE_SWAP_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+        : poolId === 'usdc-weth-pool'
+          ? POOL_CONTRACTS.WETH_POOL
+          : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
 
       requireDeployed(poolAddress, pool.name)
 
@@ -2323,10 +2343,10 @@ export function usePoolsData(
       if (!targetAccount) throw new Error('Wallet not connected')
 
       const counterToken = pool.tokens[1]
-      const counterDecimals = counterToken?.decimals === 8 ? 8 : 6
+      const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
       const amountA = parseUnits(amountAStr, 6)
       const amountB = parseUnits(amountBStr, counterDecimals)
-      const counterTokenAddress = (counterToken?.address || POOL_CONTRACTS.cirBTC) as `0x${string}`
+      const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
 
       // V2/V3: compute a conservative minLpShares guard from on-chain reserves
       // (proportional / constant-product / Curve invariant estimate) so a material price move
@@ -3207,7 +3227,7 @@ export function usePoolsData(
       }
 
       const counterToken = pool.tokens[1]
-      const counterTokenAddress = (counterToken?.address || POOL_CONTRACTS.cirBTC) as `0x${string}`
+      const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
 
       // V2: derive exact minOutA/minOutB from reserves for removeLiquidity slippage.
       const removeLiquidityArgs = (() => {
@@ -3215,7 +3235,7 @@ export function usePoolsData(
         const st = (onchainPoolState || {})[poolAddress] as any
         const total = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
         if (total <= 0n) return [lpToWithdraw, 0n, 0n] as const
-        const counterDecimals = counterToken?.decimals === 8 ? 8 : 6
+        const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
         const reserveA = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
         const reserveB = st?.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
         const slipBps = poolSlippageBps(_slippage)
@@ -3352,7 +3372,7 @@ export function usePoolsData(
 
           const receivedCounter = counterBalAfter > counterBalBefore ? counterBalAfter - counterBalBefore : 0n
           if (receivedCounter > 0n) {
-            const counterDecimals = counterToken.decimals === 8 ? 8 : 6
+            const counterDecimals = counterToken.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
             const counterBalStr = formatUnits(receivedCounter, counterDecimals)
             autoSwapCounterSymbol = counterToken.symbol
             autoSwapCounterAmount = counterBalStr
@@ -3596,7 +3616,7 @@ export function usePoolsData(
       await invalidatePoolCaches()
       return { amountClaimed, txHash }
     },
-    [walletAddress, getWalletClient, publicClient, waitForReceiptSafe, invalidatePoolCaches, liveBtcPrice, liveEurcPrice, authSource, executeUcwContract]
+    [walletAddress, getWalletClient, publicClient, waitForReceiptSafe, invalidatePoolCaches, liveBtcPrice, liveEurcPrice, liveWethPrice, authSource, executeUcwContract]
   )
 
   const claimAllRewards = useCallback(async (): Promise<{
@@ -3672,6 +3692,7 @@ export function usePoolsData(
   useEffect(() => {
     let unwatchStable: (() => void) | undefined
     let unwatchCP: (() => void) | undefined
+    let unwatchWeth: (() => void) | undefined
     let unwatchVault: (() => void) | undefined
 
     try {
@@ -3686,6 +3707,14 @@ export function usePoolsData(
       if (isDeployed(POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)) {
         unwatchCP = publicClient.watchContractEvent({
           address: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL,
+          abi: CONSTANT_PRODUCT_ABI,
+          onLogs: () => debouncedInvalidatePoolCaches(),
+        })
+      }
+
+      if (isDeployed(POOL_CONTRACTS.WETH_POOL)) {
+        unwatchWeth = publicClient.watchContractEvent({
+          address: POOL_CONTRACTS.WETH_POOL,
           abi: CONSTANT_PRODUCT_ABI,
           onLogs: () => debouncedInvalidatePoolCaches(),
         })
@@ -3708,6 +3737,7 @@ export function usePoolsData(
       }
       unwatchStable?.()
       unwatchCP?.()
+      unwatchWeth?.()
       unwatchVault?.()
     }
   }, [publicClient, debouncedInvalidatePoolCaches])
@@ -3715,7 +3745,7 @@ export function usePoolsData(
   return {
     pools: poolsWithUserStats as (PoolConfig & { userPosition?: UserPoolPosition })[],
     swapInPool,
-    onchainBalances: onchainBalances || { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000' },
+    onchainBalances: onchainBalances || { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000', weth: '0.0000' },
     isBalancesLoading,
     totalTvlUsd,
     totalPoolTxCount,

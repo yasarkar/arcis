@@ -36,7 +36,7 @@ export interface ChainConfig {
  * Single source of truth filtered by capability: 'send' from Master Network Registry.
  */
 export const SUPPORTED_SEND_CHAINS: ChainConfig[] = getNetworksByCapability('send', IS_TESTNET).map((net) => {
-  const explorerBase = net.blockExplorers?.url || 'https://testnet.arcscan.app'
+  const explorerBase = net.blockExplorers?.url
   const isTxPath = net.key.toLowerCase().includes('injective') ? '/transaction/{hash}' : '/tx/{hash}'
   return {
     chain: net.key,

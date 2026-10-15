@@ -20,6 +20,7 @@ import {
   STABLE_SWAP_ANN_MULTIPLIER,
   STABLE_SWAP_LP_FEE_BPS,
   CONSTANT_PRODUCT_LP_FEE_BPS,
+  WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
 } from '../config/poolsConfig'
 import { getNetwork } from '../config/networks/networkRegistry'
 import { sendModularUserOperation, getActiveSmartAccount, restoreSmartAccount } from './modularWalletService'
@@ -138,6 +139,28 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
       decIn: isUsdcIn ? 6 : 8,
       decOut: isUsdcIn ? 8 : 6,
       feeBps: CONSTANT_PRODUCT_LP_FEE_BPS, // 0.25%
+    }
+  }
+
+  const isWethIn = tIn === 'WETH' || tIn === 'ETH'
+  const isWethOut = tOut === 'WETH' || tOut === 'ETH'
+  if (
+    (tIn === 'USDC' && isWethOut) ||
+    (isWethIn && tOut === 'USDC')
+  ) {
+    const wethPoolAddress = POOL_CONTRACTS.WETH_POOL
+    if (!wethPoolAddress || wethPoolAddress === '0x0000000000000000000000000000000000000000') {
+      return null
+    }
+    const isUsdcIn = tIn === 'USDC'
+    return {
+      poolAddress: wethPoolAddress as Address,
+      isStable: false,
+      tokenInAddr: (isUsdcIn ? POOL_CONTRACTS.USDC : POOL_CONTRACTS.WETH) as Address,
+      tokenOutAddr: (isUsdcIn ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.USDC) as Address,
+      decIn: isUsdcIn ? 6 : 18,
+      decOut: isUsdcIn ? 18 : 6,
+      feeBps: WETH_CONSTANT_PRODUCT_LP_FEE_BPS, // 0.30%
     }
   }
 

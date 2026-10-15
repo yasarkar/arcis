@@ -245,6 +245,9 @@ export const STABLE_SWAP_LP_FEE_BPS = 12n
 /** USDC/cirBTC Constant-Product LP fee: 25 bps (0.25%). */
 export const CONSTANT_PRODUCT_LP_FEE_BPS = 25n
 
+/** USDC/WETH Constant-Product LP fee: 30 bps (0.30%). */
+export const WETH_CONSTANT_PRODUCT_LP_FEE_BPS = 30n
+
 // O3: slippage is clamped to a safe band so a fat-fingered or oversized tolerance can never
 // silently widen the min-out guard. The upper bound was 10% (1000 bps); it is now 2% (200 bps).
 export const POOL_MIN_SLIPPAGE_BPS = 10
@@ -355,7 +358,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { step: 3, title: 'Earn Trading Fees', desc: 'Accumulate 0.25% fee on all swaps between USDC and cirBTC.' },
       { step: 4, title: 'Harvest Anytime', desc: 'Harvest real USDC and cirBTC swap fees anytime without burning LP tokens.' },
     ],
-    tags: ['Constant Product', 'Bitcoin', 'Circle Wrapped BTC', 'Real Yield'],
+    tags: ['Constant Product', 'Bitcoin', 'Circle Wrapped BTC', 'Real Yield', 'Concentrated Liquidity'],
     isLpPool: true,
     lpTokenName: 'Arcis USDC-cirBTC LP',
     lpTokenSymbol: 'af-USDC-cirBTC',
@@ -433,7 +436,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { step: 3, title: 'Earn Trading Fees', desc: 'Accumulate 0.30% fee on all swaps between USDC and WETH.' },
       { step: 4, title: 'Harvest Anytime', desc: 'Harvest real USDC and WETH swap fees anytime without burning LP tokens.' },
     ],
-    tags: ['Constant Product', 'Ethereum', 'Bridged WETH', 'Real Yield'],
+    tags: ['Constant Product', 'Ethereum', 'Bridged WETH', 'Real Yield', 'Concentrated Liquidity'],
     isLpPool: true,
     lpTokenName: 'Arcis USDC-WETH LP',
     lpTokenSymbol: 'af-USDC-WETH',
