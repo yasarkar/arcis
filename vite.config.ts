@@ -81,7 +81,13 @@ function apiPlugin(): Plugin {
                 if (typeof value === 'string') reqHeaders[key.toLowerCase()] = value
                 else if (Array.isArray(value)) reqHeaders[key.toLowerCase()] = value.join(', ')
               }
-              signInternalClientIpHeaders(reqHeaders, req.socket?.remoteAddress || '127.0.0.1')
+              // `encrypted` only exists on a TLS socket, so it is narrowed rather than assumed.
+              const socket = req.socket as (typeof req.socket & { encrypted?: boolean }) | undefined
+              signInternalClientIpHeaders(
+                reqHeaders,
+                socket?.remoteAddress || '127.0.0.1',
+                socket?.encrypted ? 'https' : 'http'
+              )
 
               const webReq = new Request(fullUrl, {
                 method: req.method,
@@ -158,6 +164,31 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         'wagmi/connectors': path.resolve(__dirname, 'src/config/wagmiConnectorsShim.ts'),
+      },
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          // ARC-027: split only the vendor families that are eagerly needed by the shell and that
+          // nothing lazy-only depends on, so the browser can cache them across app releases.
+          //
+          // Deliberately NOT listed: the Web3 stack (Circle SDKs, wagmi/RainbowKit, viem) and
+          // `@web3icons`. Rollup reports mutually-importing groups as a circular chunk, and — the
+          // reason this is not just a warning — a name in `manualChunks` forces *every* module it
+          // matches into that chunk, so vendor code the app only reaches through `import()` gets
+          // hoisted into the preloaded entry. Measured: grouping them produced one 8.65 MB
+          // `web3-vendor` plus a 12.8 MB icon chunk on the critical path, worse than the monolith.
+          // Those SDKs therefore stay with their lazy importers and become on-demand chunks.
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return undefined
+            const modulePath = id.replace(/\\/g, '/')
+
+            if (/node_modules\/(react|react-dom|scheduler)\//.test(modulePath)) return 'react-vendor'
+            if (modulePath.includes('/lucide-react/')) return 'icons'
+            if (modulePath.includes('/@tanstack/')) return 'query-vendor'
+            return undefined
+          },
+        },
       },
     },
     server: {

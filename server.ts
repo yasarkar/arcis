@@ -22,6 +22,8 @@ import * as cacheHandler from './api/cache'
 import * as copilotHandler from './api/copilot'
 import * as x402Handler from './api/x402'
 import * as historyHandler from './api/history'
+import * as vaultHandler from './api/vault'
+import { startVaultKeeper } from './api/_utils/vaultKeeper'
 import { signInternalClientIpHeaders } from './api/_utils/trustedIp'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -79,7 +81,12 @@ function adapt(handler: (req: Request) => Promise<Response>) {
       }
 
       // Security (SEC-06): Strip caller-controlled forwarding headers and sign verified internal IP
-      signInternalClientIpHeaders(headers, (req.ip || req.socket.remoteAddress || '127.0.0.1').toString())
+      // alongside the scheme this process served the request over (ARC-020).
+      signInternalClientIpHeaders(
+        headers,
+        (req.ip || req.socket.remoteAddress || '127.0.0.1').toString(),
+        req.protocol
+      )
 
       const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && req.body && Object.keys(req.body).length > 0
         ? JSON.stringify(req.body)
@@ -143,6 +150,10 @@ app.use('/api/x402', (req, res, next) => {
 app.get('/api/history', adapt(historyHandler.GET))
 app.post('/api/history', adapt(historyHandler.POST))
 app.delete('/api/history', adapt(historyHandler.DELETE))
+
+// USDC Yield Vault Management & Automated Distribution
+app.get('/api/vault', adapt(vaultHandler.GET))
+app.post('/api/vault', adapt(vaultHandler.POST))
 
 // ─────────────────────────────────────────────────────────────
 // 4. STATIC FRONTEND SPA SERVING
@@ -220,4 +231,5 @@ app.listen(PORT, () => {
   ║  • Static Assets:   ${(fs.existsSync(distPath) ? 'dist/ (Loaded)' : 'dist/ (Missing - Run build)').padEnd(35)}║
   ╚════════════════════════════════════════════════════════════════╝
   `)
+  startVaultKeeper()
 })

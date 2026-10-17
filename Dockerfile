@@ -3,8 +3,9 @@
 # Multi-stage build for minimal image size and fast startup
 # ==============================================================================
 
+# Node 22 is required: package.json declares engines.node >=22.12.0.
 # Stage 1: Build Frontend Assets
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install dependencies
@@ -16,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production Server Runner
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -32,11 +33,14 @@ RUN npm install -g tsx
 # Copy built frontend assets from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy backend api & server files
+# Copy backend api & server files.
+# The API layer imports from several src subtrees (src/config, src/services,
+# src/utils, src/types), so the whole src tree ships — copying only src/config
+# left the container unable to resolve modules at startup.
 COPY api ./api
 COPY server.ts ./
 COPY tsconfig*.json ./
-COPY src/config ./src/config
+COPY src ./src
 
 EXPOSE 3000
 

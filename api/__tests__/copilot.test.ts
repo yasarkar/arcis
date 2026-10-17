@@ -24,6 +24,10 @@ beforeEach(() => {
   // and no test can reach a real provider.
   vi.stubEnv('OPENAI_API_KEY', '')
   vi.stubEnv('OPENROUTER_API_KEY', '')
+  // ARC-007: a per-IP bucket now requires a sanitizing edge. Vercel (the production runtime for
+  // these handlers) overwrites x-forwarded-for, so the suite reproduces that runtime here and the
+  // dedicated test below still covers the un-sanitized deployment.
+  vi.stubEnv('VERCEL', '1')
 })
 
 afterEach(() => {
@@ -88,6 +92,20 @@ describe('POST /api/copilot — credential handling', () => {
 })
 
 describe('POST /api/copilot — per-IP rate limiting', () => {
+  it('ignores spoofed x-forwarded-for when no sanitizing edge is present (ARC-007)', async () => {
+    vi.stubEnv('VERCEL', '')
+
+    const codes: number[] = []
+    for (let i = 0; i < 21; i++) {
+      // A different address on every request is exactly what an attacker would send.
+      codes.push((await POST(makeRequest(`192.0.2.${i}`))).status)
+    }
+
+    // All of them share the single conservative bucket, so the budget is global, not spoofable.
+    expect(codes.slice(0, 20).every((code) => code === 401)).toBe(true)
+    expect(codes[20]).toBe(429)
+  })
+
   it('allows 20 requests and returns 429 on the 21st', async () => {
     const codes: number[] = []
     for (let i = 0; i < 21; i++) {
@@ -102,13 +120,14 @@ describe('POST /api/copilot — per-IP rate limiting', () => {
     expect((await POST(makeRequest('10.3.0.9'))).status).toBe(401)
   })
 
-  it('buckets by the first x-forwarded-for hop', async () => {
+  it('buckets by the hop the sanitizing edge appended, not by caller-prepended entries', async () => {
     for (let i = 0; i < 20; i++) {
       await POST(makeRequest('10.9.0.1, 10.9.0.2'))
     }
 
-    // A different proxy chain but the same client hop must share the exhausted bucket.
-    expect((await POST(makeRequest('10.9.0.1, 10.9.0.3'))).status).toBe(429)
+    // Prepending a fresh spoofed address must not buy a new bucket: the rightmost entry (the one
+    // the edge wrote) is the same client.
+    expect((await POST(makeRequest('10.9.0.9, 10.9.0.2'))).status).toBe(429)
   })
 
   it('rate limits before parsing the body, so malformed payloads cannot bypass it', async () => {

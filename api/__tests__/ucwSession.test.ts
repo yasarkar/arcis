@@ -209,16 +209,45 @@ describe('ucwSession fail-closed without a signing secret', () => {
 })
 
 describe('isSecureRequest', () => {
-  it('reads the forwarded protocol, then the URL protocol', () => {
-    const forwarded = new Request('http://127.0.0.1:3000/api/ucw', {
+  // ARC-020: the scheme decides whether the session cookie carries `Secure`. A caller-supplied
+  // `x-forwarded-proto` must not be able to withhold it, so only a signed adapter header or a
+  // sanitizing edge may name the protocol.
+  it('believes the request URL', () => {
+    expect(isSecureRequest(new Request('https://arcis.example/api/ucw'))).toBe(true)
+    expect(isSecureRequest(new Request('http://127.0.0.1:3000/api/ucw'))).toBe(false)
+  })
+
+  it('ignores a caller-supplied x-forwarded-proto when no trusted source signed it', () => {
+    const spoofed = new Request('http://127.0.0.1:3000/api/ucw', {
       headers: { 'x-forwarded-proto': 'https' },
     })
-    expect(isSecureRequest(forwarded)).toBe(true)
+    expect(isSecureRequest(spoofed)).toBe(false)
+  })
 
-    const direct = new Request('https://arcis.example/api/ucw')
-    expect(isSecureRequest(direct)).toBe(true)
+  it('honours the protocol the Express/Vite adapter observed and signed', async () => {
+    const { signInternalClientIpHeaders } = await import('../_utils/trustedIp')
+    const headers: Record<string, string> = { 'x-forwarded-proto': 'https' }
+    signInternalClientIpHeaders(headers, '127.0.0.1', 'http')
 
-    const local = new Request('http://127.0.0.1:3000/api/ucw')
-    expect(isSecureRequest(local)).toBe(false)
+    expect(isSecureRequest(new Request('http://127.0.0.1:3000/api/ucw', { headers }))).toBe(false)
+
+    const secureHeaders: Record<string, string> = {}
+    signInternalClientIpHeaders(secureHeaders, '127.0.0.1', 'https')
+    expect(isSecureRequest(new Request('http://127.0.0.1:3000/api/ucw', { headers: secureHeaders }))).toBe(true)
+  })
+
+  it('honours a sanitizing edge that overwrites x-forwarded-proto', () => {
+    vi.stubEnv('VERCEL', '1')
+
+    const edge = new Request('http://arcis.example/api/ucw', {
+      headers: { 'x-forwarded-proto': 'https' },
+    })
+    expect(isSecureRequest(edge)).toBe(true)
+
+    // A caller-prepended entry would sit beside the edge's value: ambiguous, so not trusted.
+    const ambiguous = new Request('http://arcis.example/api/ucw', {
+      headers: { 'x-forwarded-proto': 'https, http' },
+    })
+    expect(isSecureRequest(ambiguous)).toBe(false)
   })
 })

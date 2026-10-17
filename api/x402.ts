@@ -39,6 +39,7 @@ import type {
   X402ExecutionReceipt,
   X402PaymentRequirements,
 } from '../src/types/x402'
+import { createBoundedTtlMap, createBoundedTtlSet } from './_utils/boundedStore'
 import {
   getStorageDriver,
   kvConfirmPendingProviderSettlement,
@@ -54,21 +55,41 @@ import {
   kvUpdateProviderLedger,
 } from './_utils/redisStorage'
 
-// In-memory fallback stores for non-KV / isolated environments
-const serverNonceStore = new Set<string>()
-const serverUsedAuthorizationNonces = new Set<string>()
+// In-memory fallback stores for non-KV / isolated environments (audit ARC-008).
+// The durable KV reservation is the authoritative replay guard whenever a payment settles; these
+// two sets only mirror it in-process, so they expire with the authorization's own validity window
+// and drop the oldest writes once their entry budget is reached instead of growing forever.
+const nonceStoreOptions = {
+  maxEntries: 10_000,
+  ttlMs: CIRCLE_BATCHING_METADATA.FULL_VALIDITY_SECONDS * 1000,
+  onCapacityEviction: (name: string, evictedKey: string, size: number) => {
+    console.warn(`[x402-tollgate] ${name} hit its entry budget and dropped the oldest entry (${evictedKey.slice(0, 80)}); ${size} entries retained. KV remains authoritative.`)
+  },
+}
+
+const serverNonceStore = createBoundedTtlSet({ name: 'nonce-store', ...nonceStoreOptions })
+const serverUsedAuthorizationNonces = createBoundedTtlSet({ name: 'used-authorization-nonce-store', ...nonceStoreOptions })
 
 function providerLedgerKey(providerAddress: string): string {
   return `arcis:x402:provider:{${providerAddress.toLowerCase()}}`
 }
 
-const serverProviderStore = new Map<string, {
+// Provider ledger mirror: KV is authoritative, this is a capacity-bounded cache so a long-lived
+// process cannot retain one entry per provider address forever (audit ARC-008).
+const serverProviderStore = createBoundedTtlMap<{
   totalCallsServed: number
   totalUsdcEarned: number
   unclaimedEarningsUsdc: number
   pendingUsdc: number
   withdrawnUsdc: number
-}>()
+}>({
+  name: 'provider-ledger-store',
+  maxEntries: 5_000,
+  ttlMs: 30 * 24 * 60 * 60 * 1000,
+  onCapacityEviction: (name: string, evictedKey: string, size: number) => {
+    console.warn(`[x402-tollgate] ${name} hit its entry budget and dropped the oldest provider (${evictedKey}); ${size} entries retained. KV remains authoritative.`)
+  },
+})
 
 function parseAuthorizationInteger(value: unknown): bigint {
   if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'bigint') {
@@ -500,7 +521,11 @@ export async function GET(req: Request): Promise<Response> {
         const customList: unknown = JSON.parse(customListJson)
         if (Array.isArray(customList)) allManifests = [...allManifests, ...customList.filter(validateCommunityManifest)]
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort read: an unreadable community-manifest list only means the catalog is served
+      // with official services only, so it is logged and the request continues.
+      console.warn('[x402-tollgate] Community manifest list could not be read; serving official services only:', err)
+    }
     return new Response(JSON.stringify({ success: true, protocol: 'x402-Gateway-V1', chainId: arcTestnet.id, gasToken: arcTestnet.nativeCurrency.symbol, count: allManifests.length, services: allManifests }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
   if (pathname.endsWith('/health')) {
@@ -515,7 +540,11 @@ export async function GET(req: Request): Promise<Response> {
     try {
       const kvData = await kvGet(providerLedgerKey(providerAddr))
       if (kvData) stats = JSON.parse(kvData)
-    } catch { }
+    } catch (err) {
+      // Best-effort read: the same provider stats were just read from the in-memory mirror, so a
+      // missing/corrupt durable ledger degrades the response to those numbers instead of failing.
+      console.warn('[x402-tollgate] Provider ledger could not be read from storage; using the in-memory mirror:', err)
+    }
     const ledger: ProviderLedger = {
       providerAddress: safeChecksumAddress(providerAddr),
       // The atomic provider ledger is wallet-wide. Until per-service dimensions are stored
@@ -645,7 +674,13 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   let bodyJson: Record<string, any> = {}
-  try { const parsed: unknown = await req.json(); if (isRecord(parsed)) bodyJson = parsed } catch { }
+  try {
+    const parsed: unknown = await req.json()
+    if (isRecord(parsed)) bodyJson = parsed
+  } catch {
+    // Best-effort: a non-JSON body leaves bodyJson empty and the schema check below rejects it with
+    // a 400, so this is not a swallowed failure — the caller is told the payload is invalid.
+  }
   const requestPayload = isRecord(bodyJson.payload) ? bodyJson.payload : bodyJson
   const payloadProperties = isRecord(manifest.requestSchema?.properties) ? manifest.requestSchema.properties : {}
   const payloadRequired = Array.isArray(manifest.requestSchema?.required) ? manifest.requestSchema.required : []
@@ -708,7 +743,11 @@ export async function POST(req: Request): Promise<Response> {
     try {
       const recovered = await recoverTypedDataAddress({ domain, types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES, primaryType: 'TransferWithAuthorization', message: { from: payerAddress, to: providerChecksum, value: BigInt(requiredBaseUnits), validAfter: validAfter!, validBefore: explicitValidBefore!, nonce: resolvedNonce }, signature })
       if (recovered.toLowerCase() === payerAddress.toLowerCase()) { recoveredAddress = recovered; break }
-    } catch { }
+    } catch (err) {
+      // A failed recovery attempt is expected for the wrong domain; the next candidate is tried and
+      // the caller receives an explicit 402 when none recovers the payer.
+      console.warn('[x402-tollgate] Signature recovery attempt failed for a candidate domain:', err)
+    }
   }
   if (!recoveredAddress) return new Response(JSON.stringify({ error: 'Cryptographic verification failed: signature does not match payer authorization.', statusCode: 402 }), { status: 402, headers: { 'Content-Type': 'application/json' } })
   payerAddress = recoveredAddress

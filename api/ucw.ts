@@ -2,6 +2,9 @@ import { initiateUserControlledWalletsClient } from "@circle-fin/user-controlled
 import { checkRateLimit } from "./_utils/rateLimiter";
 import { apiSuccess, apiError, safeJsonParse } from "./_utils/apiResponse";
 import { extractTrustedClientIp } from "./_utils/trustedIp";
+// ARC-022: Circle error bodies may carry the account e-mail and the userToken, so they are
+// redacted before they reach a log line or a diagnostic payload.
+import { circleErrorForLog, redactCircleErrorPayload } from "./_utils/circleError";
 import {
   buildClearUcwSessionCookie,
   buildUcwSessionCookie,
@@ -103,7 +106,7 @@ export async function POST(req: Request) {
       } catch (sessionErr: any) {
         // No signing secret configured: refuse to issue a forgeable credential
         // cookie rather than degrading to an unsigned session.
-        console.error("[UCW API] Session could not be established:", sessionErr?.message || sessionErr);
+        console.error("[UCW API] Session could not be established:", circleErrorForLog(sessionErr));
         return apiError(
           "Wallet sessions are unavailable on this server. Please try again later.",
           "UCW_SESSION_UNAVAILABLE",
@@ -292,7 +295,7 @@ export async function POST(req: Request) {
               message: "User already initialized",
             });
           }
-          console.warn("[UCW API] EOA creation failed, attempting fallback without explicit accountType:", eoaErr?.message);
+          console.warn("[UCW API] EOA creation failed, attempting fallback without explicit accountType:", circleErrorForLog(eoaErr));
           response = await client.createUserPinWithWallets({
             userToken,
             blockchains: [targetBlockchain as any],
@@ -312,11 +315,7 @@ export async function POST(req: Request) {
             message: "User already initialized",
           });
         }
-        console.error("[UCW API] createUserPinWithWallets error:", {
-          code: errCode,
-          message: err?.message,
-          data: err?.response?.data,
-        });
+        console.error("[UCW API] createUserPinWithWallets error:", circleErrorForLog(err));
         throw err;
       }
     }
@@ -374,7 +373,7 @@ export async function POST(req: Request) {
           });
         }
       } catch (wErr) {
-        console.warn("[UCW API] listWallets warning during createUserWallet:", wErr);
+        console.warn("[UCW API] listWallets warning during createUserWallet:", circleErrorForLog(wErr));
       }
 
       console.log("[UCW API] Creating user wallet on blockchain:", blockchain);
@@ -423,7 +422,7 @@ export async function POST(req: Request) {
           );
           targetWalletId = matchingWallet ? matchingWallet.id : "";
         } catch (wErr) {
-          console.warn("[UCW API] listWallets warning:", wErr);
+          console.warn("[UCW API] listWallets warning:", circleErrorForLog(wErr));
           return apiError(
             `Unable to resolve the ${blockchain} wallet for this account.`,
             "WALLET_LOOKUP_FAILED",
@@ -435,7 +434,7 @@ export async function POST(req: Request) {
           const walletsRes = await client.listWallets({ userToken });
           targetWalletId = walletsRes.data?.wallets?.[0]?.id || "";
         } catch (wErr) {
-          console.warn("[UCW API] listWallets warning:", wErr);
+          console.warn("[UCW API] listWallets warning:", circleErrorForLog(wErr));
         }
       }
 
@@ -516,7 +515,7 @@ export async function POST(req: Request) {
           );
           targetWalletId = matchingWallet ? matchingWallet.id : "";
         } catch (wErr) {
-          console.warn("[UCW API] listWallets warning:", wErr);
+          console.warn("[UCW API] listWallets warning:", circleErrorForLog(wErr));
           return apiError(
             `Unable to resolve the ${blockchain} wallet for this account.`,
             "WALLET_LOOKUP_FAILED",
@@ -528,7 +527,7 @@ export async function POST(req: Request) {
           const walletsRes = await client.listWallets({ userToken });
           targetWalletId = walletsRes.data?.wallets?.[0]?.id || "";
         } catch (wErr) {
-          console.warn("[UCW API] listWallets warning:", wErr);
+          console.warn("[UCW API] listWallets warning:", circleErrorForLog(wErr));
         }
       }
 
@@ -593,7 +592,7 @@ export async function POST(req: Request) {
             targetWalletId = matchingWallet.id;
           }
         } catch (wErr) {
-          console.warn("[UCW API] listWallets warning in createTransfer:", wErr);
+          console.warn("[UCW API] listWallets warning in createTransfer:", circleErrorForLog(wErr));
         }
       }
       if (!targetWalletId) {
@@ -601,7 +600,7 @@ export async function POST(req: Request) {
           const walletsRes = await client.listWallets({ userToken });
           targetWalletId = walletsRes.data?.wallets?.[0]?.id || "";
         } catch (wErr) {
-          console.warn("[UCW API] listWallets fallback warning:", wErr);
+          console.warn("[UCW API] listWallets fallback warning:", circleErrorForLog(wErr));
         }
       }
 
@@ -654,7 +653,7 @@ export async function POST(req: Request) {
                 }
               }
             } catch (bErr) {
-              console.warn("[UCW API] Failed to auto-resolve token from wallet balance:", bErr);
+              console.warn("[UCW API] Failed to auto-resolve token from wallet balance:", circleErrorForLog(bErr));
               resolvedTokenAddress = "";
             }
           }
@@ -677,7 +676,7 @@ export async function POST(req: Request) {
             resolvedTokenId = matchedToken.token.id;
           }
         } catch (bErr) {
-          console.warn("[UCW API] Balance lookup for tokenId fallback warning:", bErr);
+          console.warn("[UCW API] Balance lookup for tokenId fallback warning:", circleErrorForLog(bErr));
         }
       }
 
@@ -737,7 +736,7 @@ export async function POST(req: Request) {
               console.log("[UCW API] Resolved transactionId from challenge correlationIds:", transactionId);
             }
           } catch (cErr) {
-            console.warn("[UCW API] getUserChallenge lookup warning:", cErr);
+            console.warn("[UCW API] getUserChallenge lookup warning:", circleErrorForLog(cErr));
           }
         }
 
@@ -758,7 +757,7 @@ export async function POST(req: Request) {
               });
             }
           } catch (tErr) {
-            console.warn("[UCW API] getTransaction warning:", tErr);
+            console.warn("[UCW API] getTransaction warning:", circleErrorForLog(tErr));
           }
         }
 
@@ -779,7 +778,7 @@ export async function POST(req: Request) {
             const res = await client.listTransactions(params);
             return res.data?.transactions || [];
           } catch (err: any) {
-            console.warn(`[UCW API] listTransactions (${operation}, filters=${withFilters}) warning:`, err?.message || err);
+            console.warn(`[UCW API] listTransactions (${operation}, filters=${withFilters}) warning:`, circleErrorForLog(err));
             return [];
           }
         };
@@ -827,19 +826,22 @@ export async function POST(req: Request) {
           message: "Transaction broadcasted; hash pending on-chain indexing.",
         });
       } catch (err: any) {
-        console.error("[UCW API] getLatestTransaction error:", err);
+        console.error("[UCW API] getLatestTransaction error:", circleErrorForLog(err));
         return apiError(err.message || "Failed to fetch transaction hash", "FETCH_TX_FAILED", 500);
       }
     }
 
     return apiError(`Invalid action: ${action}`, "INVALID_ACTION", 400);
   } catch (error: any) {
-    console.error("[UCW API Error]:", error?.message || error);
-    if (error?.response?.data) {
-      console.error("[UCW API Error Details]:", JSON.stringify(error.response.data, null, 2));
-    }
-    const code = error?.response?.data?.code || error?.code || "UCW_INTERNAL_ERROR";
-    const msg = error?.response?.data?.message || error?.message || "Internal server error occurred in Circle UCW service.";
-    return apiError(msg, String(code), 500, error?.response?.data || error?.details || null);
+    // A single redacted entry: code, HTTP status and a scrubbed message. The provider body is
+    // reduced to non-sensitive fields and never stringified verbatim.
+    const safeError = circleErrorForLog(error);
+    console.error("[UCW API Error]:", safeError);
+    const code = safeError.code ?? "UCW_INTERNAL_ERROR";
+    const msg = safeError.message || "Internal server error occurred in Circle UCW service.";
+    // The caller receives its own provider diagnostics with the same masking applied, so a
+    // provider message that quotes the account e-mail is not echoed back either.
+    const details = error?.response?.data ?? error?.details ?? null;
+    return apiError(msg, String(code), 500, details === null ? null : redactCircleErrorPayload(details));
   }
 }

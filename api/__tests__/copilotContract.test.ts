@@ -69,6 +69,9 @@ async function captureUpstreamRequest(payload: Record<string, unknown>) {
 beforeEach(() => {
   vi.stubEnv('OPENAI_API_KEY', 'sk-testserverkey0123456789')
   vi.stubEnv('OPENROUTER_API_KEY', '')
+  // ARC-007: reproduce the production runtime (Vercel overwrites x-forwarded-for) so each simulated
+  // client keeps its own rate-limit bucket.
+  vi.stubEnv('VERCEL', '1')
 })
 
 afterEach(() => {
