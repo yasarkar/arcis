@@ -326,6 +326,23 @@ contract YieldVaultV4Test is Test {
         assertGt(usdc.balanceOf(alice), usdcBefore, "redeem must work while paused");
     }
 
+    /// @notice withdraw() works while paused and still decrements principal (M-2 override).
+    function test_Pause_AllowsWithdraw() public {
+        vm.prank(alice);
+        vault.deposit(100_000 * DEC6, alice);
+
+        vault.pause();
+
+        uint256 usdcBefore = usdc.balanceOf(alice);
+        uint256 principalBefore = vault.principalAssets(alice);
+        vm.prank(alice);
+        uint256 shares = vault.withdraw(10_000 * DEC6, alice, alice);
+
+        assertGt(shares, 0, "withdraw must burn shares");
+        assertGt(usdc.balanceOf(alice), usdcBefore, "withdraw must work while paused");
+        assertLt(vault.principalAssets(alice), principalBefore, "withdraw must decrement principal");
+    }
+
     /// @notice redeemWithMinAssets() works while paused.
     function test_Pause_AllowsRedeemWithMinAssets() public {
         vm.prank(alice);

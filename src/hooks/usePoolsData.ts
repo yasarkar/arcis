@@ -23,8 +23,6 @@ import {
   CONSTANT_PRODUCT_LP_FEE_BPS,
   POOL_CONTRACTS,
   POOL_DEFAULT_SLIPPAGE_BPS,
-  POOL_VERSION_V2,
-  POOL_VERSION_V3,
   POOL_VERSION_V4,
   poolMinLpShares,
   poolMinOut,
@@ -53,6 +51,7 @@ import {
 import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
 import { resolveUcwTxHash, ucwHashPendingMessage } from '../utils/ucwTxHash'
 import { addTransaction } from '../utils/history'
+import logger from '../utils/logger'
 import { useLiveTokenPrices } from './useLiveTokenPrices'
 import {
   fetchTotalPoolTransactionCount,
@@ -60,6 +59,9 @@ import {
 } from '../services/poolEventsIndexer'
 
 export { recordClientSwapVolume, recordOptimisticPoolTx }
+
+// Named `poolsLog` on purpose: receipt loops below bind `log` to a viem log entry.
+const poolsLog = logger.createScope('usePoolsData')
 
 /**
  * Standardized APY badge formatter across all Arcis pools and vaults.
@@ -115,13 +117,20 @@ export const safeStorage = {
         const val = window.localStorage.getItem(key)
         if (val !== null) return val
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort read: localStorage can be unavailable (SSR, private mode, sandbox) and the
+      // sessionStorage/memory fallbacks below still answer the read.
+      poolsLog.debug('localStorage read failed; falling back to sessionStorage/memory', err)
+    }
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
         const val = window.sessionStorage.getItem(key)
         if (val !== null) return val
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort read: the in-memory fallback below is still authoritative for this tab.
+      poolsLog.debug('sessionStorage read failed; falling back to memory', err)
+    }
     return memoryStorageFallback.get(key) ?? null
   },
   set: (key: string, val: string): void => {
@@ -131,13 +140,20 @@ export const safeStorage = {
         window.localStorage.setItem(key, val)
         persisted = true
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort write: the sessionStorage attempt and the memory fallback below still persist
+      // the value for this tab.
+      poolsLog.debug('localStorage write failed; falling back to sessionStorage/memory', err)
+    }
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
         window.sessionStorage.setItem(key, val)
         persisted = true
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort write: the value is still kept in the in-memory fallback below.
+      poolsLog.debug('sessionStorage write failed; falling back to memory', err)
+    }
     if (!persisted) {
       memoryStorageFallback.set(key, val)
     }
@@ -147,12 +163,19 @@ export const safeStorage = {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem(key)
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort removal: a stale browser entry only re-hydrates a cache, and the in-memory
+      // copy is always dropped below.
+      poolsLog.debug('localStorage removal failed', err)
+    }
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
         window.sessionStorage.removeItem(key)
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort removal: same reasoning as the localStorage branch above.
+      poolsLog.debug('sessionStorage removal failed', err)
+    }
     memoryStorageFallback.delete(key)
   },
   clearMemory: (): void => {
@@ -191,7 +214,10 @@ export function measureVaultYieldApy(
   try {
     const raw = safeStorage.get(VAULT_APY_SNAPSHOT_KEY)
     if (raw) snapshot = JSON.parse(raw)
-  } catch { }
+  } catch (err) {
+    // Best-effort read: an unparsable snapshot is re-seeded by the branch below.
+    poolsLog.debug('Vault APY snapshot could not be read; re-seeding it', err)
+  }
 
   if (
     !snapshot ||
@@ -204,7 +230,11 @@ export function measureVaultYieldApy(
   ) {
     try {
       safeStorage.set(VAULT_APY_SNAPSHOT_KEY, JSON.stringify({ yield: totalYieldDistributedUsd, ts: nowMs }))
-    } catch { }
+    } catch (err) {
+      // Persistence failed, so the seeded snapshot is lost and the APY badge keeps reading 0 until a
+      // later run can write it again.
+      poolsLog.warn('Vault APY seed snapshot could not be persisted; the APY badge stays at 0 for now', err)
+    }
     return 0
   }
 
@@ -215,7 +245,10 @@ export function measureVaultYieldApy(
   const deltaYieldUsd = totalYieldDistributedUsd - snapshot.yield
   try {
     safeStorage.set(VAULT_APY_SNAPSHOT_KEY, JSON.stringify({ yield: totalYieldDistributedUsd, ts: nowMs }))
-  } catch { }
+  } catch (err) {
+    // The measurement window could not be advanced, so the next run re-measures the same period.
+    poolsLog.warn('Vault APY measurement window could not be persisted; the reported APY may repeat', err)
+  }
 
   if (!(deltaYieldUsd > 0)) return 0
   const apy = ((deltaYieldUsd / windowDays) * 365 * 100) / totalAssetsUsd
@@ -226,7 +259,7 @@ export function measureVaultYieldApy(
 // conservative minLpShares slippage guard. For Curve StableSwap pools, uses the exact
 // invariant _getD matching StableSwapPoolV3.sol to prevent false SlippageExceeded reverts.
 export function computeMinLpShares(
-  pool: { id: string; tokens?: readonly { decimals?: number }[] },
+  pool: { id: string; tokens?: readonly { decimals?: number }[]; tags?: readonly string[] },
   poolAddress: string,
   poolState: Record<string, any> | undefined,
   amountA: bigint,
@@ -234,7 +267,7 @@ export function computeMinLpShares(
   counterDecimalsInput?: number,
   slippage: number = 0.5
 ): bigint {
-  if (!POOL_VERSION_V2 && !POOL_VERSION_V3 && !POOL_VERSION_V4) return 0n
+  if (!POOL_VERSION_V4) return 0n
   const st = (poolState || {})[poolAddress] as any
   const slipBps = poolSlippageBps(slippage)
   const counterDecimals =
@@ -246,7 +279,7 @@ export function computeMinLpShares(
 
   if (totalLpRaw <= 0n || reserveARaw <= 0n) return 0n
 
-  const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.tags?.includes('Constant Product')
+  const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.tags?.includes('Constant Product')
 
   if (isConstantProduct) {
     const reserveBRaw = st.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
@@ -290,7 +323,10 @@ export function getLastKnownPoolState(): Record<string, any> | undefined {
         return parsed
       }
     }
-  } catch { }
+  } catch (err) {
+    // Best-effort read: this cache only serves the instant first paint, and live reads follow.
+    poolsLog.debug('Persisted pool-state cache could not be read; waiting for the live read', err)
+  }
   return undefined
 }
 
@@ -413,6 +449,39 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
     }
   }
 
+  // ConstantProductPool (EURC/WETH) via Multicall3
+  if (isDeployed(POOL_CONTRACTS.EURC_WETH_POOL)) {
+    try {
+      const fnNames = AMM_POOL_STATE_READ_FNS
+
+      const calls = fnNames.map((fn) => ({
+        address: POOL_CONTRACTS.EURC_WETH_POOL as Address,
+        abi: CONSTANT_PRODUCT_ABI,
+        functionName: fn,
+      }))
+
+      const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+      const val = (idx: number, fallback: bigint = 0n) =>
+        results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
+      state[POOL_CONTRACTS.EURC_WETH_POOL] = {
+        reserveA: formatUnits(val(0), 6),
+        reserveB: formatUnits(val(1), 18),
+        totalLp: formatUnits(val(2), 18),
+        unclaimedFeeA: formatUnits(val(3), 6),
+        unclaimedFeeB: formatUnits(val(4), 18),
+        ...(POOL_VERSION_V4
+          ? { feeReserveA: formatUnits(val(5), 6), feeReserveB: formatUnits(val(6), 18) }
+          : { accumulatedFeeA: formatUnits(val(5), 6), accumulatedFeeB: formatUnits(val(6), 18) }),
+        swapFeeBps: Number(val(7, 30n)),
+        volume24hA: formatUnits(val(8), 6),
+        volume24hB: formatUnits(val(9), 18),
+      }
+    } catch (err) {
+      console.warn(`[usePoolsData] EURC/WETH ConstantProduct multicall state read failed:`, err)
+    }
+  }
+
   // YieldVault (ERC-4626) via Multicall3
   if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
     try {
@@ -461,7 +530,10 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
     await redisCache.set(cacheKey, state, 20)
     try {
       safeStorage.set('arcis:pools:state:last', JSON.stringify(state))
-    } catch { }
+    } catch (err) {
+      // Best-effort mirror: Redis above is the source of truth, this copy only serves first paint.
+      poolsLog.debug('Pool-state first-paint mirror could not be persisted', err)
+    }
   }
 
   return state
@@ -1053,6 +1125,106 @@ export async function fetchUserPoolPositions(
     }
   }
 
+  // ConstantProductPool (EURC/WETH) user balance read
+  const eurcWethPoolAddress = POOL_CONTRACTS.EURC_WETH_POOL
+  if (isDeployed(eurcWethPoolAddress)) {
+    try {
+      const lpRaw = (await resilientReadContract(publicClient, {
+        address: eurcWethPoolAddress as Address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [targetAddr],
+      })) as bigint
+
+      if (lpRaw > 0n) {
+        let reserveA = 0n
+        let reserveB = 0n
+        let totalLp = 0n
+        let unclaimedA = 0n
+        let unclaimedB = 0n
+
+        try {
+          const [rA, rB, tLp, uA, uB] = await Promise.all([
+            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
+            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
+            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
+            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
+            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
+          ])
+          reserveA = rA as bigint
+          reserveB = rB as bigint
+          totalLp = tLp as bigint
+          unclaimedA = (uA as bigint) || 0n
+          unclaimedB = (uB as bigint) || 0n
+        } catch (e) {
+          const poolState = onchainPoolState?.[eurcWethPoolAddress]
+          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
+          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
+          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 18) : 0n
+          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
+          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 18) : 0n
+        }
+
+        let stakedUsd = 0
+        let userA = 0
+        let userB = 0
+        let poolSharePct = 0
+        let userEarnedUsd = 0
+        let rawFeeShareUsd = 0
+
+        if (totalLp > 0n) {
+          const userARaw = (reserveA * lpRaw) / totalLp
+          const userBRaw = (reserveB * lpRaw) / totalLp
+          userA = parseFloat(formatUnits(userARaw, 6))
+          userB = parseFloat(formatUnits(userBRaw, 18))
+          stakedUsd = userA * liveEurcPrice + userB * liveEthPrice
+          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+
+          const ufA = parseFloat(formatUnits(unclaimedA, 6))
+          const ufB = parseFloat(formatUnits(unclaimedB, 18))
+          const totalPoolUnclaimedUsd = ufA * liveEurcPrice + ufB * liveEthPrice
+          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+
+          if (POOL_VERSION_V4) {
+            try {
+              const pending = (await resilientReadContract(publicClient, {
+                address: eurcWethPoolAddress as Address,
+                abi: CONSTANT_PRODUCT_ABI,
+                functionName: 'pendingFees',
+                args: [targetAddr],
+              })) as readonly [bigint, bigint]
+              const claimableUsd =
+                parseFloat(formatUnits(pending?.[0] || 0n, 6)) * liveEurcPrice +
+                parseFloat(formatUnits(pending?.[1] || 0n, 18)) * liveEthPrice
+              rawFeeShareUsd = claimableUsd
+              userEarnedUsd = claimableUsd
+            } catch (e) {
+              console.warn('[usePoolsData] EURC/WETH ConstantProduct pendingFees read failed:', e)
+            }
+          }
+        }
+
+        positions['eurc-weth-pool'] = {
+          poolId: 'eurc-weth-pool',
+          stakedAmount: stakedUsd.toFixed(2),
+          stakedUsd,
+          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedUsd: userEarnedUsd,
+          lastUpdatedTimestamp: Date.now(),
+          isLpPosition: true,
+          lpTokenBalance: formatUnits(lpRaw, 18),
+          poolSharePct,
+          tokenAStaked: userA.toFixed(2),
+          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
+          earnedFeesUsd: rawFeeShareUsd,
+          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
+        }
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] EURC/WETH ConstantProduct user balance read failed:', err)
+    }
+  }
+
   if (Object.keys(positions).length > 0) {
     await redisCache.set(cacheKey, positions, 20)
   }
@@ -1321,6 +1493,32 @@ export function usePoolsData(
         const totalApr = parseFloat((baseApr + dynamicFeeApr).toFixed(2))
         apy = totalApr
         apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'ETH Incentive')
+
+      } else if (pool.id === 'eurc-weth-pool') {
+        const s = onchainPoolState?.[pool.contractAddress] || onchainPoolState?.[POOL_CONTRACTS.EURC_WETH_POOL]
+        const resA = parseFloat(s?.reserveA || '0') || 0
+        const resB = parseFloat(s?.reserveB || '0') || 0
+        const eurcPrice = liveEurcPrice || 1.08
+        exchangeRate = liveWethPrice / eurcPrice
+        const reserveUsd = resA * eurcPrice + resB * liveWethPrice
+        tvlUsd = reserveUsd < 1000 ? parseFloat(reserveUsd.toFixed(2)) : Math.floor(reserveUsd)
+        const ratioA = reserveUsd > 0 ? Math.round(((resA * eurcPrice) / reserveUsd) * 100) : 50
+        const ratioB = reserveUsd > 0 ? Math.max(0, 100 - ratioA) : 50
+        reserves = { tokenA: resA, tokenB: resB, ratioA, ratioB }
+        totalLp = s?.totalLp || '0'
+        const eurcVolA = parseFloat(s?.volume24hA || '0')
+        const eurcVolB = parseFloat(s?.volume24hB || '0')
+        volume24hUsd = parseFloat((eurcVolA * eurcPrice + eurcVolB * liveWethPrice).toFixed(2))
+        clientVolumeUsd = 0
+
+        const baseApr = 14.80
+        const feeTierPct = pool.feeTierPercent || 0.30
+        const dynamicFeeApr = tvlUsd > 0 && volume24hUsd > 0
+          ? ((volume24hUsd * (feeTierPct / 100) * 365) / tvlUsd) * 100
+          : 0
+        const totalApr = parseFloat((baseApr + dynamicFeeApr).toFixed(2))
+        apy = totalApr
+        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'EURC-ETH Incentive')
 
       } else if (pool.id === 'usdc-yield-vault') {
         const s = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
@@ -1769,8 +1967,8 @@ export function usePoolsData(
       }
 
       // Compute expected counter token output from reserves & apply user slippage tolerance
-      const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.tags?.includes('Constant Product')
-      const feeBps = pool.feeTierPercent ? BigInt(Math.round(pool.feeTierPercent * 100)) : (pool.id === 'usdc-weth-pool' ? 30n : pool.id === 'usdc-cirbtc-pool' ? 25n : 12n)
+      const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.tags?.includes('Constant Product')
+      const feeBps = pool.feeTierPercent ? BigInt(Math.round(pool.feeTierPercent * 100)) : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' ? 30n : pool.id === 'usdc-cirbtc-pool' ? 25n : 12n)
       const inAfterFee = (halfUsdc * (10000n - feeBps)) / 10000n
       let expectedOut = 0n
       if (isConstantProduct) {
@@ -1911,7 +2109,11 @@ export function usePoolsData(
                 lpMintedRaw = (decoded.args as any).lpMinted as bigint
                 break
               }
-            } catch { }
+            } catch (err) {
+              // Best-effort: a log that is not LiquidityAdded cannot be decoded by design, and the
+              // receipt falls back to the minLpShares estimate below.
+              poolsLog.debug('Receipt log could not be decoded as LiquidityAdded; using the estimated LP amount', err)
+            }
           }
         }
 
@@ -2080,7 +2282,11 @@ export function usePoolsData(
                   lpMintedRaw = (decoded.args as any).lpMinted as bigint
                   break
                 }
-              } catch { }
+              } catch (err) {
+                // Best-effort: a log that is not LiquidityAdded cannot be decoded by design, and the
+                // receipt falls back to the minLpShares estimate below.
+                poolsLog.debug('Receipt log could not be decoded as LiquidityAdded; using the estimated LP amount', err)
+              }
             }
           }
         }
@@ -2267,7 +2473,11 @@ export function usePoolsData(
               lpMintedRaw = (decoded.args as any).lpMinted as bigint
               break
             }
-          } catch { }
+          } catch (err) {
+            // Best-effort: a log that is not LiquidityAdded cannot be decoded by design, and the
+            // receipt falls back to the minLpShares estimate below.
+            poolsLog.debug('Receipt log could not be decoded as LiquidityAdded; using the estimated LP amount', err)
+          }
         }
       }
 
@@ -2335,18 +2545,22 @@ export function usePoolsData(
         ? POOL_CONTRACTS.STABLE_SWAP_POOL
         : poolId === 'usdc-weth-pool'
           ? POOL_CONTRACTS.WETH_POOL
-          : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+          : poolId === 'eurc-weth-pool'
+            ? POOL_CONTRACTS.EURC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
 
       requireDeployed(poolAddress, pool.name)
 
       const targetAccount = (walletAddress || (await (await getWalletClient())?.getAddresses())?.[0]) as Address
       if (!targetAccount) throw new Error('Wallet not connected')
 
+      const tokenA = pool.tokens[0]
+      const tokenAAddress = (tokenA?.address || (poolId === 'eurc-weth-pool' ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.USDC)) as `0x${string}`
       const counterToken = pool.tokens[1]
-      const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
+      const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool') ? 18 : 6)
       const amountA = parseUnits(amountAStr, 6)
       const amountB = parseUnits(amountBStr, counterDecimals)
-      const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
+      const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
 
       // V2/V3: compute a conservative minLpShares guard from on-chain reserves
       // (proportional / constant-product / Curve invariant estimate) so a material price move
@@ -2410,15 +2624,16 @@ export function usePoolsData(
 
       // D2: value the counter side at the live price — `pool.exchangeRate || 1` counted
       // cirBTC as $1 in the optimistic updates whenever the static rate was missing (O4 family).
+      const tokenAUsdPrice = (poolId === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC') ? liveEurcPrice : 1.0
       const counterUsdPrice = poolId === 'usdc-eurc-stable-pool' ? liveEurcPrice : liveBtcPrice
-      const effectiveCounterUsdPrice = poolId === 'usdc-weth-pool' ? liveWethPrice : counterUsdPrice
-      const totalUsdAdded = parseFloat(amountAStr) + parseFloat(amountBStr) * effectiveCounterUsdPrice
+      const effectiveCounterUsdPrice = (poolId === 'usdc-weth-pool' || poolId === 'eurc-weth-pool') ? liveWethPrice : counterUsdPrice
+      const totalUsdAdded = (parseFloat(amountAStr) || 0) * tokenAUsdPrice + (parseFloat(amountBStr) || 0) * effectiveCounterUsdPrice
 
       // 1. Modular Smart Account (Atomic 3-call batch UserOp)
       const smartAccount = getActiveSmartAccount()
       if (smartAccount) {
         const approveCallA = {
-          to: POOL_CONTRACTS.USDC as Hex,
+          to: tokenAAddress as Hex,
           data: encodeFunctionData({
             abi: erc20Abi,
             functionName: 'approve',
@@ -2465,7 +2680,11 @@ export function usePoolsData(
                 lpMintedRaw = (decoded.args as any).lpMinted as bigint
                 break
               }
-            } catch { }
+            } catch (err) {
+              // Best-effort: a log that is not LiquidityAdded cannot be decoded by design, and the
+              // receipt falls back to the minLpShares estimate below.
+              poolsLog.debug('Receipt log could not be decoded as LiquidityAdded; using the estimated LP amount', err)
+            }
           }
         }
 
@@ -2477,8 +2696,13 @@ export function usePoolsData(
 
         const decA = parseFloat(amountAStr) || 0
         if (totalUsdAdded > 0) {
+          const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC'
           queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
             if (!old) return old
+            if (isTokenAEurc) {
+              const oldEurc = parseFloat(old.eurc || '0')
+              return { ...old, eurc: Math.max(0, oldEurc - decA).toFixed(2) }
+            }
             const oldUsdc = parseFloat(old.usdc || '0')
             return { ...old, usdc: Math.max(0, oldUsdc - decA).toFixed(2) }
           })
@@ -2521,8 +2745,8 @@ export function usePoolsData(
       if (authSource === 'ucw' && executeUcwContract) {
         console.log('[usePoolsData UCW] Providing dual liquidity on ARC-TESTNET...')
 
-        // Check allowance & approve Token A (USDC)
-        await approveToken(POOL_CONTRACTS.USDC, poolAddress, amountA)
+        // Check allowance & approve Token A (USDC or EURC)
+        await approveToken(tokenAAddress, poolAddress, amountA)
 
         // Check allowance & approve Token B (EURC, cirBTC, etc.)
         await approveToken(counterTokenAddress, poolAddress, amountB)
@@ -2562,7 +2786,11 @@ export function usePoolsData(
                   lpMintedRaw = (decoded.args as any).lpMinted as bigint
                   break
                 }
-              } catch { }
+              } catch (err) {
+                // Best-effort: a log that is not LiquidityAdded cannot be decoded by design, and the
+                // receipt falls back to the minLpShares estimate below.
+                poolsLog.debug('Receipt log could not be decoded as LiquidityAdded; using the estimated LP amount', err)
+              }
             }
           }
         }
@@ -2575,8 +2803,13 @@ export function usePoolsData(
 
         const decA = parseFloat(amountAStr) || 0
         if (totalUsdAdded > 0) {
+          const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC'
           queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
             if (!old) return old
+            if (isTokenAEurc) {
+              const oldEurc = parseFloat(old.eurc || '0')
+              return { ...old, eurc: Math.max(0, oldEurc - decA).toFixed(2) }
+            }
             const oldUsdc = parseFloat(old.usdc || '0')
             return { ...old, usdc: Math.max(0, oldUsdc - decA).toFixed(2) }
           })
@@ -2616,7 +2849,7 @@ export function usePoolsData(
       const walletClient = await getWalletClient()
       if (!walletClient) throw new Error('Wallet not connected')
 
-      await approveToken(POOL_CONTRACTS.USDC, poolAddress, amountA)
+      await approveToken(tokenAAddress, poolAddress, amountA)
       await approveToken(counterTokenAddress, poolAddress, amountB)
 
       const gasLimit = await estimateSafeGas(
@@ -2657,7 +2890,11 @@ export function usePoolsData(
               lpMintedRaw = (decoded.args as any).lpMinted as bigint
               break
             }
-          } catch { }
+          } catch (err) {
+            // Best-effort: a log that is not LiquidityAdded cannot be decoded by design, and the
+            // receipt falls back to the minLpShares estimate below.
+            poolsLog.debug('Receipt log could not be decoded as LiquidityAdded; using the estimated LP amount', err)
+          }
         }
       }
 
@@ -2669,8 +2906,13 @@ export function usePoolsData(
 
       const decA = parseFloat(amountAStr) || 0
       if (totalUsdAdded > 0) {
+        const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC'
         queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
           if (!old) return old
+          if (isTokenAEurc) {
+            const oldEurc = parseFloat(old.eurc || '0')
+            return { ...old, eurc: Math.max(0, oldEurc - decA).toFixed(2) }
+          }
           const oldUsdc = parseFloat(old.usdc || '0')
           return { ...old, usdc: Math.max(0, oldUsdc - decA).toFixed(2) }
         })
@@ -2723,7 +2965,11 @@ export function usePoolsData(
 
       const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
         ? POOL_CONTRACTS.STABLE_SWAP_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+        : poolId === 'usdc-weth-pool'
+          ? POOL_CONTRACTS.WETH_POOL
+          : poolId === 'eurc-weth-pool'
+            ? POOL_CONTRACTS.EURC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
 
       requireDeployed(poolAddress, pool.name)
 
@@ -2731,22 +2977,27 @@ export function usePoolsData(
       if (!targetAccount) throw new Error('Wallet not connected')
 
       const counterToken = pool.tokens[1]
-      const counterTokenAddr = (counterToken?.address || POOL_CONTRACTS.cirBTC) as `0x${string}`
+      const counterTokenAddr = (counterToken?.address || (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
 
+      const isWeth = (s: string) => s === 'WETH' || s === 'ETH'
       const tokenInAddr = tokenIn === 'USDC'
         ? POOL_CONTRACTS.USDC
         : tokenIn === 'EURC'
           ? POOL_CONTRACTS.EURC
-          : counterTokenAddr
+          : isWeth(tokenIn)
+            ? POOL_CONTRACTS.WETH
+            : counterTokenAddr
 
       const tokenOutAddr = tokenOut === 'USDC'
         ? POOL_CONTRACTS.USDC
         : tokenOut === 'EURC'
           ? POOL_CONTRACTS.EURC
-          : counterTokenAddr
+          : isWeth(tokenOut)
+            ? POOL_CONTRACTS.WETH
+            : counterTokenAddr
 
-      const inDecimals = (tokenIn === 'cirBTC' || (counterToken?.decimals === 8 && tokenIn !== 'USDC')) ? 8 : 6
-      const outDecimals = (tokenOut === 'cirBTC' || (counterToken?.decimals === 8 && tokenOut !== 'USDC')) ? 8 : 6
+      const inDecimals = isWeth(tokenIn) ? 18 : (tokenIn === 'cirBTC' || (counterToken?.decimals === 8 && tokenIn !== 'USDC' && tokenIn !== 'EURC')) ? 8 : 6
+      const outDecimals = isWeth(tokenOut) ? 18 : (tokenOut === 'cirBTC' || (counterToken?.decimals === 8 && tokenOut !== 'USDC' && tokenOut !== 'EURC')) ? 8 : 6
       const amountIn = parseUnits(amountInStr, inDecimals)
       const minOut = minOutStr ? parseUnits(minOutStr, outDecimals) : 0n
       if (minOut <= 0n) {
@@ -2760,6 +3011,8 @@ export function usePoolsData(
         swapVolUsd = (parseFloat(amountInStr) || 0) * liveEurcPrice
       } else if (tokenIn === 'cirBTC' || tokenIn === 'BTC') {
         swapVolUsd = (parseFloat(amountInStr) || 0) * liveBtcPrice
+      } else if (isWeth(tokenIn)) {
+        swapVolUsd = (parseFloat(amountInStr) || 0) * liveWethPrice
       }
 
       const smartAccount = getActiveSmartAccount()
@@ -2804,7 +3057,11 @@ export function usePoolsData(
                 actualAmountOutStr = formatUnits((decoded.args as any).amountOut as bigint, outDecimals)
                 break
               }
-            } catch { }
+            } catch (err) {
+              // Best-effort: a log that is not Swapped cannot be decoded by design; the volume label
+              // then keeps the quoted output it already had.
+              poolsLog.debug('Receipt log could not be decoded as Swapped; keeping the quoted swap output', err)
+            }
           }
         }
 
@@ -2856,7 +3113,11 @@ export function usePoolsData(
                   actualAmountOutStr = formatUnits((decoded.args as any).amountOut as bigint, outDecimals)
                   break
                 }
-              } catch { }
+              } catch (err) {
+                // Best-effort: a log that is not Swapped cannot be decoded by design; the volume label
+                // then keeps the quoted output it already had.
+                poolsLog.debug('Receipt log could not be decoded as Swapped; keeping the quoted swap output', err)
+              }
             }
           }
         }
@@ -2914,7 +3175,11 @@ export function usePoolsData(
               actualAmountOutStr = formatUnits((decoded.args as any).amountOut as bigint, outDecimals)
               break
             }
-          } catch { }
+          } catch (err) {
+            // Best-effort: a log that is not Swapped cannot be decoded by design; the volume label
+            // then keeps the quoted output it already had.
+            poolsLog.debug('Receipt log could not be decoded as Swapped; keeping the quoted swap output', err)
+          }
         }
       }
 
@@ -3174,7 +3439,11 @@ export function usePoolsData(
       // 2. LP Pool Removal
       const poolAddress = pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
         ? POOL_CONTRACTS.STABLE_SWAP_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+        : poolId === 'usdc-weth-pool'
+          ? POOL_CONTRACTS.WETH_POOL
+          : poolId === 'eurc-weth-pool'
+            ? POOL_CONTRACTS.EURC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
       requireDeployed(poolAddress, pool.name)
 
       const userLpRaw = (await resilientReadContract(publicClient, {
@@ -3205,7 +3474,11 @@ export function usePoolsData(
         let directLpRaw = 0n
         try {
           directLpRaw = parseUnits(withdrawAmountNum.toFixed(18), 18)
-        } catch { }
+        } catch (err) {
+          // The requested amount could not be read as LP shares, so the withdrawal falls through to
+          // the proportional-claim branch below instead of the direct amount the user typed.
+          poolsLog.warn('Withdrawal amount could not be parsed as LP shares; falling back to a proportional claim', err)
+        }
 
         if (directLpRaw > 0n && directLpRaw <= userLpRaw) {
           lpToWithdraw = directLpRaw
@@ -3231,7 +3504,7 @@ export function usePoolsData(
 
       // V2: derive exact minOutA/minOutB from reserves for removeLiquidity slippage.
       const removeLiquidityArgs = (() => {
-        if (!POOL_VERSION_V2 && !POOL_VERSION_V3 && !POOL_VERSION_V4) return [lpToWithdraw, 0n, 0n] as const
+        if (!POOL_VERSION_V4) return [lpToWithdraw, 0n, 0n] as const
         const st = (onchainPoolState || {})[poolAddress] as any
         const total = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
         if (total <= 0n) return [lpToWithdraw, 0n, 0n] as const
@@ -3470,7 +3743,11 @@ export function usePoolsData(
       const isVault = poolId === 'usdc-yield-vault'
       const poolAddress = (pool.contractAddress || (poolId === 'usdc-eurc-stable-pool'
         ? POOL_CONTRACTS.STABLE_SWAP_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)) as `0x${string}`
+        : poolId === 'usdc-weth-pool'
+          ? POOL_CONTRACTS.WETH_POOL
+          : poolId === 'eurc-weth-pool'
+            ? POOL_CONTRACTS.EURC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)) as `0x${string}`
 
       // 1) Read the on-chain claimable amount — the single source of truth for the user.
       let harvestableA = 0n

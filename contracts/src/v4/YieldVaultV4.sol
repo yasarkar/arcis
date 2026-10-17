@@ -159,6 +159,33 @@ contract YieldVaultV4 is ERC4626, Ownable, Pausable, ReentrancyGuard {
     /// @dev EIP-4626 recommends keeping withdrawals open even when deposits are paused.
     ///      `harvest()` is also gated by `whenNotPaused` so that a paused vault fully
     ///      halts yield extraction while principal exit remains available.
+    ///
+    ///      M-2: the inherited `withdraw`/`redeem` entry points are overridden only to add the
+    ///      `nonReentrant` guard, so every asset-moving exit path holds it (deposit, mint,
+    ///      depositWithMinShares, withdraw, redeem, redeemWithMinAssets, harvest, distributeYield).
+    ///      Exits are deliberately NOT `whenNotPaused`: principal must always be withdrawable.
+    ///      The guard is defence in depth — the vault assumes USDC is a standard, hook-free,
+    ///      non-rebasing, non-fee-on-transfer ERC-20, so no callback can re-enter the vault today.
+
+    /// @inheritdoc ERC4626
+    function withdraw(uint256 assets, address receiver, address owner_)
+        public
+        override
+        nonReentrant
+        returns (uint256 shares)
+    {
+        shares = super.withdraw(assets, receiver, owner_);
+    }
+
+    /// @inheritdoc ERC4626
+    function redeem(uint256 shares, address receiver, address owner_)
+        public
+        override
+        nonReentrant
+        returns (uint256 assets)
+    {
+        assets = super.redeem(shares, receiver, owner_);
+    }
 
     // ── Slippage-guarded deposit ──────────────────────────────────────────────
     /// @notice Deposit USDC with explicit minimum-shares protection.
