@@ -34,8 +34,16 @@ abstract contract LpFeeAccounting {
     function _lpBalanceOf(address account) internal view virtual returns (uint256);
 
     /// @notice Distributes a swap fee to all LP token holders proportionally.
+    ///         Fetches eligible supply internally -- use _distributeSwapFeeWithSupply when the
+    ///         supply is already cached at the call site (I-04 gas optimisation).
     function _distributeSwapFee(uint256 feeA, uint256 feeB) internal {
-        uint256 supply = _eligibleLpSupply();
+        _distributeSwapFeeWithSupply(feeA, feeB, _eligibleLpSupply());
+    }
+
+    /// @notice Distributes a swap fee with a pre-computed eligible supply.
+    /// @dev I-04: avoids a second call to _eligibleLpSupply() when the value is already
+    ///      known at the call site (e.g., inside _swapInternal after the H-1 guard check).
+    function _distributeSwapFeeWithSupply(uint256 feeA, uint256 feeB, uint256 supply) internal {
         if (supply == 0) return;
 
         if (feeA > 0) {

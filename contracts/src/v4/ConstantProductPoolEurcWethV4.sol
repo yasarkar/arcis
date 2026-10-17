@@ -5,7 +5,8 @@ import {IERC20Like} from "../interfaces/IERC20Like.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+// M-01 fix: two-step ownership prevents irreversible misdirection of admin control.
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {LpFeeAccounting} from "./LpFeeAccounting.sol";
 
 /// @notice Arcis EURC / WETH Constant-Product Pool V4 (x * y = k) with Real-Yield Fee Harvest.
@@ -15,14 +16,29 @@ import {LpFeeAccounting} from "./LpFeeAccounting.sol";
 ///      up to standard 18-decimal ERC-20 shares. MINIMUM_LIQUIDITY = 1000 wei LP locked to
 ///      DEAD_ADDRESS on the first deposit to anchor the exchange rate and prevent inflation attacks.
 ///
-///      Security features:
+///      Security features (original):
 ///        H-1: NoLiquidityProviders guard in swap() -- fees never orphaned when eligible supply=0.
 ///        H-3: DustSwapNotAllowed guard -- fee must be >= 1 wei; prevents free swaps.
 ///        M-1: Strict CEI in swap() -- reserve state written BEFORE output token is pushed.
 ///        M-2: minLpShares checked BEFORE tokens are pulled on the initial deposit path.
 ///        M-3: deadline parameter added to swap() and addLiquidity() -- MEV staleness protection.
 ///        M-5: skim() function added -- recovers stray token donations above tracked reserves.
-contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable, LpFeeAccounting {
+///
+///      Security features (audit remediation):
+///        H-01: Off-ratio deposits revert -- amountBIn must be within maxAmountBIn; only optimal
+///              amounts are transferred, protecting depositors from involuntary token donation.
+///        M-01: Ownable2Step replaces Ownable -- two-step ownership handover prevents irreversible
+///              misdirection to an incorrect or non-operational address.
+///        M-02: swapFeeBps >= 1 enforced at construction -- zero-fee pools are explicitly rejected
+///              to prevent silent LP starvation from accidental misconfiguration.
+///        M-04: e24hVolumeA/B/e24hWindowStart are internal; volume24hA()/volume24hB() are the
+///              only safe-to-read external view surfaces (stale-storage griefing via raw reads is closed).
+///        L-01: _sqrt dust guard -- initialLp must produce rawSqrt >= 1e6 to prevent sub-1e12
+///              anchor deposits that could anchor the pool at a garbage price.
+///        L-02: Custom errors carry contextual parameters for on-chain telemetry and incident triage.
+///        I-04: _eligibleLpSupply() called once per swap and result passed to _distributeSwapFee
+///              (~400 gas saved per swap).
+contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Ownable2Step, LpFeeAccounting {
     // ── Immutables & Constants ────────────────────────────────────────────────
     IERC20Like public immutable tokenA; // EURC (6 decimals)
     IERC20Like public immutable tokenB; // WETH (18 decimals)
@@ -36,18 +52,23 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
     uint256 public reserveA; // live EURC reserve (excludes feeReserveA)
     uint256 public reserveB; // live WETH reserve (excludes feeReserveB)
 
-    // 24-hour rolling volume counters, lazy-reset on swap
-    uint256 public e24hVolumeA;
-    uint256 public e24hVolumeB;
-    uint256 public e24hWindowStart;
+    // M-04 fix: 24-hour rolling volume counters made internal -- always read via volume24hA()/volume24hB()
+    // to prevent integrators from consuming stale raw storage values after window expiry.
+    uint256 internal e24hVolumeA;
+    uint256 internal e24hVolumeB;
+    uint256 internal e24hWindowStart;
 
-    // ── Custom Errors ─────────────────────────────────────────────────────────
+    // ── Custom Errors (L-02 fix: carry contextual parameters) ─────────────────
     error ZeroAmount();
-    error InvalidFeeBps();
+    /// @dev M-02: raised when swapFeeBps is 0 (forbidden) or > 1000 (exceeds 10%).
+    error InvalidFeeBps(uint256 provided);
     error NotEnoughLP();
-    error SlippageExceeded();
-    error InvalidTokenPair();
-    error ZeroAddress();
+    /// @dev Carries (minOut, actualOut) so callers can see the exact slippage gap.
+    error SlippageExceeded(uint256 minOut, uint256 actualOut);
+    /// @dev Carries (tokenIn, tokenOut) to identify the invalid direction.
+    error InvalidTokenPair(address tokenIn, address tokenOut);
+    /// @dev Carries the offending address that was zero or non-contract.
+    error ZeroAddress(address provided);
     error KInvariantViolated();
     /// @dev H-1: swap() reverts when no real LP holders remain, preventing fee orphaning.
     error NoLiquidityProviders();
@@ -55,6 +76,10 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
     error DustSwapNotAllowed();
     /// @dev M-3: swap()/addLiquidity() revert when block.timestamp exceeds caller's deadline.
     error DeadlineExpired();
+    /// @dev H-01: addLiquidity() reverts when the required tokenB amount exceeds the caller's cap.
+    error ExcessiveTokenBRequired(uint256 required, uint256 maxAllowed);
+    /// @dev H-01: addLiquidity() reverts when the required tokenA amount exceeds the caller's cap.
+    error ExcessiveTokenARequired(uint256 required, uint256 maxAllowed);
 
     // ── Events ────────────────────────────────────────────────────────────────
     event LiquidityAdded(address indexed provider, uint256 amountA, uint256 amountB, uint256 lpMinted);
@@ -73,12 +98,14 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
         ERC20("Arcis EURC-WETH LP v4", "af-EURC-WETH-v4")
         Ownable(_initialOwner)
     {
-        if (_tokenA == address(0) || _tokenB == address(0)) revert ZeroAddress();
-        if (_tokenA == _tokenB) revert InvalidTokenPair();
-        if (_swapFeeBps > 1000) revert InvalidFeeBps();
-        // H-1: verify both addresses are deployed contracts, not EOAs or zero-bytecode addresses
-        if (address(_tokenA).code.length == 0) revert ZeroAddress();
-        if (address(_tokenB).code.length == 0) revert ZeroAddress();
+        if (_tokenA == address(0)) revert ZeroAddress(_tokenA);
+        if (_tokenB == address(0)) revert ZeroAddress(_tokenB);
+        if (_tokenA == _tokenB) revert InvalidTokenPair(_tokenA, _tokenB);
+        // M-02 fix: swapFeeBps must be >= 1 (zero-fee pools silently starve LPs of revenue).
+        if (_swapFeeBps == 0 || _swapFeeBps > 1000) revert InvalidFeeBps(_swapFeeBps);
+        // Verify both addresses are deployed contracts, not EOAs or zero-bytecode addresses.
+        if (address(_tokenA).code.length == 0) revert ZeroAddress(_tokenA);
+        if (address(_tokenB).code.length == 0) revert ZeroAddress(_tokenB);
 
         tokenA = IERC20Like(_tokenA);
         tokenB = IERC20Like(_tokenB);
@@ -91,10 +118,15 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
     function unclaimedFeeA() external view returns (uint256) { return feeReserveA; }
     function unclaimedFeeB() external view returns (uint256) { return feeReserveB; }
 
+    /// @notice Returns the rolling 24-hour EURC volume. Returns 0 when the window has expired.
+    /// @dev M-04: always use this view rather than reading e24hVolumeA directly from storage.
     function volume24hA() external view returns (uint256) {
         if (block.timestamp - e24hWindowStart >= 1 days) return 0;
         return e24hVolumeA;
     }
+
+    /// @notice Returns the rolling 24-hour WETH volume. Returns 0 when the window has expired.
+    /// @dev M-04: always use this view rather than reading e24hVolumeB directly from storage.
     function volume24hB() external view returns (uint256) {
         if (block.timestamp - e24hWindowStart >= 1 days) return 0;
         return e24hVolumeB;
@@ -135,6 +167,18 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
     // ── Liquidity Management ──────────────────────────────────────────────────
 
     /// @notice Add EURC + WETH liquidity. Slippage and deadline protected.
+    /// @param amountAIn    Desired EURC amount. On subsequent deposits this is the reference side;
+    ///                     the required WETH is computed proportionally from it.
+    /// @param amountBIn    Desired WETH amount. Used as the reference side only on the first deposit.
+    ///                     On subsequent deposits this is used as an upper-bound cap (maxAmountBIn).
+    /// @param minLpShares  Minimum LP shares the caller accepts (slippage guard).
+    /// @param deadline     Unix timestamp after which the call reverts.
+    ///
+    /// @dev H-01 fix: subsequent deposits compute the exact proportional token amounts from
+    ///      reserves and only pull those.  The caller expresses their tolerance via amountBIn
+    ///      (treated as maxAmountBIn) and amountAIn (treated as maxAmountAIn on the other side).
+    ///      If the required amount exceeds the caller's cap the call reverts -- no silent excess
+    ///      donation is possible.
     function addLiquidity(uint256 amountAIn, uint256 amountBIn, uint256 minLpShares, uint256 deadline)
         public
         nonReentrant
@@ -165,14 +209,18 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
         uint256 total = totalSupply();
 
         if (total == 0) {
+            // ── First deposit ──────────────────────────────────────────────────
             // geometric-mean normalisation: sqrt(6-dec * 18-dec) = 12-dec; * 1e6 = 18-dec LP
             uint256 rawSqrt = _sqrt(amountAIn * amountBIn);
+            // L-01 fix: rawSqrt must be >= 1e6 to guarantee at least 1e12 LP before the
+            // MINIMUM_LIQUIDITY deduction, preventing garbage-price anchor deposits.
+            if (rawSqrt < 1e6) revert ZeroAmount();
             uint256 initialLp = rawSqrt * 1e6;
             if (initialLp <= MINIMUM_LIQUIDITY) revert ZeroAmount();
 
             // M-2 fix: check slippage BEFORE pulling tokens so a failing check wastes no gas on transfers
             lpShares = initialLp - MINIMUM_LIQUIDITY;
-            if (lpShares < minLpShares) revert SlippageExceeded();
+            if (lpShares < minLpShares) revert SlippageExceeded(minLpShares, lpShares);
 
             // Pull tokens (CEI: checks above, effects below, interactions last for mint)
             _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
@@ -182,17 +230,44 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
 
             // Lock MINIMUM_LIQUIDITY permanently -- anti-inflation anchor
             _mint(DEAD_ADDRESS, MINIMUM_LIQUIDITY);
+
         } else {
-            uint256 lpA = (amountAIn * total) / reserveA;
-            uint256 lpB = (amountBIn * total) / reserveB;
-            lpShares = lpA < lpB ? lpA : lpB;
+            // ── Subsequent deposits (H-01 fix) ────────────────────────────────
+            // Compute the optimal proportional tokenB amount from the caller's desired tokenA.
+            // Only pull what the pool ratio requires -- no silent excess donation possible.
+            //
+            // optimalB = amountAIn * reserveB / reserveA (proportional to tokenA side)
+            // If optimalB <= amountBIn (caller's cap) use tokenA as the reference side.
+            // Otherwise flip: compute optimalA from amountBIn and use tokenB as the reference.
+            uint256 optimalB = (amountAIn * reserveB) / reserveA;
 
-            if (lpShares == 0 || lpShares < minLpShares) revert SlippageExceeded();
+            uint256 actualA;
+            uint256 actualB;
 
-            _safeTransferFrom(tokenA, msg.sender, address(this), amountAIn);
-            _safeTransferFrom(tokenB, msg.sender, address(this), amountBIn);
-            reserveA += amountAIn;
-            reserveB += amountBIn;
+            if (optimalB <= amountBIn) {
+                // tokenA is the limiting side; pull amountAIn and computed optimalB
+                actualA = amountAIn;
+                actualB = optimalB;
+            } else {
+                // tokenB is the limiting side; back-compute the required tokenA
+                uint256 optimalA = (amountBIn * reserveA) / reserveB;
+                if (optimalA > amountAIn) revert ExcessiveTokenARequired(optimalA, amountAIn);
+                actualA = optimalA;
+                actualB = amountBIn;
+            }
+
+            // lpShares proportional to the limiting side
+            lpShares = (actualA * total) / reserveA;
+            if (lpShares == 0 || lpShares < minLpShares) revert SlippageExceeded(minLpShares, lpShares);
+
+            _safeTransferFrom(tokenA, msg.sender, address(this), actualA);
+            _safeTransferFrom(tokenB, msg.sender, address(this), actualB);
+            reserveA += actualA;
+            reserveB += actualB;
+
+            emit LiquidityAdded(msg.sender, actualA, actualB, lpShares);
+            _mint(msg.sender, lpShares);
+            return lpShares;
         }
 
         _mint(msg.sender, lpShares);
@@ -202,7 +277,7 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
     }
 
     /// @notice Remove liquidity proportionally and burn LP shares.
-    /// @dev Intentionally NOT gated by whenNotPaused — LPs must always be able to exit
+    /// @dev Intentionally NOT gated by whenNotPaused -- LPs must always be able to exit
     ///      even when trading is paused, to prevent "trapped LP" scenarios.
     function removeLiquidity(uint256 lpAmount, uint256 minOutA, uint256 minOutB)
         external
@@ -217,7 +292,8 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
         outA = (reserveA * lpAmount) / total;
         outB = (reserveB * lpAmount) / total;
 
-        if (outA < minOutA || outB < minOutB) revert SlippageExceeded();
+        if (outA < minOutA) revert SlippageExceeded(minOutA, outA);
+        if (outB < minOutB) revert SlippageExceeded(minOutB, outB);
 
         // Burn before transfers (CEI)
         _burn(msg.sender, lpAmount);
@@ -261,8 +337,10 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
         if (block.timestamp > deadline) revert DeadlineExpired();
         if (amountIn == 0) revert ZeroAmount();
 
+        // I-04 fix: compute eligible supply once and reuse in _distributeSwapFee to save ~400 gas.
+        uint256 eligibleSupply = _eligibleLpSupply();
         // H-1: refuse swaps when no real LP holders remain -- prevents fee orphaning
-        if (_eligibleLpSupply() == 0) revert NoLiquidityProviders();
+        if (eligibleSupply == 0) revert NoLiquidityProviders();
 
         uint256 fee = (amountIn * swapFeeBps) / 10000;
         // H-3: reject dust swaps whose fee rounds to zero
@@ -282,15 +360,15 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
             if (amountOut == 0) revert ZeroAmount();
             if (amountOut >= reserveB) revert KInvariantViolated();
             // 50% single-swap output cap
-            if (amountOut > reserveB / 2) revert SlippageExceeded();
-            if (amountOut < minOut) revert SlippageExceeded();
+            if (amountOut > reserveB / 2) revert SlippageExceeded(minOut, amountOut);
+            if (amountOut < minOut) revert SlippageExceeded(minOut, amountOut);
 
             // Pull input token
             _safeTransferFrom(tokenA, msg.sender, address(this), amountIn);
             // M-1 fix: update reserves and distribute fee BEFORE pushing output token
             reserveA += amountInAfterFee;
             reserveB -= amountOut;
-            _distributeSwapFee(fee, 0);
+            _distributeSwapFeeWithSupply(fee, 0, eligibleSupply);
             e24hVolumeA += amountIn;
             // Push output token last (strict CEI -- state already settled above)
             _safeTransfer(tokenB, msg.sender, amountOut);
@@ -301,21 +379,21 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
             if (amountOut == 0) revert ZeroAmount();
             if (amountOut >= reserveA) revert KInvariantViolated();
             // 50% single-swap output cap
-            if (amountOut > reserveA / 2) revert SlippageExceeded();
-            if (amountOut < minOut) revert SlippageExceeded();
+            if (amountOut > reserveA / 2) revert SlippageExceeded(minOut, amountOut);
+            if (amountOut < minOut) revert SlippageExceeded(minOut, amountOut);
 
             // Pull input token
             _safeTransferFrom(tokenB, msg.sender, address(this), amountIn);
             // M-1 fix: update reserves and distribute fee BEFORE pushing output token
             reserveB += amountInAfterFee;
             reserveA -= amountOut;
-            _distributeSwapFee(0, fee);
+            _distributeSwapFeeWithSupply(0, fee, eligibleSupply);
             e24hVolumeB += amountIn;
             // Push output token last (strict CEI -- state already settled above)
             _safeTransfer(tokenA, msg.sender, amountOut);
 
         } else {
-            revert InvalidTokenPair();
+            revert InvalidTokenPair(tokenIn, tokenOut);
         }
 
         emit Swapped(msg.sender, tokenIn, amountIn, amountOut);
@@ -358,7 +436,7 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
     /// @param token   ERC-20 token to skim.
     /// @param to      Destination address for the excess tokens.
     function skim(address token, address to) external onlyOwner {
-        if (to == address(0)) revert ZeroAddress();
+        if (to == address(0)) revert ZeroAddress(to);
         uint256 contractBal = IERC20Like(token).balanceOf(address(this));
         uint256 tracked;
         if (token == address(tokenA)) {
@@ -375,6 +453,7 @@ contract ConstantProductPoolEurcWethV4 is ERC20, ReentrancyGuard, Pausable, Owna
     // ── Internal Helpers ──────────────────────────────────────────────────────
 
     /// @dev Babylonian integer square root (rounds down).
+    ///      Returns 0 for y == 0; returns 1 for y in {1, 2, 3} (correct floor).
     function _sqrt(uint256 y) internal pure returns (uint256 z) {
         if (y > 3) {
             z = y;
