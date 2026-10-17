@@ -48,7 +48,12 @@ export async function getRedisInstance() {
     redisAvailable = redisClient.status === 'ready' || redisClient.status === 'connect'
     if (redisAvailable) {
       let host = 'connected'
-      try { host = new URL(redisUrl).hostname } catch {}
+      try {
+        host = new URL(redisUrl).hostname
+      } catch {
+        // Best-effort: only used for the connect log line, so an unparsable URL keeps the
+        // 'connected' placeholder instead of failing the startup path.
+      }
       console.log('[RateLimiter] ✓ Connected to Redis at host:', host)
     } else {
       console.log('[RateLimiter] ℹ Redis not reachable, using in-memory fallback')

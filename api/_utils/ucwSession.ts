@@ -19,6 +19,8 @@
 //   * Opaque to the browser. HttpOnly plus `Path=/api/ucw` means neither scripts
 //     nor the app's other routes ever see the value.
 
+import { readTrustedProtocol } from './trustedIp'
+
 export const UCW_SESSION_COOKIE = 'arcis_ucw_session'
 
 const SESSION_PATH = '/api/ucw'
@@ -266,14 +268,19 @@ export async function resolveUcwUserToken(req: Request, body: any): Promise<stri
   return sanitizeToken(body?.userToken)
 }
 
-/** True when the request reached the server over HTTPS (so `Secure` applies). */
+/**
+ * True when the request reached the server over HTTPS (so `Secure` applies).
+ *
+ * ARC-020: `x-forwarded-proto` is caller-controlled text on any directly reachable process, so it
+ * is not consulted here — a client could otherwise withhold `Secure` from its own session cookie.
+ * The scheme comes from the request URL, or from `readTrustedProtocol`, which only believes the
+ * signed internal header (Express/Vite adapters) or an edge that rewrites the header (Vercel).
+ */
 export function isSecureRequest(req: Request): boolean {
-  const forwarded = req.headers?.get?.('x-forwarded-proto') || ''
-  const proto = forwarded.split(',')[0].trim().toLowerCase()
-  if (proto) return proto === 'https'
   try {
-    return new URL(req.url).protocol === 'https:'
+    if (new URL(req.url).protocol === 'https:') return true
   } catch {
-    return false
+    // A malformed URL cannot claim HTTPS; fall through to the trusted protocol sources.
   }
+  return readTrustedProtocol(req) === 'https'
 }

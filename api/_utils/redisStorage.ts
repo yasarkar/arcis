@@ -22,6 +22,20 @@ let ioredisClient: any = null
 let ioredisAttempted = false
 let ioredisAvailable = false
 
+// ARC-016: a remote driver being unreachable is expected on a memory-only deployment, so failing
+// silently would hide a real outage — but warning on every probe would flood the log. Report the
+// first failure per driver, then stay quiet and let the in-memory fallback continue.
+const driverFailuresReported = new Set<string>()
+
+function noteDriverFailure(operation: string, err: unknown): void {
+  if (driverFailuresReported.has(operation)) return
+  driverFailuresReported.add(operation)
+  console.warn(
+    `[redisStorage] ${operation} failed; continuing with the in-memory fallback:`,
+    err instanceof Error ? err.message : err
+  )
+}
+
 function getRestConfig() {
   const url = getEnv('KV_REST_API_URL')
   const token = getEnv('KV_REST_API_TOKEN')
@@ -605,7 +619,11 @@ export async function kvUpdateProviderLedger(
       if (parsed?.status === 'updated' || parsed?.status === 'insufficient') {
         return { status: parsed.status, ledger: parsed.ledger }
       }
-    } catch {}
+    } catch (err) {
+      // A stored ledger payload that no longer parses is data loss the caller must be able to see:
+      // this returns null ("no ledger"), so the failure is logged rather than swallowed.
+      console.warn('[redisStorage] Provider-ledger payload could not be parsed; treating it as absent:', err)
+    }
     return null
   }
 
@@ -648,7 +666,12 @@ export async function kvUpdateProviderLedger(
   }
   let ledger = { totalCallsServed: 0, totalUsdcEarned: 0, unclaimedEarningsUsdc: 0, pendingUsdc: 0, withdrawnUsdc: 0 }
   if (item && (!item.expiresAt || item.expiresAt > Date.now())) {
-    try { ledger = { ...ledger, ...JSON.parse(item.value) } } catch {}
+    try {
+      ledger = { ...ledger, ...JSON.parse(item.value) }
+    } catch (err) {
+      // Same as above: an unreadable ledger entry would otherwise reset the counters silently.
+      console.warn('[redisStorage] In-memory provider-ledger entry could not be parsed; starting from zeroes:', err)
+    }
   }
   const unclaimedMicros = Math.round(ledger.unclaimedEarningsUsdc * 1e6)
   if (unclaimedMicros < withdrawMicros) return { status: 'insufficient', ledger }
@@ -742,7 +765,9 @@ export async function kvDel(key: string): Promise<boolean> {
     try {
       await execRest(['DEL', key])
       deleted = true
-    } catch {}
+    } catch (err) {
+      noteDriverFailure('kvDel (Upstash REST)', err)
+    }
   }
 
   try {
@@ -751,7 +776,9 @@ export async function kvDel(key: string): Promise<boolean> {
       await client.del(key)
       deleted = true
     }
-  } catch {}
+  } catch (err) {
+    noteDriverFailure('kvDel (ioredis)', err)
+  }
 
   memoryStore.delete(key)
   return deleted
@@ -765,7 +792,9 @@ export async function kvTtl(key: string): Promise<number> {
     try {
       const res = await execRest(['TTL', key])
       return typeof res === 'number' ? res : -1
-    } catch {}
+    } catch (err) {
+      noteDriverFailure('kvTtl (Upstash REST)', err)
+    }
   }
 
   try {
@@ -774,7 +803,9 @@ export async function kvTtl(key: string): Promise<number> {
       const ttl = await client.ttl(key)
       return ttl
     }
-  } catch {}
+  } catch (err) {
+    noteDriverFailure('kvTtl (ioredis)', err)
+  }
 
   const item = memoryStore.get(key)
   if (!item) return -2
@@ -819,7 +850,9 @@ export async function kvIncr(
         ttl: ttl > 0 ? ttl : expireSeconds,
       }
     }
-  } catch {}
+  } catch (err) {
+    noteDriverFailure('incrementCounter (ioredis)', err)
+  }
 
   // In-memory fallback
   const now = Date.now()
@@ -843,7 +876,9 @@ export async function isStorageAvailable(): Promise<boolean> {
     try {
       const pong = await execRest(['PING'])
       if (pong === 'PONG') return true
-    } catch {}
+    } catch (err) {
+      noteDriverFailure('isStorageAvailable (Upstash REST)', err)
+    }
   }
 
   try {
@@ -851,7 +886,9 @@ export async function isStorageAvailable(): Promise<boolean> {
     if (client && ioredisAvailable) {
       return true
     }
-  } catch {}
+  } catch (err) {
+    noteDriverFailure('isStorageAvailable (ioredis)', err)
+  }
 
   return false
 }
