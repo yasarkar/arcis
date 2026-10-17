@@ -1,12 +1,18 @@
 // src/config/wagmi.ts
 // Frontend Wagmi & RainbowKit Configuration
 // Consumes pure Viem chain definitions from src/config/networks/networkRegistry.ts
+//
+// P03: the two heavy connectors (WalletConnect, Coinbase) are NOT part of the
+// eager config. They are loaded via `ensureFullWalletConfig()` on the first
+// Connect click, so users who never connect never parse those SDKs. In
+// production the static references below are the only wallets in the initial
+// chunk (the package is ESM with restricted `sideEffects`, so unreferenced
+// barrel exports are tree-shaken); the dynamic `import()` in
+// `ensureFullWalletConfig` becomes its own on-demand chunk.
 
 import { getDefaultConfig } from '@rainbow-me/rainbowkit'
 import {
   rainbowWallet,
-  coinbaseWallet,
-  walletConnectWallet,
   rabbyWallet,
   zerionWallet,
   uniswapWallet,
@@ -15,6 +21,7 @@ import {
   bybitWallet,
   bitgetWallet,
 } from '@rainbow-me/rainbowkit/wallets'
+import type { Config } from 'wagmi'
 import {
   ACTIVE_NETWORKS,
   IS_TESTNET,
@@ -80,18 +87,13 @@ const evmChains = Object.values(ACTIVE_NETWORKS)
   .filter((net) => !net.ui.isSolana)
   .map((net) => net.viemChain)
 
-export const config = getDefaultConfig({
-  appName: 'Arcis Mini App',
-  projectId: walletConnectProjectId,
-  wallets: [
+// Eager wallet groups: injected-only, light to evaluate. WalletConnect and
+// Coinbase are intentionally absent — see `ensureFullWalletConfig`.
+function eagerWalletGroups() {
+  return [
     {
       groupName: 'Popüler',
-      wallets: [
-        rainbowWallet,
-        coinbaseWallet,
-        walletConnectWallet,
-        rabbyWallet,
-      ],
+      wallets: [rainbowWallet, rabbyWallet],
     },
     {
       groupName: 'Diğer',
@@ -104,7 +106,66 @@ export const config = getDefaultConfig({
         bitgetWallet,
       ],
     },
-  ],
-  chains: (evmChains.length > 0 ? evmChains : [arcTestnet]) as any,
-  ssr: false, // Vite React SPA, client-side only
-})
+  ]
+}
+
+type RainbowWalletGroups = Parameters<typeof getDefaultConfig>[0]['wallets']
+
+function makeConfig(wallets: RainbowWalletGroups): Config {
+  return getDefaultConfig({
+    appName: 'Arcis Mini App',
+    projectId: walletConnectProjectId,
+    wallets,
+    chains: (evmChains.length > 0 ? evmChains : [arcTestnet]) as any,
+    ssr: false, // Vite React SPA, client-side only
+  }) as unknown as Config
+}
+
+/** Eager minimal config used for first paint. Never triggers a transfer. */
+export const config: Config = makeConfig(eagerWalletGroups())
+
+let fullConfigPromise: Promise<Config> | null = null
+
+/**
+ * Loads the full wallet list (WalletConnect + Coinbase) on demand and builds
+ * the upgraded wagmi config. Single-flight: concurrent callers share one
+ * import + build. The returned config replaces the eager one via a provider
+ * remount performed by the caller (see `walletConfigStore`), strictly before
+ * any connection exists — never while a session is active.
+ */
+export function ensureFullWalletConfig(): Promise<Config> {
+  if (!fullConfigPromise) {
+    fullConfigPromise = import('@rainbow-me/rainbowkit/wallets').then(
+      ({ walletConnectWallet, coinbaseWallet }) => {
+        return makeConfig([
+          {
+            groupName: 'Popüler',
+            wallets: [
+              rainbowWallet,
+              coinbaseWallet,
+              walletConnectWallet,
+              rabbyWallet,
+            ],
+          },
+          {
+            groupName: 'Diğer',
+            wallets: [
+              zerionWallet,
+              uniswapWallet,
+              trustWallet,
+              roninWallet,
+              bybitWallet,
+              bitgetWallet,
+            ],
+          },
+        ])
+      }
+    )
+  }
+  return fullConfigPromise
+}
+
+/** True once the full (WalletConnect + Coinbase) config has been built. */
+export function isFullWalletConfigLoaded(): boolean {
+  return fullConfigPromise !== null
+}

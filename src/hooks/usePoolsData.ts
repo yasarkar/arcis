@@ -564,10 +564,10 @@ export async function prefetchPoolsData(queryClient: QueryClient): Promise<void>
  */
 export async function fetchOnchainPoolBalances(
   walletAddress: string
-): Promise<{ usdc: string; usyc: string; eurc: string; cirbtc: string; weth: string }> {
+): Promise<{ usdc: string; eurc: string; cirbtc: string; weth: string }> {
   const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
   if (!isAddressValid) {
-    return { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000', weth: '0.0000' }
+    return { usdc: '0.00', eurc: '0.00', cirbtc: '0.0000', weth: '0.0000' }
   }
 
   const cacheKey = `arcis:pools:balances:${walletAddress}`
@@ -635,7 +635,6 @@ export async function fetchOnchainPoolBalances(
 
   const result = {
     usdc: usdcFormatted,
-    usyc: '0.00',
     eurc: eurcFormatted,
     cirbtc: cirbtcFormatted,
     weth: wethFormatted,
@@ -1537,7 +1536,7 @@ export function usePoolsData(
         apy = totalVaultApy
         apyBadge = dynamicYieldApy > 0
           ? `${totalVaultApy.toFixed(2)}% APY (${baseVaultApy}% Incentive Est. + ${dynamicYieldApy.toFixed(2)}% Measured)`
-          : '8.42% Incentive APY (Est.) • Treasury / USYC Strategy'
+          : '8.42% Incentive APY (Est.) • Arcis Revenue Strategy'
 
       }
 
@@ -4022,7 +4021,7 @@ export function usePoolsData(
   return {
     pools: poolsWithUserStats as (PoolConfig & { userPosition?: UserPoolPosition })[],
     swapInPool,
-    onchainBalances: onchainBalances || { usdc: '0.00', usyc: '0.00', eurc: '0.00', cirbtc: '0.0000', weth: '0.0000' },
+    onchainBalances: onchainBalances || { usdc: '0.00', eurc: '0.00', cirbtc: '0.0000', weth: '0.0000' },
     isBalancesLoading,
     totalTvlUsd,
     totalPoolTxCount,

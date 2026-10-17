@@ -7,7 +7,6 @@ import { queryArcisLLM } from '../services/llmService'
 import { getLivePortfolioSnapshot } from '../services/portfolioContextService'
 import {
   getSessionKeyConfig,
-  saveSessionKeyConfig,
   activateSessionKey as activateSessionKeyService,
   revokeSessionKey as revokeSessionKeyService,
   toggleSessionAutoExecute as toggleAutoExecuteService,
@@ -157,8 +156,8 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'lq-5',
-        title: 'How do the Yield & Pools vaults compare (USDC, USYC, LP & Gateway)?',
-        prompt: 'How do the Yield & Pools vaults compare (USDC, USYC, LP & Gateway)?',
+        title: 'How do the Yield & Pools vaults compare (USDC Vault, LP Pools & Gateway)?',
+        prompt: 'How do the Yield & Pools vaults compare (USDC Vault, LP Pools & Gateway)?',
       },
     ],
   },

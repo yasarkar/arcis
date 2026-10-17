@@ -6,7 +6,7 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { erc20Abi, formatUnits, type Chain } from 'viem'
-import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, USYC_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig'
+import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig'
 import { TESTNET_NETWORKS } from '../config/networks/networkRegistry'
 import {
   getResilientPublicClient,
@@ -37,7 +37,6 @@ export interface WalletChainBalance {
   eurc?: string
   cirbtc?: string
   weth?: string
-  usyc?: string
   legacyWeth?: string
   nativeAmount: string
   nativeSymbol: string
@@ -50,7 +49,7 @@ export interface WalletChainBalance {
 export type WalletBalancesRecord = Record<string, WalletChainBalance>
 
 /** Token balances available from the hook. USDC is always fetched; the others can be skipped. */
-export type WalletBalanceToken = 'USDC' | 'EURC' | 'cirBTC' | 'WETH' | 'USYC'
+export type WalletBalanceToken = 'USDC' | 'EURC' | 'cirBTC' | 'WETH'
 
 /**
  * Decimals and display precision for each fetchable token. Balances are floored through
@@ -61,7 +60,6 @@ const TOKEN_FORMAT: Record<WalletBalanceToken, { decimals: number; places: numbe
   EURC: { decimals: 6, places: 2 },
   cirBTC: { decimals: 8, places: 5 },
   WETH: { decimals: 18, places: 4 },
-  USYC: { decimals: 6, places: 2 },
 }
 
 /**
@@ -83,7 +81,7 @@ export function walletTestnetBalancesQueryKey(
 export interface WalletTestnetBalancesOptions {
   /**
    * Optional token subset. USDC is always fetched (it drives deposit validation);
-   * passing `['USDC']` (or an empty array) skips the extra EURC/cirBTC/WETH/USYC reads.
+   * passing `['USDC']` (or an empty array) skips the extra EURC/cirBTC/WETH reads.
    */
   tokens?: WalletBalanceToken[]
   /** Allows callers to lazily fetch only while a flow (e.g. the deposit panel) is active. */
@@ -104,7 +102,6 @@ function createInitialBalancesRecord(): WalletBalancesRecord {
       eurc: EURC_ADDRESSES[chainKey] ? '0.00' : undefined,
       cirbtc: CIRBTC_ADDRESSES[chainKey] ? '0.00000' : undefined,
       weth: WETH_ADDRESSES[chainKey] ? '0.0000' : undefined,
-      usyc: USYC_ADDRESSES[chainKey] ? '0.00' : undefined,
       nativeAmount: '0.0000',
       nativeSymbol: symbol,
       nativeName: name,
@@ -143,7 +140,6 @@ export async function fetchWalletTestnetBalancesData(
       const eurcAddress = EURC_ADDRESSES[chainKey]
       const cirbtcAddress = CIRBTC_ADDRESSES[chainKey]
       const wethAddress = WETH_ADDRESSES[chainKey]
-      const usycAddress = USYC_ADDRESSES[chainKey]
 
       if (!usdcAddress) {
         throw new Error(`USDC address missing for ${chainKey}`)
@@ -157,24 +153,37 @@ export async function fetchWalletTestnetBalancesData(
       if (eurcAddress && wantsToken('EURC')) requestedTokens.push('EURC')
       if (cirbtcAddress && wantsToken('cirBTC')) requestedTokens.push('cirBTC')
       if (wethAddress && wantsToken('WETH')) requestedTokens.push('WETH')
-      if (usycAddress && wantsToken('USYC')) requestedTokens.push('USYC')
 
       const tokenAddresses: Record<WalletBalanceToken, string | undefined> = {
         USDC: usdcAddress,
         EURC: eurcAddress,
         cirBTC: cirbtcAddress,
         WETH: wethAddress,
-        USYC: usycAddress,
+      }
+
+      // P14: the Sepolia legacy-WETH check rides in the same Multicall3 batch
+      // (allowFailure) instead of a standalone readContract — one less RPC per
+      // sweep. It keeps try/catch-ignore semantics via the failure-tolerant slot.
+      const LEGACY_WETH_ADDRESS = '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9' as const
+      const includeLegacyWeth = chainKey === 'Ethereum_Sepolia'
+      const batchedContracts = requestedTokens.map((token) => ({
+        address: tokenAddresses[token] as `0x${string}`,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [readAddress],
+      }))
+      if (includeLegacyWeth) {
+        batchedContracts.push({
+          address: LEGACY_WETH_ADDRESS as `0x${string}`,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [readAddress],
+        })
       }
 
       const multicallResults = await resilientMulticall<bigint>(
         client,
-        requestedTokens.map((token) => ({
-          address: tokenAddresses[token] as `0x${string}`,
-          abi: erc20Abi,
-          functionName: 'balanceOf',
-          args: [readAddress],
-        })),
+        batchedContracts,
         { allowFailure: true }
       )
 
@@ -199,7 +208,6 @@ export async function fetchWalletTestnetBalancesData(
       const eurcFormatted = formatted.EURC
       const cirbtcFormatted = formatted.cirBTC
       const wethFormatted = formatted.WETH
-      const usycFormatted = formatted.USYC
 
       // Fetch Native Gas Currency balance
       const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
@@ -224,20 +232,13 @@ export async function fetchWalletTestnetBalancesData(
         }
       }
 
+      // Legacy slot is always last when present; a failed read stays undefined
+      // (same ignore semantics as the old standalone try/catch).
       let legacyWethFormatted: string | undefined = undefined
-      if (chainKey === 'Ethereum_Sepolia') {
-        try {
-          const legacyBal = await client.readContract({
-            address: '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9' as `0x${string}`,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [readAddress],
-          })
-          if (legacyBal > 0n) {
-            legacyWethFormatted = floorToPlaces(parseFloat(formatUnits(legacyBal, 18)), 4).toFixed(4)
-          }
-        } catch {
-          // ignore non-critical legacy check
+      if (includeLegacyWeth) {
+        const legacyResult = multicallResults[multicallResults.length - 1]
+        if (legacyResult && legacyResult.status === 'success' && legacyResult.result > 0n) {
+          legacyWethFormatted = floorToPlaces(parseFloat(formatUnits(legacyResult.result, 18)), 4).toFixed(4)
         }
       }
 
@@ -247,7 +248,6 @@ export async function fetchWalletTestnetBalancesData(
         eurc: eurcFormatted,
         cirbtc: cirbtcFormatted,
         weth: wethFormatted,
-        usyc: usycFormatted,
         legacyWeth: legacyWethFormatted,
         nativeAmount: nativeFormatted,
         nativeSymbol,
@@ -279,7 +279,6 @@ export async function fetchWalletTestnetBalancesData(
         eurc: res.value.eurc,
         cirbtc: res.value.cirbtc,
         weth: res.value.weth,
-        usyc: res.value.usyc,
         legacyWeth: res.value.legacyWeth,
         nativeAmount: res.value.nativeAmount,
         nativeSymbol: res.value.nativeSymbol,
@@ -295,7 +294,6 @@ export async function fetchWalletTestnetBalancesData(
         eurc: EURC_ADDRESSES[chainKey] && wantsToken('EURC') ? '0.00' : undefined,
         cirbtc: CIRBTC_ADDRESSES[chainKey] && wantsToken('cirBTC') ? '0.00000' : undefined,
         weth: WETH_ADDRESSES[chainKey] && wantsToken('WETH') ? '0.0000' : undefined,
-        usyc: USYC_ADDRESSES[chainKey] && wantsToken('USYC') ? '0.00' : undefined,
         nativeAmount: '0.0000',
         nativeSymbol: defaultSymbol,
         nativeName: defaultName,

@@ -36,5 +36,9 @@ export function usePairChartData(
     queryFn: () => getPairChartData(tokenIn, tokenOut, timeframe, liveAnchorPrice, activeFocus),
     staleTime: 20_000,
     refetchInterval: 30_000,
+    // P02: hidden tabs must not poll — same Gateway pattern as
+    // `useLiveTokenPrices` (static interval + no background refetch; never a
+    // `document.hidden` callback, which would stop polling permanently).
+    refetchIntervalInBackground: false,
   })
 }

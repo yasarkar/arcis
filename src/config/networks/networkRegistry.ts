@@ -547,9 +547,8 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       EURC: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a',
       cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF',
       WETH: '0x2c4047028a72803939b6fb674D01bC059B5C4961',
-      USYC: '0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C',
     },
-    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8, WETH: 18, USYC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8, WETH: 18 },
     gatewayContracts: {
       gatewayWallet: '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
       gatewayMinter: '0x0022222ABE238Cc2C7Bb1f21003F0a260052475B',
@@ -1715,9 +1714,8 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
       EURC: '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a',
       cirBTC: '0xf0C4a4CE82A5746AbAAd9425360Ab04fbBA432BF',
       WETH: '0x128cC466B61f542da60c70e3aA11c10e19B84EDB',
-      USYC: '0x8a5D989Bbb96929F689B0200f435f53dA42bF490',
     },
-    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8, WETH: 18, USYC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6, cirBTC: 8, WETH: 18 },
     gatewayContracts: {
       gatewayWallet: '0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE',
       gatewayMinter: '0x2222222d7164433c4C09B0b0D809a9b52C04C205',

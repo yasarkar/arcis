@@ -34,6 +34,68 @@ export async function prefetchGlobalData(queryClient: QueryClient): Promise<void
  * - Transaction history from explorer/indexer
  * - Live portfolio snapshot (Ask Arcis Copilot AI context)
  */
+/** Token subset for the connect-time essential prefetch (USDC drives deposit validation). */
+export const ESSENTIAL_BALANCE_TOKENS = ['USDC'] as const
+
+/**
+ * P06: essential wallet data for time-to-interactive balances. Warms only what
+ * the first paint needs — Gateway unified balances plus the USDC-subset
+ * multi-chain record (the exact key `UnifiedBalance` consumes). Everything
+ * else moves to `prefetchDeferredWalletData` so connecting never blocks on
+ * pool positions, history, or the portfolio snapshot.
+ */
+export async function prefetchEssentialWalletData(
+  queryClient: QueryClient,
+  walletAddress: string
+): Promise<void> {
+  if (!walletAddress || !walletAddress.trim()) return
+
+  const normalizedAddress = walletAddress.trim().toLowerCase()
+
+  await Promise.allSettled([
+    queryClient.prefetchQuery({
+      queryKey: gatewayBalancesQueryKey(normalizedAddress),
+      queryFn: () => fetchGatewayBalancesData(normalizedAddress),
+      staleTime: 10_000,
+    }),
+    queryClient.prefetchQuery({
+      queryKey: walletTestnetBalancesQueryKey(normalizedAddress, [...ESSENTIAL_BALANCE_TOKENS]),
+      queryFn: () => fetchWalletTestnetBalancesData(normalizedAddress, [...ESSENTIAL_BALANCE_TOKENS]),
+      staleTime: 15_000,
+    }),
+  ])
+}
+
+/**
+ * P06: deferred wallet data — full multi-chain record, pool positions,
+ * history, and portfolio snapshot. Safe to run idle/deferred because every
+ * panel self-fetches on mount; the worst case without this warm-up is the
+ * same latency as no prefetch at all.
+ */
+export async function prefetchDeferredWalletData(
+  queryClient: QueryClient,
+  walletAddress: string
+): Promise<void> {
+  if (!walletAddress || !walletAddress.trim()) return
+
+  const normalizedAddress = walletAddress.trim().toLowerCase()
+
+  await Promise.allSettled([
+    prefetchHistory(normalizedAddress).catch((err) => {
+      console.warn('[prefetchCoordinator] History prefetch failed:', err)
+    }),
+    queryClient.prefetchQuery({
+      queryKey: walletTestnetBalancesQueryKey(normalizedAddress),
+      queryFn: () => fetchWalletTestnetBalancesData(normalizedAddress),
+      staleTime: 15_000,
+    }),
+    prefetchUserWalletPoolsData(queryClient, normalizedAddress),
+    getLivePortfolioSnapshot(normalizedAddress).catch((err) => {
+      console.warn('[prefetchCoordinator] Portfolio snapshot prefetch failed:', err)
+    }),
+  ])
+}
+
 export async function prefetchAllWalletData(
   queryClient: QueryClient,
   walletAddress: string

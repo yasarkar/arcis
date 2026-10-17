@@ -57,8 +57,14 @@ describe('WETH / USDC Swap Route & Math on Arc Testnet', () => {
   })
 
   it('safely returns null when EURC_WETH_POOL contract is undeployed zero address', () => {
-    const route = resolveArcNativeRoute('EURC', 'WETH')
-    expect(route).toBeNull()
+    const originalAddr = POOL_CONTRACTS.EURC_WETH_POOL
+    try {
+      POOL_CONTRACTS.EURC_WETH_POOL = '0x0000000000000000000000000000000000000000'
+      const route = resolveArcNativeRoute('EURC', 'WETH')
+      expect(route).toBeNull()
+    } finally {
+      POOL_CONTRACTS.EURC_WETH_POOL = originalAddr
+    }
   })
 
   it('resolves the EURC/WETH pool route when a deployed address is provided', () => {

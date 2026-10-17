@@ -4,6 +4,10 @@ import {
   normalizeTokenSymbol,
   type TokenPriceMap,
 } from '../services/tokenPriceService'
+import { logger } from '../utils/logger'
+
+// P15: per-fetch console noise becomes scoped debug (silent in production).
+const log = logger.createScope('useLiveTokenPrices')
 
 /**
  * Shared TanStack Query hook for real-time token prices across modals and pools.
@@ -13,14 +17,20 @@ export function useLiveTokenPrices() {
   return useQuery({
     queryKey: ['liveTokenPrices'],
     queryFn: async () => {
-      console.log('[useLiveTokenPrices] 🔄 Hook triggering live token prices query...')
+      log.debug('Triggering live token prices query')
       const prices = await getLiveTokenPrices()
-      console.log('[useLiveTokenPrices] 🎯 Hook received live token prices:', prices)
+      log.debug('Received live token prices', prices)
       return prices
     },
     staleTime: 30_000,
     gcTime: 1000 * 60 * 5,
     refetchInterval: 30_000,
+    // P02: hidden tabs must not poll. Uses `refetchIntervalInBackground: false`
+    // (the Gateway pattern in `useGatewayBalance`) rather than a
+    // `document.hidden ? false : interval` callback, which would clear the
+    // timer for good because the app disables `refetchOnWindowFocus` globally
+    // (see `gatewayPollVisibility.test.ts`).
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -91,8 +101,7 @@ export function formatFiatEstimate(
     norm === 'AVAX' ||
     norm === 'SOL' ||
     norm === 'SEI' ||
-    norm === 'S' ||
-    norm === 'USYC'
+    norm === 'S'
 
   if (isCounterToken && poolExchangeRate && poolExchangeRate > 0) {
     unitPrice = poolExchangeRate

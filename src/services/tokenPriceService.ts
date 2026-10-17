@@ -26,7 +26,6 @@ export const DEFAULT_TOKEN_PRICES: TokenPriceMap = {
   S: 0.65,
   'af-USDC': 1.0842,
   AFUSDC: 1.0842,
-  USYC: 1.05,
 }
 
 const CACHE_KEY = 'arcis:token_prices:v1'
@@ -98,7 +97,6 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
     let btcPrice = DEFAULT_TOKEN_PRICES.WBTC
     let eurcPrice = DEFAULT_TOKEN_PRICES.EURC
     let usdcPrice = 1.0
-    let usycPrice = DEFAULT_TOKEN_PRICES.USYC || 1.05
     let polPrice = DEFAULT_TOKEN_PRICES.POL || 0.15
     let avaxPrice = DEFAULT_TOKEN_PRICES.AVAX || 11.5
     let solPrice = DEFAULT_TOKEN_PRICES.SOL || 125.0
@@ -107,7 +105,7 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
     let fetchSuccess = false
 
     const coingeckoUrl =
-      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,euro-coin,usd-coin,polygon-ecosystem-token,avalanche-2,solana,sei-network,sonic-3,hashnote-usyc&vs_currencies=usd'
+      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin,euro-coin,usd-coin,polygon-ecosystem-token,avalanche-2,solana,sei-network,sonic-3&vs_currencies=usd'
 
     try {
       console.log('[LivePriceOracle] 🌐 Outgoing Live Price Request (CoinGecko):', {
@@ -131,7 +129,6 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
         btcPrice = Number(data?.bitcoin?.usd) || btcPrice
         eurcPrice = Number(data?.['euro-coin']?.usd) || eurcPrice
         usdcPrice = Number(data?.['usd-coin']?.usd) || 1.0
-        usycPrice = Number(data?.['hashnote-usyc']?.usd) || usycPrice
         polPrice = Number(data?.['polygon-ecosystem-token']?.usd) || polPrice
         avaxPrice = Number(data?.['avalanche-2']?.usd) || avaxPrice
         solPrice = Number(data?.solana?.usd) || solPrice
@@ -198,7 +195,6 @@ export async function getLiveTokenPrices(): Promise<TokenPriceMap> {
         WBTC: btcPrice,
         BTC: btcPrice,
         CIRBTC: btcPrice,
-        USYC: usycPrice,
         POL: polPrice,
         MATIC: polPrice,
         AVAX: avaxPrice,

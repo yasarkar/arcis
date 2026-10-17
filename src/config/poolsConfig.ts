@@ -94,7 +94,6 @@ export interface PoolConfig {
   exchangeRate?: number
   feeTierPercent?: number
   reserves?: { tokenA: number; tokenB: number; ratioA: number; ratioB: number }
-  /** Live on-chain LP total supply (formatted, 18 decimals) — required for honest LP/share previews. */
   totalLp?: string
   impermanentLossRisk?: 'Zero (Stable)' | 'Low' | 'Medium'
   paused?: boolean
@@ -116,7 +115,7 @@ function readEnv(key: string): string | undefined {
 // ── Active Pool Version ───────────────────────────────────────────────────────
 // Directly reads VITE_POOL_VERSION from env (defaults to 'v4').
 export const POOL_VERSION: string = (readEnv('VITE_POOL_VERSION') || 'v4').toLowerCase()
-export const POOL_VERSION_V4: boolean = POOL_VERSION === 'v4'
+export const POOL_VERSION_V4 = POOL_VERSION === 'v4'
 
 // ── Contract Address Helpers ──────────────────────────────────────────────────
 const V4_ZERO = '0x0000000000000000000000000000000000000000' as `0x${string}`
@@ -129,8 +128,8 @@ export const POOL_CONTRACTS = {
   CONSTANT_PRODUCT_POOL: v4Address(readEnv('VITE_POOL_V4_CONSTANT_PRODUCT'), '0xf0e5f1d5C36a8362D96A8a43a441c6bb29416349'),
   YIELD_VAULT: v4Address(readEnv('VITE_POOL_V4_YIELD_VAULT'), '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A'),
   WETH_POOL: v4Address(readEnv('VITE_POOL_V4_WETH_POOL'), '0x4fB42dBbA5AD26723106bd56cA647dEb4a75Cd90'),
-  EURC_WETH_POOL: v4Address(readEnv('VITE_POOL_V4_EURC_WETH_POOL'), '0x0000000000000000000000000000000000000000'),
-  ARCIS_SWAP_ROUTER: '0x22733d5C4C91C7BEF2BED43e3f3F42B2d91DfcD4' as `0x${string}`,
+  EURC_WETH_POOL: v4Address(readEnv('VITE_POOL_V4_EURC_WETH_POOL'), '0x94f1fB8ab07146BB2C1f2A9AF155d51413a45809'),
+  ARCIS_SWAP_ROUTER: v4Address(readEnv('VITE_POOL_V4_ROUTER'), '0x22733d5C4C91C7BEF2BED43e3f3F42B2d91DfcD4'),
   USDC: ARC_TOKENS.USDC,
   EURC: ARC_TOKENS.EURC,
   cirBTC: ARC_TOKENS.cirBTC,
@@ -410,8 +409,8 @@ export const ARCIS_POOLS: PoolConfig[] = [
     depositTokenSymbol: 'EURC + WETH',
     rewardTokenSymbol: 'LP Share Growth (EURC / WETH)',
     isFeatured: true,
-    isLiveOnChain: false,
-    executionMode: 'preview',
+    isLiveOnChain: true,
+    executionMode: 'onchain_verified',
     yieldOrigin: 'Euro-Ether Swap Volume (0.30% Fee)',
     yieldOriginDetails: 'Every swap between EURC and WETH contributes a 0.30% fee directly to fee reserves, allowing LPs to harvest pure EURC and WETH yield.',
     gasBenefitNote: 'Gas fees on Arc are paid in USDC — zero ETH needed for gas.',
@@ -421,7 +420,7 @@ export const ARCIS_POOLS: PoolConfig[] = [
       { step: 3, title: 'Earn Trading Fees', desc: 'Accumulate 0.30% fee on all swaps between EURC and WETH.' },
       { step: 4, title: 'Harvest Anytime', desc: 'Harvest real EURC and WETH swap fees anytime without burning LP tokens.' },
     ],
-    tags: ['Constant Product', 'Ethereum', 'EURC Forex', 'Real Yield', 'Cross-Pair'],
+    tags: ['Constant Product', 'Ethereum', 'EURC Forex', 'Real Yield', 'Cross-Pair', 'Concentrated Liquidity'],
     isLpPool: true,
     lpTokenName: 'Arcis EURC-WETH LP',
     lpTokenSymbol: 'af-EURC-WETH',

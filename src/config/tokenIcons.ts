@@ -3,12 +3,11 @@ import TokenETH, { __iconNode as ethIconNode } from '@web3icons/react/icons/toke
 import NetworkSonic, { __iconNode as sonicNetworkNode } from '@web3icons/react/icons/networks/NetworkSonic'
 import TokenXPL, { __iconNode as xplTokenNode } from '@web3icons/react/icons/tokens/TokenXPL'
 import TokenOKB, { __iconNode as okbTokenNode } from '@web3icons/react/icons/tokens/TokenOKB'
-import NetworkXLayer, { __iconNode as xLayerNetworkNode } from '@web3icons/react/icons/networks/NetworkXLayer'
+import NetworkXLayer from '@web3icons/react/icons/networks/NetworkXLayer'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
 import CircleIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
-import UsycIcon from '../assets/Token-Icon/USYC Token.svg'
 import PhrsIcon from '../assets/Token-Icon/PHRS Token.svg'
 
 /**
@@ -97,12 +96,11 @@ export const TOKEN_ICON_MAP: Record<string, string> = {
   'X-LAYER': OkbIcon,
   PHRS: PhrsIcon,
   PHAROS: PhrsIcon,
-  USYC: UsycIcon,
   'af-USDC': UsdcIcon,
   'af-USDC-EURC': EurcIcon,
   'af-USDC-cirBTC': CirBtcIcon,
 }
 
-export { UsdcIcon, EurcIcon, CircleIcon, CirBtcIcon, UsycIcon }
+export { UsdcIcon, EurcIcon, CircleIcon, CirBtcIcon }
 
 

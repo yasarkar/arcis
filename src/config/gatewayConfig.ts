@@ -146,13 +146,6 @@ export const WETH_ADDRESSES: Record<string, `0x${string}`> = Object.fromEntries(
     .map(([key, net]) => [key, net.tokens.WETH as `0x${string}`])
 )
 
-// ── USYC Contract Addresses ──────────────────────────────────────────────────
-export const USYC_ADDRESSES: Record<string, `0x${string}`> = Object.fromEntries(
-  Object.entries(ACTIVE_NETWORKS)
-    .filter(([_, net]) => net.tokens.USYC)
-    .map(([key, net]) => [key, net.tokens.USYC as `0x${string}`])
-)
-
 
 // ── Chain Display Names ──────────────────────────────────────────────────────
 export const GATEWAY_CHAIN_NAMES: Record<string, string> = Object.fromEntries(

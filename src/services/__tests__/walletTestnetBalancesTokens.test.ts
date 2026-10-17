@@ -1,7 +1,7 @@
 // src/services/__tests__/walletTestnetBalancesTokens.test.ts
 // Verifies that fetchWalletTestnetBalancesData batches every requested token read for a chain
 // into a single Multicall3 call, and that the optional token subset keeps the Unified Balance
-// deposit panel from paying for EURC/cirBTC/WETH/USYC RPC reads.
+// deposit panel from paying for EURC/cirBTC/WETH RPC reads.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -35,11 +35,21 @@ describe('fetchWalletTestnetBalancesData batching', () => {
     const calls = vi.mocked(resilientMulticall).mock.calls as unknown as Array<[unknown, Array<{ address: string }>]>
     expect(calls.length).toBe(chainCount)
 
+    // P14: the Sepolia legacy-WETH check rides in the same batch as a second
+    // allowFailure slot instead of a standalone readContract — still one
+    // multicall per chain, one less RPC per sweep.
+    const LEGACY_WETH = '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9'
+    const sepoliaUsdc = USDC_ADDRESSES['Ethereum_Sepolia']?.toLowerCase()
     const usdcAddresses = new Set(Object.values(USDC_ADDRESSES).map((address) => address.toLowerCase()))
     for (const call of calls) {
       const contracts = call[1]
-      expect(contracts).toHaveLength(1)
       expect(usdcAddresses.has(String(contracts[0].address).toLowerCase())).toBe(true)
+      if (String(contracts[0].address).toLowerCase() === sepoliaUsdc) {
+        expect(contracts).toHaveLength(2)
+        expect(String(contracts[1].address).toLowerCase()).toBe(LEGACY_WETH.toLowerCase())
+      } else {
+        expect(contracts).toHaveLength(1)
+      }
     }
   })
 
