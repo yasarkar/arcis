@@ -72,6 +72,10 @@ import {
 import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 import { Tooltip } from './common/Tooltip'
 import { saveRecipient } from '../utils/recentRecipients'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: skipped best-effort work must be traceable without raw console noise. */
+const log = logger.createScope('SwapModal')
 
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
@@ -658,7 +662,11 @@ export default function SwapModal({
           queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
           queryClient.invalidateQueries({ queryKey: ['onchainPoolBalances'] })
           queryClient.invalidateQueries({ queryKey: ['userPoolPositions'] })
-          redisCache.del('arcis:pools:state').catch(() => {})
+          redisCache.del('arcis:pools:state').catch((err) => {
+            // Best-effort cache invalidation: the React Query invalidations above already refresh the
+            // pool views, so a stale server cache only delays the next cold read.
+            log.debug('Pool state cache could not be invalidated after the swap:', err)
+          })
           addTransaction({
             type: 'swap',
             txHash,
@@ -911,7 +919,11 @@ export default function SwapModal({
         queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
         queryClient.invalidateQueries({ queryKey: ['onchainPoolBalances'] })
         queryClient.invalidateQueries({ queryKey: ['userPoolPositions'] })
-        redisCache.del('arcis:pools:state').catch(() => {})
+        redisCache.del('arcis:pools:state').catch((err) => {
+          // Best-effort cache invalidation: the React Query invalidations above already refresh the
+          // pool views, so a stale server cache only delays the next cold read.
+          log.debug('Pool state cache could not be invalidated after the swap:', err)
+        })
 
         addTransaction({
           type: 'swap',

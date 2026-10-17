@@ -56,6 +56,39 @@ describe('WETH / USDC Swap Route & Math on Arc Testnet', () => {
     expect(routeOut?.tokenOutAddr.toLowerCase()).toBe(POOL_CONTRACTS.WETH.toLowerCase())
   })
 
+  it('safely returns null when EURC_WETH_POOL contract is undeployed zero address', () => {
+    const route = resolveArcNativeRoute('EURC', 'WETH')
+    expect(route).toBeNull()
+  })
+
+  it('resolves the EURC/WETH pool route when a deployed address is provided', () => {
+    const originalAddr = POOL_CONTRACTS.EURC_WETH_POOL
+    try {
+      const mockDeployed = '0x111122223333444455556666777788889999aaaa' as `0x${string}`
+      POOL_CONTRACTS.EURC_WETH_POOL = mockDeployed
+
+      const routeEurcToWeth = resolveArcNativeRoute('EURC', 'WETH')
+      expect(routeEurcToWeth).not.toBeNull()
+      expect(routeEurcToWeth?.poolAddress.toLowerCase()).toBe(mockDeployed.toLowerCase())
+      expect(routeEurcToWeth?.tokenInAddr.toLowerCase()).toBe(POOL_CONTRACTS.EURC.toLowerCase())
+      expect(routeEurcToWeth?.tokenOutAddr.toLowerCase()).toBe(POOL_CONTRACTS.WETH.toLowerCase())
+      expect(routeEurcToWeth?.decIn).toBe(6)
+      expect(routeEurcToWeth?.decOut).toBe(18)
+      expect(routeEurcToWeth?.feeBps).toBe(30n)
+
+      const routeWethToEurc = resolveArcNativeRoute('WETH', 'EURC')
+      expect(routeWethToEurc).not.toBeNull()
+      expect(routeWethToEurc?.poolAddress.toLowerCase()).toBe(mockDeployed.toLowerCase())
+      expect(routeWethToEurc?.tokenInAddr.toLowerCase()).toBe(POOL_CONTRACTS.WETH.toLowerCase())
+      expect(routeWethToEurc?.tokenOutAddr.toLowerCase()).toBe(POOL_CONTRACTS.EURC.toLowerCase())
+      expect(routeWethToEurc?.decIn).toBe(18)
+      expect(routeWethToEurc?.decOut).toBe(6)
+      expect(routeWethToEurc?.feeBps).toBe(30n)
+    } finally {
+      POOL_CONTRACTS.EURC_WETH_POOL = originalAddr
+    }
+  })
+
   it('calculates accurate swap estimate for USDC -> WETH with constant product math and 30 bps fee', async () => {
     // Mock reserves: 250 USDC (250_000_000 units) and 0.1 WETH (100_000_000_000_000_000 units)
     const reserveA = 250_000_000n

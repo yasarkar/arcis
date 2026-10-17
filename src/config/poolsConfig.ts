@@ -97,10 +97,7 @@ export interface PoolConfig {
   /** Live on-chain LP total supply (formatted, 18 decimals) — required for honest LP/share previews. */
   totalLp?: string
   impermanentLossRisk?: 'Zero (Stable)' | 'Low' | 'Medium'
-  isFaucetToken?: boolean
-  faucetTokenAddress?: `0x${string}`
   paused?: boolean
-  deployedAtBlock?: number
 }
 
 // `import.meta.env` only exists inside the Vite bundle; the API server loads these same
@@ -116,99 +113,42 @@ function readEnv(key: string): string | undefined {
   return undefined
 }
 
-// ── Deployed Contract Addresses (Arc Testnet — V3, mainnet-bound) ─────────────
-// V3 restores the canonical Curve amplification constant Ann = A*4 (V2 silently used
-// A*2 — see contracts/test/StableMathComparison.t.sol). These addresses were produced
-// by `forge script script/DeployV3.s.sol --rpc-url arc_testnet --broadcast --verify`
-// and verified on ArcScan testnet.
-export const POOL_CONTRACTS_V3 = {
-  // Deployed 2026-09-11 — hardened V3.2 set (24h rolling volume counters, totalYieldDistributed)
-  // Owner: 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772
-  STABLE_SWAP_POOL: '0xCd0BcEc811E0d9C9d679DcDD73d9B20357e8fb22' as `0x${string}`, // StableSwapPoolV3
-  CONSTANT_PRODUCT_POOL: '0xF3742bDF819211dd1dcBbF577F031Bb743318903' as `0x${string}`, // ConstantProductPoolV3
-  YIELD_VAULT: '0x5e618f7f6591868827da40f73f869e3dE8F387CD' as `0x${string}`, // YieldVaultV3
-  ARCIS_SWAP_ROUTER: '0x22733d5C4C91C7BEF2BED43e3f3F42B2d91DfcD4' as `0x${string}`, // ArcisSwapRouter
-}
+// ── Active Pool Version ───────────────────────────────────────────────────────
+// Directly reads VITE_POOL_VERSION from env (defaults to 'v4').
+export const POOL_VERSION: string = (readEnv('VITE_POOL_VERSION') || 'v4').toLowerCase()
+export const POOL_VERSION_V4: boolean = POOL_VERSION === 'v4'
 
-// ── V4 (on-chain per-user fee accounting + real harvest) Deploy Targets ────────
-// V4 moves user balances on-chain: `pendingFees(lp)` / `pendingYield(user)` are read directly
-// from the pool and `harvest()` pays the caller's own accrued fees without any localStorage
-// checkpoint. Addresses are supplied at build time from the DeployV4 broadcast output:
-//   VITE_POOL_V4_STABLE_SWAP, VITE_POOL_V4_CONSTANT_PRODUCT, VITE_POOL_V4_YIELD_VAULT
-// The router is unchanged (it forwards to the pool's identical `swap` selector).
-// Live Arc Testnet deployment:
-//   StableSwapPoolV4      0xC3EdDA15AdfaC31ADfC23aC86dC96d791f72bE8a (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0x034b30049d339d6f802587d8009795432bcfb2a8f256c275798567f0124a4277)
-//   ConstantProductPoolV4 0xf0e5f1d5C36a8362D96A8a43a441c6bb29416349 (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0x767fa57654600fed2c856efab150ede91343c8ef3834e15eead3ca1cc1bcbae4)
-//   YieldVaultV4          0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A (deployer 0x3d839c9B5729aA3eA286d9BF7eBA5B7C542de772, tx 0xbc2d61bd25008d94690edcdebcd73fc61a964f1d36d3107f324d5b5e73259278)
+// ── Contract Address Helpers ──────────────────────────────────────────────────
 const V4_ZERO = '0x0000000000000000000000000000000000000000' as `0x${string}`
-const v4Address = (value: string | undefined): `0x${string}` =>
-  value && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as `0x${string}`) : V4_ZERO
+const v4Address = (value: string | undefined, fallback: `0x${string}` = V4_ZERO): `0x${string}` =>
+  value && /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as `0x${string}`) : fallback
 
-export const POOL_CONTRACTS_V4 = {
-  STABLE_SWAP_POOL: v4Address(readEnv('VITE_POOL_V4_STABLE_SWAP')),
-  CONSTANT_PRODUCT_POOL: v4Address(readEnv('VITE_POOL_V4_CONSTANT_PRODUCT')),
-  YIELD_VAULT: v4Address(readEnv('VITE_POOL_V4_YIELD_VAULT')),
-  WETH_POOL: v4Address(readEnv('VITE_POOL_V4_WETH_POOL')),
-  ARCIS_SWAP_ROUTER: POOL_CONTRACTS_V3.ARCIS_SWAP_ROUTER,
-}
-
-// V4 is only activated when explicitly requested AND every pool address was provided, so a
-// half-configured deployment can never silently point at zero addresses.
-const v4FullyConfigured =
-  POOL_CONTRACTS_V4.STABLE_SWAP_POOL !== V4_ZERO &&
-  POOL_CONTRACTS_V4.CONSTANT_PRODUCT_POOL !== V4_ZERO &&
-  POOL_CONTRACTS_V4.YIELD_VAULT !== V4_ZERO
-
-// ── Pool Version & Slippage Helpers ────────────────────────────────────────
-const poolVersionEnv = readEnv('VITE_POOL_VERSION') || 'v4'
-const poolVersionV2Env = readEnv('VITE_POOL_V2') || 'false'
-
-/** V4 is active: contracts expose `harvest()` / `pendingFees` and no checkpoint is used. */
-export const POOL_VERSION_V4: boolean = poolVersionEnv === 'v4' && v4FullyConfigured
-export const POOL_VERSION_V3: boolean = !POOL_VERSION_V4 && poolVersionEnv !== 'v2'
-export const POOL_VERSION_V2: boolean = poolVersionV2Env === 'true'
-
-// ERC-4626 vault share decimals. YieldVaultV4 hardens share/asset conversions with virtual
-// shares (`_decimalsOffset() = 3` → share decimals = asset decimals + 3 = 9); the V3 fallback
-// shares match the 6-decimal asset. Readers should trust the on-chain `decimals()` and use
-// this constant only as the fallback.
-export const VAULT_SHARE_DECIMALS = POOL_VERSION_V4 ? 9 : 6
-
-// ── Active contract set ───────────────────────────────────────────────────────
-// Single source of truth consumed everywhere: V4 when configured, otherwise the live V3 set.
+// ── Active Contract Addresses ─────────────────────────────────────────────────
 export const POOL_CONTRACTS = {
-  ...(POOL_VERSION_V4 ? POOL_CONTRACTS_V4 : POOL_CONTRACTS_V3),
-  WETH_POOL: v4Address(readEnv('VITE_POOL_V4_WETH_POOL')),
+  STABLE_SWAP_POOL: v4Address(readEnv('VITE_POOL_V4_STABLE_SWAP'), '0xC3EdDA15AdfaC31ADfC23aC86dC96d791f72bE8a'),
+  CONSTANT_PRODUCT_POOL: v4Address(readEnv('VITE_POOL_V4_CONSTANT_PRODUCT'), '0xf0e5f1d5C36a8362D96A8a43a441c6bb29416349'),
+  YIELD_VAULT: v4Address(readEnv('VITE_POOL_V4_YIELD_VAULT'), '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A'),
+  WETH_POOL: v4Address(readEnv('VITE_POOL_V4_WETH_POOL'), '0x4fB42dBbA5AD26723106bd56cA647dEb4a75Cd90'),
+  EURC_WETH_POOL: v4Address(readEnv('VITE_POOL_V4_EURC_WETH_POOL'), '0x0000000000000000000000000000000000000000'),
+  ARCIS_SWAP_ROUTER: '0x22733d5C4C91C7BEF2BED43e3f3F42B2d91DfcD4' as `0x${string}`,
   USDC: ARC_TOKENS.USDC,
   EURC: ARC_TOKENS.EURC,
   cirBTC: ARC_TOKENS.cirBTC,
   WETH: ARC_TOKENS.WETH,
 }
 
+export const POOL_CONTRACTS_V4 = POOL_CONTRACTS
+
+// ERC-4626 vault share decimals (9 virtual decimals on V4, 6 on older standards).
+export const VAULT_SHARE_DECIMALS = POOL_VERSION_V4 ? 9 : 6
+
 export const POOL_USDC = ARC_TOKENS.USDC
 export const POOL_EURC = ARC_TOKENS.EURC
 export const POOL_CIRBTC = ARC_TOKENS.cirBTC
 export const POOL_WETH = ARC_TOKENS.WETH
 
-// ── AMM pool-state read plan (index order is part of the contract with usePoolsData) ──────────
-// V3 exposes owner-collected `accumulatedFeeA/B`; V4 removed them so LP fees sit in `feeReserveA/B`
-// outside the curve and stream to holders through `harvest()`. Reading the wrong pair on the active
-// version makes the multicall sub-call revert, which degrades silently to a 0 balance — so the reader
-// asks for exactly the pair the deployed version implements.
-export const AMM_POOL_STATE_READ_FNS_V3 = [
-  'reserveA',
-  'reserveB',
-  'totalLp',
-  'unclaimedFeeA',
-  'unclaimedFeeB',
-  'accumulatedFeeA',
-  'accumulatedFeeB',
-  'swapFeeBps',
-  'volume24hA',
-  'volume24hB',
-] as const
-
-export const AMM_POOL_STATE_READ_FNS_V4 = [
+// ── AMM pool-state read plan ──────────────────────────────────────────────────
+export const AMM_POOL_STATE_READ_FNS = [
   'reserveA',
   'reserveB',
   'totalLp',
@@ -221,8 +161,7 @@ export const AMM_POOL_STATE_READ_FNS_V4 = [
   'volume24hB',
 ] as const
 
-/** Read plan for the active AMM version — consumed by `fetchOnchainPoolState`. */
-export const AMM_POOL_STATE_READ_FNS = POOL_VERSION_V4 ? AMM_POOL_STATE_READ_FNS_V4 : AMM_POOL_STATE_READ_FNS_V3
+export const AMM_POOL_STATE_READ_FNS_V4 = AMM_POOL_STATE_READ_FNS
 
 // Default AMM LP operation slippage tolerance (0.5%).
 export const POOL_DEFAULT_SLIPPAGE_BPS = 50
@@ -247,6 +186,9 @@ export const CONSTANT_PRODUCT_LP_FEE_BPS = 25n
 
 /** USDC/WETH Constant-Product LP fee: 30 bps (0.30%). */
 export const WETH_CONSTANT_PRODUCT_LP_FEE_BPS = 30n
+
+/** EURC/WETH Constant-Product LP fee: 30 bps (0.30%). */
+export const EURC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS = 30n
 
 // O3: slippage is clamped to a safe band so a fat-fingered or oversized tolerance can never
 // silently widen the min-out guard. The upper bound was 10% (1000 bps); it is now 2% (200 bps).
@@ -440,6 +382,49 @@ export const ARCIS_POOLS: PoolConfig[] = [
     isLpPool: true,
     lpTokenName: 'Arcis USDC-WETH LP',
     lpTokenSymbol: 'af-USDC-WETH',
+    supportsZap: true,
+    feeTierPercent: 0.30,
+    reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },
+    impermanentLossRisk: 'Medium',
+    paused: false,
+  },
+  {
+    id: 'eurc-weth-pool',
+    name: 'EURC / WETH',
+    subtitle: 'Constant Product (x·y=k) liquidity pool for Euro and Bridged Ether on Arc.',
+    description: 'Constant product AMM pool with 0.30% swap fee tier for direct EURC and WETH trading, with real on-chain fee streaming to LPs in EURC and WETH.',
+    category: 'liquidity',
+    tokens: [
+      { symbol: 'EURC', name: 'Euro Coin', address: POOL_CONTRACTS.EURC, iconType: 'eurc', decimals: 6 },
+      { symbol: 'WETH', name: 'Wrapped Ether', address: POOL_CONTRACTS.WETH, iconType: 'weth', decimals: 18 },
+    ],
+    apy: 14.8,
+    apyType: 'APR',
+    apyBadge: '14.80% APR • Dynamic Real Yield',
+    tvlUsd: 0,
+    volume24hUsd: 0,
+    lockPeriod: 'No Lock',
+    riskLevel: 'Medium',
+    feeShare: '0.30% Swap Fee to LPs',
+    contractAddress: POOL_CONTRACTS.EURC_WETH_POOL,
+    depositTokenSymbol: 'EURC + WETH',
+    rewardTokenSymbol: 'LP Share Growth (EURC / WETH)',
+    isFeatured: true,
+    isLiveOnChain: false,
+    executionMode: 'preview',
+    yieldOrigin: 'Euro-Ether Swap Volume (0.30% Fee)',
+    yieldOriginDetails: 'Every swap between EURC and WETH contributes a 0.30% fee directly to fee reserves, allowing LPs to harvest pure EURC and WETH yield.',
+    gasBenefitNote: 'Gas fees on Arc are paid in USDC — zero ETH needed for gas.',
+    howItWorksSteps: [
+      { step: 1, title: 'Deposit Tokens', desc: 'Deposit EURC + WETH proportionally with 1-Click Zap.' },
+      { step: 2, title: 'Receive afEURC-WETH', desc: 'Receive standardized 18-decimal LP tokens representing your pool share.' },
+      { step: 3, title: 'Earn Trading Fees', desc: 'Accumulate 0.30% fee on all swaps between EURC and WETH.' },
+      { step: 4, title: 'Harvest Anytime', desc: 'Harvest real EURC and WETH swap fees anytime without burning LP tokens.' },
+    ],
+    tags: ['Constant Product', 'Ethereum', 'EURC Forex', 'Real Yield', 'Cross-Pair'],
+    isLpPool: true,
+    lpTokenName: 'Arcis EURC-WETH LP',
+    lpTokenSymbol: 'af-EURC-WETH',
     supportsZap: true,
     feeTierPercent: 0.30,
     reserves: { tokenA: 0, tokenB: 0, ratioA: 50, ratioB: 50 },

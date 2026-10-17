@@ -30,6 +30,19 @@ import { formatSubscriptZero } from '../../utils/formatNumber'
 import { numberToExactDecimal } from '../../utils/copilotAmount'
 import { copilotSlippageBps } from '../../utils/swapSlippage'
 import { reconcileCopilotReservation } from '../../services/copilotExecutionService'
+import { logger } from '../../utils/logger'
+import { getSavedRecipients } from '../../utils/recentRecipients'
+// ARC-025: pre-confirmation risk warnings (new recipient, large share of balance, wide slippage).
+import {
+  depositActionWarnings,
+  sendActionWarnings,
+  swapActionWarnings,
+  type CopilotActionWarning,
+  type CopilotAvailableBalances,
+} from '../../utils/copilotActionWarnings'
+
+/** Scoped logger: skipped best-effort work must be traceable without raw console noise. */
+const log = logger.createScope('InlineActionCard')
 
 /**
  * Reconstructs the canonical chat command from a completed receipt or action payload
@@ -121,6 +134,8 @@ interface InlineActionCardProps {
   onOpenSessionSettings?: () => void
   onCloseDrawer: () => void
   onSendMessage?: (content: string) => Promise<void> | void
+  /** Connected wallet whose liquid balances back the "large share of balance" warning. */
+  walletAddress?: string
 }
 
 export default function InlineActionCard({
@@ -130,6 +145,7 @@ export default function InlineActionCard({
   onOpenSessionSettings,
   onCloseDrawer,
   onSendMessage,
+  walletAddress,
 }: InlineActionCardProps) {
   const { actionPayload, receipt: initialReceipt, isExecutingInline, executionState } = message
   const [localReceipt, setLocalReceipt] = useState<InlineExecutionReceipt | null>(null)
@@ -140,6 +156,9 @@ export default function InlineActionCard({
   const [execProgress, setExecProgress] = useState<number>(15)
   // Fetched directly (not via a Query hook) so the card renders safely without a QueryClientProvider.
   const [tokenPrices, setTokenPrices] = useState<TokenPriceMap | null>(null)
+  // Liquid balances for the "this moves X% of your balance" warning. Left null until the live
+  // snapshot answers: an unknown balance must not fake a warning, and must not silence one either.
+  const [availableBalances, setAvailableBalances] = useState<CopilotAvailableBalances | null>(null)
   const [copiedRecipient, setCopiedRecipient] = useState<boolean>(false)
   const [copyError, setCopyError] = useState<string | null>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -251,13 +270,59 @@ export default function InlineActionCard({
     }
   }, [receipt?.status, receipt?.actionType, receipt?.sourceTxHash, receipt?.txHash])
 
+  // ── ARC-025: LIQUID BALANCES FOR THE PRE-CONFIRM WARNINGS ──
+  // The same cached snapshot the copilot reasoned about (15s TTL), so the card and the assistant
+  // cannot disagree about what is available. Dynamic import keeps this out of the card's base path.
+  const pendingActionType = actionPayload?.type
+  const needsBalance = Boolean(
+    actionPayload?.data &&
+    typeof pendingActionType === 'string' &&
+    [
+      'interactive_send',
+      'send',
+      'interactive_batch_send',
+      'interactive_swap',
+      'trade',
+      'interactive_deposit',
+      'view_pool',
+    ].includes(pendingActionType)
+  )
+
+  useEffect(() => {
+    if (!walletAddress || !needsBalance) return
+    let active = true
+    import('../../services/portfolioContextService')
+      .then(async (mod) => {
+        const snapshot = await mod.getLivePortfolioSnapshot(walletAddress)
+        if (!active) return
+        setAvailableBalances({
+          USDC: snapshot.liquidUsdc,
+          EURC: snapshot.liquidEurc,
+          WETH: snapshot.liquidWeth,
+          cirBTC: snapshot.liquidCirBtc,
+        })
+      })
+      .catch((err) => {
+        // Best effort: an unreadable balance only hides the share-of-balance warning; the card
+        // still shows the amount, the recipient and the slippage it was given.
+        log.debug('Live balances unavailable for copilot risk warnings:', err)
+      })
+    return () => {
+      active = false
+    }
+  }, [walletAddress, needsBalance])
+
   useEffect(() => {
     let active = true
     getLiveTokenPrices()
       .then((p) => {
         if (active) setTokenPrices(p)
       })
-      .catch(() => { })
+      .catch((err) => {
+        // Best-effort read: without live prices the card simply omits its fiat estimate rows, so the
+        // failure is logged rather than shown, and no placeholder price is invented.
+        log.debug('Live token prices unavailable for this action card; fiat rows stay hidden:', err)
+      })
     return () => {
       active = false
     }
@@ -493,7 +558,13 @@ export default function InlineActionCard({
         const fromFiat = formatFiatEstimate(data.amount, fromTok, tokenPrices)
         const toFiat = hasLiveQuote ? formatFiatEstimate(estimatedOut, toTok, tokenPrices) : undefined
         let slippageBps: number | undefined
-        try { slippageBps = copilotSlippageBps(data) } catch { /* Invalid legacy cards cannot be confirmed. */ }
+        try {
+          slippageBps = copilotSlippageBps(data)
+        } catch (err) {
+          // Best-effort read: an unparseable slippage only hides the guard rail on a legacy card and
+          // the card's confirm path refuses those, so no value is invented and the skip is logged.
+          log.debug('Slippage could not be read from a legacy card payload; leaving it undefined:', err)
+        }
         const hasMinimum = typeof data.minReceived === 'string' && /^\d+(?:\.\d+)?$/.test(data.minReceived) && Number(data.minReceived) > 0
         const rawRate = hasValidAmount && hasLiveQuote ? estimatedOut / amount : null
         const exchangeRate =
@@ -502,10 +573,19 @@ export default function InlineActionCard({
               ? formatSubscriptZero(rawRate)
               : rawRate.toFixed(4)
             : null
+        // A wide tolerance or a balance-sized swap is exactly what a sandwich/prompt-injection
+        // attempt looks like, so it is shown before the signature, not after.
+        const warnings = swapActionWarnings({
+          amount,
+          fromToken: fromTok,
+          slippageBps,
+          balances: availableBalances,
+        })
 
         return (
           <ActionCardShell
             accentColor="cyan"
+            warnings={warnings}
             header={{
               icon: <ArrowRightLeft className="w-4 h-4 text-cyan-400" />,
               title: 'Token Swap',
@@ -616,10 +696,12 @@ export default function InlineActionCard({
         const yearlyYield = Number(data.estimatedYieldUsdcYearly)
         const hasYieldEstimate = hasValidDepositAmount && Number.isFinite(yearlyYield) && yearlyYield > 0
         const fiat = formatFiatEstimate(data.amount, 'USDC', tokenPrices)
+        const warnings = depositActionWarnings({ amount: depositAmount, balances: availableBalances })
 
         return (
           <ActionCardShell
             accentColor="emerald"
+            warnings={warnings}
             header={{
               icon: <Coins className="w-4 h-4 text-emerald-400" />,
               title: 'Yield Vault Deposit',
@@ -849,9 +931,20 @@ export default function InlineActionCard({
             : `~${data.estimatedFeeUsdc} USDC`
           : `~${arcTransferFeeFallbackUsdc(tokenSymbol, hasMemo)} USDC`
 
+        // ARC-025: the recipient and the amount are the two things a user gets wrong (or is
+        // tricked into) on a one-click transfer, so both are checked against local evidence.
+        const warnings = sendActionWarnings({
+          amount: sendAmount,
+          tokenSymbol,
+          recipient: fullRecipient,
+          savedAddresses: getSavedRecipients('all').map((entry) => entry.address),
+          balances: availableBalances,
+        })
+
         return (
           <ActionCardShell
             accentColor="sky"
+            warnings={warnings}
             header={{
               icon: <ArrowUpRight className="w-4 h-4 text-sky-400" />,
               title: 'Token Transfer',
@@ -1035,6 +1128,8 @@ interface ActionCardShellProps {
   }
   hero?: React.ReactNode
   details?: React.ReactNode
+  /** Pre-confirmation risk notices rendered above the action buttons. */
+  warnings?: CopilotActionWarning[]
   primaryAction: {
     label: string
     icon?: React.ReactNode
@@ -1054,6 +1149,7 @@ function ActionCardShell({
   header,
   hero,
   details,
+  warnings,
   primaryAction,
   secondaryAction,
 }: ActionCardShellProps) {
@@ -1115,6 +1211,25 @@ function ActionCardShell({
       {details && (
         <div className="rounded-xl bg-slate-900/50 border border-slate-800/60 p-2.5 space-y-1.5 text-xs select-text">
           {details}
+        </div>
+      )}
+
+      {/* Risk Warnings (ARC-025) — before the button, never after the signature */}
+      {warnings && warnings.length > 0 && (
+        <div
+          role="note"
+          aria-label="Pre-confirmation warnings"
+          className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 space-y-1.5 select-text"
+        >
+          {warnings.map((warning) => (
+            <p
+              key={warning.code}
+              className="flex items-start gap-1.5 text-[10px] leading-relaxed text-amber-200 select-text"
+            >
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400 mt-[1px]" />
+              <span className="select-text">{warning.message}</span>
+            </p>
+          ))}
         </div>
       )}
 

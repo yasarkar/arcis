@@ -12,6 +12,10 @@ import type { InlineExecutionReceipt } from '../../types/sessionKey'
 import { getExplorerTxUrl } from '../../config/sendConfig'
 import { resolveArcActualFeeUsdc } from '../../services/arcGasService'
 import { getModularPublicClient } from '../../services/modularWalletService'
+import { logger } from '../../utils/logger'
+
+/** Scoped logger: skipped best-effort enrichment must be traceable without raw console noise. */
+const log = logger.createScope('CopilotSuccessReceipt')
 
 interface CopilotSuccessReceiptProps {
   receipt: InlineExecutionReceipt
@@ -109,7 +113,11 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
           }
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        // Best-effort read: the receipt already shows the estimated gas row, so a failed exact-fee
+        // lookup only omits the base/priority split — no number is fabricated to fill the gap.
+        log.debug('Exact Arc gas fee split unavailable for this receipt; keeping the estimate:', err)
+      })
     return () => {
       cancelled = true
     }
@@ -143,7 +151,11 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
     measureHeading()
     // Web fonts can settle after the first paint; re-measure once they are ready.
     if (typeof document !== 'undefined' && document.fonts?.ready) {
-      document.fonts.ready.then(measureHeading).catch(() => {})
+      document.fonts.ready.then(measureHeading).catch((err) => {
+        // Best-effort UI nicety: the heading was already measured once, so a rejected font-ready
+        // promise only skips the re-measure and the card keeps its first width.
+        log.debug('Font-ready re-measure skipped; keeping the first measured heading width:', err)
+      })
     }
 
     return () => {

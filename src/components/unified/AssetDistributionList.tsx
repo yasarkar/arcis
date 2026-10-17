@@ -15,6 +15,8 @@ interface AssetDistributionListProps {
   loading: boolean
   hasError: boolean
   walletAddress: string
+  /** Pending (not yet indexed) amounts keyed by originating chain. */
+  pendingByChain?: Record<string, number>
   onDeposit: () => void
 }
 
@@ -30,6 +32,7 @@ export default function AssetDistributionList({
   loading,
   hasError,
   walletAddress,
+  pendingByChain,
   onDeposit,
 }: AssetDistributionListProps) {
   const [showAll, setShowAll] = useState(false)
@@ -210,6 +213,7 @@ export default function AssetDistributionList({
             const meta = CHAIN_META[item.chainKey] || { iconId: 'ethereum', color: '#64748b', gradient: 'linear-gradient(135deg, #64748b, #475569)' }
             const balance = Number.parseFloat(item.balance || '0')
             const pct = total > 0 ? (balance / total) * 100 : 0
+            const pending = pendingByChain?.[item.chainKey]
             const isZero = balance <= 0
 
             return (
@@ -228,6 +232,15 @@ export default function AssetDistributionList({
                       <span style={{ fontFamily: 'var(--font-app)', fontSize: 14, fontWeight: 500, color: isZero ? 'var(--fp-2)' : 'var(--base-colors--white)', display: 'block', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {item.name || getChainDisplayName(item.chainKey)}
                       </span>
+                      {pending ? (
+                        <span
+                          className="ub-pending-badge"
+                          style={{ marginTop: 4 }}
+                          title="Circle Gateway is still indexing this deposit."
+                        >
+                          +{formatUsdcAmount(pending)} PENDING
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 

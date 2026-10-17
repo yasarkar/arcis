@@ -53,6 +53,8 @@ export default function UnifiedBalance({
     totalBalance,
     refresh,
     dataUpdatedAt: gatewayDataUpdatedAt,
+    pendingDelta,
+    pendingByChain,
   } = useGatewayBalance(walletAddress)
 
   const [showDeposit, setShowDeposit] = useState(false)
@@ -193,6 +195,17 @@ export default function UnifiedBalance({
                 <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-pulse" />
               </svg>
             </span>
+            {/* Honest pending disclosure: Circle's indexer needs 20–30s to surface a fresh
+                Gateway deposit, so the total is optimistic and says so instead of silently
+                lagging behind the user's own transaction. */}
+            {walletAddress && pendingDelta > 0 && (
+              <span
+                className="ub-pending-badge"
+                title={`Circle Gateway is still indexing ${formatUsdcAmount(pendingDelta)} USDC. This usually takes 20–30 seconds.`}
+              >
+                +{formatUsdcAmount(pendingDelta)} PENDING
+              </span>
+            )}
           </div>
 
           {walletAddress && (
@@ -371,6 +384,7 @@ export default function UnifiedBalance({
         loading={loading}
         hasError={Boolean(gatewayError)}
         walletAddress={walletAddress}
+        pendingByChain={pendingByChain}
         onDeposit={() => setShowDeposit(true)}
       />
     </div>

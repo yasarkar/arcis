@@ -264,4 +264,57 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('0.0₆35')
     expect(html).toContain('cirBTC')
   })
+
+  // ARC-025: the card is the only confirmation screen, so a recipient the browser has never paid
+  // and a tolerance wider than 1% are surfaced before the confirm button, not after.
+  it('warns before confirming a transfer to an unseen recipient', () => {
+    const html = renderAction({
+      type: 'interactive_send',
+      title: 'Send 25 USDC',
+      data: {
+        amount: 25,
+        tokenSymbol: 'USDC',
+        recipient: '0x9d2f5f5f0f4e2f5b2c1a3d4e5f60718293a4b5c6',
+      },
+    })
+
+    expect(html).toContain('Pre-confirmation warnings')
+    expect(html).toContain('First transfer to this address')
+  })
+
+  it('warns before confirming a swap whose slippage exceeds the caution line', () => {
+    const html = renderAction({
+      type: 'interactive_swap',
+      title: 'Swap 50 USDC to EURC',
+      data: {
+        amount: 50,
+        fromToken: 'USDC',
+        toToken: 'EURC',
+        estimatedOut: '46.25',
+        minReceived: '45.5',
+        slippageBps: 150,
+      },
+    })
+
+    expect(html).toContain('Pre-confirmation warnings')
+    expect(html).toContain('Slippage tolerance is 1.5%')
+  })
+
+  it('shows no slippage warning at the 1% caution line', () => {
+    const html = renderAction({
+      type: 'interactive_swap',
+      title: 'Swap 50 USDC to EURC',
+      data: {
+        amount: 50,
+        fromToken: 'USDC',
+        toToken: 'EURC',
+        estimatedOut: '46.25',
+        minReceived: '45.8',
+        slippageBps: 100,
+      },
+    })
+
+    expect(html).not.toContain('Pre-confirmation warnings')
+    expect(html).not.toContain('Slippage tolerance is 1%')
+  })
 })

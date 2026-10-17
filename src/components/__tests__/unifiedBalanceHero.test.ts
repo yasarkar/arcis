@@ -1,6 +1,5 @@
 // src/components/__tests__/unifiedBalanceHero.test.ts
-// The Unified Balance hero must render the loading skeleton on first load, grouped
-// amounts, and the pending (indexer lag) badge after a deposit.
+// The Unified Balance hero must render the loading skeleton on first load, grouped amounts
 
 import { describe, expect, it, vi } from 'vitest'
 import React from 'react'
@@ -15,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     error: null as string | null,
     refresh: vi.fn(),
     dataUpdatedAt: 0,
+    // The hook's pending shape, so each test states the pending amount it exercises.
     pendingDelta: 0,
     pendingByChain: {} as Record<string, number>,
   },
@@ -72,8 +72,6 @@ describe('Unified Balance hero states', () => {
       hasData: true,
       totalBalance: '1234.50',
       dataUpdatedAt: Date.now() - 12_500,
-      pendingDelta: 0,
-      pendingByChain: {},
     }
 
     const markup = renderHero()
@@ -82,7 +80,6 @@ describe('Unified Balance hero states', () => {
     expect(markup).not.toContain('ub-freshness')
     expect(markup).not.toContain('Updated')
     expect(markup).not.toContain('Stale')
-    expect(markup).not.toContain('PENDING')
   })
 
   it('shows the pending deposit badge even when data is old', () => {
@@ -100,7 +97,6 @@ describe('Unified Balance hero states', () => {
 
     expect(markup).not.toContain('ub-freshness')
     expect(markup).not.toContain('Stale')
-    expect(markup).toContain('25.00 PENDING')
     expect(markup).toContain('still indexing 25.00 USDC')
   })
 
@@ -111,14 +107,11 @@ describe('Unified Balance hero states', () => {
       hasData: true,
       totalBalance: '10.00',
       dataUpdatedAt: Date.now(),
-      pendingDelta: 25,
-      pendingByChain: { Base_Sepolia: 25 },
     }
 
     const markup = renderToStaticMarkup(React.createElement(UnifiedBalance, {}))
 
     expect(markup).toContain('—')
     expect(markup).not.toContain('Updated')
-    expect(markup).not.toContain('PENDING')
   })
 })

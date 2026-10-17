@@ -684,6 +684,13 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             )}
           </div>
 
+          {/* Execution Method — the mechanism the receipt actually settled through
+              (e.g. "Circle Gateway Deposit", "x402 AI Service Settlement"). */}
+          <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <span>Method:</span>
+            <span className="text-slate-200 font-medium">{effectiveMethod}</span>
+          </div>
+
           {/* Recipient in Card 2 (shown only when sending/bridging/swapping to an external wallet) */}
           {type !== 'send' && isExternalRecipient && recipient && (
             <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
@@ -756,6 +763,14 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
               <span>Network Fee:</span>
               <span className="text-slate-200 font-medium">{displayGasFee}</span>
+            </div>
+          )}
+
+          {/* Priority Tier (Swap) — the speed tier the user paid for. */}
+          {speedTier && (
+            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+              <span>Priority Tier:</span>
+              <span className="text-slate-200 capitalize font-medium">{speedTier}</span>
             </div>
           )}
 

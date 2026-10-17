@@ -44,14 +44,14 @@ export const SpendingCeilingBadge: React.FC<SpendingCeilingBadgeProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[11px] font-semibold text-emerald-300">
-                1-Click Fast Execution
+                Authorization On Record
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                (Limit: ${ceiling.toFixed(2)} {tokenSymbol})
+                (Last approved: ${ceiling.toFixed(2)} {tokenSymbol})
               </span>
             </div>
             <p className="text-[10px] text-slate-400 truncate">
-              Zero wallet approval popups required for this transaction
+              Each transaction authorizes exactly its own amount; nothing stays granted
             </p>
           </div>
         </div>
@@ -87,14 +87,14 @@ export const SpendingCeilingBadge: React.FC<SpendingCeilingBadgeProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[11px] font-semibold text-amber-300">
-                Elevating Spending Limit
+                Exact Approval Required
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                ${ceiling.toFixed(2)} → ${ceilingStatus.suggestedCeiling} {tokenSymbol}
+                exactly ${ceilingStatus.suggestedCeiling} {tokenSymbol}
               </span>
             </div>
             <p className="text-[10px] text-slate-400 truncate">
-              One wallet confirmation will authorize your elevated limit for future 1-click use
+              This transaction authorizes exactly its own amount — no reusable limit
             </p>
           </div>
         </div>
@@ -130,11 +130,11 @@ export const SpendingCeilingBadge: React.FC<SpendingCeilingBadgeProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[11px] font-semibold text-indigo-300">
-                Initial Spending Limit Setup: ${ceilingStatus.suggestedCeiling} {tokenSymbol}
+                Exact Approval: ${ceilingStatus.suggestedCeiling} {tokenSymbol}
               </span>
             </div>
             <p className="text-[10px] text-slate-400 truncate">
-              Approves once: future transactions ≤ ${ceilingStatus.suggestedCeiling} will need 0 extra confirmations
+              You approve exactly this amount once; nothing is left granted afterwards
             </p>
           </div>
         </div>
@@ -187,9 +187,9 @@ export const SpendingCeilingSettingsCard: React.FC<SpendingCeilingSettingsCardPr
           </div>
           <div>
             <h4 className="text-xs font-semibold text-white tracking-wide">
-              Smart Spending Limits
+              Exact Token Approvals
             </h4>
-            <p className="text-[10px] text-slate-400">Automated 1-click wallet approval management</p>
+            <p className="text-[10px] text-slate-400">Every approval is sized to one transaction</p>
           </div>
         </div>
 
@@ -205,15 +205,15 @@ export const SpendingCeilingSettingsCard: React.FC<SpendingCeilingSettingsCardPr
       </div>
 
       <p className="text-[11px] text-slate-400 leading-relaxed">
-        Arcis authorizes a safe spending ceiling on your first transaction so subsequent transfers
-        within that limit execute instantly without repetitive approval popups. Any transaction
-        exceeding your ceiling automatically asks for a new confirmation.
+        Arcis authorizes exactly the amount each transaction moves: the token approval is sized to
+        the transfer, swap, bridge or deposit you confirm, and the operation spends it. Nothing is
+        left granted for a later call to reuse.
       </p>
 
       {ceiling > 0 && (
         <div className="flex items-center justify-between pt-1 border-t border-white/[0.06]">
           <span className="text-[10px] text-slate-400">
-            Active Ceiling: <strong className="text-slate-200">${ceiling.toFixed(2)} {tokenSymbol}</strong>
+            Last Authorized: <strong className="text-slate-200">${ceiling.toFixed(2)} {tokenSymbol}</strong>
           </span>
 
           <button
@@ -233,7 +233,7 @@ export const SpendingCeilingSettingsCard: React.FC<SpendingCeilingSettingsCardPr
             ) : (
               <>
                 <RotateCcw className="w-3 h-3" />
-                <span>Reset Limit (Revoke)</span>
+                <span>Clear Record</span>
               </>
             )}
           </button>

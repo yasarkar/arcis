@@ -9,6 +9,10 @@ import {
 } from 'lucide-react'
 import customLogo from '../assets/Arcis-Icon.svg'
 import { arcTestnet } from '../config/arcChain'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: a swallowed localStorage failure must still be visible in diagnostics. */
+const log = logger.createScope('Footer')
 
 type TabType = 'home' | 'unified' | 'send' | 'swap' | 'bridge' | 'pools' | 'ai-services' | 'history'
 
@@ -45,7 +49,11 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
         existing.push(email)
         localStorage.setItem('arcis_subscribers', JSON.stringify(existing))
       }
-    } catch (err) { }
+    } catch (err) {
+      // The write failed (quota, disabled storage, corrupt payload): the user still sees the
+      // "Joined" confirmation, so the lost demo record must not disappear from the logs too.
+      log.warn('Subscriber email could not be persisted to localStorage; the confirmation is not durable:', err)
+    }
 
     setIsSubscribed(true)
     setEmail('')

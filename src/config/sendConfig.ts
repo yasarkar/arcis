@@ -9,12 +9,9 @@ import {
   getChainDisplayName,
 } from './chainMeta'
 import {
-  ACTIVE_NETWORKS,
   getNetwork,
   getNetworksByCapability,
-  supportsCapability,
   IS_TESTNET,
-  type NetworkConfig,
 } from './networks/networkRegistry'
 
 export { CHAIN_META, CHAIN_DEFS, getChainIconId, getChainDisplayName }

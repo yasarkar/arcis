@@ -78,6 +78,15 @@ export default function PoolsHeroStats({
       tvl: getPoolTvl('usdc-weth-pool', 0),
     },
     {
+      id: 'eurc-weth-pool',
+      shortName: 'EURC / WETH',
+      name: 'EURC / WETH Liquidity Pool',
+      tag: 'AMM LP',
+      accentColor: '#38bdf8',
+      icons: [EurcIcon, WethIcon],
+      tvl: getPoolTvl('eurc-weth-pool', 0),
+    },
+    {
       id: 'usdc-yield-vault',
       shortName: 'USDC Vault',
       name: 'USDC Yield Vault',

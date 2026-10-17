@@ -1,29 +1,51 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useAccount, useDisconnect } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUserControlledWallet } from './hooks/useUserControlledWallet'
 import { useModularWallet } from './hooks/useModularWallet'
 import { clearAllAppInputs } from './utils/inputClearer'
-import CircleAuthModal from './components/CircleAuthModal'
-import FaucetModal from './components/FaucetModal'
-import UnifiedBalance from './components/UnifiedBalance'
 import HomePage from './components/home/HomePage'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import HistoryTable from './components/HistoryTable'
-import PoolsTab from './components/pools/PoolsTab'
-import SendModal from './components/SendModal'
-import BridgeModal from './components/BridgeModal'
-import SwapModal from './components/SwapModal'
-import MarketplaceTab from './components/marketplace/MarketplaceTab'
 import CopilotRobotWidget from './components/copilot/CopilotRobotWidget'
 import { useArcCopilot } from './hooks/useArcCopilot'
 import { useAutoSwitchArcChain } from './hooks/useAutoSwitchArcChain'
 import { BroadcastProvider } from './components/BroadcastNotification'
-import ArcCopilotDrawer from './components/copilot/ArcCopilotDrawer'
-import PortfolioDrawer from './components/PortfolioDrawer'
 import { prefetchGlobalData, prefetchAllWalletData } from './services/prefetchCoordinator'
 import { SectionErrorBoundary } from './components/common/GlobalErrorBoundary'
+import { logger } from './utils/logger'
+
+// ARC-027: the tabs, the four modals and both drawers are the heavy half of the app (the swap/bridge
+// tabs alone pull in the CCTP and Gateway SDK surfaces). Each is loaded on demand — a tab when it is
+// opened, a modal/drawer when its open flag flips — so the first paint no longer waits for all of it.
+// Every one of these components returns null while closed, so mounting it only on open is a no-op
+// behaviourally; the chunk request simply replaces the render that used to happen for nothing.
+const UnifiedBalance = lazy(() => import('./components/UnifiedBalance'))
+const PoolsTab = lazy(() => import('./components/pools/PoolsTab'))
+const MarketplaceTab = lazy(() => import('./components/marketplace/MarketplaceTab'))
+const SendModal = lazy(() => import('./components/SendModal'))
+const SwapModal = lazy(() => import('./components/SwapModal'))
+const BridgeModal = lazy(() => import('./components/BridgeModal'))
+const CircleAuthModal = lazy(() => import('./components/CircleAuthModal'))
+const FaucetModal = lazy(() => import('./components/FaucetModal'))
+const PortfolioDrawer = lazy(() => import('./components/PortfolioDrawer'))
+const ArcCopilotDrawer = lazy(() => import('./components/copilot/ArcCopilotDrawer'))
+
+/** Placeholder for a lazily-loaded tab: keeps the page height stable while the chunk arrives. */
+function TabLoadingFallback() {
+  return (
+    <div className="flex-1 flex items-center justify-center min-h-[40vh]" role="status" aria-live="polite">
+      <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+        <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-600 border-t-teal-300 animate-spin" />
+        <span>Loading…</span>
+      </div>
+    </div>
+  )
+}
+
+/** Scoped logger: skipped background work must be traceable without raw console noise. */
+const log = logger.createScope('App')
 
 function AutoChainSwitchWatcher() {
   useAutoSwitchArcChain()
@@ -165,7 +187,11 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances'] })
     queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
     if (walletAddress) {
-      prefetchAllWalletData(queryClient, walletAddress).catch(() => {})
+      prefetchAllWalletData(queryClient, walletAddress).catch((err) => {
+        // Best-effort prefetch: the panels fetch their own data, so a failed warm-up only costs the
+        // first paint's latency and must not surface as an error to the user.
+        log.debug('Wallet data prefetch failed; panels will fetch on demand:', err)
+      })
     }
   }
 
@@ -277,6 +303,7 @@ export default function App() {
           {/* Workspace Content */}
           <SectionErrorBoundary title="This workspace section encountered an error">
             <section className="flex-1 min-w-0 flex flex-col min-h-[calc(100vh-60px)] pb-12">
+            <Suspense fallback={<TabLoadingFallback />}>
 
             {/* Arcis Homepage / Overview Tab */}
             {activeTab === 'home' && (
@@ -400,6 +427,7 @@ export default function App() {
               </div>
             )}
 
+            </Suspense>
             </section>
           </SectionErrorBoundary>
         </main>
@@ -413,6 +441,8 @@ export default function App() {
 
         {/* Arcis AI Copilot Side Drawer */}
         <SectionErrorBoundary title="Arco AI Copilot is temporarily unavailable">
+          {copilot.isOpen && (
+          <Suspense fallback={null}>
           <ArcCopilotDrawer
             isOpen={copilot.isOpen}
             onClose={() => copilot.setIsOpen(false)}
@@ -429,6 +459,8 @@ export default function App() {
             onExecuteInline={copilot.executeInlineAction}
             onNavigateToTab={(tab) => setActiveTab(tab as any)}
           />
+          </Suspense>
+          )}
         </SectionErrorBoundary>
 
         {/* Global Professional Footer */}
@@ -438,6 +470,8 @@ export default function App() {
         />
 
         {/* Circle User-Controlled Wallets & Passkey Auth Modal */}
+        {isCircleAuthOpen && (
+        <Suspense fallback={null}>
         <CircleAuthModal
           isOpen={isCircleAuthOpen}
           onClose={() => setIsCircleAuthOpen(false)}
@@ -461,16 +495,24 @@ export default function App() {
           setOtpStep={setOtpStep}
           pendingEmail={pendingEmail}
         />
+        </Suspense>
+        )}
 
         {/* Circle Testnet Faucet Modal */}
+        {isFaucetOpen && (
+        <Suspense fallback={null}>
         <FaucetModal
           isOpen={isFaucetOpen}
           onClose={() => setIsFaucetOpen(false)}
           connectedAddress={walletAddress}
           onSuccess={refreshBalances}
         />
+        </Suspense>
+        )}
 
         {/* Circle Multi-Chain Portfolio Side Drawer */}
+        {isPortfolioOpen && (
+        <Suspense fallback={null}>
         <PortfolioDrawer
           isOpen={isPortfolioOpen}
           onClose={() => setIsPortfolioOpen(false)}
@@ -479,6 +521,8 @@ export default function App() {
           onNavigateToTab={(tab, chainKey) => handleNavigateToTab(tab, chainKey)}
           onOpenFaucet={() => setIsFaucetOpen(true)}
         />
+        </Suspense>
+        )}
       </div>
     </BroadcastProvider>
   )

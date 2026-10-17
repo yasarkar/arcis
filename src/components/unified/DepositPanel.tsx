@@ -16,7 +16,7 @@ import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { depositToGateway, resolvePaidNetworkFee } from '../../services/gatewayService'
 import { useBroadcast } from '../BroadcastNotification'
 import { normalizeAppError } from '../../utils/errorNormalizer'
-import { parseUnits, encodeFunctionData, erc20Abi, maxUint256, type Hex } from 'viem'
+import { parseUnits, encodeFunctionData, erc20Abi, type Hex } from 'viem'
 import { getResilientPublicClient, resilientWaitForReceipt } from '../../services/rpc'
 import {
   GATEWAY_SUPPORTED_CHAINS,
@@ -326,10 +326,13 @@ export default function DepositPanel({
         const gatewayWallet = ACTIVE_GATEWAY_CONTRACTS.gatewayWallet
         const amountBaseUnits = parseUnits(normalizedAmount, 6)
 
+        // Bounded approval (audit #11): the batched approve is exactly the deposited
+        // amount, which the deposit in the same UserOp consumes entirely — never an
+        // unlimited allowance that would outlive the operation.
         const approveData = encodeFunctionData({
           abi: erc20Abi,
           functionName: 'approve',
-          args: [gatewayWallet, maxUint256],
+          args: [gatewayWallet, amountBaseUnits],
         })
         const depositData = encodeFunctionData({
           abi: GATEWAY_WALLET_ABI,

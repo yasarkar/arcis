@@ -70,6 +70,10 @@ import {
 } from './fintech'
 import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 import { saveRecipient } from '../utils/recentRecipients'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: skipped best-effort work must be traceable without raw console noise. */
+const log = logger.createScope('SendModal')
 
 const TOKEN_ICONS: Record<string, string> = {
   USDC: UsdcIcon,
@@ -1922,7 +1926,11 @@ export default function SendModal({
               setSendMode('gateway')
             }
           } else if (provider && authSource !== 'ucw') {
-            ensureNetwork(chainKey, provider).catch(() => {})
+            ensureNetwork(chainKey, provider).catch((err) => {
+              // Best-effort chain switch while the user is only choosing a chain: the confirm step
+              // switches again and reports its own error, so nothing is hidden from the user here.
+              log.debug('Chain switch skipped while selecting a send chain; confirm will switch again:', err)
+            })
           }
           setSelectedChain(chainKey)
           setRecipientError(null)

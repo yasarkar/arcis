@@ -33,6 +33,10 @@ import SessionKeyModal from './SessionKeyModal'
 import InlineActionCard from './InlineActionCard'
 import { CopilotSlashMenu } from './CopilotSlashMenu'
 import { COPILOT_SLASH_COMMANDS, type SlashCommandItem } from '../../config/copilotSlashCommands'
+import { logger } from '../../utils/logger'
+
+/** Scoped logger: swallowed UI-state failures must still be visible in diagnostics. */
+const log = logger.createScope('ArcCopilotDrawer')
 
 interface ArcCopilotDrawerProps {
   isOpen: boolean
@@ -264,7 +268,11 @@ export default function ArcCopilotDrawer({
       setIsDragging(false)
       try {
         localStorage.setItem('arcis_window_size_v2', JSON.stringify(windowSize))
-      } catch (e) { }
+      } catch (err) {
+        // Cosmetic write: the drawer keeps its current size and only loses the remembered one, so the
+        // failure is logged at warn level with that consequence instead of being swallowed.
+        log.warn('Copilot drawer size could not be saved; next open falls back to the default size:', err)
+      }
     }
   }, [isDragging, windowSize])
 
@@ -636,6 +644,7 @@ export default function ArcCopilotDrawer({
                   {(msg.actionPayload || msg.receipt || msg.isExecutingInline) && (
                     <InlineActionCard
                       message={msg}
+                      walletAddress={walletAddress}
                       onExecuteInline={onExecuteInline}
                       onNavigateToTab={onNavigateToTab}
                       onOpenSessionSettings={() => setIsSessionKeyModalOpen(true)}
