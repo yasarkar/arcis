@@ -26,13 +26,15 @@ export interface MultiChainWalletContextValue {
   solana: SolanaWalletState
   connectSolana: (provider: SolanaWalletProvider) => Promise<{ success: boolean; address?: string; error?: string }>
   disconnectSolana: () => void
-  isSolanaInstalled: (provider: SolanaWalletProvider) => boolean
+  // P03: async because the wallet service module loads on demand.
+  isSolanaInstalled: (provider: SolanaWalletProvider) => Promise<boolean>
 
   // Injective State & Actions
   injective: InjectiveWalletState
   connectInjective: (provider: InjectiveWalletProvider) => Promise<{ success: boolean; address?: string; error?: string }>
   disconnectInjective: () => void
-  isInjectiveInstalled: (provider: InjectiveWalletProvider) => boolean
+  // P03: async because the wallet service module loads on demand.
+  isInjectiveInstalled: (provider: InjectiveWalletProvider) => Promise<boolean>
 
   // General controls
   disconnectAllNonEvm: () => void

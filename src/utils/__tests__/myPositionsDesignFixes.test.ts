@@ -97,5 +97,31 @@ describe('MyPositionsSection & PositionCard Data and Design Integrity', () => {
     expect(btcCfg.barGradient).toContain('#c2410c')
     expect(btcCfg.barGradient).toContain('#ea580c')
     expect(btcCfg.icon).toBeDefined()
+
+    const wethCfg = getTokenAssetConfig('WETH', 'weth')
+    expect(wethCfg.textColorClass).toBe('text-indigo-400')
+    expect(wethCfg.barGradient).toContain('#6366f1')
+    expect(wethCfg.barGradient).toContain('#8b5cf6')
+    expect(wethCfg.icon).toBeDefined()
+  })
+
+  it('correctly builds dynamic price displays for USDC/WETH and EURC/WETH pairs', () => {
+    const buildPriceDisplay = (
+      exchangeRate: number,
+      token1: string,
+      token2: string,
+      isVault: boolean = false
+    ) => {
+      if (isVault) {
+        return '1.00 USDC = 1.00 iUSDC Vault Share'
+      }
+      return `Price ${exchangeRate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${token1} per ${token2}`
+    }
+
+    expect(buildPriceDisplay(1.08, 'USDC', 'EURC')).toBe('Price 1.08 USDC per EURC')
+    expect(buildPriceDisplay(83436.0, 'USDC', 'cirBTC')).toBe('Price 83,436.00 USDC per cirBTC')
+    expect(buildPriceDisplay(2600.0, 'USDC', 'WETH')).toBe('Price 2,600.00 USDC per WETH')
+    expect(buildPriceDisplay(2400.0, 'EURC', 'WETH')).toBe('Price 2,400.00 EURC per WETH')
+    expect(buildPriceDisplay(1.0, 'USDC', '', true)).toBe('1.00 USDC = 1.00 iUSDC Vault Share')
   })
 })

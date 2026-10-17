@@ -435,11 +435,14 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
 
   const code = (err as any)?.code ?? (err as any)?.cause?.code
 
-  // 1b. Request Already Pending in Wallet (-32002)
+  // 1b. Request Already Pending in Wallet (-32002 / ResourceUnavailableRpcError)
   if (
     code === -32002 ||
+    errName === 'ResourceUnavailableRpcError' ||
     lowMsg.includes('already pending') ||
-    lowMsg.includes('resource unavailable')
+    lowMsg.includes('resource unavailable') ||
+    lowMsg.includes('resource not available') ||
+    lowMsg.includes('requested resource not available')
   ) {
     const isNetworkSwitch =
       lowMsg.includes('wallet_switchethereumchain') ||

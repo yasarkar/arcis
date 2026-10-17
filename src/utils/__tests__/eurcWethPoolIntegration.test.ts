@@ -22,6 +22,7 @@ describe('EURC / WETH Pool (eurc-weth-pool) End-to-End Integration Tests', () =>
     expect(eurcWethPool!.feeTierPercent).toBe(0.3)
     expect(eurcWethPool!.lpTokenSymbol).toBe('af-EURC-WETH')
     expect(eurcWethPool!.contractAddress).toBe(POOL_CONTRACTS.EURC_WETH_POOL)
+    expect(eurcWethPool!.tags).toContain('Concentrated Liquidity')
   })
 
   it('routes EURC and WETH/ETH swap pairs to eurc-weth-pool', () => {
