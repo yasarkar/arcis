@@ -22,14 +22,7 @@ export const PoolsOverviewCard: React.FC<PoolsOverviewCardProps> = ({
   totalTvlUsd,
   pools = [],
   totalPoolTxCount,
-  userTotalDepositedUsd,
   userTotalClaimableRewardsUsd,
-  dailyYieldGeneratedUsd,
-  walletConnected,
-  onClaimAll,
-  isClaiming = false,
-  onOpenCalculator,
-  timeframe = '30D',
 }) => {
   // Aggregate live 24h volume from real active pools
   const liveVolume24h = pools.reduce((acc, p) => acc + (p.volume24hUsd || 0), 0)
@@ -73,8 +66,6 @@ export const PoolsOverviewCard: React.FC<PoolsOverviewCardProps> = ({
     }
     return `$${val.toFixed(2)}`
   }
-
-  const hasClaimable = userTotalClaimableRewardsUsd >= 0.01
 
   return (
     <div

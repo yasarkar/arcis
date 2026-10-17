@@ -436,6 +436,10 @@ export default function BridgeModal({
   // every call, and the debounced estimate used to build one per keystroke.
   // Cached per (provider, chain) only — the execute path keeps its own adapter,
   // so a cached estimate adapter is never the one signing a transfer.
+  // P05: sequence guard for the debounced fee estimate. Only the latest
+  // scheduled quote may write fee state; slower earlier quotes resolve
+  // silently. Quote-only: execution paths never read this ref.
+  const estimateSeqRef = useRef(0)
   const estimateAdapterRef = useRef<{ provider: any; chain: string; adapter: any } | null>(null)
   const getEstimateAdapter = useCallback(async (provider: any, chain: string) => {
     const cached = estimateAdapterRef.current
@@ -548,6 +552,8 @@ export default function BridgeModal({
     }
 
     let isMounted = true
+    const seq = ++estimateSeqRef.current
+    const isCurrent = () => isMounted && estimateSeqRef.current === seq
     const getEstimation = async () => {
       try {
         // Gateway Fast quotes nothing: Arcis charges no platform fee on that
@@ -575,7 +581,7 @@ export default function BridgeModal({
                 bridgeLog.debug('CCTP-X fee quote unavailable:', feeErr?.message || feeErr)
                 return null
               })
-            if (isMounted) {
+            if (isCurrent()) {
               setEstimatedFee('0.00')
               setUcwCctpxRelayerFee(relayerFee)
             }
@@ -583,7 +589,7 @@ export default function BridgeModal({
           }
 
           // Circle UCW CCTP v2 transfer fee estimation (live Circle fee quote)
-          if (isMounted) {
+          if (isCurrent()) {
             setEstimatedFee(await quoteUcwDirectBridgeFee())
           }
           return
@@ -614,14 +620,14 @@ export default function BridgeModal({
           // excluded here and disclosed in its own Platform Fee row instead.
           const totalFeeInUsdc = sumBridgeDeductedFees(cost?.fees as any)
 
-          if (isMounted) {
+          if (isCurrent()) {
             setEstimatedFee(
               totalFeeInUsdc > 0 ? formatFeeDecimals(totalFeeInUsdc) : await quoteDirectCctpFee()
             )
           }
         }
       } catch (err) {
-        if (isMounted && bridgeMode !== 'gateway') {
+        if (isCurrent() && bridgeMode !== 'gateway') {
           // A CCTP-X fee is quoted in the source native token, so the CCTP v2
           // USDC estimate would be both wrong and in the wrong unit.
           setEstimatedFee(isUcwCctpxRoute ? '0.00' : await quoteDirectCctpFee())

@@ -9,9 +9,7 @@ import {
   Plus,
   Minus,
   Zap,
-  Globe,
   TrendingUp,
-  Info,
   Coins,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
@@ -125,7 +123,7 @@ export default function PoolCard({
       return (
         <img
           src={UsdcIcon}
-          alt="USDC Vault"
+          alt="USDC Yeild Vault"
           style={{ width: 24, height: 24, objectFit: 'contain', flexShrink: 0 }}
         />
       )

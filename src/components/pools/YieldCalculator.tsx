@@ -1,5 +1,5 @@
 // Interactive Yield & ROI Simulator for Arcis.
-// Allows users to simulate compounding interest across USYC, Real-Yield, and LP pools.
+// Allows users to simulate compounding interest across Real-Yield and LP pools.
 import { useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
@@ -11,7 +11,6 @@ import {
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { ARCIS_POOLS, type PoolConfig } from '../../config/poolsConfig'
-import { useContinuousYieldStream } from '../../hooks/useContinuousYieldStream'
 
 interface YieldCalculatorProps {
   isOpen: boolean
@@ -43,13 +42,6 @@ export default function YieldCalculator({
 
   const principalNum = Math.max(0, parseFloat(principal) || 0)
   const selectedPool = activePools.find((p) => p.id === selectedPoolId) || activePools[0]
-
-  const { formattedYield: simLiveYield, yieldPerSecond: simYieldPerSec } = useContinuousYieldStream(
-    principalNum,
-    selectedPool.apy,
-    0,
-    70
-  )
 
   if (!isOpen) return null
 

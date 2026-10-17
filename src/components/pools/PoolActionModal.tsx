@@ -307,10 +307,39 @@ export default function PoolActionModal({
   const walletBalEurc = parseFloat(availableWalletEurc || '0')
   const walletBalCirBtc = parseFloat(availableWalletCirBtc || '0')
   const walletBalWeth = parseFloat(availableWalletWeth || '0')
+
+  const tokenA = pool.tokens[0]
+  const tokenASymbol = tokenA?.symbol || 'USDC'
+  const isTokenAEurc = tokenASymbol === 'EURC'
+  const tokenAIcon = isTokenAEurc ? EurcIcon : UsdcIcon
+  const availableWalletTokenA = isTokenAEurc ? (availableWalletEurc || '0.00') : availableWalletUsdc
+  const walletBalTokenA = isTokenAEurc ? walletBalEurc : walletBalUsdc
+
   const livePoolRate = pool?.reserves && pool.reserves.tokenB > 0 && pool.reserves.tokenA > 0
     ? pool.reserves.tokenA / pool.reserves.tokenB
     : 0
-  const exchangeRate = livePoolRate > 0 ? livePoolRate : (pool?.exchangeRate || 0)
+
+  const fallbackExchangeRate = useMemo(() => {
+    if (pool.exchangeRate && pool.exchangeRate > 0) return pool.exchangeRate
+    if (pool.id === 'eurc-weth-pool') {
+      const wethUsd = tokenPrices?.weth || 2600
+      const eurcUsd = tokenPrices?.eurc || 1.08
+      return eurcUsd > 0 ? wethUsd / eurcUsd : 2400
+    }
+    if (pool.id === 'usdc-weth-pool') {
+      return tokenPrices?.weth || 2600
+    }
+    if (pool.id === 'usdc-cirbtc-pool') {
+      return tokenPrices?.cirbtc || 65000
+    }
+    if (pool.id === 'usdc-eurc-stable-pool') {
+      const eurcUsd = tokenPrices?.eurc || 1.08
+      return eurcUsd > 0 ? 1 / eurcUsd : 0.92
+    }
+    return 1
+  }, [pool.id, pool.exchangeRate, tokenPrices])
+
+  const exchangeRate = livePoolRate > 0 ? livePoolRate : fallbackExchangeRate
   const counterToken = pool.tokens[1]
   const counterTokenSymbol = counterToken?.symbol || 'cirBTC'
   const counterTokenDecimals = counterToken?.decimals || (counterTokenSymbol === 'WETH' ? 18 : counterTokenSymbol === 'cirBTC' ? 8 : 6)
@@ -322,13 +351,13 @@ export default function PoolActionModal({
   const maxAvailable = activeMode === 'deposit'
     ? depositSource === 'crosschain'
       ? crossChainBalNum
-      : walletBalUsdc
+      : walletBalTokenA
     : userStaked
 
   const maxAvailableStr = activeMode === 'deposit'
     ? depositSource === 'crosschain'
       ? `${crossChainBalStr} USDC (${GATEWAY_CHAIN_NAMES[selectedSourceChain] || selectedSourceChain})`
-      : `${availableWalletUsdc} USDC`
+      : `${availableWalletTokenA} ${tokenASymbol}`
     : `${userStaked.toFixed(2)} USD`
 
   const depositTokenSymbol = activeMode === 'withdraw'
@@ -386,7 +415,7 @@ export default function PoolActionModal({
 
   const isDualMode = isLp && lpDepositMethod === 'dual' && depositSource === 'native'
   const isDualIncomplete = isDualMode && (aNum <= 0 || bNum <= 0)
-  const isDualInsuffA = isDualMode && aNum > walletBalUsdc
+  const isDualInsuffA = isDualMode && aNum > walletBalTokenA
   const isDualInsuffB = isDualMode && bNum > counterWalletBal
 
   const isZapUnavailable = Boolean(
@@ -865,8 +894,8 @@ export default function PoolActionModal({
           setErrorMsg('Please enter valid amounts for both tokens in the dual deposit.')
           return
         }
-        if (aNum > walletBalUsdc) {
-          setErrorMsg(`Insufficient USDC balance (${walletBalUsdc} USDC available).`)
+        if (aNum > walletBalTokenA) {
+          setErrorMsg(`Insufficient ${tokenASymbol} balance (${availableWalletTokenA} ${tokenASymbol} available).`)
           return
         }
         if (bNum > counterWalletBal) {
@@ -1725,23 +1754,23 @@ export default function PoolActionModal({
               /* ── Dual Token Deposit (Native Arc Only) ── */
               <div className="space-y-3 mb-4">
                 <AssetInputPanel
-                  label="AMOUNT TO DEPOSIT"
+                  label={`AMOUNT OF ${tokenASymbol} TO DEPOSIT`}
                   amount={amountA}
                   onAmountChange={handleAmountAChange}
-                  tokenSymbol="USDC"
-                  tokenIcon={UsdcIcon}
+                  tokenSymbol={tokenASymbol}
+                  tokenIcon={tokenAIcon}
                   tokenListAvailable={false}
-                  balance={availableWalletUsdc}
+                  balance={availableWalletTokenA}
                   onMaxClick={() => {
-                    const maxUsdcWithGas = Math.max(0, walletBalUsdc - ARC_GAS_RESERVE_USDC)
-                    handleAmountAChange(maxUsdcWithGas.toFixed(2))
+                    const maxAWithGas = isTokenAEurc ? walletBalTokenA : Math.max(0, walletBalTokenA - ARC_GAS_RESERVE_USDC)
+                    handleAmountAChange(maxAWithGas.toFixed(2))
                   }}
                   quickPercentages={[25, 50, 75, 100]}
                   onSelectPercentage={(pct) => {
-                    const maxUsdcWithGas = Math.max(0, walletBalUsdc - ARC_GAS_RESERVE_USDC)
-                    handleAmountAChange(((maxUsdcWithGas * pct) / 100).toFixed(2))
+                    const maxAWithGas = isTokenAEurc ? walletBalTokenA : Math.max(0, walletBalTokenA - ARC_GAS_RESERVE_USDC)
+                    handleAmountAChange(((maxAWithGas * pct) / 100).toFixed(2))
                   }}
-                  fiatEstimate={formatFiatEstimate(amountA, 'USDC', tokenPrices)}
+                  fiatEstimate={formatFiatEstimate(amountA, tokenASymbol, tokenPrices)}
                   disabled={isProcessing}
                 />
                 <AssetInputPanel
@@ -2008,8 +2037,8 @@ export default function PoolActionModal({
                   </div>
                   <span style={{ color: '#fff', fontWeight: 600 }}>
                     {lpPayoutMode === 'usdc'
-                      ? `~${(parseFloat(withdrawAssetReturns.amountA) + (parseFloat(withdrawAssetReturns.amountB) * exchangeRate)).toFixed(2)} USDC`
-                      : `~${withdrawAssetReturns.amountA} USDC + ~${withdrawAssetReturns.amountB} ${counterTokenSymbol}`}
+                      ? `~${(parseFloat(withdrawAssetReturns.amountA) + (parseFloat(withdrawAssetReturns.amountB) * exchangeRate)).toFixed(2)} ${tokenASymbol}`
+                      : `~${withdrawAssetReturns.amountA} ${tokenASymbol} + ~${withdrawAssetReturns.amountB} ${counterTokenSymbol}`}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>
@@ -2024,7 +2053,7 @@ export default function PoolActionModal({
                     />
                   </div>
                   <span style={{ color: 'var(--fp-2)' }}>
-                    {withdrawAssetReturns.amountA} USDC / {withdrawAssetReturns.amountB} {counterTokenSymbol}
+                    {withdrawAssetReturns.amountA} ${tokenASymbol} / {withdrawAssetReturns.amountB} {counterTokenSymbol}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--fp-3)' }}>

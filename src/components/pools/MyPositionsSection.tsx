@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react'
-import { Eye, EyeOff, ChevronDown, Layers, Wallet, Check, Plus } from 'lucide-react'
+import { Eye, EyeOff, ChevronDown, Layers, Check} from 'lucide-react'
 import { POOL_VERSION_V4, type PoolConfig } from '../../config/poolsConfig'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
+import { useLiveTokenPrices } from '../../hooks/useLiveTokenPrices'
 import PositionCard, { type PositionItem } from './PositionCard'
 
 interface MyPositionsSectionProps {
@@ -25,6 +26,7 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
   isClaiming,
   claimingPoolId,
 }) => {
+  const { data: tokenPrices } = useLiveTokenPrices()
   const [isMasked, setIsMasked] = useState<boolean>(false)
   const [typeFilter, setTypeFilter] = useState<'All' | 'Liquidity' | 'Vaults'>('All')
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'In Range'>('All')
@@ -46,68 +48,48 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
       .map((p) => {
         const stakedUsd = p.userPosition?.stakedUsd || 0
         const earnedUsd = p.userPosition?.earnedUsd || 0
-        const isBtc = p.id === 'usdc-cirbtc-pool'
-        const isEurc = p.id === 'usdc-eurc-stable-pool'
-        const isVault = p.id === 'usdc-yield-vault' || p.category === 'vault'
-        const isWeth = p.id === 'usdc-weth-pool' || p.tokens?.some((t) => t.symbol === 'WETH')
 
-        let name = p.name || 'USDC / cirBTC'
-        let token1Symbol = 'cirBTC'
-        let token2Symbol = 'USDC'
-        let version = POOL_VERSION_V4 ? 'V4' : 'V3'
-        let feeTier = `${(p.feeTierPercent || 0.25).toFixed(2)}%`
-        let token1IconType: 'btc' | 'eurc' | 'usdc' | 'weth' = 'btc'
-        let token2IconType: 'btc' | 'eurc' | 'usdc' | 'weth' | undefined = 'usdc'
+        const isVault = p.category === 'vault' || p.id === 'usdc-yield-vault'
+        const tokenA = p.tokens?.[0] || { symbol: 'USDC', iconType: 'usdc' as const }
+        const tokenB = p.tokens?.[1]
 
-        if (isEurc) {
-          name = 'EURC / USDC'
-          token1Symbol = 'EURC'
-          token1IconType = 'eurc'
-          token2Symbol = 'USDC'
-          token2IconType = 'usdc'
-          feeTier = `${(p.feeTierPercent || 0.12).toFixed(2)}%`
-        } else if (isVault) {
-          name = 'USDC Vault'
-          token1Symbol = 'USDC'
-          token1IconType = 'usdc'
-          token2Symbol = ''
-          token2IconType = undefined
-          version = 'V4'
-          feeTier = 'ERC-4626'
-        } else if (isBtc) {
-          name = 'USDC / cirBTC'
-          token1Symbol = 'cirBTC'
-          token1IconType = 'btc'
-          token2Symbol = 'USDC'
-          token2IconType = 'usdc'
-          feeTier = `${(p.feeTierPercent || 0.25).toFixed(2)}%`
-        } else if (isWeth) {
-          name = 'WETH / USDC'
-          token1Symbol = 'WETH'
-          token1IconType = 'weth'
-          token2Symbol = 'USDC'
-          token2IconType = 'usdc'
-          feeTier = `${(p.feeTierPercent || 0.30).toFixed(2)}%`
-        }
+        // Harmonized pool name and token identities
+        const name = isVault ? 'USDC Yield Vault' : (p.name || `${tokenA.symbol} / ${tokenB?.symbol || ''}`)
+        const token1Symbol = tokenA.symbol
+        const token1IconType = (tokenA.iconType || 'usdc') as 'btc' | 'eurc' | 'usdc' | 'weth'
+        const token2Symbol = isVault ? '' : (tokenB?.symbol || '')
+        const token2IconType = isVault ? undefined : ((tokenB?.iconType || 'usdc') as 'btc' | 'eurc' | 'usdc' | 'weth' | undefined)
+        const version = isVault ? 'V4' : (POOL_VERSION_V4 ? 'V4' : 'V3')
+        const feeTier = isVault ? 'ERC-4626' : `${(p.feeTierPercent || 0.30).toFixed(2)}%`
 
         // Dynamic Price & Range Resolution
         let livePrice = 1.0
         let currentPriceDisplay = ''
-        if (isEurc) {
-          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 1.08
-          currentPriceDisplay = `Price ${livePrice.toFixed(2)} USDC per EURC`
-        } else if (isBtc) {
-          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 83436.00
-          currentPriceDisplay = `Price ${livePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC per cirBTC`
-        } else if (isWeth) {
-          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 2600.00
-          currentPriceDisplay = `Price ${livePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC per WETH`
-        } else if (isVault) {
+        if (isVault) {
           livePrice = 1.0
           currentPriceDisplay = '1.00 USDC = 1.00 iUSDC Vault Share'
         } else {
-          livePrice = (p.exchangeRate && p.exchangeRate > 0) ? p.exchangeRate : 1.0
-          currentPriceDisplay = `Price ${livePrice.toFixed(2)} ${token2Symbol} per ${token1Symbol}`
+          // Dynamic live price of token2 denominated in token1
+          if (p.exchangeRate && p.exchangeRate > 0) {
+            livePrice = p.exchangeRate
+          } else if (p.reserves && p.reserves.tokenA > 0 && p.reserves.tokenB > 0) {
+            livePrice = p.reserves.tokenA / p.reserves.tokenB
+          } else if (token2Symbol === 'cirBTC') {
+            livePrice = tokenPrices?.['BTC'] || tokenPrices?.['cirBTC'] || 83436.00
+          } else if (token2Symbol === 'WETH') {
+            const rawWeth = tokenPrices?.['ETH'] || tokenPrices?.['WETH'] || 2600.00
+            if (token1Symbol === 'EURC') {
+              const eurUsd = tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08
+              livePrice = Math.round((rawWeth / eurUsd) * 100) / 100
+            } else {
+              livePrice = rawWeth
+            }
+          } else if (token2Symbol === 'EURC') {
+            livePrice = tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08
+          }
+
+          const pricePrecision = livePrice < 10 ? 2 : 2
+          currentPriceDisplay = `Price ${livePrice.toLocaleString('en-US', { minimumFractionDigits: pricePrecision, maximumFractionDigits: pricePrecision })} ${token1Symbol} per ${token2Symbol}`
         }
 
         let minPriceNum = Math.round(livePrice * (1 - 0.1883) * 100) / 100
@@ -148,29 +130,33 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
           token2Amount = undefined
           token1Ratio = 100
           token2Ratio = 0
-        } else if (isEurc) {
-          token1Amount = p.userPosition?.tokenBStaked || '0.00' // EURC
-          token2Amount = p.userPosition?.tokenAStaked || '0.00' // USDC
-          const valB = (parseFloat(token1Amount) || 0) * livePrice
-          const valA = parseFloat(token2Amount) || 0
-          const totalVal = valA + valB
-          if (totalVal > 0) {
-            token1Ratio = Math.max(1, Math.min(99, Math.round((valB / totalVal) * 100)))
-            token2Ratio = 100 - token1Ratio
-          }
-        } else if (isBtc) {
-          token1Amount = p.userPosition?.tokenBStaked || '0.00' // cirBTC
-          token2Amount = p.userPosition?.tokenAStaked || '0.00' // USDC
-          const valB = (parseFloat(token1Amount) || 0) * livePrice
-          const valA = parseFloat(token2Amount) || 0
-          const totalVal = valA + valB
-          if (totalVal > 0) {
-            token1Ratio = Math.max(1, Math.min(99, Math.round((valB / totalVal) * 100)))
-            token2Ratio = 100 - token1Ratio
-          }
         } else {
-          token1Amount = p.userPosition?.tokenBStaked || '0.00'
-          token2Amount = p.userPosition?.tokenAStaked || '0.00'
+          // Token A is token1, Token B is token2
+          token1Amount = p.userPosition?.tokenAStaked || '0.00'
+          token2Amount = p.userPosition?.tokenBStaked || '0.00'
+
+          const t1Num = parseFloat(token1Amount) || 0
+          const t2Num = parseFloat(token2Amount) || 0
+
+          // Calculate USD values for accurate ratio weighting
+          const eurRate = tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08
+          const val1 = token1Symbol === 'EURC' ? t1Num * eurRate : t1Num
+          let val2 = 0
+          if (token2Symbol === 'EURC') {
+            val2 = t2Num * eurRate
+          } else if (token2Symbol === 'cirBTC') {
+            val2 = t2Num * livePrice
+          } else if (token2Symbol === 'WETH') {
+            val2 = token1Symbol === 'EURC' ? (t2Num * livePrice * eurRate) : (t2Num * livePrice)
+          } else {
+            val2 = t2Num * livePrice
+          }
+
+          const totalVal = val1 + val2
+          if (totalVal > 0) {
+            token1Ratio = Math.max(1, Math.min(99, Math.round((val1 / totalVal) * 100)))
+            token2Ratio = 100 - token1Ratio
+          }
         }
 
         return {
@@ -198,7 +184,7 @@ export const MyPositionsSection: React.FC<MyPositionsSectionProps> = ({
           poolConfig: p,
         }
       })
-  }, [pools, walletConnected, walletAddress])
+  }, [pools, walletConnected, walletAddress, tokenPrices])
 
   // Filter positions
   const displayedPositions = useMemo(() => {

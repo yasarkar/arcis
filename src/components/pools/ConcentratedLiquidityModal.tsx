@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo} from 'react'
 import { createPortal } from 'react-dom'
 import {
   X,
@@ -7,13 +7,13 @@ import {
   Plus,
   Minus,
   ArrowRightLeft,
-  Info,
   Check,
   AlertCircle,
   Sliders,
   Wallet,
 } from 'lucide-react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
+import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import { WethIcon } from '../../config/tokenIcons'
 import { POOL_VERSION_V4, type PoolConfig } from '../../config/poolsConfig'
@@ -25,7 +25,6 @@ import {
   calculateConcentratedApr,
   generateLiquidityBars,
 } from '../../utils/clammMath'
-import { Tooltip, InfoTooltip } from '../common/Tooltip'
 import { useWalletSettings } from '../../hooks/useWalletSettings'
 
 interface ConcentratedLiquidityModalProps {
@@ -34,9 +33,10 @@ interface ConcentratedLiquidityModalProps {
   pool: (PoolConfig & { userPosition?: UserPoolPosition }) | null
   walletAddress?: string
   availableWalletUsdc?: string
+  availableWalletEurc?: string
   availableWalletCirBtc?: string
   availableWalletWeth?: string
-  onExecuteDeposit?: (poolId: string, usdcAmount: string, counterAmount: string, slippage: number) => Promise<void>
+  onExecuteDeposit?: (poolId: string, amountA: string, counterAmount: string, slippage: number) => Promise<void>
 }
 
 export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProps> = ({
@@ -45,20 +45,28 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   pool,
   walletAddress,
   availableWalletUsdc = '0.00',
+  availableWalletEurc = '0.00',
   availableWalletCirBtc = '0.0000',
   availableWalletWeth = '0.0000',
   onExecuteDeposit,
 }) => {
   const { data: tokenPrices } = useLiveTokenPrices()
 
-  // Identify counter token (cirBTC vs WETH vs generic)
+  // Identify base token (Token A: USDC vs EURC)
+  const tokenA = pool?.tokens?.[0] || { symbol: 'USDC', name: 'USD Coin', decimals: 6, iconType: 'usdc' }
+  const isTokenAEurc = tokenA.symbol === 'EURC' || pool?.id === 'eurc-weth-pool'
+  const tokenASymbol = tokenA.symbol || (isTokenAEurc ? 'EURC' : 'USDC')
+  const tokenAIcon = isTokenAEurc ? EurcIcon : UsdcIcon
+  const availableTokenABalance = isTokenAEurc ? (availableWalletEurc || '0.00') : (availableWalletUsdc || '0.00')
+  const userTokenABal = parseFloat(availableTokenABalance) || 0
+
+  // Identify counter token (Token B: cirBTC vs WETH vs generic)
   const counterToken = pool?.tokens?.[1] || { symbol: 'cirBTC', name: 'Circle Wrapped Bitcoin', decimals: 8, iconType: 'btc' }
-  const isWeth = pool?.id === 'usdc-weth-pool' || counterToken.symbol === 'WETH'
+  const isWeth = pool?.id === 'usdc-weth-pool' || pool?.id === 'eurc-weth-pool' || counterToken.symbol === 'WETH'
   const counterSymbol = counterToken.symbol || (isWeth ? 'WETH' : 'cirBTC')
-  const counterDecimals = counterToken.decimals ?? (isWeth ? 18 : 8)
   const counterIcon = isWeth ? WethIcon : CirBtcIcon
-  const counterName = counterToken.name || counterSymbol
   const availableCounterBalance = isWeth ? (availableWalletWeth || '0.0000') : (availableWalletCirBtc || '0.0000')
+  const userCounterBal = parseFloat(availableCounterBalance) || 0
 
   // UI Theme tokens
   const accentBorderColor = isWeth ? 'border-indigo-500/40' : 'border-orange-500/40'
@@ -78,7 +86,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
     ? { background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)', boxShadow: '0 6px 20px -4px rgba(99, 102, 241, 0.45)' }
     : { background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', boxShadow: '0 6px 20px -4px rgba(249, 115, 22, 0.45)' }
 
-  // Base price for counter token in USDC (prioritizes live on-chain pool ratio for exact AMM liquidity matching)
+  // Base price for counter token in Token A (prioritizes live on-chain pool ratio for exact AMM liquidity matching)
   const liveCounterPrice = useMemo(() => {
     if (pool?.reserves && pool.reserves.tokenA > 0 && pool.reserves.tokenB > 0) {
       const poolRatio = pool.reserves.tokenA / pool.reserves.tokenB
@@ -86,18 +94,24 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
     }
     if (isWeth) {
       const rawPrice = tokenPrices?.['ETH'] || tokenPrices?.['WETH']
-      if (typeof rawPrice === 'number' && rawPrice > 0) return rawPrice
+      if (typeof rawPrice === 'number' && rawPrice > 0) {
+        if (isTokenAEurc) {
+          const eurRate = tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08
+          return Math.round((rawPrice / eurRate) * 100) / 100
+        }
+        return rawPrice
+      }
       if (pool?.exchangeRate && pool.exchangeRate > 0) return pool.exchangeRate
-      return 2600.0
+      return isTokenAEurc ? 2400.0 : 2600.0
     }
     const rawPrice = tokenPrices?.['BTC'] || tokenPrices?.['cirBTC']
     if (typeof rawPrice === 'number' && rawPrice > 0) return rawPrice
     if (pool?.exchangeRate && pool.exchangeRate > 0) return pool.exchangeRate
     return 82739.9905
-  }, [tokenPrices, pool?.reserves, pool?.exchangeRate, isWeth])
+  }, [tokenPrices, pool?.reserves, pool?.exchangeRate, isWeth, isTokenAEurc])
 
-  // Price orientation toggle: true = USDC per Token, false = Token per USDC
-  const [isUsdcPerCounter, setIsUsdcPerCounter] = useState<boolean>(true)
+  // Price orientation toggle: true = Token A per Counter, false = Counter per Token A
+  const [isTokenAPerCounter, setIsTokenAPerCounter] = useState<boolean>(true)
 
   // Zoom level on histogram: 1.0 (default ±35%), 0.6 (zoomed in ±20%), 1.5 (zoomed out ±50%)
   const [zoomLevel, setZoomLevel] = useState<number>(1.0)
@@ -152,7 +166,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
   // Deposit token amounts
   const [counterAmount, setCounterAmount] = useState<string>('')
-  const [usdcAmount, setUsdcAmount] = useState<string>('')
+  const [tokenAAmount, setTokenAAmount] = useState<string>('')
 
   // Wallet-scoped transaction settings (isolated per connected wallet)
   const { settings: walletSettings, updateSettings: updateWalletSettings } = useWalletSettings(walletAddress)
@@ -172,8 +186,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // Wallet balances
-  const userCounterBal = parseFloat(availableCounterBalance) || 0
-  const userUsdcBal = parseFloat(availableWalletUsdc) || 0
+  // Note: userCounterBal and userTokenABal are defined above from pool tokens
 
   // Calculate dynamic token distribution ratio
   const ratioResult = useMemo(() => {
@@ -199,13 +212,13 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
     return generateLiquidityBars(liveCounterPrice, parsedMinPrice, parsedMaxPrice, 38)
   }, [liveCounterPrice, parsedMinPrice, parsedMaxPrice])
 
-  // Handle counter token amount change -> auto-calculate required USDC amount
+  // Handle counter token amount change -> auto-calculate required Token A amount
   const handleCounterChange = (val: string) => {
     setCounterAmount(val)
     setErrorMessage(null)
     const num = parseFloat(val)
     if (isNaN(num) || num <= 0) {
-      setUsdcAmount('')
+      setTokenAAmount('')
       return
     }
     const { amountB } = calculateCounterTokenAmount({
@@ -214,12 +227,12 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
       minPrice: parsedMinPrice,
       maxPrice: parsedMaxPrice,
     })
-    setUsdcAmount(amountB > 0 ? amountB.toFixed(2) : '0')
+    setTokenAAmount(amountB > 0 ? amountB.toFixed(2) : '0')
   }
 
-  // Handle USDC amount change -> auto-calculate required counter token amount
-  const handleUsdcChange = (val: string) => {
-    setUsdcAmount(val)
+  // Handle Token A amount change -> auto-calculate required counter token amount
+  const handleTokenAChange = (val: string) => {
+    setTokenAAmount(val)
     setErrorMessage(null)
     const num = parseFloat(val)
     if (isNaN(num) || num <= 0) {
@@ -243,9 +256,9 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
     handleCounterChange(calculated > 0 ? calculated.toFixed(precision) : '0')
   }
 
-  const handleUsdcPercent = (pct: number) => {
-    const calculated = (userUsdcBal * pct) / 100
-    handleUsdcChange(calculated > 0 ? calculated.toFixed(2) : '0')
+  const handleTokenAPercent = (pct: number) => {
+    const calculated = (userTokenABal * pct) / 100
+    handleTokenAChange(calculated > 0 ? calculated.toFixed(2) : '0')
   }
 
   // Step adjustment handlers for Min/Max
@@ -271,10 +284,11 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
   // Total deposit USD value
   const totalDepositUsd = useMemo(() => {
-    const counterVal = (parseFloat(counterAmount) || 0) * liveCounterPrice
-    const usdcVal = (parseFloat(usdcAmount) || 0)
-    return counterVal + usdcVal
-  }, [counterAmount, usdcAmount, liveCounterPrice])
+    const tokenAPriceUsd = isTokenAEurc ? (tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08) : 1.0
+    const counterVal = (parseFloat(counterAmount) || 0) * (liveCounterPrice * tokenAPriceUsd)
+    const tokenAVal = (parseFloat(tokenAAmount) || 0) * tokenAPriceUsd
+    return counterVal + tokenAVal
+  }, [counterAmount, tokenAAmount, liveCounterPrice, isTokenAEurc, tokenPrices])
 
   const formatDollar = (val: number): string => {
     return `$${val.toLocaleString('en-US', {
@@ -288,20 +302,20 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   const modalFees = (pool?.volume24hUsd || 0) * ((pool?.feeTierPercent || (isWeth ? 0.30 : 0.25)) / 100)
 
   // Validation
-  const hasEnteredAmount = parseFloat(counterAmount) > 0 || parseFloat(usdcAmount) > 0
+  const hasEnteredAmount = parseFloat(counterAmount) > 0 || parseFloat(tokenAAmount) > 0
   const isCounterExceeded = (parseFloat(counterAmount) || 0) > userCounterBal
-  const isUsdcExceeded = (parseFloat(usdcAmount) || 0) > userUsdcBal
+  const isTokenAExceeded = (parseFloat(tokenAAmount) || 0) > userTokenABal
 
   const getButtonText = () => {
     if (!walletAddress) return 'CONNECT WALLET'
     if (!hasEnteredAmount) return 'ENTER AMOUNT'
     if (isCounterExceeded) return `INSUFFICIENT ${counterSymbol} BALANCE`
-    if (isUsdcExceeded) return 'INSUFFICIENT USDC BALANCE'
+    if (isTokenAExceeded) return `INSUFFICIENT ${tokenASymbol} BALANCE`
     if (isSubmitting) return 'DEPOSITING LIQUIDITY...'
     return 'PREVIEW & DEPOSIT'
   }
 
-  const isButtonDisabled = !walletAddress || !hasEnteredAmount || isCounterExceeded || isUsdcExceeded || isSubmitting
+  const isButtonDisabled = !walletAddress || !hasEnteredAmount || isCounterExceeded || isTokenAExceeded || isSubmitting
 
   const handleDeposit = async () => {
     if (isButtonDisabled) return
@@ -310,27 +324,27 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
     try {
       if (onExecuteDeposit && pool) {
-        let finalUsdc = usdcAmount || '0'
+        let finalTokenA = tokenAAmount || '0'
         let finalCounter = counterAmount || '0'
 
         // Guard against off-ratio donation: snap to pool's live on-chain reserve ratio
         if (pool.reserves && pool.reserves.tokenA > 0 && pool.reserves.tokenB > 0) {
-          const uNum = parseFloat(finalUsdc) || 0
+          const aNum = parseFloat(finalTokenA) || 0
           const cNum = parseFloat(finalCounter) || 0
-          if (uNum > 0 && cNum > 0) {
+          if (aNum > 0 && cNum > 0) {
             const poolRatio = pool.reserves.tokenA / pool.reserves.tokenB
-            const expectedUsdc = cNum * poolRatio
-            if (Math.abs(uNum - expectedUsdc) / uNum > 0.005) {
-              if (uNum / poolRatio <= cNum) {
-                finalCounter = (uNum / poolRatio).toFixed(isWeth ? 6 : 8)
+            const expectedTokenA = cNum * poolRatio
+            if (Math.abs(aNum - expectedTokenA) / aNum > 0.005) {
+              if (aNum / poolRatio <= cNum) {
+                finalCounter = (aNum / poolRatio).toFixed(isWeth ? 6 : 8)
               } else {
-                finalUsdc = (cNum * poolRatio).toFixed(2)
+                finalTokenA = (cNum * poolRatio).toFixed(2)
               }
             }
           }
         }
 
-        await onExecuteDeposit(pool.id, finalUsdc, finalCounter, slippage)
+        await onExecuteDeposit(pool.id, finalTokenA, finalCounter, slippage)
       } else {
         // Fallback simulation
         await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -344,6 +358,8 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
             JSON.stringify({
               minPrice: parsedMinPrice,
               maxPrice: parsedMaxPrice,
+              tokenASymbol,
+              counterSymbol,
               timestamp: Date.now(),
             })
           )
@@ -395,8 +411,8 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
               <div className={`w-8 h-8 rounded-full bg-[#141727] border ${accentBorderColor} p-1 flex items-center justify-center shadow-md z-10`}>
                 <img src={counterIcon} alt={counterSymbol} className="w-full h-full object-contain" />
               </div>
-              <div className="w-8 h-8 rounded-full bg-[#141727] border border-sky-500/40 p-1 flex items-center justify-center shadow-md -ml-2.5 z-0">
-                <img src={UsdcIcon} alt="USDC" className="w-full h-full object-contain" />
+              <div className={`w-8 h-8 rounded-full bg-[#141727] border ${isTokenAEurc ? 'border-blue-400/40' : 'border-sky-500/40'} p-1 flex items-center justify-center shadow-md -ml-2.5 z-0`}>
+                <img src={tokenAIcon} alt={tokenASymbol} className="w-full h-full object-contain" />
               </div>
             </div>
 
@@ -462,7 +478,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
             </div>
             <h3 className="text-xl font-bold text-white">Liquidity Position Initialized!</h3>
             <p className="text-sm text-[var(--fp-3)] max-w-md mx-auto">
-              Your concentrated liquidity position for <strong>{pool?.name}</strong> has been successfully deployed within the range <strong>{parsedMinPrice.toLocaleString('en-US', { minimumFractionDigits: pricePrecision, maximumFractionDigits: pricePrecision })} - {parsedMaxPrice.toLocaleString('en-US', { minimumFractionDigits: pricePrecision, maximumFractionDigits: pricePrecision })} USDC per {counterSymbol}</strong>.
+              Your concentrated liquidity position for <strong>{pool?.name}</strong> has been successfully deployed within the range <strong>{parsedMinPrice.toLocaleString('en-US', { minimumFractionDigits: pricePrecision, maximumFractionDigits: pricePrecision })} - {parsedMaxPrice.toLocaleString('en-US', { minimumFractionDigits: pricePrecision, maximumFractionDigits: pricePrecision })} {tokenASymbol} per {counterSymbol}</strong>.
             </p>
             <div className="pt-4 flex justify-center gap-3">
               <button
@@ -488,14 +504,14 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                   <div className="flex items-center gap-1.5 text-xs text-[var(--fp-3)] mt-0.5">
                     <span>Price:</span>
                     <strong className="text-white font-mono">
-                      {isUsdcPerCounter
+                      {isTokenAPerCounter
                         ? liveCounterPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: pricePrecision })
                         : (1 / liveCounterPrice).toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 })}
                     </strong>
-                    <span>{isUsdcPerCounter ? `USDC per ${counterSymbol}` : `${counterSymbol} per USDC`}</span>
+                    <span>{isTokenAPerCounter ? `${tokenASymbol} per ${counterSymbol}` : `${counterSymbol} per ${tokenASymbol}`}</span>
                     <button
                       type="button"
-                      onClick={() => setIsUsdcPerCounter(!isUsdcPerCounter)}
+                      onClick={() => setIsTokenAPerCounter(!isTokenAPerCounter)}
                       className="p-1 rounded-md hover:bg-white/[0.08] text-white/60 hover:text-white transition-colors cursor-pointer"
                       title="Switch Price Currency"
                     >
@@ -574,7 +590,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                       />
                       {/* Tooltip on hover */}
                       <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 text-white text-[10px] font-mono px-1.5 py-0.5 rounded border border-white/10 whitespace-nowrap z-30 shadow-lg">
-                        {bar.priceFormatted} USDC
+                        {bar.priceFormatted} {tokenASymbol}
                       </div>
                     </div>
                   ))}
@@ -647,7 +663,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     onChange={(e) => setMinPriceInput(e.target.value)}
                     className="w-full text-base sm:text-lg font-bold text-white bg-transparent outline-none font-mono"
                   />
-                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">USDC per {counterSymbol}</p>
+                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">{tokenASymbol} per {counterSymbol}</p>
                 </div>
 
                 {/* Max Price Card */}
@@ -679,7 +695,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     onChange={(e) => setMaxPriceInput(e.target.value)}
                     className="w-full text-base sm:text-lg font-bold text-white bg-transparent outline-none font-mono"
                   />
-                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">USDC per {counterSymbol}</p>
+                  <p className="text-[11px] text-[var(--fp-4)] mt-0.5">{tokenASymbol} per {counterSymbol}</p>
                 </div>
 
                 {/* Estimated APR Card */}
@@ -797,28 +813,28 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 </div>
 
                 <div className="text-right text-xs text-[var(--fp-4)]">
-                  ${((parseFloat(counterAmount) || 0) * liveCounterPrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${((parseFloat(counterAmount) || 0) * (liveCounterPrice * (isTokenAEurc ? (tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08) : 1))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
 
-              {/* ── Token B Deposit Input (USDC) ── */}
+              {/* ── Token A Deposit Input (USDC / EURC) ── */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.15] transition-colors space-y-2">
                 <div className="flex items-center justify-between text-xs text-[var(--fp-4)]">
                   <div className="flex items-center gap-1.5">
                     <Wallet size={12} />
-                    <span className="font-mono">{userUsdcBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
+                    <span className="font-mono">{userTokenABal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {tokenASymbol}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => handleUsdcPercent(50)}
+                      onClick={() => handleTokenAPercent(50)}
                       className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold transition-colors cursor-pointer"
                     >
                       50%
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleUsdcPercent(100)}
+                      onClick={() => handleTokenAPercent(100)}
                       className="px-2 py-0.5 rounded-md bg-white/[0.06] hover:bg-white/[0.12] text-white/80 text-[10px] font-semibold transition-colors cursor-pointer"
                     >
                       Max
@@ -828,23 +844,23 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="w-7 h-7 rounded-full bg-[#141727] border border-sky-500/30 p-1 flex items-center justify-center shadow-sm">
-                      <img src={UsdcIcon} alt="USDC" className="w-full h-full object-contain" />
+                    <div className={`w-7 h-7 rounded-full bg-[#141727] border ${isTokenAEurc ? 'border-blue-400/30' : 'border-sky-500/30'} p-1 flex items-center justify-center shadow-sm`}>
+                      <img src={tokenAIcon} alt={tokenASymbol} className="w-full h-full object-contain" />
                     </div>
-                    <span className="font-bold text-white text-base">USDC</span>
+                    <span className="font-bold text-white text-base">{tokenASymbol}</span>
                   </div>
 
                   <input
                     type="number"
                     placeholder="0"
-                    value={usdcAmount}
-                    onChange={(e) => handleUsdcChange(e.target.value)}
+                    value={tokenAAmount}
+                    onChange={(e) => handleTokenAChange(e.target.value)}
                     className="w-full text-right text-xl font-bold text-white bg-transparent outline-none font-mono"
                   />
                 </div>
 
                 <div className="text-right text-xs text-[var(--fp-4)]">
-                  ${(parseFloat(usdcAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${((parseFloat(tokenAAmount) || 0) * (isTokenAEurc ? (tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08) : 1)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
 
@@ -860,10 +876,10 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     <span className="tabular-nums">{ratioResult.percentA}% {counterSymbol}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-sky-400">
-                    <span className="tabular-nums">{ratioResult.percentB}% USDC</span>
+                    <span className="tabular-nums">{ratioResult.percentB}% {tokenASymbol}</span>
                     <img
-                      src={UsdcIcon}
-                      alt="USDC"
+                      src={tokenAIcon}
+                      alt={tokenASymbol}
                       className="w-4 h-4 rounded-full object-contain shrink-0 shadow-sm"
                     />
                   </div>

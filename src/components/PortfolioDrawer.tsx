@@ -1,5 +1,5 @@
 // High-fidelity Multi-Chain Portfolio Slide-over Drawer for Circle User-Controlled & Modular Wallets.
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X,
@@ -19,8 +19,8 @@ import { ChainIcon } from './common/ChainIcon'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
 import { getChainDisplayName, getChainIconId } from '../config/chainMeta'
-import { EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, USYC_ADDRESSES } from '../config/gatewayConfig'
-import { UsdcIcon, EurcIcon, CirBtcIcon, UsycIcon, PhrsIcon } from '../config/tokenIcons'
+import { EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES } from '../config/gatewayConfig'
+import { UsdcIcon, EurcIcon, CirBtcIcon, PhrsIcon } from '../config/tokenIcons'
 
 interface PortfolioDrawerProps {
   isOpen: boolean
@@ -65,7 +65,6 @@ function renderAssetIcon(symbol: string) {
   if (s === 'usdc') return <img src={UsdcIcon} alt="USDC" className="w-full h-full object-contain" />
   if (s === 'eurc') return <img src={EurcIcon} alt="EURC" className="w-full h-full object-contain" />
   if (s === 'cirbtc') return <img src={CirBtcIcon} alt="cirBTC" className="w-full h-full object-contain" />
-  if (s === 'usyc') return <img src={UsycIcon} alt="USYC" className="w-full h-full object-contain" />
   if (s === 'weth' || s === 'eth') {
     return <TokenIcon symbol="eth" variant="branded" size={24} className="w-full h-full object-contain" />
   }
@@ -203,7 +202,6 @@ export default function PortfolioDrawer({
     let totalEurc = 0
     let totalCirbtc = 0
     let totalWeth = 0
-    let totalUsyc = 0
     let totalNativeUsd = 0
     let chainsWithBalance = 0
     const nativeAmounts: Record<string, { amount: number; networkCount: number }> = {}
@@ -217,14 +215,12 @@ export default function PortfolioDrawer({
       const eurcVal = item.eurc ? parseFloat(item.eurc) : 0
       const cirbtcVal = item.cirbtc ? parseFloat(item.cirbtc) : 0
       const wethVal = item.weth ? parseFloat(item.weth) : 0
-      const usycVal = item.usyc ? parseFloat(item.usyc) : 0
       const nativeVal = !isArc && item.nativeAmount ? parseFloat(item.nativeAmount) : 0
 
       if (!isNaN(usdcVal)) totalUsdc += usdcVal
       if (!isNaN(eurcVal)) totalEurc += eurcVal
       if (!isNaN(cirbtcVal)) totalCirbtc += cirbtcVal
       if (!isNaN(wethVal)) totalWeth += wethVal
-      if (!isNaN(usycVal)) totalUsyc += usycVal
       if (!isNaN(nativeVal) && nativeVal > 0) {
         const sym = (item.nativeSymbol || 'ETH').toUpperCase()
         if (!nativeAmounts[sym]) {
@@ -235,7 +231,7 @@ export default function PortfolioDrawer({
         totalNativeUsd += nativeVal * getNativeGasPrice(item.nativeSymbol, prices)
       }
 
-      if (usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0 || wethVal > 0 || usycVal > 0 || nativeVal > 0) {
+      if (usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0 || wethVal > 0 || nativeVal > 0) {
         chainsWithBalance++
       }
     })
@@ -244,13 +240,11 @@ export default function PortfolioDrawer({
     const eurcPrice = prices?.EURC || 1.08
     const btcPrice = prices?.cirBTC || prices?.BTC || 85000
     const wethPrice = prices?.WETH || prices?.ETH || 2500
-    const usycPrice = prices?.USYC || 1.05
     const totalUsd =
       totalUsdc * 1.0 +
       totalEurc * eurcPrice +
       totalCirbtc * btcPrice +
       totalWeth * wethPrice +
-      totalUsyc * usycPrice +
       totalNativeUsd
 
     return {
@@ -258,7 +252,6 @@ export default function PortfolioDrawer({
       totalEurc,
       totalCirbtc,
       totalWeth,
-      totalUsyc,
       totalNativeUsd,
       nativeAmounts,
       totalUsd,
@@ -282,20 +275,17 @@ export default function PortfolioDrawer({
     const eurcPrice = prices?.EURC || 1.08
     const btcPrice = prices?.cirBTC || prices?.BTC || 85000
     const wethPrice = prices?.WETH || prices?.ETH || 2500
-    const usycPrice = prices?.USYC || 1.05
 
     let usdcNetworks = 0
     let eurcNetworks = 0
     let cirbtcNetworks = 0
     let wethNetworks = 0
-    let usycNetworks = 0
 
     ORDERED_CHAIN_KEYS.forEach((chainKey) => {
       usdcNetworks++
       if (EURC_ADDRESSES[chainKey]) eurcNetworks++
       if (CIRBTC_ADDRESSES[chainKey]) cirbtcNetworks++
       if (WETH_ADDRESSES[chainKey]) wethNetworks++
-      if (USYC_ADDRESSES[chainKey]) usycNetworks++
     })
 
     const totalUsd = portfolioStats.totalUsd
@@ -351,16 +341,6 @@ export default function PortfolioDrawer({
         formattedAmount: `${portfolioStats.totalWeth.toFixed(4)} WETH`,
         usdValue: portfolioStats.totalWeth * wethPrice,
         price: wethPrice,
-        isNative: false,
-      },
-      {
-        key: 'USYC',
-        symbol: 'USYC',
-        name: 'Hashnote USYC',
-        amount: portfolioStats.totalUsyc,
-        formattedAmount: `${portfolioStats.totalUsyc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USYC`,
-        usdValue: portfolioStats.totalUsyc * usycPrice,
-        price: usycPrice,
         isNative: false,
       },
       {
@@ -429,7 +409,7 @@ export default function PortfolioDrawer({
     }))
 
     // Priority order for secondary tie-break
-    const priority = ['USDC', 'EURC', 'ETH', 'cirBTC', 'WETH', 'USYC', 'POL', 'AVAX', 'SEI', 'S']
+    const priority = ['USDC', 'EURC', 'ETH', 'cirBTC', 'WETH', 'POL', 'AVAX', 'SEI', 'S']
     return withPercentages.sort((a, b) => {
       if (Math.abs(b.usdValue - a.usdValue) > 0.001) {
         return b.usdValue - a.usdValue
@@ -451,7 +431,7 @@ export default function PortfolioDrawer({
     return aggregatedAssets
   }, [aggregatedAssets, allocationFilter])
 
-  // Helper to compute a chain's total USD valuation across all supported tokens (USDC, EURC, cirBTC, WETH, USYC, Native Gas)
+  // Helper to compute a chain's total USD valuation across all supported tokens (USDC, EURC, cirBTC, WETH, Native Gas)
   const getChainTotalUsd = (chainKey: string): number => {
     const item = walletBalances[chainKey] || walletBalances[chainKey.replace('_Testnet', '')]
     if (!item) return 0
@@ -459,17 +439,14 @@ export default function PortfolioDrawer({
     const eurcVal = item.eurc ? parseFloat(item.eurc) : 0
     const cirbtcVal = item.cirbtc ? parseFloat(item.cirbtc) : 0
     const wethVal = item.weth ? parseFloat(item.weth) : 0
-    const usycVal = item.usyc ? parseFloat(item.usyc) : 0
     const eurcPrice = prices?.EURC || 1.08
     const btcPrice = prices?.cirBTC || prices?.BTC || 85000
     const wethPrice = prices?.WETH || prices?.ETH || 2500
-    const usycPrice = prices?.USYC || 1.05
 
     const safeUsdc = isNaN(usdcVal) ? 0 : usdcVal
     const safeEurc = isNaN(eurcVal) ? 0 : eurcVal
     const safeBtc = isNaN(cirbtcVal) ? 0 : cirbtcVal
     const safeWeth = isNaN(wethVal) ? 0 : wethVal
-    const safeUsyc = isNaN(usycVal) ? 0 : usycVal
 
     // Native gas valuation for non-Arc chains (on Arc, native is USDC - no double count)
     const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
@@ -481,7 +458,7 @@ export default function PortfolioDrawer({
       }
     }
 
-    return safeUsdc * 1.0 + safeEurc * eurcPrice + safeBtc * btcPrice + safeWeth * wethPrice + safeUsyc * usycPrice + nativeUsd
+    return safeUsdc * 1.0 + safeEurc * eurcPrice + safeBtc * btcPrice + safeWeth * wethPrice + nativeUsd
   }
 
   // All chains filtered and sorted from highest balance to lowest
@@ -503,9 +480,8 @@ export default function PortfolioDrawer({
         const eurcVal = item?.eurc ? parseFloat(item.eurc) : 0
         const cirbtcVal = item?.cirbtc ? parseFloat(item.cirbtc) : 0
         const wethVal = item?.weth ? parseFloat(item.weth) : 0
-        const usycVal = item?.usyc ? parseFloat(item.usyc) : 0
         const nativeVal = !isArc && item?.nativeAmount ? parseFloat(item.nativeAmount) : 0
-        return usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0 || wethVal > 0 || usycVal > 0 || nativeVal > 0
+        return usdcVal > 0 || eurcVal > 0 || cirbtcVal > 0 || wethVal > 0 || nativeVal > 0
       }
 
       return true
@@ -737,7 +713,6 @@ export default function PortfolioDrawer({
                 const hasEurc = Boolean(EURC_ADDRESSES[chainKey])
                 const hasCirbtc = Boolean(CIRBTC_ADDRESSES[chainKey])
                 const hasWeth = Boolean(WETH_ADDRESSES[chainKey])
-                const hasUsyc = Boolean(USYC_ADDRESSES[chainKey])
 
                 const isExpanded = Boolean(expandedChains[chainKey])
 
@@ -745,7 +720,6 @@ export default function PortfolioDrawer({
                 const eurcAmount = chainData?.eurc || (hasEurc ? '0.00' : undefined)
                 const cirbtcAmount = chainData?.cirbtc || (hasCirbtc ? '0.00000' : undefined)
                 const wethAmount = chainData?.weth || (hasWeth ? '0.0000' : undefined)
-                const usycAmount = chainData?.usyc || (hasUsyc ? '0.00' : undefined)
                 const nativeAmount = chainData?.nativeAmount || '0.0000'
                 const nativeSymbol = chainData?.nativeSymbol || (isArc ? 'USDC' : 'ETH')
                 const chainTotalUsd = getChainTotalUsd(chainKey)
@@ -944,31 +918,6 @@ export default function PortfolioDrawer({
                                 {hideBalances
                                   ? '≈ $••••••'
                                   : formatFiatEstimate(wethAmount, 'WETH', prices) || `≈ ${(parseFloat(wethAmount || '0') * (prices?.WETH || prices?.ETH || 2500)).toFixed(2)} USD`}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* USYC Token Row */}
-                        {hasUsyc && (
-                          <div className="p-2 rounded-xl bg-white/[0.03] border border-white/[0.04] flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
-                                <img src={UsycIcon} alt="USYC" className="w-8 h-8 object-contain" />
-                              </div>
-                              <div>
-                                <div className="text-s font-semibold text-slate-200">USYC</div>
-                              </div>
-                            </div>
-
-                            <div className="text-right">
-                              <div className="font-mono text-s font-bold text-white">
-                                {hideBalances ? '••••••' : `${usycAmount} USYC`}
-                              </div>
-                              <div className="text-[12px] text-slate-400 font-mono">
-                                {hideBalances
-                                  ? '≈ $••••••'
-                                  : formatFiatEstimate(usycAmount, 'USYC', prices) || `≈ ${(parseFloat(usycAmount || '0') * (prices?.USYC || 1.05)).toFixed(2)} USD`}
                               </div>
                             </div>
                           </div>

@@ -227,6 +227,10 @@ export default function SwapModal({
   // pending record (dismiss / wallet disconnect / modal reopen) cancels it immediately.
   const pendingConfirmRef = useRef(false)
   const pendingPollCancelRef = useRef(false)
+  // P05: sequence guard for the debounced live quote. Only the latest
+  // scheduled quote may write quote state. Quote-only: execution paths
+  // never read this ref.
+  const quoteSeqRef = useRef(0)
 
   // Quote & Estimate States
   const [estimatedOutput, setEstimatedOutput] = useState<string>('')
@@ -469,6 +473,8 @@ export default function SwapModal({
     // old USDC↔NATIVE no-op guard could never trigger.
 
     let isMounted = true
+    const seq = ++quoteSeqRef.current
+    const isCurrent = () => isMounted && quoteSeqRef.current === seq
     setIsEstimating(true)
     setEstimateError(null)
 
@@ -500,7 +506,7 @@ export default function SwapModal({
             },
           }),
         })
-        if (isMounted) {
+        if (isCurrent()) {
           setEstimatedOutput(quote.estimatedOutput)
           setStopLimit(quote.stopLimit)
           setRate(quote.rate)
@@ -509,7 +515,7 @@ export default function SwapModal({
         }
       } catch (err: any) {
         console.error('[Swap Quote Error]', err)
-        if (isMounted) {
+        if (isCurrent()) {
           setEstimatedOutput('')
           setStopLimit('')
           setRate('')

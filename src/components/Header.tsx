@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, memo } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { requestFullWalletConnect } from '../config/walletConfigStore'
 import { useAccount } from 'wagmi'
 import {
   Wallet,
@@ -52,7 +53,10 @@ interface HeaderProps {
   onOpenPortfolio?: () => void
 }
 
-export default function Header({
+// P08: memoized — App passes stable callbacks, so shell re-renders (prefetch
+// completions, modal flags, chain prefill) skip the Header subtree. Header
+// still updates via its own useAccount/useMultiChainWallet subscriptions.
+function Header({
   activeTab,
   setActiveTab,
   walletConnected,
@@ -647,7 +651,12 @@ export default function Header({
                     if (!connected) {
                       return (
                         <button
-                          onClick={openConnectModal}
+                          // P03: first click loads WalletConnect + Coinbase on demand,
+                          // then `DeferredConnectOpener` opens the modal with the
+                          // full list. Pre-connection only, so no session remounts.
+                          onClick={() => {
+                            void requestFullWalletConnect()
+                          }}
                           type="button"
                           className="ub-action-btn"
                           style={{
@@ -853,3 +862,5 @@ export default function Header({
     </header>
   )
 }
+
+export default memo(Header)

@@ -15,8 +15,6 @@ interface CreatePoolModalProps {
 export const CreatePoolModal: React.FC<CreatePoolModalProps> = ({
   isOpen,
   onClose,
-  walletAddress,
-  availableWalletUsdc = '0.00',
 }) => {
   const [tokenA, setTokenA] = useState<'USDC' | 'EURC' | 'cirBTC'>('USDC')
   const [tokenB, setTokenB] = useState<'EURC' | 'cirBTC' | 'custom'>('cirBTC')

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { ChevronDown, ArrowUpDown, Layers, AlertCircle } from 'lucide-react'
+import { ChevronDown, Layers } from 'lucide-react'
 import type { PoolConfig } from '../../config/poolsConfig'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import PoolTableRow from './PoolTableRow'

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, memo } from 'react'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   ExternalLink,
@@ -21,7 +21,8 @@ interface FooterProps {
   onOpenFaucet?: () => void
 }
 
-export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
+// P08: memoized — both props are stable callbacks, so shell re-renders skip Footer.
+function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
   const [email, setEmail] = useState('')
   const [isSubscribed, setIsSubscribed] = useState(false)
 
@@ -261,3 +262,5 @@ export default function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
     </footer>
   )
 }
+
+export default memo(Footer)

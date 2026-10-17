@@ -88,7 +88,7 @@ export default function PoolsHeroStats({
     },
     {
       id: 'usdc-yield-vault',
-      shortName: 'USDC Vault',
+      shortName: 'USDC Yield Vault',
       name: 'USDC Yield Vault',
       tag: 'ERC-4626',
       accentColor: '#10b981',

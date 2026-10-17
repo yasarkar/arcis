@@ -480,10 +480,13 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
     }
     window.addEventListener('arc_history_updated', handleUpdate)
 
-    // Interval to refresh relative time strings every 15 seconds
+    // P11: refresh relative time strings every 60 seconds ("5m ago" labels
+    // don't need 15 s precision) and skip the tick while the tab is hidden,
+    // so background polling doesn't re-render every row for an invisible page.
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
       setTimeTicker((prev) => prev + 1)
-    }, 15000)
+    }, 60000)
 
     return () => {
       isMounted = false
@@ -1071,8 +1074,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                             { id: 'bridge', label: 'Bridge', icon: Globe },
                             { id: 'deposit', label: 'Deposit', icon: ArrowDownToLine },
                             { id: 'pool', label: 'All Pools', icon: Layers },
-                            { id: 'add_liquidity', label: '+ Liquidity', icon: PlusCircle },
-                            { id: 'remove_liquidity', label: '- Liquidity', icon: MinusCircle },
+                            { id: 'add_liquidity', label: 'Add Liquidity', icon: PlusCircle },
+                            { id: 'remove_liquidity', label: 'Remove Liquidity', icon: MinusCircle },
                             { id: 'harvest', label: 'Harvest', icon: Coins },
                           ].map(t => {
                             const Icon = t.icon
@@ -1634,8 +1637,8 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
                         </div>
                         <span className="font-semibold text-white uppercase text-xs" style={{ fontFamily: 'var(--font-app)' }}>
                           {item.type === 'ai_service' ? 'x402 AI' :
-                           item.type === 'add_liquidity' ? '+ Liquidity' :
-                           item.type === 'remove_liquidity' ? '- Liquidity' :
+                           item.type === 'add_liquidity' ? 'Add Liquidity' :
+                           item.type === 'remove_liquidity' ? 'Remove Liquidity' :
                            item.type === 'harvest' ? 'Harvest' : item.type}
                         </span>
                       </div>

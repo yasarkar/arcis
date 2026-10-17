@@ -1,12 +1,11 @@
 import React from 'react'
-import { ChevronRight, ArrowUpRight, Zap, CheckCircle2 } from 'lucide-react'
-import { POOL_VERSION_V4, type PoolConfig } from '../../config/poolsConfig'
+import { ChevronRight} from 'lucide-react'
+import { POOL_VERSION, POOL_VERSION_V4, type PoolConfig } from '../../config/poolsConfig'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import { WethIcon } from '../../config/tokenIcons'
-import CircleIcon from '../../assets/Token-Icon/CIRCLE Token.svg'
 
 interface PoolTableRowProps {
   pool: PoolConfig & { userPosition?: UserPoolPosition }
@@ -18,44 +17,41 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
   pool,
   onSelect,
 }) => {
-  const userStaked = parseFloat(pool.userPosition?.stakedAmount || '0')
-
-  // Determine pair display name and tokens
   let primaryName = pool.name
   let token1Icon = UsdcIcon
   let token2Icon: string | null = null
   let feeTier = `${(pool.feeTierPercent || 0.25).toFixed(2)}%`
-  let version = POOL_VERSION_V4 ? 'V4' : 'V3'
+  let version = POOL_VERSION
 
   if (pool.id === 'usdc-cirbtc-pool') {
-    primaryName = 'cirBTC / USDC'
-    token1Icon = CirBtcIcon
-    token2Icon = UsdcIcon
+    primaryName = 'USDC / cirBTC'
+    token1Icon = UsdcIcon
+    token2Icon = CirBtcIcon
     feeTier = `${(pool.feeTierPercent || 0.25).toFixed(2)}%`
-    version = POOL_VERSION_V4 ? 'V4' : 'V3'
+    version = POOL_VERSION
   } else if (pool.id === 'usdc-weth-pool') {
-    primaryName = 'WETH / USDC'
-    token1Icon = WethIcon
-    token2Icon = UsdcIcon
+    primaryName = 'USDC / WETH'
+    token1Icon = UsdcIcon
+    token2Icon = WethIcon
     feeTier = `${(pool.feeTierPercent || 0.30).toFixed(2)}%`
-    version = POOL_VERSION_V4 ? 'V4' : 'V3'
+    version = POOL_VERSION
   } else if (pool.id === 'eurc-weth-pool') {
     primaryName = 'EURC / WETH'
     token1Icon = EurcIcon
     token2Icon = WethIcon
     feeTier = `${(pool.feeTierPercent || 0.30).toFixed(2)}%`
-    version = POOL_VERSION_V4 ? 'V4' : 'V3'
+    version = POOL_VERSION
   } else if (pool.id === 'usdc-eurc-stable-pool') {
-    primaryName = 'EURC / USDC'
-    token1Icon = EurcIcon
-    token2Icon = UsdcIcon
+    primaryName = 'USDC / EURC'
+    token1Icon = UsdcIcon
+    token2Icon = EurcIcon
     feeTier = `${(pool.feeTierPercent || 0.12).toFixed(2)}%`
-    version = POOL_VERSION_V4 ? 'V4' : 'V3'
+    version = POOL_VERSION
   } else if (pool.id === 'usdc-yield-vault') {
-    primaryName = 'USDC Vault'
+    primaryName = 'USDC Yield Vault'
     token1Icon = UsdcIcon
     feeTier = 'ERC-4626'
-    version = POOL_VERSION_V4 ? 'V4' : 'V3'
+    version = POOL_VERSION
   } else if (pool.tokens && pool.tokens.length >= 2) {
     primaryName = `${pool.tokens[1]?.symbol || 'Token'}/${pool.tokens[0]?.symbol || 'USDC'}`
     token1Icon = pool.tokens[1]?.iconType === 'btc' ? CirBtcIcon : pool.tokens[1]?.iconType === 'eurc' ? EurcIcon : pool.tokens[1]?.iconType === 'weth' ? WethIcon : UsdcIcon

@@ -1,23 +1,16 @@
 // Master Pools & Yield Hub view for Arcis.
-// Combines USYC RWA Vault, Circle Gateway Cross-Chain Settlement Vault,
+// Combines Circle Gateway Cross-Chain Settlement Vault,
 // Arcis Real-Yield Staking, DEX Liquidity Pools,
 // 1-Click Zap, and live Arc Testnet state.
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, useTransition } from 'react'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
-  Search,
-  SlidersHorizontal,
-  RefreshCw,
   TrendingUp,
   Layers,
   ShieldCheck,
-  ChevronDown,
-  Check,
   BarChart3,
   Wallet,
 } from 'lucide-react'
-import PoolsHeroStats from './PoolsHeroStats'
-import PoolCard from './PoolCard'
 import PoolActionModal from './PoolActionModal'
 import ConcentratedLiquidityModal from './ConcentratedLiquidityModal'
 import YieldCalculator from './YieldCalculator'
@@ -85,11 +78,19 @@ export default function PoolsTab({
   } = usePoolsData(walletAddress, provider, authSource, executeUcwContract)
 
   // Gateway unified balance (for cross-chain zap)
-  const { totalBalance: gatewayTotalBalance, balances: gatewayBalances, refresh: refreshGatewayBalance } = useGatewayBalance(walletAddress)
+  const { balances: gatewayBalances, refresh: refreshGatewayBalance } = useGatewayBalance(walletAddress)
 
-  // Filter & Search states
+  // Filter & Search stat
   const [activeCategory, setActiveCategory] = useState<PoolCategory | 'all'>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  // P11: filter keystrokes stay responsive — the expensive filter/sort render
+  // below (plus the table + chart subtree) is deferred as a transition so
+  // typing never blocks on it. No data-semantics change.
+  const [, startSearchTransition] = useTransition()
+  const handleSearchChange = useCallback(
+    (query: string) => startSearchTransition(() => setSearchQuery(query)),
+    []
+  )
 
   // Systematic input and state clearing on wallet disconnect
   const resetFormInputs = useCallback(() => {
@@ -136,13 +137,6 @@ export default function PoolsTab({
   const [isClaiming, setIsClaiming] = useState<boolean>(false)
   const [claimingPoolId, setClaimingPoolId] = useState<string | null>(null)
   const [isManualRefreshing, setIsManualRefreshing] = useState<boolean>(false)
-
-  // Filter categories list (native Arc DeFi products)
-  const categories: { id: PoolCategory | 'all'; label: string; count?: number }[] = [
-    { id: 'all', label: 'All Pools' },
-    { id: 'liquidity', label: 'Liquidity' },
-    { id: 'vault', label: 'Vaults' },
-  ]
 
   // Filtered and sorted pools
   const filteredPools = useMemo(() => {
@@ -1129,7 +1123,7 @@ export default function PoolsTab({
       {/* ── 2. Middle Section: Search & Actions Toolbar ── */}
       <PoolsToolbar
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={handleSearchChange}
         activeCategory={activeCategory}
         onCategoryChange={setActiveCategory}
         onCreatePool={() => setIsCreatePoolOpen(true)}
@@ -1191,10 +1185,11 @@ export default function PoolsTab({
             onClose={() => setIsActionModalOpen(false)}
             walletAddress={walletAddress}
             availableWalletUsdc={onchainBalances.usdc}
+            availableWalletEurc={onchainBalances.eurc}
             availableWalletCirBtc={onchainBalances.cirbtc}
             availableWalletWeth={onchainBalances.weth}
-            onExecuteDeposit={async (poolId, usdcAmt, counterAmt, slip) => {
-              await handleExecuteDual(poolId, usdcAmt, counterAmt, slip)
+            onExecuteDeposit={async (poolId, tokenAAmt, counterAmt, slip) => {
+              await handleExecuteDual(poolId, tokenAAmt, counterAmt, slip)
             }}
           />
         ) : (

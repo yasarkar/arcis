@@ -99,14 +99,6 @@ export function getTokenAssetConfig(
   }
 }
 
-function getTokenGlyph(symbol: string): string {
-  const s = (symbol || '').toUpperCase()
-  if (s.includes('BTC')) return '₿'
-  if (s.includes('EUR')) return '€'
-  if (s.includes('USD')) return '$'
-  return s.charAt(0) || '•'
-}
-
 export const PositionCard: React.FC<PositionCardProps> = ({
   position,
   isMasked,
@@ -128,6 +120,7 @@ export const PositionCard: React.FC<PositionCardProps> = ({
     let src = UsdcIcon
     if (type === 'btc') src = CirBtcIcon || CircleIcon
     if (type === 'eurc') src = EurcIcon
+    if (type === 'weth') src = WethIcon
 
     return (
       <div

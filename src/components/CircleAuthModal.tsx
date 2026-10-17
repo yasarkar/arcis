@@ -323,7 +323,7 @@ export default function CircleAuthModal({
 
   return (
     <div
-      className="fixed inset-0 z-[10010] flex items-center justify-center p-4 bg-[#07080d]/85 backdrop-blur-2xl animate-fade-in select-text"
+      className="fixed inset-0 z-[10010] flex items-center justify-center p-4 bg-[#07080d]/90 backdrop-blur-md animate-fade-in select-text"
       style={{ zIndex: 10010 }}
     >
       {/* Superellipse Modal Card */}
