@@ -299,7 +299,7 @@ export function estimateLpSharesForDeposit(params: {
       } catch {
         return null
       }
-    } else if (poolId === 'usdc-weth-pool') {
+    } else if (poolId === 'usdc-weth-pool' || poolId === 'eurc-weth-pool') {
       try {
         const rawA = parseUnits(amountA.toFixed(6), 6)
         const rawB = parseUnits(amountB.toFixed(6), 18)

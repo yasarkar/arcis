@@ -8,7 +8,6 @@ import {
   CONSTANT_PRODUCT_LP_FEE_BPS,
   POOL_VERSION_V4,
   AMM_POOL_STATE_READ_FNS,
-  AMM_POOL_STATE_READ_FNS_V3,
   AMM_POOL_STATE_READ_FNS_V4,
 } from '../../config/poolsConfig'
 
@@ -77,31 +76,19 @@ describe('Pool read plan matches the deployed Solidity', () => {
   const v3Functions = implementedFunctions(V3_AMM)
   const v4Functions = implementedFunctions(V4_AMM)
 
-  it('only reads V3 getters that StableSwapPoolV3 / ConstantProductPoolV3 implement', () => {
-    expect(AMM_POOL_STATE_READ_FNS_V3.filter((fn) => !v3Functions.has(fn))).toEqual([])
-  })
-
   it('only reads V4 getters that StableSwapPoolV4 / LpFeeAccounting implement', () => {
-    expect(AMM_POOL_STATE_READ_FNS_V4.filter((fn) => !v4Functions.has(fn))).toEqual([])
+    expect(AMM_POOL_STATE_READ_FNS.filter((fn) => !v4Functions.has(fn))).toEqual([])
+    expect(AMM_POOL_STATE_READ_FNS_V4).toEqual(AMM_POOL_STATE_READ_FNS)
   })
 
-  it('documents the V3 → V4 fee-getter divergence (accumulatedFeeA/B no longer exist)', () => {
-    expect(AMM_POOL_STATE_READ_FNS_V3).toContain('accumulatedFeeA')
-    expect(AMM_POOL_STATE_READ_FNS_V3).toContain('accumulatedFeeB')
-    expect(v3Functions.has('accumulatedFeeA')).toBe(true)
-
-    expect(AMM_POOL_STATE_READ_FNS_V4).toContain('feeReserveA')
-    expect(AMM_POOL_STATE_READ_FNS_V4).toContain('feeReserveB')
+  it('documents that feeReserve replaces legacy accumulatedFee counters', () => {
+    expect(AMM_POOL_STATE_READ_FNS).toContain('feeReserveA')
+    expect(AMM_POOL_STATE_READ_FNS).toContain('feeReserveB')
     expect(v4Functions.has('feeReserveA')).toBe(true)
     // The V4 contracts must NOT be asked for counters they dropped.
     expect(v4Functions.has('accumulatedFeeA')).toBe(false)
-    expect(AMM_POOL_STATE_READ_FNS_V4).not.toContain('accumulatedFeeA')
-  })
-
-  it('selects the read plan that matches the active pool version', () => {
-    expect(AMM_POOL_STATE_READ_FNS).toBe(
-      POOL_VERSION_V4 ? AMM_POOL_STATE_READ_FNS_V4 : AMM_POOL_STATE_READ_FNS_V3,
-    )
+    expect(AMM_POOL_STATE_READ_FNS).not.toContain('accumulatedFeeA')
+    expect(AMM_POOL_STATE_READ_FNS).not.toContain('accumulatedFeeB')
   })
 
   it('exposes the Phase 1 harvest surface on V4 and not on V3', () => {

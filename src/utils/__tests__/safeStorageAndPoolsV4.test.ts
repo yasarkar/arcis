@@ -109,7 +109,6 @@ describe('safeStorage Resilience & Phase 1 V4 wiring', () => {
     }
     const POOL_ENV_KEYS = [
       'VITE_POOL_VERSION',
-      'VITE_POOL_V2',
       'VITE_POOL_V4_STABLE_SWAP',
       'VITE_POOL_V4_CONSTANT_PRODUCT',
       'VITE_POOL_V4_YIELD_VAULT',
@@ -124,16 +123,21 @@ describe('safeStorage Resilience & Phase 1 V4 wiring', () => {
       return fresh
     }
 
-    it('keeps V4 disabled and falls back to the live V3 set when V4 is not requested', async () => {
-      const fresh = await loadPoolsConfigWith({ VITE_POOL_VERSION: 'v3' })
-      expect(fresh.POOL_VERSION_V4).toBe(false)
-      expect(fresh.POOL_VERSION_V3).toBe(true)
-      expect(fresh.POOL_CONTRACTS.STABLE_SWAP_POOL).toBe(fresh.POOL_CONTRACTS_V3.STABLE_SWAP_POOL)
-      expect(fresh.POOL_CONTRACTS.CONSTANT_PRODUCT_POOL).toBe(fresh.POOL_CONTRACTS_V3.CONSTANT_PRODUCT_POOL)
-      expect(fresh.POOL_CONTRACTS.YIELD_VAULT).toBe(fresh.POOL_CONTRACTS_V3.YIELD_VAULT)
+    it('reads VITE_POOL_VERSION directly from env and sets POOL_VERSION / POOL_VERSION_V4 accordingly', async () => {
+      const freshV3 = await loadPoolsConfigWith({ VITE_POOL_VERSION: 'v3' })
+      expect(freshV3.POOL_VERSION).toBe('v3')
+      expect(freshV3.POOL_VERSION_V4).toBe(false)
+
+      const freshV4 = await loadPoolsConfigWith({ VITE_POOL_VERSION: 'v4' })
+      expect(freshV4.POOL_VERSION).toBe('v4')
+      expect(freshV4.POOL_VERSION_V4).toBe(true)
+
+      const freshDefault = await loadPoolsConfigWith({})
+      expect(freshDefault.POOL_VERSION).toBe('v4')
+      expect(freshDefault.POOL_VERSION_V4).toBe(true)
     })
 
-    it('activates V4 and swaps the whole active set once all three addresses are configured', async () => {
+    it('respects configured pool addresses from environment variables', async () => {
       const fresh = await loadPoolsConfigWith({
         VITE_POOL_VERSION: 'v4',
         VITE_POOL_V4_STABLE_SWAP: CONFIGURED.STABLE,
@@ -141,39 +145,25 @@ describe('safeStorage Resilience & Phase 1 V4 wiring', () => {
         VITE_POOL_V4_YIELD_VAULT: CONFIGURED.YIELD_VAULT,
       })
       expect(fresh.POOL_VERSION_V4).toBe(true)
-      expect(fresh.POOL_VERSION_V3).toBe(false)
       expect(fresh.POOL_CONTRACTS.STABLE_SWAP_POOL).toBe(CONFIGURED.STABLE)
       expect(fresh.POOL_CONTRACTS.CONSTANT_PRODUCT_POOL).toBe(CONFIGURED.CONSTANT_PRODUCT)
       expect(fresh.POOL_CONTRACTS.YIELD_VAULT).toBe(CONFIGURED.YIELD_VAULT)
-      // The router is shared with V3 and the token set still comes from ARC_TOKENS.
-      expect(fresh.POOL_CONTRACTS.ARCIS_SWAP_ROUTER).toBe(fresh.POOL_CONTRACTS_V3.ARCIS_SWAP_ROUTER)
       expect(fresh.POOL_CONTRACTS.USDC).toBe(fresh.POOL_USDC)
       expect(fresh.POOL_CONTRACTS.EURC).toBe(fresh.POOL_EURC)
       expect(fresh.POOL_CONTRACTS.cirBTC).toBe(fresh.POOL_CIRBTC)
     })
 
-    it('defaults unresolved V4 addresses to zero and stays on V3 for a partial config', async () => {
-      const fresh = await loadPoolsConfigWith({
-        VITE_POOL_VERSION: 'v4',
-        VITE_POOL_V4_STABLE_SWAP: CONFIGURED.STABLE,
-      })
-      expect(fresh.POOL_CONTRACTS_V4.STABLE_SWAP_POOL).toBe(CONFIGURED.STABLE)
-      expect(fresh.POOL_CONTRACTS_V4.CONSTANT_PRODUCT_POOL).toBe(ZERO)
-      expect(fresh.POOL_CONTRACTS_V4.YIELD_VAULT).toBe(ZERO)
-      expect(fresh.POOL_VERSION_V4).toBe(false)
-      expect(fresh.POOL_CONTRACTS.YIELD_VAULT).toBe(fresh.POOL_CONTRACTS_V3.YIELD_VAULT)
-    })
-
-    it('rejects malformed V4 addresses instead of activating a broken set', async () => {
+    it('falls back to canonical Arc Testnet deployed addresses when environment address is empty or malformed', async () => {
       const fresh = await loadPoolsConfigWith({
         VITE_POOL_VERSION: 'v4',
         VITE_POOL_V4_STABLE_SWAP: '0xnot-an-address',
-        VITE_POOL_V4_CONSTANT_PRODUCT: '0x1234',
-        VITE_POOL_V4_YIELD_VAULT: 'not-hex-at-all',
+        VITE_POOL_V4_CONSTANT_PRODUCT: '',
+        VITE_POOL_V4_YIELD_VAULT: 'invalid',
       })
-      expect(fresh.POOL_CONTRACTS_V4.STABLE_SWAP_POOL).toBe(ZERO)
-      expect(fresh.POOL_VERSION_V4).toBe(false)
-      expect(fresh.POOL_CONTRACTS.STABLE_SWAP_POOL).toBe(fresh.POOL_CONTRACTS_V3.STABLE_SWAP_POOL)
+      expect(fresh.POOL_VERSION_V4).toBe(true)
+      expect(fresh.POOL_CONTRACTS.STABLE_SWAP_POOL).toBe('0xC3EdDA15AdfaC31ADfC23aC86dC96d791f72bE8a')
+      expect(fresh.POOL_CONTRACTS.CONSTANT_PRODUCT_POOL).toBe('0xf0e5f1d5C36a8362D96A8a43a441c6bb29416349')
+      expect(fresh.POOL_CONTRACTS.YIELD_VAULT).toBe('0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A')
     })
   })
 })

@@ -46,6 +46,7 @@ describe('poolVolumeUtils', () => {
       expect(POOL_TESTNET_BASE_VOLUME['usdc-cirbtc-pool']).toBe(0)
       expect(POOL_TESTNET_BASE_VOLUME['usdc-yield-vault']).toBe(0)
       expect(POOL_TESTNET_BASE_VOLUME['usdc-weth-pool']).toBe(0)
+      expect(POOL_TESTNET_BASE_VOLUME['eurc-weth-pool']).toBe(0)
     })
   })
 
