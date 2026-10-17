@@ -10,6 +10,10 @@ import { POOL_CONTRACTS, ERC20_ABI } from '../../config/poolsConfig'
 import { getArcPublicClient } from '../rpc'
 import { getSessionKeyConfig } from '../sessionKeyService'
 import { baseUnitsToUsdc } from '../../config/x402/pricing'
+import { logger } from '../../utils/logger'
+
+/** Scoped logger: a fallback path that fails to decode must not disappear. */
+const log = logger.createScope('x402GatewayClient')
 
 export interface GatewayBalancesResult {
   walletUsdc: number
@@ -85,7 +89,11 @@ class GatewayClientFacade {
                 accepts: parsed.accepts,
               }
             }
-          } catch {}
+          } catch (err) {
+            // Best-effort read: the 402 response is read as JSON right below, so an undecodable
+            // PAYMENT-REQUIRED header only changes which of the two representations answers.
+            log.debug('PAYMENT-REQUIRED header could not be decoded; reading the 402 body instead.', err)
+          }
         }
         const body = (await res.json()) as X402PaymentRequirements
         return {

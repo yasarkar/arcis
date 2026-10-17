@@ -1,11 +1,16 @@
 import { AppKit, Blockchain } from '@circle-fin/app-kit'
 import { createViemAdapterFromProvider, createViemAdapterFromPrivateKey } from '@circle-fin/adapter-viem-v2'
-import { createPublicClient, createWalletClient, defineChain, http, erc20Abi, maxUint256, formatUnits } from 'viem'
+import { createPublicClient, createWalletClient, defineChain, http, erc20Abi, formatUnits } from 'viem'
 import type { SendParams } from '@circle-fin/app-kit'
 import { arcTestnet, ARC_METADATA, IS_TESTNET } from '../config/arcChain'
 import { CHAIN_DEFS } from '../config/chainMeta'
 import { getResilientPublicClient, resilientReadContract } from './rpc'
-import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
+import { setSpendingCeiling } from './spendingCeilingService'
+import {
+  exactApprovalAmount,
+  IMPLAUSIBLE_APPROVAL_UNITS,
+  increaseAllowanceShortfall,
+} from '../utils/approvalUtils'
 import { ensureNetwork } from './chainSwitchService'
 import { USDC_ADDRESSES, EURC_ADDRESSES, WETH_ADDRESSES, CIRBTC_ADDRESSES } from '../config/gatewayConfig'
 import { CHAIN_NATIVE_MAP } from '../utils/tokenUtils'
@@ -180,11 +185,16 @@ export function patchViemAdapterChainSwitch(adapter: any, walletProvider?: any):
 
 /**
  * Patch helper to intercept allowance approval requests in ViemAdapter.
- * When a transaction amount is within the user's previously authorized ceiling
- * AND on-chain allowance is already sufficient, it returns a 'noop' action
- * so that CCTP bridge (and any AppKit flow) skips the approve wallet popup entirely!
- * When approval IS needed (first time or ceiling elevated), it elevates allowance to maxUint256
- * and persists the new spending ceiling in localStorage upon wallet execution.
+ *
+ * AppKit prepares the allowance it thinks an operation needs; this patch makes that
+ * allowance EXACTLY the amount the operation moves (audit #6) instead of a standing
+ * ceiling, so nothing is left granted once the transfer/burn has pulled its amount.
+ * `increaseAllowance` ADDS to the current allowance, so it is topped up by the
+ * shortfall only; the approved amount is recorded in localStorage on wallet execution.
+ *
+ * An implausible amount (a placeholder such as uint256 max) is refused loudly instead
+ * of falling back to the SDK's own action — a refused amount must never become a
+ * standing allowance through the best-effort fallback below.
  */
 export function patchViemAdapterAllowanceCeiling(adapter: any): any {
   if (!adapter) return adapter
@@ -199,6 +209,20 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
       action === 'token.approve' ||
       action === 'usdc.approve'
     ) {
+      // Fail closed outside the best-effort block: a placeholder amount must never reach
+      // the fallback, which would prepare whatever the SDK asked for.
+      let requestedAmount: bigint
+      try {
+        requestedAmount = BigInt(params?.amount ?? 0n)
+      } catch {
+        return originalPrepareAction(action, params, ctx)
+      }
+      if (requestedAmount >= IMPLAUSIBLE_APPROVAL_UNITS) {
+        throw new Error(
+          'Refusing to prepare an ERC-20 allowance for an implausible amount (an unlimited approval was refused).'
+        )
+      }
+
       try {
         let tokenSymbol = 'USDC'
         let tokenDecimals = 6
@@ -216,7 +240,7 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           }
         }
 
-        const requiredAmountBigInt = BigInt(params?.amount ?? 0n)
+        const requiredAmountBigInt = requestedAmount
         const amountNum = Number(requiredAmountBigInt) / 10 ** tokenDecimals
         const amountStr = amountNum.toString()
 
@@ -227,8 +251,6 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           (typeof adapter.getAddress === 'function' ? await adapter.getAddress(params?.chain || ctx?.chain) : '')
 
         if (walletAddress && amountNum > 0) {
-          const ceilingStatus = checkCeilingStatus(walletAddress, tokenSymbol, amountStr)
-
           // Read on-chain allowance with robust chain/token address resolution
           let onChainAllowance = 0n
           let readSuccessful = false
@@ -277,27 +299,19 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           }
 
           console.log(
-            `[ViemAdapter Ceiling] Action: ${action} | Amount: ${amountStr} ${tokenSymbol} | Ceiling: ${ceilingStatus.currentCeiling} ${tokenSymbol} | OnChainAllowance: ${onChainAllowance.toString()} (ReadSuccess: ${readSuccessful})`
+            `[ViemAdapter Approval] Action: ${action} | Amount: ${amountStr} ${tokenSymbol} | OnChainAllowance: ${onChainAllowance.toString()} (ReadSuccess: ${readSuccessful})`
           )
 
-          // 2. On-chain approval is genuinely required.
-          // CRITICAL OVERFLOW FIX:
-          // For 'increaseAllowance', passing maxUint256 will cause "SafeMath: addition overflow" if onChainAllowance > 0.
-          // Instead, compute a safe high ceiling that will never overflow uint256.
+          // 2. On-chain approval is genuinely required. Grant exactly what this operation
+          // moves: `approve` replaces the allowance, so it is set to the exact amount;
+          // `increaseAllowance` ADDS, so it is topped up by the shortfall only (this also
+          // keeps "SafeMath: addition overflow" impossible without a big ceiling).
           const isIncreaseAllowance =
             action === 'usdc.increaseAllowance' || action === 'token.increaseAllowance'
 
-          const defaultCap = tokenSymbol === 'cirBTC' ? 1_000n : tokenSymbol === 'WETH' ? 10_000n : 10_000_000n
-          const SAFE_CEILING_CAP = defaultCap * 10n ** BigInt(tokenDecimals)
-          const targetCap = requiredAmountBigInt > SAFE_CEILING_CAP ? requiredAmountBigInt : SAFE_CEILING_CAP
-
-          let safeAmount: bigint
-          if (isIncreaseAllowance) {
-            const delta = targetCap > onChainAllowance ? targetCap - onChainAllowance : requiredAmountBigInt
-            safeAmount = delta > 0n ? delta : requiredAmountBigInt
-          } else {
-            safeAmount = targetCap
-          }
+          const safeAmount = isIncreaseAllowance
+            ? increaseAllowanceShortfall(requiredAmountBigInt, onChainAllowance)
+            : exactApprovalAmount(requiredAmountBigInt)
 
           const modifiedParams = {
             ...params,
@@ -305,7 +319,7 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           }
 
           console.log(
-            `[ViemAdapter Ceiling] Preparing safe approval: action=${action}, amount=${safeAmount.toString()} (ceiling=${ceilingStatus.suggestedCeiling} ${tokenSymbol})`
+            `[ViemAdapter Approval] Preparing exact approval: action=${action}, amount=${safeAmount.toString()} ${tokenSymbol}`
           )
           const prepared = await originalPrepareAction(action, modifiedParams, ctx)
 
@@ -316,9 +330,9 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
               const txHash = await originalExecute(overrides)
               if (txHash && txHash !== '0xnoop') {
                 try {
-                  setSpendingCeiling(walletAddress, tokenSymbol, ceilingStatus.suggestedCeiling, txHash)
+                  setSpendingCeiling(walletAddress, tokenSymbol, amountNum, txHash)
                   console.log(
-                    `[ViemAdapter Ceiling] Persisted new ceiling: ${ceilingStatus.suggestedCeiling} ${tokenSymbol} (tx: ${txHash})`
+                    `[ViemAdapter Approval] Recorded approved amount: ${amountNum} ${tokenSymbol} (tx: ${txHash})`
                   )
                 } catch (persistErr) {
                   console.warn('[ViemAdapter Ceiling] Failed to persist ceiling:', persistErr)
@@ -331,7 +345,7 @@ export function patchViemAdapterAllowanceCeiling(adapter: any): any {
           return prepared
         }
       } catch (err) {
-        console.warn('[ViemAdapter Ceiling] Error in ceiling check, falling back to original prepareAction:', err)
+        console.warn('[ViemAdapter Approval] Error in approval check, falling back to original prepareAction:', err)
       }
     }
 

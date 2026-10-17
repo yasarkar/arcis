@@ -26,7 +26,7 @@ import {
 } from '../config/bridgeRouteMatrix'
 import { mapChainKeyToCircleBlockchain } from './gatewayUcwService'
 import type { SupportedBridgeToken } from '../types/bridge'
-import { boundedApprovalAmount } from '../utils/approvalUtils'
+import { exactApprovalAmount } from '../utils/approvalUtils'
 import { singleFlightWithBackoff } from '../utils/singleFlight'
 import { logger } from '../utils/logger'
 
@@ -718,15 +718,15 @@ export async function executeUcwBridgeTransfer(
     bridgeLog.debug(`Allowance insufficient on ${sourceChain}. Initiating UCW approve challenge...`)
     onStepProgress?.('approving')
 
-    // Bounded approval ceiling (audit #11): a large but FINITE allowance, never
-    // maxUint256. A compromised or buggy TokenMessenger could then only ever
-    // pull a capped amount instead of the wallet's whole balance. Mirrors the
-    // swap path's convention one definition (`utils/approvalUtils`).
-    const approvalCeiling = boundedApprovalAmount(amountUnits, tokenDecimals)
+    // Exact-amount approval (audit #6/#11): the TokenMessenger is authorized for
+    // precisely the amount this bridge moves, so nothing is left granted afterwards
+    // and a compromised or buggy messenger could only ever pull that amount instead
+    // of the wallet's whole balance. One definition (`utils/approvalUtils`).
+    const approvalAmount = exactApprovalAmount(amountUnits)
     const approveRes = await executeUcwContract({
       contractAddress: sourceToken,
       abiFunctionSignature: 'approve(address,uint256)',
-      abiParameters: [tokenMessenger, approvalCeiling.toString()],
+      abiParameters: [tokenMessenger, approvalAmount.toString()],
       blockchain: circleBlockchain,
     })
 

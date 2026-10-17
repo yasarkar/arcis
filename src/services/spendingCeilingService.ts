@@ -1,8 +1,11 @@
 // src/services/spendingCeilingService.ts
-// Progressive High-Water Mark Spending Ceiling Manager for Arcis
-// Manages per-wallet, per-token spending ceilings.
-// Once approved (e.g. $90), subsequent transactions <= $90 skip wallet approval popups.
-// When an amount exceeds the ceiling (e.g. $120), a new approval is requested to elevate the ceiling.
+// Per-wallet, per-token record of the last token approval Arcis authorized.
+//
+// Approvals are exact-amount (see `utils/approvalUtils`): every transfer, swap, bridge or
+// deposit authorizes precisely the amount it moves, and that operation spends it. So this
+// service records WHAT was authorized last — an audit/visibility record for the wallet. It
+// never decides how much a new transaction may spend: a previous record grants no spending
+// rights, because its allowance is already consumed on-chain.
 
 import { useState, useEffect } from 'react'
 
@@ -105,9 +108,11 @@ export function setSpendingCeiling(
 }
 
 /**
- * Checks if the requested transaction amount is within the current ceiling.
- * If amount <= currentCeiling (and currentCeiling > 0), no extra approval popup is needed.
- * If amount > currentCeiling, requiresApproval is true and new suggested ceiling is amount.
+ * Describes the requested amount against the recorded approval.
+ *
+ * `suggestedCeiling` is the exact amount this transaction will authorize; `currentCeiling`
+ * is what the previous one authorized. Both are informational: every transaction asks the
+ * wallet for its own exact approval on-chain.
  */
 export function checkCeilingStatus(
   walletAddress: string,
@@ -126,7 +131,9 @@ export function checkCeilingStatus(
     requestedAmount: validAmount,
     requiresApproval: !isWithinCeiling,
     isFirstApproval,
-    suggestedCeiling: Math.max(validAmount, currentCeiling),
+    // Exact approval policy: the amount to authorize is this transaction's own amount, never
+    // an elevated standing ceiling carried over from a previous approval.
+    suggestedCeiling: validAmount,
   }
 }
 

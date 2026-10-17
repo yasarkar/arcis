@@ -1,5 +1,9 @@
 // src/services/soundService.ts
 // Ultra-low latency Web Audio API Sound Synthesizer & Haptic Feedback Engine for Arcis
+import { logger } from '../utils/logger'
+
+/** Scoped logger: audio/haptic failures are cosmetic, but they must not vanish completely. */
+const log = logger.createScope('soundService')
 
 export type SoundType = 'success' | 'error' | 'cancel' | 'send' | 'pop' | 'faucet'
 
@@ -24,7 +28,9 @@ class SoundService {
     }
 
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {})
+      // Best-effort UI nicety: a rejected resume is retried by the next user gesture, and the tone
+      // below is still scheduled on the (possibly suspended) context.
+      this.ctx.resume().catch((err) => log.debug('AudioContext resume was rejected; the next gesture will retry it.', err))
     }
 
     return this.ctx
@@ -82,7 +88,11 @@ class SoundService {
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
             try {
               navigator.vibrate([40, 60, 40])
-            } catch {}
+            } catch (err) {
+              // Best-effort haptics: the success tone above already played, so a browser that refuses
+              // vibration only loses the tactile confirmation.
+              log.debug('Haptic feedback unavailable for the success tone.', err)
+            }
           }
           break
         }
@@ -110,7 +120,10 @@ class SoundService {
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
             try {
               navigator.vibrate([60, 100, 60])
-            } catch {}
+            } catch (err) {
+              // Best-effort haptics: the warning tone already played, so only the vibration is lost.
+              log.debug('Haptic feedback unavailable for the warning tone.', err)
+            }
           }
           break
         }
@@ -138,7 +151,10 @@ class SoundService {
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
             try {
               navigator.vibrate(30)
-            } catch {}
+            } catch (err) {
+              // Best-effort haptics: the cancel tap already played, so only the vibration is lost.
+              log.debug('Haptic feedback unavailable for the cancel tap.', err)
+            }
           }
           break
         }
@@ -205,7 +221,10 @@ class SoundService {
           if (typeof navigator !== 'undefined' && navigator.vibrate) {
             try {
               navigator.vibrate(50)
-            } catch {}
+            } catch (err) {
+              // Best-effort haptics: the send tone already played, so only the vibration is lost.
+              log.debug('Haptic feedback unavailable for the send tone.', err)
+            }
           }
           break
         }

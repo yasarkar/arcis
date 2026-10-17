@@ -2,10 +2,13 @@
 // End-to-end proof that the Gateway deposit path returns the REAL fees read from the mined
 // receipts: the approve tx fee and the deposit tx fee, each in the chain's native currency.
 // A receipt whose gas fields cannot be read must yield no fee at all (never an estimate).
+// It also pins the bounded approval: the granted allowance is the finite ceiling the deposit
+// records, never an unlimited maxUint256 approval.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { depositToGateway } from '../gatewayService'
 import * as rpcModule from '../rpc'
+import * as ceilingModule from '../spendingCeilingService'
 import { CHAIN_DEFS } from '../../config/chainMeta'
 
 const CHAIN_ID_HEX = `0x${CHAIN_DEFS.Arc_Testnet.id.toString(16)}`
@@ -131,6 +134,69 @@ describe('depositToGateway fee reporting', () => {
     expect(result.approveTxHash).toBe('')
     expect(result.approvalFee).toBeUndefined()
     expect(result.depositFee).toEqual({ amount: '0.00012', symbol: 'USDC' })
+  })
+})
+
+describe('depositToGateway exact approval', () => {
+  // A previously approved (and already spent) ceiling: it must NOT leak into the allowance
+  // of the next deposit, because approvals are transaction-sized now.
+  const STALE_CEILING_USDC = 250.5
+
+  beforeEach(() => {
+    vi.mocked(ceilingModule.checkCeilingStatus).mockReturnValue({
+      isWithinCeiling: false,
+      currentCeiling: 0,
+      requestedAmount: 10,
+      requiresApproval: true,
+      isFirstApproval: true,
+      suggestedCeiling: STALE_CEILING_USDC,
+    })
+  })
+
+  afterEach(() => {
+    // Restore the module factory's default so test order cannot leak the override.
+    vi.mocked(ceilingModule.checkCeilingStatus).mockReturnValue({
+      suggestedCeiling: '1000',
+      currentCeiling: '0',
+    } as any)
+  })
+
+  it('grants exactly the deposited amount, never a ceiling and never an unlimited allowance', async () => {
+    vi.mocked(rpcModule.resilientWaitForReceipt)
+      .mockResolvedValueOnce({
+        receipt: { ...receiptStub(46_000n, 1_000_000_000n), transactionHash: APPROVE_HASH },
+        transactionHash: APPROVE_HASH,
+        status: 'success',
+      })
+      .mockResolvedValueOnce({
+        receipt: { ...receiptStub(120_000n, 1_000_000_000n), transactionHash: DEPOSIT_HASH },
+        transactionHash: DEPOSIT_HASH,
+        status: 'success',
+      })
+
+    const provider = providerStub([APPROVE_HASH, DEPOSIT_HASH])
+    await depositToGateway(provider, CHAIN_KEY, '10', CHAIN_DEFS[CHAIN_KEY], 'USDC')
+
+    const approveData = provider.request.mock.calls
+      .map(([arg]: any[]) => arg)
+      .filter((arg) => arg.method === 'eth_sendTransaction')
+      .map((arg) => arg.params?.[0]?.data as string | undefined)
+      .find((data) => data?.startsWith('0x095ea7b3')) // ERC-20 approve(address,uint256)
+
+    expect(approveData).toBeDefined()
+    // calldata = selector (4 bytes) + spender word + amount word
+    const amountWord = approveData!.slice(2 + 8 + 64)
+    expect(amountWord).not.toBe('f'.repeat(64)) // never uint256 max
+    expect(BigInt(`0x${amountWord}`)).toBe(10_000_000n) // exactly the 10 USDC deposit
+    expect(BigInt(`0x${amountWord}`)).not.toBe(250_500_000n) // not the stale 250.5 ceiling
+
+    // The recorded amount describes the same number the chain was granted.
+    expect(vi.mocked(ceilingModule.setSpendingCeiling)).toHaveBeenCalledWith(
+      WALLET,
+      'USDC',
+      10,
+      APPROVE_HASH
+    )
   })
 })
 

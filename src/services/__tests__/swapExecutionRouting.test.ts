@@ -168,11 +168,12 @@ describe('Swap execution signer routing (authSource)', () => {
     expect((allowanceCall![1] as any).args[0]).toBe(SENDER)
     expect((allowanceCall![1] as any).args[1]).toBe(POOL_CONTRACTS.ARCIS_SWAP_ROUTER)
 
-    // Audit #11: the approval must be a bounded ceiling, never unlimited maxUint256.
+    // Audit #6/#11: the approval is exactly the swap amount, never a standing ceiling.
     const approveParams = (mockExecuteUcw.mock.calls[0][0].abiParameters as string[]) || []
     expect(mockExecuteUcw.mock.calls[0][0].abiFunctionSignature).toBe('approve(address,uint256)')
     // abiParameters = [spender, amount] — the selector lives in abiFunctionSignature.
-    expect(approveParams[1]).toBe((10_000_000n * 10n ** 6n).toString())
+    // The 10 USDC swap authorizes 10 USDC (6 decimals) and nothing beyond it.
+    expect(approveParams[1]).toBe((10n * 10n ** 6n).toString())
     expect(approveParams[1]).not.toBe(
       '115792089237316195423570985008687907853269984665640564039457584007913129639935'
     )

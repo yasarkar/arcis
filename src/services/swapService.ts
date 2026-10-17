@@ -21,6 +21,7 @@ import {
   STABLE_SWAP_LP_FEE_BPS,
   CONSTANT_PRODUCT_LP_FEE_BPS,
   WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
+  EURC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
 } from '../config/poolsConfig'
 import { getNetwork } from '../config/networks/networkRegistry'
 import { sendModularUserOperation, getActiveSmartAccount, restoreSmartAccount } from './modularWalletService'
@@ -29,9 +30,10 @@ import { getArcPublicClient, getResilientPublicClient, resilientReadContract, re
 import type { SwapExecuteParams, SwapQuoteResult, SwapExecutionStatus } from '../types/swap'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
 import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils'
-import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
+import { setSpendingCeiling } from './spendingCeilingService'
 
 import { validateSwapSlippageBps, swapFractionToBps, swapMinimumUnits, exactSwapOutputUnits } from '../utils/swapSlippage'
+import { exactApprovalAmount } from '../utils/approvalUtils'
 
 const kit = new AppKit()
 
@@ -50,15 +52,22 @@ function executionMinimum(params: SwapExecuteParams, output: bigint, decimals: n
 }
 
 /**
- * Bounded approval amount (audit #11): never grant an unlimited (maxUint256) allowance.
- * Mirrors sendService's SAFE_CEILING_CAP convention — a large but finite 10M-token ceiling
- * (or the requested amount when that is larger), so a compromised pool/router could only ever
- * move a capped amount instead of the entire wallet balance.
+ * Records the exact amount a route just authorized, for the wallet's approval history.
+ * Approvals are transaction-sized (audit #6/#11), so this is a record of what was spent —
+ * never a reusable ceiling to display as if it were still available.
  */
-const SAFE_APPROVAL_CAP_TOKENS = 10_000_000n
-function boundedApprovalAmount(amountInUnits: bigint, decimals: number): bigint {
-  const cap = SAFE_APPROVAL_CAP_TOKENS * 10n ** BigInt(decimals)
-  return cap > amountInUnits ? cap : amountInUnits
+function recordApprovedAmount(
+  walletAddress: string,
+  tokenSymbol: string,
+  approvedUnits: bigint,
+  decimals: number,
+  txHash?: string
+): void {
+  try {
+    setSpendingCeiling(walletAddress, tokenSymbol, Number(formatUnits(approvedUnits, decimals)), txHash)
+  } catch (recordErr) {
+    console.warn('[swapService] Could not record the approved amount:', recordErr)
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -161,6 +170,26 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
       decIn: isUsdcIn ? 6 : 18,
       decOut: isUsdcIn ? 18 : 6,
       feeBps: WETH_CONSTANT_PRODUCT_LP_FEE_BPS, // 0.30%
+    }
+  }
+
+  if (
+    (tIn === 'EURC' && isWethOut) ||
+    (isWethIn && tOut === 'EURC')
+  ) {
+    const eurcWethPoolAddress = POOL_CONTRACTS.EURC_WETH_POOL
+    if (!eurcWethPoolAddress || eurcWethPoolAddress === '0x0000000000000000000000000000000000000000') {
+      return null
+    }
+    const isEurcIn = tIn === 'EURC'
+    return {
+      poolAddress: eurcWethPoolAddress as Address,
+      isStable: false,
+      tokenInAddr: (isEurcIn ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.WETH) as Address,
+      tokenOutAddr: (isEurcIn ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.EURC) as Address,
+      decIn: isEurcIn ? 6 : 18,
+      decOut: isEurcIn ? 18 : 6,
+      feeBps: EURC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS, // 0.30%
     }
   }
 
@@ -560,17 +589,18 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         }
 
         // Check on-chain allowance against user input amount
-        const mscaCeiling = checkCeilingStatus(smartAccount.address, params.tokenIn, parseFloat(params.amountIn))
         const requiresMscaApprove = mscaAllowance < amountInUnits
 
-        // Only include approve call if on-chain allowance is insufficient
+        // Only include approve call if on-chain allowance is insufficient. The pool pulls
+        // exactly `swapAmountInUnits` (the protocol fee is transferred separately), so that
+        // is what gets approved — an exact, one-shot allowance.
         if (requiresMscaApprove) {
           calls.push({
             to: arcRoute.tokenInAddr as Hex,
             data: encodeFunctionData({
               abi: ERC20_ABI,
               functionName: 'approve',
-              args: [arcRoute.poolAddress, boundedApprovalAmount(amountInUnits, arcRoute.decIn)],
+              args: [arcRoute.poolAddress, exactApprovalAmount(swapAmountInUnits)],
             }),
           })
         }
@@ -606,9 +636,9 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           throw new Error(userOpRes.error || 'The Modular UserOperation swap could not be confirmed on Arc Testnet.')
         }
 
-        // Elevate ceiling upon successful UserOperation
+        // Record what this route actually authorized (no ceiling to elevate).
         if (requiresMscaApprove) {
-          setSpendingCeiling(smartAccount.address, params.tokenIn, mscaCeiling.suggestedCeiling, userOpRes.txHash)
+          recordApprovedAmount(smartAccount.address, params.tokenIn, swapAmountInUnits, arcRoute.decIn, userOpRes.txHash)
         }
 
         // Track 24h pool volume and dispatch reactive event (single FX source: DEFAULT_TOKEN_PRICES)
@@ -659,16 +689,17 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           console.warn('[swapService UCW] Allowance read warning:', readErr)
         }
 
-        const ceilingStatus = checkCeilingStatus(userAddress, params.tokenIn, parseFloat(params.amountIn))
         const requiresApprove = currentAllowance < amountInUnits
 
-        // 2. Request ERC-20 approval via Circle UCW challenge if allowance is insufficient
+        // 2. Request ERC-20 approval via Circle UCW challenge if allowance is insufficient.
+        // The router pulls exactly `amountInUnits` (it forwards the protocol fee itself), so
+        // the challenge authorizes exactly that amount — never a reusable ceiling.
         if (requiresApprove) {
           console.log('[swapService UCW] Insufficient allowance. Initiating approve challenge on ARC-TESTNET...')
           const approveRes = await executeUcwContract({
             contractAddress: arcRoute.tokenInAddr,
             abiFunctionSignature: 'approve(address,uint256)',
-            abiParameters: [routerAddress, boundedApprovalAmount(amountInUnits, arcRoute.decIn).toString()],
+            abiParameters: [routerAddress, exactApprovalAmount(amountInUnits).toString()],
             blockchain: 'ARC-TESTNET',
           })
 
@@ -696,9 +727,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             return { status: 'PENDING', pendingStage: 'approve', sourceTxHash: approveRes.txHash, errorMessage: 'Token approval is awaiting on-chain confirmation.' }
           }
           if (approvalReceipt.status === 'reverted') throw new Error('Token approval reverted on Arc Testnet.')
-          setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling, approveRes.txHash)
-        } else if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
-          setSpendingCeiling(userAddress, params.tokenIn, ceilingStatus.suggestedCeiling)
+          recordApprovedAmount(userAddress, params.tokenIn, amountInUnits, arcRoute.decIn, approveRes.txHash)
         }
 
         if (params.minimumOutput !== undefined) {
@@ -815,16 +844,17 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         )
 
         // Check on-chain allowance against user input amount
-        const ceilingStatus = checkCeilingStatus(account, params.tokenIn, parseFloat(params.amountIn))
         const requiresApprove = currentAllowance < amountInUnits
 
-        // 1. Only prompt for approve if current on-chain allowance is insufficient
+        // 1. Only prompt for approve if current on-chain allowance is insufficient. The router
+        // pulls exactly `amountInUnits`, so the approval authorizes exactly that amount — the
+        // next swap asks for its own approval instead of reusing a standing ceiling.
         if (requiresApprove) {
           const approveTx = await walletClient.writeContract({
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
             functionName: 'approve',
-            args: [routerAddress, boundedApprovalAmount(amountInUnits, arcRoute.decIn)],
+            args: [routerAddress, exactApprovalAmount(amountInUnits)],
             chain: arcTestnet,
             account,
             maxFeePerGas: gasOptions.maxFeePerGas,
@@ -837,11 +867,8 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           if (!approveRes.receipt || approveRes.receipt.transactionHash.toLowerCase() !== approveTx.toLowerCase()) {
             throw new Error('Token approval is not confirmed with a matching receipt; swap was not submitted.')
           }
-          // Elevate approved ceiling so subsequent transactions <= suggestedCeiling skip approval
-          setSpendingCeiling(account, params.tokenIn, ceilingStatus.suggestedCeiling, approveTx)
-        } else if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
-          // On-chain allowance is already sufficient, elevate local ceiling seamlessly
-          setSpendingCeiling(account, params.tokenIn, ceilingStatus.suggestedCeiling)
+          // Record what this route actually authorized (no ceiling to elevate).
+          recordApprovedAmount(account, params.tokenIn, amountInUnits, arcRoute.decIn, approveTx)
         }
 
         if (params.minimumOutput !== undefined) {

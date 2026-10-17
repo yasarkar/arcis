@@ -166,7 +166,9 @@ export async function executeBridge(
     const provider = params.sourceAdapter?.provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
     const rawToken = params.token || 'USDC'
     const tokenToWatch = rawToken.toUpperCase() === 'WETH' ? 'WETH' : rawToken
-    watchArcToken(tokenToWatch, provider).catch(() => {})
+    // Fire-and-forget: adding the token to the wallet's list is a convenience, so the bridge below
+    // proceeds unchanged when the wallet refuses the watch request.
+    watchArcToken(tokenToWatch, provider).catch((err) => log.debug(`Arc token watch for ${tokenToWatch} was not registered; continuing the bridge.`, err))
   }
 
   const observedSteps: Record<string, BridgeStepProgress> = {}

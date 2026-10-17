@@ -23,6 +23,10 @@ import {
   getSessionKeyConfig,
 } from './sessionKeyService'
 import { getLiveTokenPrices, normalizeTokenSymbol, DEFAULT_TOKEN_PRICES } from './tokenPriceService'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: expected non-matching receipt logs are recorded so a real decode failure is visible. */
+const log = logger.createScope('copilotExecutionService')
 
 async function valueTokenAmountUsd(tokenSymbol: string, amount: number): Promise<number> {
   if (!Number.isFinite(amount) || amount <= 0) return 0
@@ -285,7 +289,12 @@ export async function reconcileCopilotReservation(wallet: string, id: string): P
             const event = decodeEventLog({ abi: YIELD_VAULT_ABI, data: log.data, topics: log.topics })
             const args = event.args as any
             return event.eventName === 'Deposit' && String(args.owner).toLowerCase() === wallet.toLowerCase() && BigInt(args.assets) === parseUnits(numberToExactDecimal(Number(data.amount))!, 6) && BigInt(args.shares) > 0n
-          } catch { return false }
+          } catch (err) {
+            // Expected for every log that is not this vault's Deposit event; logged so that a genuine
+            // ABI mismatch shows up as "no log decoded" instead of a silent non-confirmation.
+            log.debug('Receipt log did not decode as a YieldVault deposit event; continuing with the remaining logs.', err)
+            return false
+          }
         })
       }
     }

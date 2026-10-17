@@ -18,6 +18,10 @@ import {
 } from '../config/networks/networkRegistry'
 import { normalizeAppError } from '../utils/errorNormalizer'
 import { watchArcToken } from './tokenAssetService'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: failed probes and fire-and-forget token watches must still be observable. */
+const log = logger.createScope('chainSwitchService')
 
 export { resolveChain }
 
@@ -192,7 +196,11 @@ export async function ensureNetwork(
       if (currentHex && parseInt(String(currentHex), 16) === chain.id) {
         return { success: true, chainId: chain.id }
       }
-    } catch {}
+    } catch (err) {
+      // Best-effort probe: not knowing the current chain only skips the short-circuit, and the
+      // wallet_switchEthereumChain call below still decides the outcome.
+      log.debug('Pre-switch chain probe failed; requesting the switch anyway.', err)
+    }
 
     // Request switch
     try {
@@ -206,7 +214,9 @@ export async function ensureNetwork(
 
       if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
         setTimeout(() => {
-          watchArcToken('USDC', provider).catch(() => {})
+          // Fire-and-forget: the subscription only adds a token to the wallet's list, so a failure
+          // must not affect the successful switch result already being returned.
+          watchArcToken('USDC', provider).catch((err) => log.debug('Arc USDC token watch could not be registered after a successful switch.', err))
         }, 700)
       }
       return { success: true, chainId: chain.id }
@@ -224,7 +234,11 @@ export async function ensureNetwork(
             if (activeHex && parseInt(String(activeHex), 16) === chain.id) {
               return { success: true, chainId: chain.id }
             }
-          } catch {}
+          } catch (err) {
+            // Best-effort poll: a failed read keeps waiting for the remaining attempts, and the
+            // caller still receives the explicit "switch already pending" result afterwards.
+            log.debug('Chain probe failed while waiting for a pending wallet switch; still polling.', err)
+          }
         }
         return {
           success: false,
@@ -267,7 +281,9 @@ export async function ensureNetwork(
 
           if (chain.id === arcActiveChain.id || chain.name.toLowerCase().includes('arc')) {
             setTimeout(() => {
-              watchArcToken('USDC', provider).catch(() => {})
+              // Fire-and-forget: the subscription only adds a token to the wallet's list, so a failure
+          // must not affect the successful switch result already being returned.
+          watchArcToken('USDC', provider).catch((err) => log.debug('Arc USDC token watch could not be registered after a successful switch.', err))
             }, 700)
           }
           return { success: true, chainId: chain.id }

@@ -15,6 +15,8 @@ import {
   type PortfolioSnapshot,
 } from './portfolioContextService'
 import { availableTokenBalance } from '../utils/portfolioPrompt'
+// ARC-025: one owner for the scoped "prepare fully specified commands, never refuse" policy.
+import { COPILOT_EXECUTION_POLICY } from '../utils/copilotExecutionPolicy'
 import { DEFAULT_COPILOT_SLIPPAGE, STORAGE_KEYS } from '../config/constants'
 import {
   canonicalCopilotTokenSymbol,
@@ -432,7 +434,7 @@ ${portfolioText}
 
 CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
 - You act as the user's personal proactive DeFi Strategist.
-- ALWAYS execute explicit user transactional commands (e.g. "send 1 usdc to 0x...", "swap 10 usdc to eurc", "deposit 50 usdc", "bridge 25 usdc") by calling their corresponding tool (execute_send, execute_swap, execute_deposit_yield, execute_bridge). NEVER refuse or block an explicit transactional command with a faucet message; the on-chain execution engine and session key limits will validate the real-time balance.
+- ${COPILOT_EXECUTION_POLICY}
 - When the user asks exploratory questions about their portfolio, balance, what to do with funds, advice, or strategy ("portföyümü analiz et", "ne yapmalıyım", "strateji öner", "portfolio status", "where to get yield"), analyze their exact real-time liquid vs staked vs cross-chain balances from the snapshot above:
   - If the user has idle USDC on Arc Testnet (> $50), recommend depositing the recommended amount (${port.recommendedVaultDeposit.toFixed(2)} USDC) into the Real-Yield Vault (8.42% APY) while keeping sufficient liquidity for gas/swaps, and call execute_deposit_yield.
   - If the user has cross-chain USDC on Circle Gateway, recommend bridging to Arc Testnet for instant sub-second finality, and call execute_bridge.

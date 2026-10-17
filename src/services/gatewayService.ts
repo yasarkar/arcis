@@ -7,7 +7,6 @@ import {
   decodeEventLog,
   erc20Abi,
   getContract,
-  maxUint256,
   parseUnits,
   formatUnits,
   zeroAddress,
@@ -15,7 +14,8 @@ import {
   type TransactionReceipt,
 } from 'viem'
 import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
-import { checkCeilingStatus, setSpendingCeiling } from './spendingCeilingService'
+import { setSpendingCeiling } from './spendingCeilingService'
+import { exactApprovalAmount } from '../utils/approvalUtils'
 import { logger } from '../utils/logger'
 
 /** Scoped logger: gateway diagnostics must not be raw console output in production. */
@@ -427,12 +427,17 @@ export async function depositToGateway(
     gatewayLog.warn(`[Gateway Deposit] Could not read allowance, will attempt approve:`, allowanceErr)
   }
 
-  const ceilingStatus = checkCeilingStatus(address, tokenSymbol, amount)
   const requiresApprove = currentAllowance < amountBaseUnits
 
   if (requiresApprove) {
+    // Exact-amount approval (audit #6/#11): the Gateway Wallet is authorized for
+    // precisely this deposit and nothing more, so no allowance is left standing for a
+    // future (or compromised) call to reuse. USDC has 6 decimals everywhere Gateway
+    // deposits are supported (also asserted above).
+    const approvalAmount = exactApprovalAmount(amountBaseUnits)
+
     gatewayLog.debug(
-      `[Gateway Deposit] Step 1/2: Approving ceiling ${ceilingStatus.suggestedCeiling} ${tokenSymbol} on ${chainKey} (Current Ceiling: ${ceilingStatus.currentCeiling})...`
+      `[Gateway Deposit] Step 1/2: Approving exactly ${amount} ${tokenSymbol} on ${chainKey} (allowance ${approvalAmount.toString()} units)...`
     )
 
     // Calculate safe gas limit for approve
@@ -442,7 +447,7 @@ export async function depositToGateway(
         address: tokenAddress,
         abi: erc20Abi,
         functionName: 'approve',
-        args: [gatewayWallet, maxUint256],
+        args: [gatewayWallet, approvalAmount],
         account: address,
       })
       gasLimit = (estimatedGas * 130n) / 100n // +30% buffer
@@ -456,7 +461,7 @@ export async function depositToGateway(
         address: tokenAddress,
         abi: erc20Abi,
         functionName: 'approve',
-        args: [gatewayWallet, maxUint256],
+        args: [gatewayWallet, approvalAmount],
         chain: chainDef,
         account: address,
         gas: gasLimit,
@@ -472,16 +477,13 @@ export async function depositToGateway(
         throw new Error(approveRes.status === 'reverted' ? 'Token approval reverted on-chain.' : 'Token approval receipt is not confirmed; deposit was not submitted.')
       }
       approvalFee = paidNetworkFeeFromReceipt(approveRes.receipt, chainKey)
-      setSpendingCeiling(address, tokenSymbol, ceilingStatus.suggestedCeiling, approveTxHash)
-      gatewayLog.debug(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}, ceiling recorded: ${ceilingStatus.suggestedCeiling} ${tokenSymbol}`)
+      setSpendingCeiling(address, tokenSymbol, Number(amount), approveTxHash)
+      gatewayLog.debug(`[Gateway Deposit] Approve confirmed in block ${approveRes.blockNumber}, approved amount recorded: ${amount} ${tokenSymbol}`)
     } catch (err: any) {
       gatewayLog.error(`[Gateway Deposit] Approve failed:`, err)
       throw err
     }
   } else {
-    if (ceilingStatus.suggestedCeiling > ceilingStatus.currentCeiling) {
-      setSpendingCeiling(address, tokenSymbol, ceilingStatus.suggestedCeiling)
-    }
     gatewayLog.debug(
       `[Gateway Deposit] Step 1/2 skipped: Allowance already sufficient on-chain (${(Number(currentAllowance) / 1e6).toFixed(2)} >= ${amount} ${tokenSymbol})`
     )

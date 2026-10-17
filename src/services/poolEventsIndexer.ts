@@ -9,6 +9,10 @@ import type { Address, PublicClient } from 'viem'
 import { POOL_CONTRACTS } from '../config/poolsConfig'
 import { getArcPublicClient } from './rpc'
 import { redisCache } from './redisCacheService'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: cached birth-block lookups are optional, but a corrupt/inaccessible cache is not silent. */
+const log = logger.createScope('poolEventsIndexer')
 
 /**
  * Standard pool action event topic signatures:
@@ -107,7 +111,11 @@ export async function discoverContractBirthBlock(client: PublicClient, address: 
           return parsed
         }
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort read: this is a cache hit path, and the live on-chain search below finds the
+      // same answer when storage is unavailable or holds an unparsable value.
+      log.debug('Cached contract birth block could not be read from localStorage; searching on-chain.', err)
+    }
   }
 
   // 2. Check backend Redis
@@ -121,7 +129,10 @@ export async function discoverContractBirthBlock(client: PublicClient, address: 
           return parsed
         }
       }
-    } catch { }
+    } catch (err) {
+      // Best-effort read: Redis is only a warm cache here; the on-chain search below is authoritative.
+      log.debug('Cached contract birth block could not be read from Redis; searching on-chain.', err)
+    }
   }
 
   // 3. Perform live on-chain binary search
@@ -161,7 +172,11 @@ export async function discoverContractBirthBlock(client: PublicClient, address: 
         window.localStorage.setItem(`arcis_birth_block_${norm}`, birthBlock.toString())
       }
       await redisCache.set(`arcis:pools:birth_block:${norm}`, birthBlock.toString(), 86400 * 7)
-    } catch { }
+    } catch (err) {
+      // Cache write only: the discovered block is already cached in memory and returned below, so a
+      // failed persist costs one repeated binary search on a future cold start, never correctness.
+      log.debug('Discovered contract birth block could not be persisted; it stays in the memory cache.', err)
+    }
   }
 
   return birthBlock

@@ -27,6 +27,10 @@ import {
 
 import { arcTestnet, ARC_TOKENS } from '../config/arcChain'
 import { checkPasskeySupport, parsePasskeyError, type ParsedPasskeyError } from '../utils/passkeyErrorUtils'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: a lost passkey credential is user-visible (re-authentication), never silent. */
+const log = logger.createScope('modularWalletService')
 
 // ─────────────────────────────────────────────────────────────
 // 1. CHAIN CONFIGURATION & CONSTANTS
@@ -111,24 +115,46 @@ function getStorageItem(key: string): string | null {
     const item = localStorage.getItem(key)
     if (item) return item
     return null
-  } catch { return null }
+  } catch (err) {
+    // Best-effort read: the in-memory credentialStore is checked first, so storage being blocked
+    // only means a wallet linked in an earlier session must be re-linked in this one.
+    log.debug('Credential store could not be read from localStorage; using the in-memory cache only.', err)
+    return null
+  }
 }
 
 function setStorageItem(key: string, value: string): void {
   credentialStore.set(key, value)
-  try { localStorage.setItem(key, value) } catch { /* quota */ }
+  try {
+    localStorage.setItem(key, value)
+  } catch (err) {
+    // Persistence failed (quota or private mode): the passkey credential/MSCA address survives only
+    // in memory, so after a reload the user must restore the wallet again. Never log the value.
+    log.warn(`Passkey credential could not be persisted under "${key}"; it is kept in memory for this session only.`, err)
+  }
 }
 
 function removeStorageItem(key: string): void {
   credentialStore.delete(key)
-  try { localStorage.removeItem(key) } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(key)
+  } catch (err) {
+    // Best-effort cleanup: the in-memory store was already cleared, so a failed removal only leaves
+    // a stale entry behind that the next successful write overwrites.
+    log.debug(`Stale credential entry "${key}" could not be removed from localStorage.`, err)
+  }
 }
 
 export function getStoredCredential(): P256Credential | null {
   try {
     const raw = getStorageItem(STORAGE_KEYS.CREDENTIAL)
     return raw ? JSON.parse(raw) : null
-  } catch { return null }
+  } catch (err) {
+    // A stored credential that no longer parses is corruption, not a cache miss: the wallet is
+    // reported as unlinked and the user is asked to sign in with the passkey again.
+    log.warn('Stored passkey credential is unreadable; treating the wallet as unlinked.', err)
+    return null
+  }
 }
 
 export function getStoredMscaAddress(): string {

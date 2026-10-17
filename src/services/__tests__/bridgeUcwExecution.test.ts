@@ -260,8 +260,8 @@ describe('bridgeUcwService Multi-Chain CCTP V2 Tests', () => {
       expect(approveCall.blockchain).toBe('BASE-SEPOLIA')
       expect(approveCall.contractAddress).toBe(USDC_ADDRESSES['Base_Sepolia'])
       expect(approveCall.abiFunctionSignature).toBe('approve(address,uint256)')
-      // Audit #11: a bounded ceiling, never an unlimited (uint256 max) allowance.
-      expect(approveCall.abiParameters[1]).toBe((10_000_000n * 10n ** 6n).toString())
+      // Audit #6/#11: exactly the bridged amount (10 USDC, 6 decimals), never a ceiling.
+      expect(approveCall.abiParameters[1]).toBe((10n * 10n ** 6n).toString())
       expect(approveCall.abiParameters[1]).not.toBe((2n ** 256n - 1n).toString())
 
       // Second call: depositForBurnWithHook on Base Sepolia CCTP TokenMessenger

@@ -2,6 +2,10 @@
 import type { SessionKeyConfig, SessionActionType, SessionTimeRemaining } from '../types/sessionKey'
 import { getStoredMscaAddress } from './modularWalletService'
 import { sessionSpendSnapshot } from './sessionSpendLedger'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: falling back to the 'default' session bucket must be visible. */
+const log = logger.createScope('sessionKeyService')
 
 const SESSION_META_STORAGE_PREFIX = 'arcis_session_meta_v3_'
 const LEGACY_STORAGE_KEY = 'arcis_autonomous_session_meta_v2'
@@ -51,7 +55,11 @@ export function getActiveWalletForSession(): string | null {
       const msca = getStoredMscaAddress()
       if (msca && msca.trim()) return msca.trim().toLowerCase()
     }
-  } catch {}
+  } catch (err) {
+    // Best-effort read: without storage this call simply cannot name the active wallet, and the
+    // caller falls back to the 'default' session bucket instead of failing the operation.
+    log.debug('Active session wallet could not be read from storage; using the default session bucket.', err)
+  }
   return null
 }
 

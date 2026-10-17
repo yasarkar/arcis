@@ -1,5 +1,9 @@
 import type { CopilotActionPayload } from '../types/marketplace'
 import type { InlineExecutionReceipt, SessionActionType, SessionKeyConfig } from '../types/sessionKey'
+import { logger } from '../utils/logger'
+
+/** Scoped logger: the in-process queue must keep draining after a failed task. */
+const log = logger.createScope('sessionSpendLedger')
 
 const PREFIX = 'arcis_session_spend_v1_'
 export interface SessionSpendReservation {
@@ -52,7 +56,9 @@ export async function withSessionSpendLock<T>(wallet: string, operation: () => T
   }
   if (typeof window !== 'undefined') throw new Error('Atomic session budget locking is unavailable in this browser; execution is blocked.')
   const previous = queues.get(name) ?? Promise.resolve()
-  const task = previous.catch(() => {}).then(operation)
+  // Best-effort: a previous task's rejection was already reported to its own caller, and swallowing
+  // it here is what keeps the queue draining instead of wedging every later session spend.
+  const task = previous.catch((err) => log.debug('Previous session-budget task failed; continuing the queue.', err)).then(operation)
   queues.set(name, task)
   try { return await task } finally { if (queues.get(name) === task) queues.delete(name) }
 }
