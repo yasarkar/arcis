@@ -8,8 +8,15 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { POOL_VERSION_V4, VAULT_SHARE_DECIMALS, YIELD_VAULT_ABI } from '../../config/poolsConfig'
 
-const usePoolsSource = readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8')
-const copilotSource = readFileSync(new URL('../../services/copilotExecutionService.ts', import.meta.url), 'utf8')
+const usePoolsSource = [
+  readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolDepositService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolWithdrawService.ts', import.meta.url), 'utf8'),
+].join('\n')
+const copilotSource = [
+  readFileSync(new URL('../../services/copilotExecutionService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/copilot/copilotDepositAction.ts', import.meta.url), 'utf8'),
+].join('\n')
 
 describe('H4 — guarded vault entrypoints', () => {
   const callNames = (abi: readonly { name?: string }[]) => abi.map((entry) => entry.name).filter(Boolean)

@@ -6,7 +6,12 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const usePoolsSource = readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8')
+const usePoolsSource = [
+  readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolQueries.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolDepositService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolWithdrawService.ts', import.meta.url), 'utf8'),
+].join('\n')
 const poolCardSource = readFileSync(new URL('../../components/pools/PoolCard.tsx', import.meta.url), 'utf8')
 const heroStatsSource = readFileSync(new URL('../../components/pools/PoolsHeroStats.tsx', import.meta.url), 'utf8')
 

@@ -9,7 +9,10 @@ import { isRealTxHash, resolveUcwTxHash, ucwHashPendingMessage } from '../ucwTxH
 const REAL_HASH = '0x3a49e6949b03368c0950a30f45cd7c0e45ee3a4ff309336986cd96524c1b5bd5'
 
 const ucwSource = readFileSync(new URL('../../hooks/useUserControlledWallet.ts', import.meta.url), 'utf8')
-const poolsSource = readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8')
+const poolsSource = [
+  readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolClaimService.ts', import.meta.url), 'utf8'),
+].join('\n')
 const sendModalSource = readFileSync(new URL('../../components/SendModal.tsx', import.meta.url), 'utf8')
 
 describe('ucwTxHash — no placeholder is ever a transaction hash', () => {

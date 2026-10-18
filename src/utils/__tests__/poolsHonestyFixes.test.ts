@@ -19,7 +19,14 @@ import { measureVaultYieldApy, safeStorage } from '../../hooks/usePoolsData'
 import type { PoolConfig } from '../../config/poolsConfig'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
 
-const usePoolsSource = readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8')
+const usePoolsSource = [
+  readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolQueries.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolDepositService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolWithdrawService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolSwapService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolClaimService.ts', import.meta.url), 'utf8'),
+].join('\n')
 const poolCardSource = readFileSync(new URL('../../components/pools/PoolCard.tsx', import.meta.url), 'utf8')
 
 describe('H1 — Harvest amount is strictly on-chain claimable', () => {

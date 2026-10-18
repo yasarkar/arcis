@@ -117,7 +117,16 @@ describe('ARC-016: no silent catch in app code', () => {
   ]
 
   it.each(auditedPaths)('$file keeps logging the failures it used to swallow', ({ file, minLogs }) => {
-    const source = readFileSync(file, 'utf8')
+    const source = file === 'src/hooks/usePoolsData.ts'
+      ? [
+          readFileSync('src/hooks/usePoolsData.ts', 'utf8'),
+          readFileSync('src/services/pools/poolQueries.ts', 'utf8'),
+          readFileSync('src/services/pools/poolDepositService.ts', 'utf8'),
+          readFileSync('src/services/pools/poolWithdrawService.ts', 'utf8'),
+          readFileSync('src/services/pools/poolSwapService.ts', 'utf8'),
+          readFileSync('src/services/pools/poolClaimService.ts', 'utf8'),
+        ].join('\n')
+      : readFileSync(file, 'utf8')
     const logCalls = source.match(/(?:console\.(?:warn|error|debug)|(?:poolsLog|log)\.(?:warn|error|debug))\(/g) ?? []
     expect(logCalls.length).toBeGreaterThanOrEqual(minLogs)
   })

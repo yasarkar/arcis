@@ -8,8 +8,21 @@ import {
 } from '../../config/poolsConfig'
 
 const poolsConfigSource = readFileSync(new URL('../../config/poolsConfig.ts', import.meta.url), 'utf8')
-const poolsDataSource = readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8')
-const poolModalSource = readFileSync(new URL('../../components/pools/PoolActionModal.tsx', import.meta.url), 'utf8')
+const poolsDataSource = [
+  readFileSync(new URL('../../hooks/usePoolsData.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolQueries.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolDepositService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolWithdrawService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolSwapService.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../services/pools/poolClaimService.ts', import.meta.url), 'utf8'),
+].join('\n')
+const poolModalSource = [
+  readFileSync(new URL('../../components/pools/PoolActionModal.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../components/pools/actions/PoolDepositTab.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../components/pools/actions/PoolSwapTab.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../components/pools/actions/PoolWithdrawTab.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../components/pools/actions/PoolSlippagePanel.tsx', import.meta.url), 'utf8'),
+].join('\n')
 const swapModalSource = readFileSync(new URL('../../components/SwapModal.tsx', import.meta.url), 'utf8')
 
 // Phase 1 remaining items: O3 (slippage cap) and 1.2 (on-chain-only 24h volume).
