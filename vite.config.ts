@@ -188,14 +188,13 @@ export default defineConfig(({ mode }) => {
           'vm',
           'module',
         ],
-        // Audited browser need (P07): `Buffer` is used by the x402 gateway
+        // Audited browser need: `Buffer` is used by the x402 gateway
         // client + WalletConnect/Coinbase paths; `process.env` guards are
-        // spread across config; both stay. `global` has no in-repo consumer
-        // and stays off so the shim isn't injected everywhere.
+        // spread across config; `global` is needed by crypto-browserify/randombytes.
         globals: {
           Buffer: true,
           process: true,
-          global: false,
+          global: true,
         },
       }),
       apiPlugin(),

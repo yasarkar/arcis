@@ -9,6 +9,9 @@
 
 // ── Safe console polyfill (runs on import, wrapped to never throw) ──────────
 try {
+  if (typeof window !== 'undefined' && typeof (window as any).global === 'undefined') {
+    (window as any).global = window
+  }
   if (typeof console !== 'undefined') {
     if (typeof console.warn !== 'function') {
       const fallback = typeof console.error === 'function'
