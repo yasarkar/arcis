@@ -1,5 +1,5 @@
 import React, { Component, type ReactNode } from 'react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { PinnedNetworkIcon } from './PinnedIcons'
 import { getChainIconId } from '../../config/chainMeta'
 import PhrsIcon from '../../assets/Token-Icon/PHRS Token.svg'
 
@@ -167,7 +167,7 @@ export const ChainIcon: React.FC<ChainIconProps> = ({
 
   return (
     <ChainIconErrorBoundary fallback={fallbackElement}>
-      <NetworkIcon
+      <PinnedNetworkIcon
         name={iconId}
         variant={effectiveVariant}
         size={size}

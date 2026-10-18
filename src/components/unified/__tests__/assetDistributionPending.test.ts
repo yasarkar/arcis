@@ -2,13 +2,9 @@
 // The asset breakdown must label pending (not yet indexed) deposits on the chain that
 // received them, and amounts must render with grouped thousands.
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-
-vi.mock('@web3icons/react/dynamic', () => ({
-  NetworkIcon: () => React.createElement('span', { 'data-testid': 'network-icon' }),
-}))
 
 import AssetDistributionList from '../AssetDistributionList'
 

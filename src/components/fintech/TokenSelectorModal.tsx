@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { Search, X, Check, Plus, ArrowLeft, Loader2, AlertCircle, Trash2 } from 'lucide-react'
-import { TokenIcon, NetworkIcon } from '@web3icons/react/dynamic'
+import { PinnedTokenIcon, PinnedNetworkIcon } from '../common/PinnedIcons'
 import { ChainIcon } from '../common/ChainIcon'
 import { formatUnits, erc20Abi, isAddress } from 'viem'
 import { getResilientPublicClient, resilientReadContract } from '../../services/rpc'
@@ -649,13 +649,13 @@ export const TokenSelectorModal: React.FC<TokenSelectorModalProps> = ({
                         ) : t.web3TokenSymbol ? (
                           <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center shrink-0">
                             {t.web3TokenSymbol === 's' || t.web3TokenSymbol === 'sonic' ? (
-                              <NetworkIcon name="sonic" variant="mono" size={24} className="text-white" />
+                              <PinnedNetworkIcon name="sonic" variant="mono" size={24} className="text-white" />
                             ) : t.web3TokenSymbol === 'xpl' || t.web3TokenSymbol === 'plasma' ? (
-                              <TokenIcon symbol="xpl" variant="mono" size={24} className="text-white" />
+                              <PinnedTokenIcon symbol="xpl" variant="mono" size={24} className="text-white" />
                             ) : t.web3TokenSymbol === 'okb' || t.web3TokenSymbol === 'xlayer' || t.web3TokenSymbol === 'x-layer' ? (
-                              <TokenIcon symbol="okb" variant="mono" size={24} className="text-white" />
+                              <PinnedTokenIcon symbol="okb" variant="mono" size={24} className="text-white" />
                             ) : (
-                              <TokenIcon
+                              <PinnedTokenIcon
                                 symbol={t.web3TokenSymbol}
                                 variant="branded"
                                 size={28}

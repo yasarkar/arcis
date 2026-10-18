@@ -1,6 +1,6 @@
 import React from 'react'
 import { ChevronDown } from 'lucide-react'
-import { TokenIcon } from '@web3icons/react/dynamic'
+import { PinnedTokenIcon } from '../common/PinnedIcons'
 import { clampDecimalInput } from '../../utils/swapAmountUtils'
 
 interface AssetInputPanelProps {
@@ -130,14 +130,14 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
             ) : web3TokenSymbol ? (
               <div className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0">
                 {web3TokenSymbol === 'okb' || web3TokenSymbol === 'xlayer' || web3TokenSymbol === 'x-layer' || web3TokenSymbol === 'xpl' || web3TokenSymbol === 'plasma' || web3TokenSymbol === 's' || web3TokenSymbol === 'sonic' ? (
-                  <TokenIcon
+                  <PinnedTokenIcon
                     symbol={web3TokenSymbol === 'plasma' ? 'xpl' : web3TokenSymbol === 'sonic' ? 's' : (web3TokenSymbol === 'xlayer' || web3TokenSymbol === 'x-layer') ? 'okb' : web3TokenSymbol}
                     variant="mono"
                     size={24}
                     className="text-white"
                   />
                 ) : (
-                  <TokenIcon
+                  <PinnedTokenIcon
                     symbol={web3TokenSymbol}
                     variant="branded"
                     size={24}
@@ -161,7 +161,7 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
               <img src={tokenIcon} alt={tokenSymbol} className="w-6 h-6 object-contain rounded-full" />
             ) : web3TokenSymbol ? (
               <div className="w-6 h-6 rounded-full overflow-hidden flex items-center justify-center shrink-0">
-                <TokenIcon
+                <PinnedTokenIcon
                   symbol={web3TokenSymbol}
                   variant="branded"
                   size={24}

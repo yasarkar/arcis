@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ArrowRight, ChevronDown, Check, CheckCircle2, Fingerprint, Droplets } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { PinnedNetworkIcon } from '../common/PinnedIcons'
 
 // Visual Artwork Assets
 import heroTitaniumCardImg from '../../assets/hero/Arcis_Titanium_Card.jpg'
@@ -648,7 +648,7 @@ export default function HomePage({
                             ['--drift-x' as string]: `${drop.drift}px`,
                           }}
                         >
-                          <NetworkIcon name={drop.chain} size={Math.round(drop.size * 0.65)} variant="branded" />
+                          <PinnedNetworkIcon name={drop.chain} size={Math.round(drop.size * 0.65)} variant="branded" />
                         </div>
                       ))}
                     </div>

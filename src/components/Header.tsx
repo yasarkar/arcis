@@ -21,7 +21,7 @@ import {
   LogOut,
   PieChart,
 } from 'lucide-react'
-import { NetworkIcon } from '@web3icons/react/dynamic'
+import { PinnedNetworkIcon } from './common/PinnedIcons'
 import customLogo from '../assets/Arcis-Icon.svg'
 import walletIcon from '../assets/Wallet-Icon.svg'
 import circleTokenIcon from '../assets/Token-Icon/CIRCLE Token.svg'
@@ -540,7 +540,7 @@ function Header({
                 boxShadow: '0 2px 12px rgba(168, 85, 247, 0.25)'
               }}
             >
-              <NetworkIcon name="solana" size={14} variant="branded" />
+              <PinnedNetworkIcon name="solana" size={14} variant="branded" />
               <button
                 type="button"
                 onClick={() => {
@@ -584,7 +584,7 @@ function Header({
                 boxShadow: '0 2px 12px rgba(59, 130, 246, 0.25)'
               }}
             >
-              <NetworkIcon name="injective" size={14} variant="branded" />
+              <PinnedNetworkIcon name="injective" size={14} variant="branded" />
               <button
                 type="button"
                 onClick={() => {
