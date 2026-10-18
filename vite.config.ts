@@ -2,6 +2,7 @@ import { defineConfig, loadEnv, Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
+import { visualizer } from 'rollup-plugin-visualizer'
 import path from 'path'
 import { signInternalClientIpHeaders } from './api/_utils/trustedIp'
 
@@ -146,6 +147,16 @@ function shimMissingConnectorsPlugin(): Plugin {
   }
 }
 
+// P07: emits dist/bundle-stats.html (gitignored) for manual chunk audits.
+// Only wired in when ANALYZE=1, so normal builds pay nothing for it.
+function visualizerReportPlugin(): Plugin {
+  return visualizer({
+    filename: 'dist/bundle-stats.html',
+    gzipSize: true,
+    brotliSize: true,
+  }) as unknown as Plugin
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -157,16 +168,60 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       nodePolyfills({
         protocolImports: false,
+        // P07: exclude server-only core modules so no browser chunk can pull
+        // their shims in. If a dependency ever needs one of these, `vite build`
+        // fails loudly ("externalized for browser compatibility") instead of
+        // silently shipping a stub — the build is the guardrail.
+        exclude: [
+          'fs',
+          'child_process',
+          'cluster',
+          'dgram',
+          'dns',
+          'net',
+          'tls',
+          'http',
+          'https',
+          'zlib',
+          'readline',
+          'repl',
+          'vm',
+          'module',
+        ],
+        // Audited browser need (P07): `Buffer` is used by the x402 gateway
+        // client + WalletConnect/Coinbase paths; `process.env` guards are
+        // spread across config; both stay. `global` has no in-repo consumer
+        // and stays off so the shim isn't injected everywhere.
+        globals: {
+          Buffer: true,
+          process: true,
+          global: false,
+        },
       }),
       apiPlugin(),
       shimMissingConnectorsPlugin(),
+      // P07: bundle visualizer is dev-only and opt-in (`npm run build:analyze`);
+      // it never runs in normal builds or CI.
+      ...(process.env.ANALYZE === '1' ? [visualizerReportPlugin()] : []),
     ],
     resolve: {
       alias: {
         'wagmi/connectors': path.resolve(__dirname, 'src/config/wagmiConnectorsShim.ts'),
       },
+      // P07: single React copy — duplicates break hooks and bloat the bundle.
+      dedupe: ['react', 'react-dom'],
+    },
+    // P07: pre-bundle the always-eager vendor families so dev starts fast and
+    // HMR doesn't re-resolve them per edit.
+    optimizeDeps: {
+      include: ['react', 'react-dom', '@tanstack/react-query'],
     },
     build: {
+      // P07: modern target + esbuild minify; no sourcemaps in prod output.
+      target: 'es2022',
+      minify: 'esbuild',
+      sourcemap: false,
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
           // ARC-027: split only the vendor families that are eagerly needed by the shell and that
@@ -194,6 +249,10 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       open: true,
+      // P07: don't let file churn outside the app trigger dev restarts/HMR.
+      watch: {
+        ignored: ['**/contracts/**', '**/dist/**', '**/docs/**'],
+      },
     },
   }
 })

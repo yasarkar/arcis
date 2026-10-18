@@ -3,6 +3,7 @@
 // Serves static SPA build from dist/ and handles all /api/* backend services
 
 import express, { type Request as ExpRequest, type Response as ExpResponse, type NextFunction } from 'express'
+import compression from 'compression'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
@@ -56,6 +57,10 @@ app.use(cors({
 
 app.use(express.json({ limit: '256kb' }))
 app.use(express.urlencoded({ extended: true, limit: '256kb' }))
+
+// P01: gzip/brotli compression for text assets (JS/CSS/JSON/SVG). Must run
+// before static + API adapters so both benefit; index.html stays short-cached.
+app.use(compression())
 
 // Security Headers Middleware (SEC-09: Centralized complete security policy)
 app.use((_req, res, next) => {
@@ -158,9 +163,18 @@ app.post('/api/vault', adapt(vaultHandler.POST))
 // ─────────────────────────────────────────────────────────────
 // 4. STATIC FRONTEND SPA SERVING
 // ─────────────────────────────────────────────────────────────
-const distPath = path.resolve(__dirname, 'dist')
+// P13: the precompiled Docker bundle runs from dist-server/, so the SPA root
+// is one level up from there. tsx-dev runs server.ts from the repo root.
+// Prefer the sibling layout, fall back to the dev layout.
+const distPath = [path.resolve(__dirname, 'dist'), path.resolve(__dirname, '../dist')].find((candidate) =>
+  fs.existsSync(candidate)
+) ?? path.resolve(__dirname, 'dist')
 
 if (fs.existsSync(distPath)) {
+  // P01: hashed Vite output under /assets/* is content-addressed, so it is
+  // safe to cache immutably for a year. index.html and other entry files
+  // keep the short 1h cache because they reference the hashed names.
+  app.use('/assets', express.static(path.join(distPath, 'assets'), { maxAge: '1y', immutable: true, index: false }))
   app.use(express.static(distPath, { maxAge: '1h', index: false }))
 
   // SPA fallback for HTML5 History API (Handles all remaining non-static requests)

@@ -13,6 +13,7 @@ contracts/.env.*
 
 # Production Build Output
 dist/
+dist-server/
 dist-ssr/
 out/
 contracts/out/

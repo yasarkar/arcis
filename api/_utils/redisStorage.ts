@@ -14,9 +14,31 @@ function getEnv(key: string): string {
   return val.replace(/^["']|["']$/g, '').trim()
 }
 
-// In-memory fallback map for offline resilience
+// In-memory fallback maps for offline resilience (P09: bounded so a long-lived
+// process without Redis cannot grow with traffic; Redis/KV stays authoritative).
 const memoryStore = new Map<string, { value: string; expiresAt?: number }>()
 const memoryCounters = new Map<string, { count: number; expiresAt: number }>()
+
+const MAX_MEMORY_STORE_ENTRIES = 1_000
+const MAX_MEMORY_COUNTER_ENTRIES = 5_000
+
+/** Oldest-first eviction: Map preserves insertion order, so the first key is oldest. */
+function boundedMemorySet<K, V>(store: Map<K, V>, maxEntries: number, key: K, value: V): void {
+  // Re-inserting moves the key to the newest position.
+  if (store.has(key)) store.delete(key)
+  else {
+    while (store.size >= maxEntries) {
+      const oldest = store.keys().next()
+      if (oldest.done) break
+      store.delete(oldest.value)
+    }
+  }
+  store.set(key, value)
+}
+
+function memoryStoreSet(key: string, entry: { value: string; expiresAt?: number }): void {
+  boundedMemorySet(memoryStore, MAX_MEMORY_STORE_ENTRIES, key, entry)
+}
 
 let ioredisClient: any = null
 let ioredisAttempted = false
@@ -147,6 +169,32 @@ export async function kvGet(key: string): Promise<string | null> {
 }
 
 /**
+ * Parallel multi-read (P09): fetches several keys in one round trip where the
+ * driver supports MGET (ioredis), otherwise fans the GETs out concurrently
+ * instead of awaiting them one by one. Order of results matches `keys`.
+ */
+export async function kvMget(keys: string[]): Promise<(string | null)[]> {
+  if (keys.length === 0) return []
+  if (keys.length === 1) return [await kvGet(keys[0])]
+
+  // True server-side MGET when a TCP client is available.
+  try {
+    const client = await getIoredisClient()
+    if (client && ioredisAvailable && typeof client.mget === 'function') {
+      const values = await client.mget(...keys)
+      if (Array.isArray(values) && values.length === keys.length) {
+        return values.map((v: unknown) => (v === null || v === undefined ? null : String(v)))
+      }
+    }
+  } catch (err) {
+    console.warn('[redisStorage] ioredis MGET failed, falling back to parallel GETs:', err)
+  }
+
+  // Upstash REST + memory fallback: concurrent single-key reads (no sequential chain).
+  return Promise.all(keys.map((key) => kvGet(key)))
+}
+
+/**
  * Set a string value in storage with optional TTL in seconds.
  */
 export async function kvSetIfAbsent(
@@ -178,7 +226,7 @@ export async function kvSetIfAbsent(
   if (getEnv('NODE_ENV') === 'production') return 'unavailable'
   const existing = memoryStore.get(key)
   if (existing && (!existing.expiresAt || existing.expiresAt > Date.now())) return 'exists'
-  memoryStore.set(key, { value, expiresAt: Date.now() + exSeconds * 1000 })
+  memoryStoreSet(key, { value, expiresAt: Date.now() + exSeconds * 1000 })
   return 'acquired'
 }
 
@@ -266,8 +314,8 @@ export async function kvCreateProviderSettlementIntent(
     if (item && (!item.expiresAt || item.expiresAt > Date.now())) return 'duplicate'
   }
   const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000
-  memoryStore.set(pendingKey, { value: JSON.stringify(settlement), expiresAt })
-  memoryStore.set(nonceKey, { value: '1', expiresAt })
+  memoryStoreSet(pendingKey, { value: JSON.stringify(settlement), expiresAt })
+  memoryStoreSet(nonceKey, { value: '1', expiresAt })
   return 'created'
 }
 
@@ -309,7 +357,7 @@ export async function kvRejectProviderSettlementIntent(
     if (settlement.status !== 'settling') return 'unavailable'
     settlement.status = 'failed'
     settlement.failureReason = 'Circle facilitator rejected the payment; no provider earnings credited.'
-    memoryStore.set(pendingKey, { value: JSON.stringify(settlement), expiresAt: pendingItem.expiresAt })
+    memoryStoreSet(pendingKey, { value: JSON.stringify(settlement), expiresAt: pendingItem.expiresAt })
     return 'failed'
   } catch { return 'unavailable' }
 }
@@ -371,8 +419,8 @@ export async function kvMarkProviderSettlementAccepted(
   ledger.pendingUsdc = Number((ledger.pendingUsdc + settlement.amountMicros / 1e6).toFixed(6))
   settlement.status = 'pending'
   settlement.settlementRef = settlementRef
-  memoryStore.set(providerKey, { value: JSON.stringify(ledger) })
-  memoryStore.set(pendingKey, { value: JSON.stringify(settlement), expiresAt: pendingItem.expiresAt })
+  memoryStoreSet(providerKey, { value: JSON.stringify(ledger) })
+  memoryStoreSet(pendingKey, { value: JSON.stringify(settlement), expiresAt: pendingItem.expiresAt })
   return 'pending'
 }
 
@@ -489,8 +537,8 @@ export async function kvConfirmPendingProviderSettlement(
   settlement.status = 'confirmed'
   settlement.transferId = transferId
   settlement.chainTxHash = chainTxHash
-  memoryStore.set(providerKey, { value: JSON.stringify(ledger) })
-  memoryStore.set(pendingKey, { value: JSON.stringify(settlement), expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 })
+  memoryStoreSet(providerKey, { value: JSON.stringify(ledger) })
+  memoryStoreSet(pendingKey, { value: JSON.stringify(settlement), expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 })
   return 'confirmed'
 }
 
@@ -562,8 +610,8 @@ export async function kvFailPendingProviderSettlement(
   settlement.status = 'failed'
   settlement.transferId = transferId
   settlement.failureReason = 'Circle Gateway reported failed; no provider earnings credited.'
-  memoryStore.set(providerKey, { value: JSON.stringify(ledger) })
-  memoryStore.set(pendingKey, { value: JSON.stringify(settlement), expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 })
+  memoryStoreSet(providerKey, { value: JSON.stringify(ledger) })
+  memoryStoreSet(pendingKey, { value: JSON.stringify(settlement), expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 })
   return 'failed'
 }
 
@@ -682,8 +730,8 @@ export async function kvUpdateProviderLedger(
     unclaimedEarningsUsdc: Number(((unclaimedMicros + earnedMicros - withdrawMicros) / 1e6).toFixed(6)),
     withdrawnUsdc: Number((ledger.withdrawnUsdc + withdrawMicros / 1e6).toFixed(6)),
   }
-  memoryStore.set(key, { value: JSON.stringify(ledger) })
-  if (idempotencyKey) memoryStore.set(idempotencyKey, { value: '1', expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
+  memoryStoreSet(key, { value: JSON.stringify(ledger) })
+  if (idempotencyKey) memoryStoreSet(idempotencyKey, { value: '1', expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
   return { status: 'updated', ledger }
 }
 
@@ -724,7 +772,7 @@ export async function kvSet(key: string, value: string, exSeconds?: number): Pro
 
   // 3. Always mirror to in-memory store for resilience
   const expiresAt = exSeconds && exSeconds > 0 ? Date.now() + exSeconds * 1000 : undefined
-  memoryStore.set(key, { value, expiresAt })
+  memoryStoreSet(key, { value, expiresAt })
 
   return saved
 }
@@ -859,7 +907,7 @@ export async function kvIncr(
   let entry = memoryCounters.get(key)
   if (!entry || entry.expiresAt <= now) {
     entry = { count: 1, expiresAt: now + expireSeconds * 1000 }
-    memoryCounters.set(key, entry)
+    boundedMemorySet(memoryCounters, MAX_MEMORY_COUNTER_ENTRIES, key, entry)
     return { current: 1, ttl: expireSeconds }
   }
 

@@ -4,17 +4,22 @@
 # ==============================================================================
 
 # Node 22 is required: package.json declares engines.node >=22.12.0.
-# Stage 1: Build Frontend Assets
+# Stage 1: Build Frontend Assets + Precompiled Server Bundle
 FROM node:22-alpine AS builder
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies (devDeps needed for the Vite build + esbuild precompile)
 COPY package*.json ./
 RUN npm ci
 
-# Copy source code and build SPA dist
+# Copy source code, build the SPA dist and precompile the server.
+# Layer order keeps package installs cached across src/api edits.
 COPY . .
 RUN npm run build
+# P13: precompile server.ts (+ api + needed src subtrees) to plain JS so the
+# runner ships no TS toolchain and pays no JIT cost at boot. node_modules stay
+# external and are installed --only=production in the runner.
+RUN npm run build:server
 
 # Stage 2: Production Server Runner
 FROM node:22-alpine AS runner
@@ -27,22 +32,11 @@ ENV PORT=3000
 COPY package*.json ./
 RUN npm ci --only=production
 
-# Install tsx globally or as runtime executor for TypeScript server.ts
-RUN npm install -g tsx
-
-# Copy built frontend assets from builder stage
+# Copy built frontend assets and the precompiled server from builder stage
 COPY --from=builder /app/dist ./dist
-
-# Copy backend api & server files.
-# The API layer imports from several src subtrees (src/config, src/services,
-# src/utils, src/types), so the whole src tree ships — copying only src/config
-# left the container unable to resolve modules at startup.
-COPY api ./api
-COPY server.ts ./
-COPY tsconfig*.json ./
-COPY src ./src
+COPY --from=builder /app/dist-server ./dist-server
 
 EXPOSE 3000
 
-# Run Express server
-CMD ["tsx", "server.ts"]
+# Run the precompiled Express server with plain node (no tsx needed)
+CMD ["node", "dist-server/server.js"]

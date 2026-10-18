@@ -51,6 +51,7 @@ export interface ServerHistoryItem {
 import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
 import {
   kvGet,
+  kvMget,
   kvSet,
   kvDel,
   isStorageAvailable,
@@ -96,13 +97,24 @@ function mergeItemIntoList(
  * GET /api/history
  * Query params:
  *   - address: string (optional, wallet address to filter by)
- *   - limit: number (optional, default 100)
+ *   - limit: number (optional, default 100, max 500)
+ *   - cursor: number (optional, exclusive upper bound on `timestamp`; pages older items)
+ *
+ * P09: per-user key is the primary read; the global blob is only a legacy fallback
+ * for records written before per-user keys existed. Both blobs are fetched
+ * concurrently (single MGET where supported) and only the newest `limit` rows
+ * are serialized, so a large global list is never shipped in full.
  */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
     const address = url.searchParams.get('address')?.toLowerCase()
     const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10)), 500)
+    const cursorRaw = url.searchParams.get('cursor')
+    const cursor = cursorRaw !== null && cursorRaw !== '' ? Number(cursorRaw) : undefined
+    if (cursorRaw !== null && cursorRaw !== '' && !Number.isFinite(cursor)) {
+      return apiError('Invalid cursor parameter.', 'INVALID_CURSOR', 400)
+    }
 
     let items: ServerHistoryItem[] = []
     let source: string = 'memory'
@@ -111,29 +123,22 @@ export async function GET(req: Request) {
 
     if (storageOnline) {
       if (address) {
-        // 1. Try fetching user-specific key
         const userKey = `${REDIS_KEY_USER_PREFIX}${address}`
-        const rawUser = await kvGet(userKey)
-        const userList = parseItems(rawUser)
-
-        const filteredUserList = userList.filter((item) => {
+        // Concurrent fetch: per-user list first-class, global list legacy fallback.
+        const [rawUser, rawAll] = await kvMget([userKey, REDIS_KEY_ALL])
+        const matchesAddress = (item: ServerHistoryItem) => {
           const userMatch = item.userAddress && item.userAddress.toLowerCase() === address
           const recipientMatch = item.recipient && item.recipient.toLowerCase() === address
           return Boolean(userMatch || recipientMatch)
-        })
+        }
+        const userList = parseItems(rawUser).filter(matchesAddress)
 
-        if (filteredUserList.length > 0) {
-          items = filteredUserList
+        if (userList.length > 0) {
+          items = userList
           source = getStorageDriver()
         } else {
-          // 2. Fallback: filter global list
-          const rawAll = await kvGet(REDIS_KEY_ALL)
-          const allList = parseItems(rawAll)
-          items = allList.filter((item) => {
-            const userMatch = item.userAddress && item.userAddress.toLowerCase() === address
-            const recipientMatch = item.recipient && item.recipient.toLowerCase() === address
-            return Boolean(userMatch || recipientMatch)
-          })
+          // Legacy fallback: records written before per-user keys existed.
+          items = parseItems(rawAll).filter(matchesAddress)
           if (items.length > 0) {
             source = getStorageDriver()
           }
@@ -155,11 +160,17 @@ export async function GET(req: Request) {
       source = 'memory'
     }
 
-    // Sort descending by timestamp (newest first)
-    const sorted = items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, limit)
+    // Sort descending by timestamp (newest first), apply cursor, then cap the page.
+    // Cursor is an exclusive timestamp bound: only rows strictly older than the
+    // cursor are returned, so re-requesting with nextCursor never repeats rows.
+    const sorted = items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    const afterCursor = cursor !== undefined ? sorted.filter((item) => (item.timestamp || 0) < cursor) : sorted
+    const page = afterCursor.slice(0, limit)
+    const hasMore = afterCursor.length > page.length
+    const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].timestamp : null
 
     // Security (SEC-04): Strip private memo content for public unauthenticated requests
-    const sanitized = sorted.map((item) => {
+    const sanitized = page.map((item) => {
       if (item.isPrivate) {
         return {
           ...item,
@@ -176,6 +187,8 @@ export async function GET(req: Request) {
       count: sanitized.length,
       transactions: sanitized,
       source,
+      nextCursor,
+      hasMore,
     })
   } catch (error: any) {
     console.error('[History API] GET Error:', error)
@@ -290,37 +303,43 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Persist to Vercel KV / Upstash Redis
+    // 2. Persist to Vercel KV / Upstash Redis (P09: one concurrent read round,
+    // one concurrent write round; caps unchanged: global 500, per-user 300).
     let savedDriver: string = 'memory'
     try {
-      // 2a. Update Global List in KV
-      const rawAll = await kvGet(REDIS_KEY_ALL)
-      const currentAll = parseItems(rawAll)
-      const updatedAll = mergeItemIntoList(currentAll, newItem, 500)
-      const successAll = await kvSet(REDIS_KEY_ALL, JSON.stringify(updatedAll))
-      if (successAll) {
-        savedDriver = getStorageDriver()
-      }
-
-      // 2b. Update User-Specific List in KV
-      if (newItem.userAddress) {
-        const userKey = `${REDIS_KEY_USER_PREFIX}${newItem.userAddress.toLowerCase()}`
-        const rawUser = await kvGet(userKey)
-        const currentUser = parseItems(rawUser)
-        const updatedUser = mergeItemIntoList(currentUser, newItem, 300)
-        await kvSet(userKey, JSON.stringify(updatedUser))
-      }
-
-      // 2c. Update Recipient-Specific List in KV if distinct
-      if (
+      const userKey = newItem.userAddress
+        ? `${REDIS_KEY_USER_PREFIX}${newItem.userAddress.toLowerCase()}`
+        : null
+      const recipKey =
         newItem.recipient &&
         newItem.recipient.toLowerCase() !== newItem.userAddress?.toLowerCase()
-      ) {
-        const recipKey = `${REDIS_KEY_USER_PREFIX}${newItem.recipient.toLowerCase()}`
-        const rawRecip = await kvGet(recipKey)
-        const currentRecip = parseItems(rawRecip)
-        const updatedRecip = mergeItemIntoList(currentRecip, newItem, 300)
-        await kvSet(recipKey, JSON.stringify(updatedRecip))
+          ? `${REDIS_KEY_USER_PREFIX}${newItem.recipient.toLowerCase()}`
+          : null
+      const readKeys = [REDIS_KEY_ALL, ...(userKey ? [userKey] : []), ...(recipKey ? [recipKey] : [])]
+      const [rawAll, rawUser, rawRecip] = await (async () => {
+        const results = await kvMget(readKeys)
+        // Align optional keys: index 0 is always global; user/recipient shift when absent.
+        let offset = 1
+        const user = userKey ? (results[offset++] ?? null) : null
+        const recip = recipKey ? (results[offset++] ?? null) : null
+        return [results[0] ?? null, user, recip] as const
+      })()
+
+      const updatedAll = mergeItemIntoList(parseItems(rawAll), newItem, 500)
+      const writes: Promise<boolean>[] = [kvSet(REDIS_KEY_ALL, JSON.stringify(updatedAll))]
+      if (userKey) {
+        writes.push(
+          kvSet(userKey, JSON.stringify(mergeItemIntoList(parseItems(rawUser), newItem, 300)))
+        )
+      }
+      if (recipKey) {
+        writes.push(
+          kvSet(recipKey, JSON.stringify(mergeItemIntoList(parseItems(rawRecip), newItem, 300)))
+        )
+      }
+      const [successAll] = await Promise.all(writes)
+      if (successAll) {
+        savedDriver = getStorageDriver()
       }
     } catch (storageErr) {
       console.warn('[History API] Failed to persist to remote KV storage, in-memory updated:', storageErr)

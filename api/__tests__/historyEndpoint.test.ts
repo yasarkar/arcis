@@ -115,3 +115,65 @@ describe('/api/history endpoint', () => {
     expect(res.status).toBe(403)
   })
 })
+
+describe('/api/history pagination (P09)', () => {
+  const pageWallet = '0x3333333333333333333333333333333333333333'
+
+  async function saveTx(txHash: string, timestamp: number) {
+    const req = new Request('http://localhost/api/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'send',
+        txHash,
+        amount: '1',
+        tokenSymbol: 'USDC',
+        sourceChain: 'Arc_Testnet',
+        userAddress: pageWallet,
+        timestamp,
+        status: 'success',
+      }),
+    })
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+  }
+
+  it('paginates with limit + cursor without repeating rows', async () => {
+    const base = Date.now()
+    await saveTx('0xaaa1000000000000000000000000000000000000000000000000000000000001', base + 3)
+    await saveTx('0xaaa2000000000000000000000000000000000000000000000000000000000002', base + 2)
+    await saveTx('0xaaa3000000000000000000000000000000000000000000000000000000000003', base + 1)
+
+    const firstReq = new Request(`http://localhost/api/history?address=${pageWallet}&limit=2`, { method: 'GET' })
+    const firstRes = await GET(firstReq)
+    expect(firstRes.status).toBe(200)
+    const first = await firstRes.json()
+    expect(first.success).toBe(true)
+    expect(first.transactions).toHaveLength(2)
+    expect(first.hasMore).toBe(true)
+    expect(typeof first.nextCursor).toBe('number')
+    // Newest first.
+    expect(first.transactions[0].timestamp).toBeGreaterThan(first.transactions[1].timestamp)
+
+    const secondReq = new Request(
+      `http://localhost/api/history?address=${pageWallet}&limit=2&cursor=${first.nextCursor}`,
+      { method: 'GET' }
+    )
+    const secondRes = await GET(secondReq)
+    const second = await secondRes.json()
+    expect(second.success).toBe(true)
+    const firstHashes = new Set(first.transactions.map((t: any) => t.txHash))
+    for (const tx of second.transactions) {
+      expect(firstHashes.has(tx.txHash)).toBe(false)
+      expect(tx.timestamp).toBeLessThan(first.nextCursor)
+    }
+  })
+
+  it('rejects a non-numeric cursor', async () => {
+    const req = new Request(`http://localhost/api/history?address=${pageWallet}&cursor=not-a-number`, { method: 'GET' })
+    const res = await GET(req)
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.code).toBe('INVALID_CURSOR')
+  })
+})
