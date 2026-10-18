@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useAccount, useDisconnect } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUserControlledWallet } from './hooks/useUserControlledWallet'
@@ -12,9 +12,10 @@ import CopilotRobotWidget from './components/copilot/CopilotRobotWidget'
 import { useArcCopilot } from './hooks/useArcCopilot'
 import { useAutoSwitchArcChain } from './hooks/useAutoSwitchArcChain'
 import { BroadcastProvider } from './components/BroadcastNotification'
-import { prefetchGlobalData, prefetchAllWalletData } from './services/prefetchCoordinator'
+import { prefetchGlobalData, prefetchAllWalletData, prefetchEssentialWalletData, prefetchDeferredWalletData } from './services/prefetchCoordinator'
 import { SectionErrorBoundary } from './components/common/GlobalErrorBoundary'
 import { logger } from './utils/logger'
+import type { CopilotUcwHandlers } from './services/copilotExecutionService'
 
 // ARC-027: the tabs, the four modals and both drawers are the heavy half of the app (the swap/bridge
 // tabs alone pull in the CCTP and Gateway SDK surfaces). Each is loaded on demand — a tab when it is
@@ -52,17 +53,100 @@ function AutoChainSwitchWatcher() {
   return null
 }
 
+interface CopilotHostProps {
+  walletAddress: string
+  connectedProvider: any
+  activeAuthSource: 'passkey' | 'ucw' | 'evm' | null
+  ucwAddress: string
+  executeUcwTransfer?: CopilotUcwHandlers['executeUcwTransfer']
+  executeUcwContract?: CopilotUcwHandlers['executeUcwContract']
+  pollUcwChallengeTx?: CopilotUcwHandlers['pollChallengeTx']
+  onNavigateToTab: (tab: string) => void
+}
+
+// P08: the copilot subscription lives here, not in App. Every copilot state
+// update (messages streaming, analyzing ticks, drawer open/close) re-renders
+// only this subtree; the shell (Header/tabs/prefetch effects) stays put.
+function CopilotHost({
+  walletAddress,
+  connectedProvider,
+  activeAuthSource,
+  ucwAddress,
+  executeUcwTransfer,
+  executeUcwContract,
+  pollUcwChallengeTx,
+  onNavigateToTab,
+}: CopilotHostProps) {
+  // Arcis AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
+  // Circle UCW signs via user challenges, so the copilot needs the UCW executors to route
+  // send/swap/deposit/bridge through the active UCW wallet instead of a session key or EOA.
+  const copilot = useArcCopilot(walletAddress, connectedProvider, {
+    authSource: activeAuthSource,
+    executeUcwTransfer,
+    executeUcwContract,
+    // The copilot's UCW bridge resolves its burn hash through this callback
+    // rather than reading the Circle session token from browser storage.
+    pollChallengeTx: pollUcwChallengeTx,
+  })
+
+  return (
+    <>
+      {/* Global Floating Cybernetic Robot Widget (Bottom-Left) */}
+      <CopilotRobotWidget
+        isOpen={copilot.isOpen}
+        onClick={copilot.toggleOpen}
+        isAnalyzing={copilot.isAnalyzing}
+      />
+
+      {/* Arcis AI Copilot Side Drawer */}
+      <SectionErrorBoundary title="Arco AI Copilot is temporarily unavailable">
+        {copilot.isOpen && (
+        <Suspense fallback={null}>
+        <ArcCopilotDrawer
+          isOpen={copilot.isOpen}
+          onClose={() => copilot.setIsOpen(false)}
+          messages={copilot.messages}
+          currentSteps={copilot.currentSteps}
+          isAnalyzing={copilot.isAnalyzing}
+          sessionConfig={copilot.sessionConfig}
+          walletAddress={walletAddress || ucwAddress}
+          onSendMessage={copilot.executeQuery}
+          onClearChat={copilot.clearChat}
+          onActivateSession={copilot.activateSession}
+          onRevokeSession={copilot.revokeSession}
+          onToggleAutoExecute={copilot.toggleAutoExecute}
+          onExecuteInline={copilot.executeInlineAction}
+          onNavigateToTab={(tab) => onNavigateToTab(tab as any)}
+        />
+        </Suspense>
+        )}
+      </SectionErrorBoundary>
+    </>
+  )
+}
+
 export default function App() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'home' | 'unified' | 'pools' | 'send' | 'swap' | 'bridge' | 'ai-services' | 'history'>('home')
   const [chainPrefill, setChainPrefill] = useState<{ chainKey: string; timestamp: number } | null>(null)
 
-  const handleNavigateToTab = (tab: string, chainKey?: string) => {
+  // P08: stable identities for memoized Header/Footer/drawers.
+  const handleNavigateToTab = useCallback((tab: string, chainKey?: string) => {
     if (chainKey) {
       setChainPrefill({ chainKey, timestamp: Date.now() })
     }
     setActiveTab(tab as any)
-  }
+  }, [])
+
+  const handleConnect = useCallback(() => setActiveTab('unified'), [])
+  const handleSelectActiveAuthSource = useCallback(
+    (source: 'passkey' | 'ucw' | 'evm') => setPreferredAuthSource(source),
+    []
+  )
+  const handleOpenCircleAuth = useCallback(() => setIsCircleAuthOpen(true), [])
+  const handleOpenFaucet = useCallback(() => setIsFaucetOpen(true), [])
+  const handleOpenPortfolio = useCallback(() => setIsPortfolioOpen(true), [])
+  const handleTabNavigate = useCallback((tab: string) => setActiveTab(tab as any), [])
   
   // Controlled dev test hook for GlobalErrorBoundary verification (?testCrash=true)
   if (import.meta.env.DEV && typeof window !== 'undefined' && window.location.search.includes('testCrash=true')) {
@@ -73,6 +157,18 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [activeTab])
+
+  // P10: pause infinite decorative animations while the tab is hidden so
+  // background polling doesn't burn GPU/CTU on invisible frames. Resuming is
+  // automatic — `animation-play-state` keeps each animation's position.
+  useEffect(() => {
+    const root = typeof document !== 'undefined' ? document.documentElement : null
+    if (!root) return
+    const sync = () => root.classList.toggle('tab-hidden', document.hidden)
+    sync()
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [])
   
   const { address, isConnected, connector } = useAccount()
   const { disconnect } = useDisconnect()
@@ -138,24 +234,22 @@ export default function App() {
   // Dynamic Active Wallet Resolution (Passkey vs UCW vs EVM)
   const [preferredAuthSource, setPreferredAuthSource] = useState<'passkey' | 'ucw' | 'evm' | null>(null)
 
-  // Auto-sync preferred auth source when connection state changes
+  // P08: single auto-sync for the preferred auth source (was three separate
+  // effects). Only a *newly established* connection updates the preference,
+  // so a manual selection via the Header switcher is never fought on unrelated
+  // re-renders. When several sources connect on one tick the legacy effect
+  // order (evm → passkey → ucw) decided; the sequential sets below keep that.
+  const prevConnRef = useRef({ evm: false, passkey: false, ucw: false })
   useEffect(() => {
-    if (isConnected && address) {
-      setPreferredAuthSource('evm')
-    }
-  }, [isConnected, address])
-
-  useEffect(() => {
-    if (isPasskeyConnected && mscaAddress) {
-      setPreferredAuthSource('passkey')
-    }
-  }, [isPasskeyConnected, mscaAddress])
-
-  useEffect(() => {
-    if (isUcwConnected && ucwAddress) {
-      setPreferredAuthSource('ucw')
-    }
-  }, [isUcwConnected, ucwAddress])
+    const prev = prevConnRef.current
+    const nowEvm = Boolean(isConnected && address)
+    const nowPasskey = Boolean(isPasskeyConnected && mscaAddress)
+    const nowUcw = Boolean(isUcwConnected && ucwAddress)
+    if (nowEvm && !prev.evm) setPreferredAuthSource('evm')
+    if (nowPasskey && !prev.passkey) setPreferredAuthSource('passkey')
+    if (nowUcw && !prev.ucw) setPreferredAuthSource('ucw')
+    prevConnRef.current = { evm: nowEvm, passkey: nowPasskey, ucw: nowUcw }
+  }, [isConnected, address, isPasskeyConnected, mscaAddress, isUcwConnected, ucwAddress])
 
   // Compute effective active auth source based on active connection states
   const activeAuthSource = (() => {
@@ -181,8 +275,18 @@ export default function App() {
 
   const walletConnected = Boolean(walletAddress)
 
-  // Central refresh helper for all balances (Gateway + Wallet Testnets), pools, and history
-  const refreshBalances = () => {
+  // P06: leading-edge throttle for the central refresh. A single tx success can
+  // fan out here from several sources on the same tick (modal onSuccess plus
+  // hook-level refetches); the first call sweeps immediately so balances never
+  // look stale, repeats within the window are dropped.
+  const lastRefreshAtRef = useRef(0)
+  const REFRESH_THROTTLE_MS = 750
+  // P08: stable identity so memoized children (Header/Footer/modals) don't
+  // re-render just because the shell did.
+  const refreshBalances = useCallback(() => {
+    const now = Date.now()
+    if (now - lastRefreshAtRef.current < REFRESH_THROTTLE_MS) return
+    lastRefreshAtRef.current = now
     queryClient.invalidateQueries({ queryKey: ['gatewayBalances'] })
     queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances'] })
     queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
@@ -193,7 +297,7 @@ export default function App() {
         log.debug('Wallet data prefetch failed; panels will fetch on demand:', err)
       })
     }
-  }
+  }, [queryClient, walletAddress])
 
   // Eager background prefetch for global pool metrics (TVL, 24h Vol, Vaults) and token prices on app launch
   useEffect(() => {
@@ -202,12 +306,37 @@ export default function App() {
     })
   }, [queryClient])
 
-  // Background prefetch all wallet data (Gateway, Testnets, Pools, History, Portfolio snapshot) as soon as wallet connects or changes
+  // P06: split connect-time prefetch into essential-first + idle-deferred.
+  // Gateway + USDC-subset balances warm immediately (interactive balances);
+  // the full record, pool positions, history, and portfolio snapshot follow
+  // when the browser is idle. Panels self-fetch on mount, so deferring only
+  // costs warm-up latency, never correctness.
   useEffect(() => {
-    if (walletAddress && walletAddress.trim()) {
-      prefetchAllWalletData(queryClient, walletAddress).catch((err) => {
-        console.warn('[App] Background wallet prefetch failed:', err)
+    if (!walletAddress || !walletAddress.trim()) return
+    const address = walletAddress
+    prefetchEssentialWalletData(queryClient, address).catch((err) => {
+      console.warn('[App] Background essential prefetch failed:', err)
+    })
+
+    let idleHandle: number | null = null
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+    const runDeferred = () => {
+      idleHandle = null
+      fallbackTimer = null
+      prefetchDeferredWalletData(queryClient, address).catch((err) => {
+        console.warn('[App] Background deferred prefetch failed:', err)
       })
+    }
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      idleHandle = window.requestIdleCallback(runDeferred, { timeout: 3000 })
+    } else {
+      fallbackTimer = setTimeout(runDeferred, 2000)
+    }
+    return () => {
+      if (idleHandle !== null && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleHandle)
+      }
+      if (fallbackTimer !== null) clearTimeout(fallbackTimer)
     }
   }, [walletAddress, queryClient])
 
@@ -228,8 +357,8 @@ export default function App() {
     prevAddressRef.current = walletAddress
   }, [walletConnected, walletAddress])
 
-  // Connect / Disconnect Wallet handler
-  const handleDisconnectAll = () => {
+  // Connect / Disconnect Wallet handler (P08: stable identity for memoized Header)
+  const handleDisconnectAll = useCallback(() => {
     if (isPasskeyConnected) {
       disconnectPasskey()
     }
@@ -241,27 +370,31 @@ export default function App() {
     }
     setPreferredAuthSource(null)
     clearAllAppInputs()
-  }
+  }, [isPasskeyConnected, disconnectPasskey, isUcwConnected, disconnectUcw, isConnected, disconnect])
 
-  // Arcis AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
-  // Circle UCW signs via user challenges, so the copilot needs the UCW executors to route
-  // send/swap/deposit/bridge through the active UCW wallet instead of a session key or EOA.
-  const copilot = useArcCopilot(walletAddress, connectedProvider, {
-    authSource: activeAuthSource,
-    executeUcwTransfer,
-    executeUcwContract,
-    // The copilot's UCW bridge resolves its burn hash through this callback
-    // rather than reading the Circle session token from browser storage.
-    pollChallengeTx: pollUcwChallengeTx,
-  })
+  // P08: single-destination disconnects (stable identity for memoized Header).
+  // Declared after the wallet hooks — they close over the disconnect fns.
+  const handleDisconnectUcwOnly = useCallback(() => {
+    disconnectUcw()
+    clearAllAppInputs()
+  }, [disconnectUcw])
+  const handleDisconnectPasskeyOnly = useCallback(() => {
+    disconnectPasskey()
+    clearAllAppInputs()
+  }, [disconnectPasskey])
 
   return (
     <BroadcastProvider>
       <AutoChainSwitchWatcher />
       <div className="min-h-screen flex flex-col selection:bg-indigo-500/30 overflow-x-hidden w-full max-w-full relative">
-        {/* Background ambient light */}
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-brand-primary/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
-        <div className="absolute top-0 right-1/4 w-96 h-96 bg-brand-secondary/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
+        {/* Background ambient light (P10: home tab only — the two 120px-blur
+            orbs cost a compositor layer on every tab; identity unchanged on home) */}
+        {activeTab === 'home' && (
+          <>
+            <div className="ambient-orb absolute top-0 left-1/4 w-96 h-96 bg-brand-primary/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
+            <div className="ambient-orb absolute top-0 right-1/4 w-96 h-96 bg-brand-secondary/10 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
+          </>
+        )}
 
         {/* Header */}
         <Header
@@ -269,26 +402,20 @@ export default function App() {
           setActiveTab={setActiveTab}
           walletConnected={walletConnected}
           walletAddress={walletAddress}
-          onConnect={() => setActiveTab('unified')}
+          onConnect={handleConnect}
           onDisconnect={handleDisconnectAll}
           isPasskeyConnected={isPasskeyConnected}
           mscaAddress={mscaAddress}
           isUcwConnected={isUcwConnected}
           ucwAddress={ucwAddress}
           activeAuthSource={activeAuthSource}
-          onSelectActiveAuthSource={(source) => setPreferredAuthSource(source)}
-          onOpenCircleAuth={() => setIsCircleAuthOpen(true)}
-          onDisconnectUcw={() => {
-            disconnectUcw()
-            clearAllAppInputs()
-          }}
-          onDisconnectPasskey={() => {
-            disconnectPasskey()
-            clearAllAppInputs()
-          }}
-          onOpenFaucet={() => setIsFaucetOpen(true)}
+          onSelectActiveAuthSource={handleSelectActiveAuthSource}
+          onOpenCircleAuth={handleOpenCircleAuth}
+          onDisconnectUcw={handleDisconnectUcwOnly}
+          onDisconnectPasskey={handleDisconnectPasskeyOnly}
+          onOpenFaucet={handleOpenFaucet}
           isRestoring={isModularRestoring}
-          onOpenPortfolio={() => setIsPortfolioOpen(true)}
+          onOpenPortfolio={handleOpenPortfolio}
         />
 
         {/* Main Container */}
@@ -308,9 +435,9 @@ export default function App() {
             {/* Arcis Homepage / Overview Tab */}
             {activeTab === 'home' && (
               <HomePage
-                onNavigate={(tab) => setActiveTab(tab)}
-                onOpenCircleAuth={() => setIsCircleAuthOpen(true)}
-                onOpenFaucet={() => setIsFaucetOpen(true)}
+                onNavigate={handleTabNavigate}
+                onOpenCircleAuth={handleOpenCircleAuth}
+                onOpenFaucet={handleOpenFaucet}
                 walletConnected={walletConnected}
                 walletAddress={walletAddress}
               />
@@ -351,7 +478,7 @@ export default function App() {
                   walletConnected={walletConnected}
                   provider={connectedProvider}
                   authSource={activeAuthSource}
-                  onNavigate={(tab) => setActiveTab(tab as any)}
+                  onNavigate={handleTabNavigate}
                 />
               </div>
             )}
@@ -369,9 +496,7 @@ export default function App() {
                   initialChainKey={chainPrefill?.chainKey}
                   initialChainNonce={chainPrefill?.timestamp}
                   executeUcwTransfer={executeUcwTransfer}
-                  onSuccess={() => {
-                    refreshBalances()
-                  }}
+                  onSuccess={refreshBalances}
                 />
               </div>
             )}
@@ -390,9 +515,7 @@ export default function App() {
                   initialChainKey={chainPrefill?.chainKey}
                   initialChainNonce={chainPrefill?.timestamp}
                   executeUcwContract={executeUcwContract}
-                  onSuccess={() => {
-                    refreshBalances()
-                  }}
+                  onSuccess={refreshBalances}
                 />
               </div>
             )}
@@ -413,9 +536,7 @@ export default function App() {
                   executeUcwContract={executeUcwContract}
                   signTypedData={executeUcwSignTypedData}
                   resolveUcwChallengeTx={pollUcwChallengeTx}
-                  onSuccess={() => {
-                    refreshBalances()
-                  }}
+                  onSuccess={refreshBalances}
                 />
               </div>
             )}
@@ -432,41 +553,21 @@ export default function App() {
           </SectionErrorBoundary>
         </main>
 
-        {/* Global Floating Cybernetic Robot Widget (Bottom-Left) */}
-        <CopilotRobotWidget
-          isOpen={copilot.isOpen}
-          onClick={copilot.toggleOpen}
-          isAnalyzing={copilot.isAnalyzing}
+        <CopilotHost
+          walletAddress={walletAddress}
+          connectedProvider={connectedProvider}
+          activeAuthSource={activeAuthSource}
+          ucwAddress={ucwAddress}
+          executeUcwTransfer={executeUcwTransfer}
+          executeUcwContract={executeUcwContract}
+          pollUcwChallengeTx={pollUcwChallengeTx}
+          onNavigateToTab={handleNavigateToTab}
         />
-
-        {/* Arcis AI Copilot Side Drawer */}
-        <SectionErrorBoundary title="Arco AI Copilot is temporarily unavailable">
-          {copilot.isOpen && (
-          <Suspense fallback={null}>
-          <ArcCopilotDrawer
-            isOpen={copilot.isOpen}
-            onClose={() => copilot.setIsOpen(false)}
-            messages={copilot.messages}
-            currentSteps={copilot.currentSteps}
-            isAnalyzing={copilot.isAnalyzing}
-            sessionConfig={copilot.sessionConfig}
-            walletAddress={walletAddress || ucwAddress}
-            onSendMessage={copilot.executeQuery}
-            onClearChat={copilot.clearChat}
-            onActivateSession={copilot.activateSession}
-            onRevokeSession={copilot.revokeSession}
-            onToggleAutoExecute={copilot.toggleAutoExecute}
-            onExecuteInline={copilot.executeInlineAction}
-            onNavigateToTab={(tab) => setActiveTab(tab as any)}
-          />
-          </Suspense>
-          )}
-        </SectionErrorBoundary>
 
         {/* Global Professional Footer */}
         <Footer
-          onNavigate={(tab) => setActiveTab(tab)}
-          onOpenFaucet={() => setIsFaucetOpen(true)}
+          onNavigate={handleTabNavigate}
+          onOpenFaucet={handleOpenFaucet}
         />
 
         {/* Circle User-Controlled Wallets & Passkey Auth Modal */}
@@ -518,8 +619,8 @@ export default function App() {
           onClose={() => setIsPortfolioOpen(false)}
           walletAddress={walletAddress || ucwAddress || ''}
           authSource={activeAuthSource}
-          onNavigateToTab={(tab, chainKey) => handleNavigateToTab(tab, chainKey)}
-          onOpenFaucet={() => setIsFaucetOpen(true)}
+          onNavigateToTab={handleNavigateToTab}
+          onOpenFaucet={handleOpenFaucet}
         />
         </Suspense>
         )}
