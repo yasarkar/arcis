@@ -33,6 +33,24 @@ export function getArcPublicClient(): PublicClient {
   return getCentralArcPublicClient()
 }
 
+/**
+ * Cost of `gasLimit` gas on Arc L1, in USDC — Arc's native gas token, 18 decimals.
+ * A `getGasPrice` failure still has a protocol answer (the 20 Gwei floor), so only
+ * an unexpected read/format failure returns null. Never returns a made-up fee.
+ */
+export async function estimateArcGasCostUsdc(
+  gasLimit: bigint = ARC_GAS_LIMITS.contractInteraction
+): Promise<number | null> {
+  try {
+    const client = getArcPublicClient()
+    const gasPrice = await client.getGasPrice().catch(() => ARC_MIN_BASE_FEE_FLOOR)
+    const effectiveFee = gasPrice > 0n ? gasPrice : ARC_MIN_BASE_FEE_FLOOR
+    return Number(parseFloat(formatUnits(gasLimit * effectiveFee, 18)).toFixed(6))
+  } catch {
+    return null
+  }
+}
+
 // ── Header extra_data Predictive Base Fee Extraction ─────────────────────────
 /**
  * Extracts the next block's base fee from the parent header's extra_data field.

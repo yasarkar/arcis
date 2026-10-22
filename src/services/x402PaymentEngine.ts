@@ -2,11 +2,17 @@
 // Legacy direct-transfer settlement helper, not the x402 paid-service client.
 // Paid service execution is handled by paymentOrchestrator and fails closed without facilitator confirmation.
 
-import { getAddress, createWalletClient, custom, type Address, type Hex } from 'viem'
+import { getAddress, type Address } from 'viem'
 import type { x402Service, x402PaymentChallenge } from '../types/marketplace'
 import { arcTestnet } from '../config/arcChain'
-import { X402_AUTHORIZATION_DOMAIN, PROVIDER_LEDGER_TYPES } from '../config/x402/authorization'
 import { getStoredMscaAddress } from './modularWalletService'
+import {
+  providerSignerErrorMessage,
+  resolveProviderSigner,
+  signProviderLedgerAuthorization,
+  type ProviderAuthSource,
+} from './x402/providerAuthorization'
+import type { UcwTypedDataChallenge } from './ucwChallengeSigner'
 
 const PROVIDER_EARNINGS_STORAGE_KEY = 'arcis_x402_provider_earnings_v2'
 const YIELD_VAULT_CONTRIBUTIONS_KEY = 'arcis_yield_vault_ai_share_v2'
@@ -92,13 +98,28 @@ export async function fetchCanonicalProviderLedger(providerAddress: string): Pro
     if (res.ok) {
       const data = await res.json()
       if (data.ledger) {
-        // Sync local cache for fast offline rendering
+        // Sync local cache for fast offline rendering.
+        //
+        // The provider ledger is wallet-wide and the server returns it with `services: []` on
+        // purpose (per-service dimensions are not stored atomically yet). Summing those empty rows
+        // used to overwrite a provider's real figures with zero, so the wallet-wide totals are read
+        // directly and a response that omits them keeps whatever was already cached.
         const earnings = getStoredProviderEarnings()
         const lower = providerAddress.toLowerCase()
+        const previous = earnings[lower]
+        const serverCalls = Number(data.ledger.totalCallsServed)
+        const serverEarned = Number(data.ledger.totalUsdcEarned)
+        const serverUnclaimed = Number(data.ledger.availableUsdc)
         earnings[lower] = {
-          totalCallsServed: data.ledger.services.reduce((acc: number, s: any) => acc + s.callsServed, 0),
-          totalUsdcEarned: data.ledger.services.reduce((acc: number, s: any) => acc + s.grossUsdc, 0),
-          unclaimedEarningsUsdc: data.ledger.availableUsdc,
+          totalCallsServed: Number.isFinite(serverCalls)
+            ? serverCalls
+            : (previous?.totalCallsServed ?? 0),
+          totalUsdcEarned: Number.isFinite(serverEarned)
+            ? serverEarned
+            : (previous?.totalUsdcEarned ?? 0),
+          unclaimedEarningsUsdc: Number.isFinite(serverUnclaimed)
+            ? serverUnclaimed
+            : (previous?.unclaimedEarningsUsdc ?? 0),
         }
         saveStoredProviderEarnings(earnings)
         return data.ledger
@@ -111,35 +132,34 @@ export async function fetchCanonicalProviderLedger(providerAddress: string): Pro
 }
 
 /**
- * Non-custodial cryptographic withdrawal of provider earnings via /api/x402/withdraw (ADR-005)
+ * Non-custodial cryptographic withdrawal of provider earnings via /api/x402/withdraw (ADR-005).
+ *
+ * The signer is chosen by `resolveProviderSigner`, so an injected EOA and a Circle UCW EOA sign
+ * the same `ProviderLedgerAuthorization`. Omitting `options` keeps the injected-provider path.
  */
 export async function withdrawProviderEarningsApi(
   providerAddress: string,
   amountUsdc: number,
-  signerProvider?: any
+  signerProvider?: any,
+  options?: { authSource?: ProviderAuthSource; ucwSignTypedData?: UcwTypedDataChallenge }
 ): Promise<{ success: boolean; txHash?: string; error?: string }> {
   try {
-    const nonce = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('')}` as Hex
-    const deadline = Math.floor(Date.now() / 1000) + 5 * 60
-    const effective = signerProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null)
-    if (!effective) return { success: false, error: 'Connect the provider wallet to authorize this ledger operation.' }
-
-    const walletClient = createWalletClient({
-      account: providerAddress as `0x${string}`,
-      chain: arcTestnet,
-      transport: custom(effective),
+    const resolved = resolveProviderSigner({
+      // No auth source keeps the historical injected-provider behavior for existing callers.
+      authSource: options?.authSource ?? 'evm',
+      walletAddress: providerAddress,
+      provider: signerProvider,
+      ucwSignTypedData: options?.ucwSignTypedData,
+      memo: `Arcis provider withdrawal: ${amountUsdc} USDC`,
     })
-    const signature = await walletClient.signTypedData({
-      account: providerAddress as `0x${string}`,
-      domain: X402_AUTHORIZATION_DOMAIN,
-      types: PROVIDER_LEDGER_TYPES,
-      primaryType: 'ProviderLedgerAuthorization',
-      message: {
-        providerAddress: providerAddress as `0x${string}`,
-        amountMicros: BigInt(Math.round(amountUsdc * 1_000_000)),
-        nonce,
-        deadline: BigInt(deadline),
-      },
+    if (!resolved.ok) {
+      return { success: false, error: providerSignerErrorMessage(resolved.reason) }
+    }
+
+    const { nonce, deadline, signature } = await signProviderLedgerAuthorization({
+      providerAddress,
+      amountUsdc,
+      signTypedData: resolved.signer,
     })
 
     const res = await fetch('/api/x402/withdraw', {

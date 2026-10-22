@@ -1,7 +1,9 @@
 import type { x402Service, x402ExecutionResult, x402PaymentChallenge } from '../types/marketplace'
 import type { X402ExecutionReceipt } from '../types/x402'
+import type { X402PayerKind, X402TypedDataSigner } from './x402/paymentOrchestrator'
 import { arcTestnet } from '../config/arcChain'
 import { serviceTelemetryService } from './serviceTelemetryService'
+import { summarizeX402Failure } from '../utils/x402FailureDiagnosis'
 
 // Session Key & Budget state stored in memory / localStorage
 const SESSION_BUDGET_KEY = 'arcis_x402_session_budget'
@@ -114,25 +116,31 @@ export function isSuccessfulX402ServiceResult(
 /**
  * Execute an x402 call for a given service and input payload.
  * Paid data requires facilitator acceptance; provider accounting stays pending until reconciliation.
+ *
+ * `ucwSigner` is required when `payerKind` is `ucw_eoa`: a Circle Wallet cannot expose an
+ * EIP-1193 provider, so its Circle challenge signature is supplied explicitly.
  */
 export async function executeX402Call(
   service: x402Service,
   inputPayload: Record<string, any>,
   payerAddress?: string,
   provider?: any,
-  payerKind: 'session_eoa' | 'external_eoa' = 'external_eoa'
+  payerKind: X402PayerKind = 'external_eoa',
+  ucwSigner?: X402TypedDataSigner
 ): Promise<x402ExecutionResult> {
   const startTime = performance.now()
 
   const price = service.pricing.priceUsdc
 
   // A browser-local session budget is informational only; it is neither an on-chain
-  // authorization nor a reliable cap for an explicitly signed external-EOA payment.
-  // Only a wallet explicitly resolved as an external EOA can sign Gateway nanopayments.
+  // authorization nor a reliable cap for an explicitly signed EOA payment.
+  // Only EOA key holders (injected wallet or Circle Wallet EOAs) can sign Gateway nanopayments.
   const res = await executePaidCall({
     manifest: service,
     payload: inputPayload,
-    payer: payerAddress ? { kind: payerKind, address: payerAddress as `0x${string}` } : undefined,
+    payer: payerAddress
+      ? { kind: payerKind, address: payerAddress as `0x${string}`, signTypedData: ucwSigner }
+      : undefined,
     walletAddress: payerAddress as `0x${string}`,
     provider,
   })
@@ -140,14 +148,20 @@ export async function executeX402Call(
   // This local preference is not a payment authority/accounting ledger; Gateway pending
   // acceptance must not be presented as a finalized debit or autonomous session spend.
 
-  // Record live telemetry for execution
-  serviceTelemetryService.recordExecution(service.id, res.executionTimeMs, res.success)
+  // Record live telemetry for execution, including why a voided call returned nothing: the
+  // catalog card reads this so the reason is visible without opening the playground.
+  serviceTelemetryService.recordExecution(
+    service.id,
+    res.executionTimeMs,
+    res.success,
+    res.success ? null : summarizeX402Failure(res)
+  )
 
   const challenge: x402PaymentChallenge | undefined = res.requirements ? {
     statusCode: 402,
     paymentRequired: true,
     token: 'USDC',
-    recipient: service.provider.address,
+    recipient: res.requirements?.accepts?.[0]?.payTo ?? service.provider.address,
     amountUsdc: price,
     amountUnits: (price * 1e6).toString(),
     scheme: service.accepts[0]?.scheme || 'exact',

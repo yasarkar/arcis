@@ -3,7 +3,7 @@
 // input is answered with an explicit UNAVAILABLE, and no invented figure, score, calldata,
 // liquidation or settlement value can reach a caller.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ACTIVE_GATEWAY_CONTRACTS } from '../../config/gatewayConfig'
@@ -12,6 +12,13 @@ import { arbitrageSentinelManifest } from '../../config/x402/manifests/arbitrage
 import { slippageOptimizerManifest } from '../../config/x402/manifests/slippageOptimizer'
 import { mevShieldManifest } from '../../config/x402/manifests/mevShield'
 import { flashLoanRadarManifest } from '../../config/x402/manifests/flashLoanRadar'
+import { gatewayRouteScoutManifest } from '../../config/x402/manifests/gatewayRouteScout'
+import { vaultAnalyticsManifest } from '../../config/x402/manifests/vaultAnalytics'
+import { portfolioRiskManifest } from '../../config/x402/manifests/portfolioRisk'
+import { portfolioAnalystManifest } from '../../config/x402/manifests/portfolioAnalyst'
+import { vaultYieldReportManifest } from '../../config/x402/manifests/vaultYieldReport'
+import { ARC_TESTNET_TOKENS } from '../../config/arcChain'
+import { POOL_CONTRACTS } from '../../config/poolsConfig'
 import { generateLiveServiceData } from '../aiServicesDataProvider'
 import { getSwapEstimate } from '../swapService'
 import { hasAcceptedX402Payment, hasVerifiedX402Settlement, isServiceDataAvailable, isSuccessfulX402ServiceResult } from '../x402Client'
@@ -23,17 +30,63 @@ const state = vi.hoisted(() => ({
   client: null as any,
   prices: {} as Record<string, number>,
   reserves: { reserveA: 0n, reserveB: 0n } as { reserveA: bigint; reserveB: bigint } | null,
-  vaultAssets: 0n,
+  vaultAssets: 0n as bigint | null,
+  vaultSupply: 0n as bigint | null,
+  vaultShares: 0n as bigint | null,
+  vaultPrincipal: 0n as bigint | null,
+  vaultPending: 0n as bigint | null,
+  vaultRedeem: 0n as bigint | null,
+  balances: {} as Record<string, bigint>,
+  nativeBalances: {} as Record<string, bigint>,
+  balanceFails: false,
+  cctpQuote: null as {
+    finalityThreshold: number
+    minimumFeeBps: number
+    forwardFeeSubunits: bigint
+  } | null,
+  gatewayBalances: null as { token: string; balances: Array<{ domain: number; depositor: string; balance: string }> } | null,
 }))
+
+beforeEach(() => {
+  state.nativeBalances = {}
+  state.balanceFails = false
+})
 
 vi.mock('../rpc', () => ({
   getArcPublicClient: () => state.client,
+  getResilientPublicClient: (chainKey?: string) => ({ ...state.client, chainKey }),
+  resilientGetBalance: vi.fn(async (client: any) => {
+    if (state.balanceFails) throw new Error('arc rpc unavailable')
+    const key = client?.chainKey || ''
+    return state.nativeBalances[key] ?? state.nativeBalances['default'] ?? 0n
+  }),
   resilientReadContract: vi.fn(async (_client: unknown, params: any) => {
-    if (state.reserves === null) throw new Error('arc rpc unavailable')
-    if (params.functionName === 'reserveA') return state.reserves.reserveA
-    if (params.functionName === 'reserveB') return state.reserves.reserveB
+    if (params.functionName === 'reserveA' || params.functionName === 'reserveB') {
+      if (state.reserves === null) throw new Error('arc rpc unavailable')
+      return params.functionName === 'reserveA' ? state.reserves.reserveA : state.reserves.reserveB
+    }
     if (params.functionName === 'totalAssets') return state.vaultAssets
+    if (params.functionName === 'totalSupply') return state.vaultSupply
+    if (params.functionName === 'balanceOf') {
+      if (params.address === POOL_CONTRACTS.YIELD_VAULT) return state.vaultShares
+      if (state.balanceFails) throw new Error('arc rpc unavailable')
+      return state.balances[String(params.address).toLowerCase()] ?? 0n
+    }
+    if (params.functionName === 'principalAssets') return state.vaultPrincipal
+    if (params.functionName === 'pendingYield') return state.vaultPending
+    if (params.functionName === 'previewRedeem') return state.vaultRedeem
     return 0n
+  }),
+}))
+
+vi.mock('../bridgeUcwService', () => ({
+  fetchCctpForwardQuote: vi.fn(async () => state.cctpQuote),
+}))
+
+vi.mock('../gatewayService', () => ({
+  getGatewayBalances: vi.fn(async () => {
+    if (!state.gatewayBalances) throw new Error('gateway api unavailable')
+    return state.gatewayBalances
   }),
 }))
 
@@ -44,12 +97,29 @@ vi.mock('../tokenPriceService', () => ({
 
 vi.mock('../swapService', () => ({
   getSwapEstimate: vi.fn(),
+  // The depth read must resolve the pool the quote came from, so only pairs with a
+  // StableSwap pool resolve here; anything else returns null and no depth figure.
+  resolveArcNativeRoute: vi.fn((tokenIn: string, tokenOut: string) => {
+    const pair = [String(tokenIn).toUpperCase(), String(tokenOut).toUpperCase()].sort().join('/')
+    if (pair === 'EURC/USDC') {
+      return { poolAddress: '0x00000000000000000000000000000000000000d1', isStable: true }
+    }
+    return null
+  }),
 }))
 
 const MINTER = String(ACTIVE_GATEWAY_CONTRACTS.gatewayMinter).toLowerCase()
 const WALLET = String(ACTIVE_GATEWAY_CONTRACTS.gatewayWallet).toLowerCase()
 
 const usdc = (amount: number) => BigInt(Math.round(amount * 1e6))
+
+// Every payload carries `timestamp: Date.now()`, and a 13-digit epoch can contain a forbidden
+// figure by accident (a "2500" inside 17...2500...). Structural checks must not depend on the
+// clock, so the timestamp is dropped before the payload is scanned for invented numbers.
+function withoutTimestamp(data: Record<string, any>): Record<string, any> {
+  const { timestamp: _timestamp, ...rest } = data
+  return rest
+}
 
 interface FakeFlow {
   inflow?: Array<{ sourceDomain: number; value: bigint }>
@@ -104,12 +174,40 @@ function makeClient(flow: FakeFlow = {}) {
   }
 }
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+})
+
+function stubLlmNarrative(narrative = {
+  headline: 'Stablecoin-heavy portfolio with one dominant holding',
+  observations: ['Most measured value sits in stablecoins.', 'One holding dominates the total.'],
+  risks: ['A single asset drives most of the exposure.'],
+}) {
+  vi.stubEnv('OPENROUTER_API_KEY', 'sk-testserverkey0123456789')
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify(narrative) } }],
+    usage: { prompt_tokens: 140, completion_tokens: 55 },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
 beforeEach(() => {
   invalidateGatewayFlowCache()
   state.client = makeClient()
   state.prices = {}
   state.reserves = { reserveA: 0n, reserveB: 0n }
   state.vaultAssets = 0n
+  state.vaultSupply = 0n
+  state.vaultShares = 0n
+  state.vaultPrincipal = 0n
+  state.vaultPending = 0n
+  state.vaultRedeem = 0n
+  state.balances = {}
+  state.balanceFails = false
+  state.cctpQuote = null
+  state.gatewayBalances = null
   vi.mocked(getSwapEstimate).mockReset()
 })
 
@@ -207,7 +305,7 @@ describe('generateLiveServiceData — Cross-Chain Gateway Flow Indexer', () => {
     ])
     expect(actionablePayload?.badgeText).toContain('+$3,000 USDC')
 
-    const serialized = JSON.stringify(data)
+    const serialized = JSON.stringify(withoutTimestamp(data))
     expect(serialized).not.toMatch(/142500|4820500|STRONG_BULLISH|FEED_ACTIVE/)
   })
 
@@ -229,7 +327,7 @@ describe('generateLiveServiceData — Cross-Chain Gateway Flow Indexer', () => {
     expect(data.window).toBeNull()
     expect(data.error).toContain('arc rpc unavailable')
     expect(actionablePayload?.badgeText).toBe('Gateway flow data unavailable')
-    expect(JSON.stringify(data)).not.toMatch(/142500|4820500|STRONG_BULLISH|FEED_ACTIVE/)
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/142500|4820500|STRONG_BULLISH|FEED_ACTIVE/)
   })
 
   it('reads the window the caller paid for and falls back to 1h for an unknown window', async () => {
@@ -272,7 +370,23 @@ describe('generateLiveServiceData — arbitrage sentinel', () => {
     expect(data.bestRoute).not.toHaveProperty('executionCalldataHex')
     expect(data).not.toHaveProperty('mempoolRisk')
     expect(data).not.toHaveProperty('secondaryOpportunities')
-    expect(JSON.stringify(data)).not.toMatch(/0\.994|LOW_MEV_THREAT|0x522faf9a/)
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/0\.994|LOW_MEV_THREAT|0x522faf9a/)
+  })
+
+  it('keeps a non-USDC pair out of the USDC-notional spread', async () => {
+    state.prices = { EURC: 1.1, WETH: 3000 }
+    state.reserves = { reserveA: usdc(500_000), reserveB: 100n * 10n ** 18n }
+
+    const { data } = await generateLiveServiceData(arbitrageSentinelManifest, {
+      pair: 'EURC/WETH',
+      tradeSizeUsdc: 25_000,
+    })
+
+    // The spread, trade size and profit are all USDC-denominated, so a pool with no USDC
+    // side stays out of this service; MEV Shield is the surface that values it.
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.unavailable).toContain('active Arc L1 DEX pool for requested pair')
+    expect(data.bestRoute).toBeUndefined()
   })
 
   it('returns UNAVAILABLE with no spread when the reserves cannot be read', async () => {
@@ -289,7 +403,7 @@ describe('generateLiveServiceData — arbitrage sentinel', () => {
     expect(data.onChainReserves).toBeNull()
     expect(data.bestRoute).toBeUndefined()
     expect(actionablePayload?.badgeText).toContain('unavailable')
-    expect(JSON.stringify(data)).not.toMatch(/confidenceScore|netProfitUsdc|executionCalldataHex/)
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/confidenceScore|netProfitUsdc|executionCalldataHex/)
   })
 
   it('returns UNAVAILABLE when the oracle has no quote for the pair', async () => {
@@ -304,7 +418,11 @@ describe('generateLiveServiceData — arbitrage sentinel', () => {
     expect(data.status).toBe('UNAVAILABLE')
     expect(data.unavailable).toContain('external oracle price for the pair')
     expect(data.liveOraclePrices).toEqual({ USDC: null, EURC: null })
-    expect(JSON.stringify(data)).not.toMatch(/1\.08|2500|78500/)
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/1\.08|2500|78500/)
+    // The clock must not be able to poison that scan: an epoch containing "2500" still passes.
+    expect(
+      JSON.stringify(withoutTimestamp({ ...data, timestamp: 1792250025000 }))
+    ).not.toMatch(/1\.08|2500|78500/)
   })
 })
 
@@ -324,7 +442,49 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data).not.toHaveProperty('splitExecutionDistribution')
     expect(data).not.toHaveProperty('settlementTimeEstimateMs')
     expect(actionablePayload?.badgeText).toContain('unavailable')
-    expect(JSON.stringify(data)).not.toMatch(/0\.924|0\.042|243_000|0\.0065/)
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/0\.924|0\.042|243_000|0\.0065/)
+  })
+
+  it('reports the depth of the pool it quoted, not the StableSwap pool for every pair', async () => {
+    state.prices = { USDC: 1, EURC: 1.1 }
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: usdc(900_000) }
+    vi.mocked(getSwapEstimate).mockResolvedValue({
+      estimatedOutput: '909090.909091',
+      rate: '0.909091',
+      stopLimit: '900000',
+      fees: [],
+    } as any)
+
+    const { data } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'USDC',
+      toToken: 'EURC',
+      amount: 50_000,
+    })
+
+    expect(data.status).toBe('ROUTE_OPTIMIZED')
+    expect(data.flashReserveDepthUsdc).toBe(1_000_000)
+    expect(data.depthPool).toBe('0x00000000000000000000000000000000000000d1')
+  })
+
+  it('reports no depth when the quoted pair has no resolvable pool', async () => {
+    state.prices = { USDC: 1, WETH: 3000 }
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: usdc(900_000) }
+    vi.mocked(getSwapEstimate).mockResolvedValue({
+      estimatedOutput: '16.666667',
+      rate: '0.000333',
+      stopLimit: '16.5',
+      fees: [],
+    } as any)
+
+    const { data } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'USDC',
+      toToken: 'WETH',
+      amount: 50_000,
+    })
+
+    expect(data.status).toBe('ROUTE_OPTIMIZED')
+    expect(data.flashReserveDepthUsdc).toBeNull()
+    expect(data.depthPool).toBeNull()
   })
 
   it('reports the real trade-to-reserve exposure without invented bot counts or scores', async () => {
@@ -338,12 +498,23 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.status).toBe('ANALYSIS_COMPLETE')
     expect(data.vulnerabilityLevel).toBe('HIGH_IF_UNPROTECTED')
     expect(data.tradeReserveExposurePct).toBe(10)
+    expect(data.pair).toBe('USDC/EURC')
+    // No tokenIn was sent, so the pair's first leg (the USDC side) is the sold side.
+    expect(data.tokenIn).toBe('USDC')
+    expect(data.tokenOut).toBe('EURC')
+    expect(data.poolReserveBasis).toBe('usdc-side')
+    expect(data.poolAddress).toBe(POOL_CONTRACTS.STABLE_SWAP_POOL)
+    expect(data.poolReserveUsdc).toBe(1_000_000)
     // The suggested slippage is the user's own number, not a hidden 0.08 policy cap.
     expect(data.recommendedShieldAction.adjustedMaxSlippagePct).toBe(0.5)
+    // The service is advisory: it submits no bundle, relay or transaction protection.
+    expect(data.recommendedShieldAction.advisoryOnly).toBe(true)
+    expect(data.recommendedShieldAction.bundleType).toContain('Advisory')
+    expect(data.recommendedShieldAction).not.toHaveProperty('relayerSubmissionUrl')
     expect(data).not.toHaveProperty('detectedActiveMevBotsCount')
     expect(data).not.toHaveProperty('potentialLossWithoutShieldUsdc')
     expect(data.recommendedShieldAction).not.toHaveProperty('mevProtectionScore')
-    expect(JSON.stringify(data)).not.toMatch(/0\.72|100% SECURE/)
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/0\.72|100% SECURE/)
   })
 
   it('reports an unavailable MEV exposure instead of a default 5% when reserves fail', async () => {
@@ -357,6 +528,188 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.tradeReserveExposurePct).toBeNull()
     expect(data.vulnerabilityLevel).toBeNull()
     expect(data.unavailable).toContain('on-chain pool reserve depth')
+    expect(data.poolAddress).toBe(POOL_CONTRACTS.STABLE_SWAP_POOL)
+  })
+
+  it('measures exposure against the pool of the requested pair, not StableSwap', async () => {
+    state.reserves = { reserveA: usdc(2_000_000), reserveB: 0n }
+
+    const { data } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'USDC/WETH',
+      targetTxAmountUsdc: 100_000,
+      slippageTolerancePct: 0.5,
+    })
+
+    expect(data.status).toBe('ANALYSIS_COMPLETE')
+    expect(data.pair).toBe('USDC/WETH')
+    expect(data.poolAddress).toBe(POOL_CONTRACTS.WETH_POOL)
+    expect(data.poolReserveUsdc).toBe(2_000_000)
+    expect(data.tradeReserveExposurePct).toBe(5)
+    expect(data.vulnerabilityLevel).toBe('LOW_RISK')
+    expect(data.poolAddress).not.toBe(POOL_CONTRACTS.STABLE_SWAP_POOL)
+  })
+
+  it('defaults the sold side to the pair’s first leg and needs only that token’s price', async () => {
+    // EURC 500,000 × $1.10 = $550,000. The EURC side is what the trade drains, so $55,000 is
+    // 10% of it. No WETH quote is needed: the WETH reserve is not the measured side.
+    state.prices = { EURC: 1.1 }
+    state.reserves = { reserveA: usdc(500_000), reserveB: 100n * 10n ** 18n }
+
+    const { data, actionablePayload } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'EURC/WETH',
+      targetTxAmountUsdc: 55_000,
+      slippageTolerancePct: 0.5,
+    })
+
+    expect(data.status).toBe('ANALYSIS_COMPLETE')
+    expect(data.pair).toBe('EURC/WETH')
+    expect(data.tokenIn).toBe('EURC')
+    expect(data.tokenOut).toBe('WETH')
+    expect(data.poolAddress).toBe(POOL_CONTRACTS.EURC_WETH_POOL)
+    expect(data.poolReserves).toEqual({ EURC: 500_000, WETH: 100 })
+    expect(data.poolReserveBasis).toBe('token-in-side')
+    expect(data.poolReserveUsdc).toBe(550_000)
+    expect(data.usdcValuationPrices).toEqual({ EURC: 1.1 })
+    expect(data.tradeReserveExposurePct).toBe(10)
+    expect(data.vulnerabilityLevel).toBe('HIGH_IF_UNPROTECTED')
+    expect(actionablePayload?.badgeText).toContain('EURC reserve')
+    expect(actionablePayload?.badgeText).toContain('valued in USDC')
+
+    // 'pair-first' — what the form sends when the direction is left on Auto — is the same
+    // direction as omitting the field, and neither is echo'ed back as a pseudo-token.
+    const explicitAuto = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'EURC/WETH',
+      tokenIn: 'pair-first',
+      targetTxAmountUsdc: 55_000,
+      slippageTolerancePct: 0.5,
+    })
+    expect(explicitAuto.data.status).toBe('ANALYSIS_COMPLETE')
+    expect(explicitAuto.data.tokenIn).toBe('EURC')
+    expect(explicitAuto.data.poolReserveUsdc).toBe(data.poolReserveUsdc)
+    expect(explicitAuto.data.tradeReserveExposurePct).toBe(data.tradeReserveExposurePct)
+  })
+
+  it('measures a WETH sale into EURC/WETH against the WETH reserve, not the EURC one', async () => {
+    // WETH 100 × $3,000 = $300,000. Selling WETH drains that side, so $30,000 is 10% — the
+    // same trade would be 5.45% of the EURC side, which is not the market it moves.
+    state.prices = { WETH: 3000 }
+    state.reserves = { reserveA: usdc(500_000), reserveB: 100n * 10n ** 18n }
+
+    const { data } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'EURC/WETH',
+      tokenIn: 'WETH',
+      targetTxAmountUsdc: 30_000,
+      slippageTolerancePct: 0.5,
+    })
+
+    expect(data.status).toBe('ANALYSIS_COMPLETE')
+    expect(data.tokenIn).toBe('WETH')
+    expect(data.tokenOut).toBe('EURC')
+    expect(data.poolReserveBasis).toBe('token-in-side')
+    expect(data.poolReserveUsdc).toBe(300_000)
+    expect(data.usdcValuationPrices).toEqual({ WETH: 3000 })
+    expect(data.tradeReserveExposurePct).toBe(10)
+  })
+
+  it('measures a non-USDC sale into a USDC pool against that token’s reserve', async () => {
+    // USDC/WETH pool: 2,000,000 USDC and 100 WETH ($300,000). Selling WETH makes the WETH
+    // side the measured side, so $100,000 is one third of it.
+    state.prices = { WETH: 3000 }
+    state.reserves = { reserveA: usdc(2_000_000), reserveB: 100n * 10n ** 18n }
+
+    const { data } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'USDC/WETH',
+      tokenIn: 'WETH',
+      targetTxAmountUsdc: 100_000,
+    })
+
+    expect(data.status).toBe('ANALYSIS_COMPLETE')
+    expect(data.poolAddress).toBe(POOL_CONTRACTS.WETH_POOL)
+    expect(data.tokenIn).toBe('WETH')
+    expect(data.tokenOut).toBe('USDC')
+    expect(data.poolReserveBasis).toBe('token-in-side')
+    expect(data.poolReserveUsdc).toBe(300_000)
+    expect(data.tradeReserveExposurePct).toBe(33.33)
+    expect(data.vulnerabilityLevel).toBe('HIGH_IF_UNPROTECTED')
+  })
+
+  it('refuses a direction the selected pool does not hold instead of measuring another side', async () => {
+    state.prices = { USDC: 1, EURC: 1.1, WETH: 3000 }
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: usdc(900_000) }
+
+    const { data, actionablePayload } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'USDC/EURC',
+      tokenIn: 'WETH',
+      targetTxAmountUsdc: 100_000,
+      slippageTolerancePct: 0.5,
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.tokenIn).toBe('WETH')
+    expect(data.tokenOut).toBeNull()
+    expect(data.poolReserveUsdc).toBeNull()
+    expect(data.tradeReserveExposurePct).toBeNull()
+    expect(data.vulnerabilityLevel).toBeNull()
+    expect(data.unavailable).toContain('tokenIn WETH as a side of the USDC/EURC pool')
+    expect(data.reason).toContain('expected USDC or EURC')
+    expect(actionablePayload?.badgeText).toContain('unavailable')
+  })
+
+  it('refuses to value the sold side without its live price', async () => {
+    state.prices = { EURC: 1.1 } // no WETH quote: no dollar figure may be derived from a default
+    state.reserves = { reserveA: usdc(500_000), reserveB: 100n * 10n ** 18n }
+
+    const { data, actionablePayload } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'EURC/WETH',
+      tokenIn: 'WETH',
+      targetTxAmountUsdc: 30_000,
+      slippageTolerancePct: 0.5,
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.poolAddress).toBe(POOL_CONTRACTS.EURC_WETH_POOL)
+    expect(data.poolReserveUsdc).toBeNull()
+    expect(data.tradeReserveExposurePct).toBeNull()
+    expect(data.vulnerabilityLevel).toBeNull()
+    expect(data.unavailable).toContain('oracle price for WETH to value the pool in USDC')
+    expect(data.reason).toContain('EURC/WETH')
+    expect(data).not.toHaveProperty('usdcValuationPrices')
+    expect(actionablePayload?.badgeText).toContain('unavailable')
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/3000|2500|550000|300000/)
+  })
+
+  it('reports an unreadable EURC/WETH reserve instead of a substituted depth', async () => {
+    state.prices = { EURC: 1.1, WETH: 3000 }
+    state.reserves = null
+
+    const { data } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'EURC/WETH',
+      targetTxAmountUsdc: 30_000,
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.poolAddress).toBe(POOL_CONTRACTS.EURC_WETH_POOL)
+    expect(data.poolReserveUsdc).toBeNull()
+    expect(data.poolReserves).toBeNull()
+    expect(data.unavailable).toContain('on-chain pool reserve depth')
+  })
+
+  it('refuses a pair with no Arc pool instead of falling back to StableSwap', async () => {
+    state.prices = { USDC: 1, EURC: 1.1 }
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: usdc(900_000) }
+
+    const { data, actionablePayload } = await generateLiveServiceData(mevShieldManifest, {
+      pair: 'EURC/cirBTC',
+      targetTxAmountUsdc: 100_000,
+      slippageTolerancePct: 0.5,
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.poolAddress).toBeNull()
+    expect(data.poolReserveUsdc).toBeNull()
+    expect(data.unavailable).toContain('active Arc L1 DEX pool for requested pair')
+    expect(data.reason).toContain('EURC/cirBTC')
+    expect(actionablePayload?.badgeText).toContain('unavailable')
   })
 
   it('returns no liquidation opportunity at all, and never a fabricated one', async () => {
@@ -371,7 +724,357 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.activeOpportunitiesCount).toBeNull()
     expect(data.opportunities).toEqual([])
     expect(data.unavailable).toContain('liquidation opportunity feed')
-    expect(JSON.stringify(data)).not.toMatch(/borrowerAddress|healthFactor|executableTxPayload|liquidationBonusPct/)
+    expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/borrowerAddress|healthFactor|executableTxPayload|liquidationBonusPct/)
+  })
+})
+
+describe('generateLiveServiceData — gateway fee & route scout', () => {
+  it('prices both rails from their real sources and recommends the cheaper one', async () => {
+    state.cctpQuote = { finalityThreshold: 2000, minimumFeeBps: 1, forwardFeeSubunits: 50_000n }
+
+    const { data, actionablePayload } = await generateLiveServiceData(gatewayRouteScoutManifest, {
+      amountUsdc: 100,
+      destinationChain: 'Base_Sepolia',
+      urgency: 'standard',
+    })
+
+    expect(data.status).toBe('QUOTE_READY')
+    expect(data.destinationDomain).toBe(6)
+    expect(data.gateway.feeUsdc).toBe(0.005) // 0.005% of 100 USDC
+    expect(data.cctp.feeUsdc).toBe(0.06) // 1 bps protocol + 0.05 forwarding
+    expect(data.cctp.sourceGasUsdc).toBe(0.0024) // 120k gas at the 20 Gwei floor
+    expect(data.recommendedRail).toBe('gateway')
+    expect(data.savingsUsdc).toBe(0.0574)
+    expect(data.estimatedArrivalMs).toBeNull()
+    expect(actionablePayload?.badgeText).toContain('saves')
+  })
+
+  it('keeps the CCTP side null when Circle does not quote the route', async () => {
+    state.cctpQuote = null
+
+    const { data, actionablePayload } = await generateLiveServiceData(gatewayRouteScoutManifest, {
+      amountUsdc: 500,
+      destinationChain: 'Ethereum_Sepolia',
+      urgency: 'fast',
+    })
+
+    expect(data.status).toBe('PARTIAL')
+    expect(data.cctp.available).toBe(false)
+    expect(data.cctp.feeUsdc).toBeNull()
+    expect(data.cctp.totalCostUsdc).toBeNull()
+    expect(data.gateway.feeUsdc).toBe(0.025)
+    expect(data.recommendedRail).toBe('gateway')
+    expect(data.savingsUsdc).toBeNull()
+    expect(data.unavailable).toContain('CCTP protocol and forwarding fee')
+    expect(actionablePayload?.badgeText).toContain('partially quoted')
+  })
+
+  it('refuses to quote an unknown destination chain instead of guessing a route', async () => {
+    const { data } = await generateLiveServiceData(gatewayRouteScoutManifest, {
+      amountUsdc: 100,
+      destinationChain: 'Not_A_Chain',
+      urgency: 'standard',
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.destinationDomain).toBeNull()
+    expect(data.recommendedRail).toBeNull()
+    expect(data.gateway.feeUsdc).toBeNull()
+    expect(data.cctp.feeUsdc).toBeNull()
+    expect(data.reason).toContain('not a Circle Gateway destination')
+  })
+})
+
+describe('generateLiveServiceData — vault analytics', () => {
+  it('derives TVL and share price from totalAssets and totalSupply', async () => {
+    state.vaultAssets = 1_234_567_890n // 1,234.567890 USDC
+    state.vaultSupply = 1_000_000_000_000n // 1,000 shares at 9 decimals
+
+    const { data, actionablePayload } = await generateLiveServiceData(vaultAnalyticsManifest, {
+      windowDays: '30',
+    })
+
+    expect(data.status).toBe('VAULT_READ')
+    expect(data.windowDays).toBe(30)
+    expect(data.tvlUsdc).toBe(1234.56789)
+    expect(data.sharePriceUsdc).toBe(1.234568)
+    expect(data.totalSupplyShares).toBe('1000')
+    expect(data.shareDecimals).toBe(9)
+    expect(actionablePayload?.badgeText).toContain('1 share =')
+
+    expect(data.report.kind).toBe('VAULT_ANALYTICS')
+    expect(data.report.coverage.state).toBe('COMPLETE')
+    expect(data.report.dataQuality.grade).toBe('A')
+    expect(data.report.riskRegister.map((entry: any) => entry.id)).toContain('NO_HISTORICAL_SERIES')
+  })
+
+  it('does not compute a share price when the vault has no shares', async () => {
+    state.vaultAssets = 0n
+    state.vaultSupply = 0n
+
+    const { data } = await generateLiveServiceData(vaultAnalyticsManifest, { windowDays: '7' })
+
+    expect(data.status).toBe('VAULT_EMPTY')
+    expect(data.sharePriceUsdc).toBeNull()
+    expect(data.tvlUsdc).toBe(0)
+  })
+
+  it('reports UNAVAILABLE rather than a zero when totalAssets cannot be read', async () => {
+    state.vaultAssets = null
+    state.vaultSupply = 1_000_000_000_000n
+
+    const { data } = await generateLiveServiceData(vaultAnalyticsManifest, { windowDays: '90' })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.totalAssetsUsdc).toBeNull()
+    expect(data.sharePriceUsdc).toBeNull()
+    expect(data.tvlUsdc).toBeNull()
+    expect(data.unavailable).toContain('vault totalAssets()')
+    expect(data.report.coverage.state).toBe('PARTIAL')
+    expect(data.report.riskRegister.map((entry: any) => entry.id)).toContain('VAULT_READ_FAILED')
+  })
+})
+
+describe('generateLiveServiceData — portfolio risk & exposure', () => {
+  const USDC = ARC_TESTNET_TOKENS.USDC.toLowerCase()
+  const EURC = ARC_TESTNET_TOKENS.EURC.toLowerCase()
+
+  it('reports measured exposure, concentration and stablecoin share', async () => {
+    state.prices = { USDC: 1, EURC: 1.1 }
+    state.balances = { [USDC]: 500_000_000n, [EURC]: 100_000_000n }
+    state.gatewayBalances = {
+      token: 'USDC',
+      balances: [{ domain: 6, depositor: '0x0000000000000000000000000000000000000001', balance: '250' }],
+    }
+
+    const { data } = await generateLiveServiceData(portfolioRiskManifest, {
+      address: '0x0000000000000000000000000000000000000001',
+      includeGatewayBalance: true,
+    })
+
+    expect(data.status).toBe('PORTFOLIO_ANALYZED')
+    expect(data.totalUsd).toBe(860) // 500 + 110 + 250 Gateway
+    expect(data.gatewayBalanceUsdc).toBe(250)
+    expect(data.concentrationPct).toBe(87.209302)
+    expect(data.stablecoinSharePct).toBe(100)
+    expect(data.chainExposure).toHaveLength(2)
+    expect(data.riskFlags).toContain('HIGH_CONCENTRATION')
+
+    // Institutional envelope: the same measurement is graded, not just flagged.
+    expect(data.report.kind).toBe('PORTFOLIO_EXPOSURE')
+    expect(data.report.coverage.state).toBe('COMPLETE')
+    expect(data.report.dataQuality.grade).toBe('A')
+    const concentration = data.report.riskRegister.find(
+      (entry: any) => entry.id === 'HIGH_CONCENTRATION'
+    )
+    expect(concentration.severity).toBe('HIGH') // 87.2% is above the 75% HIGH band
+    expect(concentration.evidence.concentrationPct).toBe(87.209302)
+    expect(concentration.threshold).toContain('50%')
+  })
+
+  it('withholds the total when a balance read fails instead of treating it as zero', async () => {
+    state.balanceFails = true
+
+    const { data } = await generateLiveServiceData(portfolioRiskManifest, {
+      address: '0x0000000000000000000000000000000000000001',
+      includeGatewayBalance: false,
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.totalUsd).toBeNull()
+    expect(data.concentrationPct).toBeNull()
+    expect(data.holdings.every((holding: any) => holding.balance === null)).toBe(true)
+    expect(data.unavailable).toContain('USDC wallet balance')
+    expect(data.reason).toContain('no holding could be read')
+
+    // A total withheld for unread balances is graded as unreadable, not as an empty portfolio.
+    expect(data.report.coverage.state).toBe('INSUFFICIENT')
+    expect(data.report.dataQuality.grade).toBe('UNRATED')
+    expect(data.report.riskRegister.map((entry: any) => entry.id)).toContain('BALANCE_READ_FAILED')
+  })
+
+  it('keeps the measured token side when the requested Gateway balance is unavailable', async () => {
+    state.prices = { USDC: 1 }
+    state.balances = { [USDC]: 500_000_000n }
+    state.gatewayBalances = null
+
+    const { data } = await generateLiveServiceData(portfolioRiskManifest, {
+      address: '0x0000000000000000000000000000000000000001',
+      includeGatewayBalance: true,
+    })
+
+    expect(data.status).toBe('PARTIAL')
+    expect(data.totalUsd).toBeNull()
+    expect(data.gatewayBalanceUsdc).toBeNull()
+    expect(data.holdings[0].balance).toBe(500)
+    expect(data.riskFlags).toContain('GATEWAY_BALANCE_UNAVAILABLE')
+  })
+
+  it('measures multi-chain native holdings (ETH, POL, AVAX, SEI, S) and includes them in assets and chain exposure', async () => {
+    state.prices = { USDC: 1, ETH: 2500, POL: 0.5 }
+    state.balances = { [USDC]: 100_000_000n } // 100 USDC on Arc
+    state.nativeBalances = {
+      Ethereum_Sepolia: 1_000_000_000_000_000_000n, // 1 ETH = $2500
+      Polygon_Amoy_Testnet: 200_000_000_000_000_000_000n, // 200 POL = $100
+    }
+    state.gatewayBalances = null
+
+    const { data } = await generateLiveServiceData(portfolioRiskManifest, {
+      address: '0x0000000000000000000000000000000000000001',
+      includeGatewayBalance: false,
+    })
+
+    expect(data.status).toBe('PORTFOLIO_ANALYZED')
+    // Total USD: 100 (USDC) + 2500 (1 ETH) + 100 (200 POL) = 2700 USD
+    expect(data.totalUsd).toBe(2700)
+    expect(data.holdings.map((h: any) => h.symbol)).toEqual(
+      expect.arrayContaining(['USDC', 'EURC', 'ETH', 'cirBTC', 'WETH', 'POL', 'AVAX', 'SEI', 'S'])
+    )
+
+    const ethHolding = data.holdings.find((h: any) => h.symbol === 'ETH')
+    expect(ethHolding).toBeDefined()
+    expect(ethHolding.balance).toBe(1)
+    expect(ethHolding.valueUsd).toBe(2500)
+    expect(ethHolding.stablecoin).toBe(false)
+
+    const polHolding = data.holdings.find((h: any) => h.symbol === 'POL')
+    expect(polHolding).toBeDefined()
+    expect(polHolding.balance).toBe(200)
+    expect(polHolding.valueUsd).toBe(100)
+
+    const chains = data.chainExposure.map((c: any) => c.chain)
+    expect(chains).toContain('Arc_Testnet')
+    expect(chains).toContain('Ethereum_Sepolia')
+    expect(chains).toContain('Polygon_Amoy_Testnet')
+  })
+})
+
+describe('generateLiveServiceData — LLM portfolio analyst', () => {
+  const USDC = ARC_TESTNET_TOKENS.USDC.toLowerCase()
+  const EURC = ARC_TESTNET_TOKENS.EURC.toLowerCase()
+
+  it('narrates server-measured facts and never lets the model own a figure', async () => {
+    state.prices = { USDC: 1, EURC: 1.1 }
+    state.balances = { [USDC]: 500_000_000n, [EURC]: 100_000_000n }
+    state.gatewayBalances = {
+      token: 'USDC',
+      balances: [{ domain: 6, depositor: '0x0000000000000000000000000000000000000001', balance: '250' }],
+    }
+    const fetchMock = stubLlmNarrative()
+
+    const { data } = await generateLiveServiceData(portfolioAnalystManifest, {
+      address: '0x0000000000000000000000000000000000000001',
+      includeGatewayBalance: true,
+    })
+
+    expect(data.status).toBe('ANALYSIS_COMPLETE')
+    expect(data.measured.totalUsd).toBe(860)
+    expect(data.measured.concentrationPct).toBe(87.209302)
+    expect(data.narrative.headline).toContain('Stablecoin-heavy')
+    // The engine reports the model it actually asked for; the default applies when unset.
+    expect(data.usage).toEqual({ promptTokens: 140, completionTokens: 55 })
+
+    // The advisory envelope re-uses the exposure register verbatim and adds its own disclosure.
+    expect(data.report.kind).toBe('PORTFOLIO_ADVISORY')
+    expect(data.report.reportId).toMatch(/^ARX-PAN-/)
+    expect(data.report.riskRegister.map((entry: any) => entry.id)).toEqual(
+      expect.arrayContaining(['HIGH_CONCENTRATION', 'ADVISORY_NOT_A_MANDATE'])
+    )
+    // The top-level panel and the envelope must not disagree on what the report cannot claim.
+    expect(data.limitations).toEqual(data.report.limitations)
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const body = JSON.parse(String(init.body))
+    expect(body.tools).toBeUndefined()
+    expect(body.messages[1].content).toContain('"totalUsd":860')
+  })
+
+  it('returns UNAVAILABLE instead of calling the provider without a server key', async () => {
+    state.prices = { USDC: 1 }
+    state.balances = { [USDC]: 500_000_000n }
+    vi.stubEnv('OPENROUTER_API_KEY', '')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { data } = await generateLiveServiceData(portfolioAnalystManifest, {
+      address: '0x0000000000000000000000000000000000000001',
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.narrative).toBeNull()
+    expect(data.measured.totalUsd).toBe(500)
+    expect(data.unavailable.join(' ')).toMatch(/credential/i)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('generateLiveServiceData — LLM vault yield report', () => {
+  const address = '0x0000000000000000000000000000000000000001'
+
+  it('measures principal and redeemable value on-chain, then narrates them', async () => {
+    state.vaultAssets = 1_234_567_890n
+    state.vaultSupply = 1_000_000_000_000n
+    state.vaultShares = 1_000_000_000n
+    state.vaultPrincipal = 900_000_000n
+    state.vaultPending = 5_000_000n
+    state.vaultRedeem = 1_000_000_000n
+    const fetchMock = stubLlmNarrative()
+
+    const { data } = await generateLiveServiceData(vaultYieldReportManifest, { address })
+
+    expect(data.status).toBe('REPORT_READY')
+    expect(data.measured.currentValueUsdc).toBe(1000)
+    expect(data.measured.principalUsdc).toBe(900)
+    expect(data.measured.pendingYieldUsdc).toBe(5)
+    expect(data.measured.unrealizedYieldUsdc).toBe(100)
+    expect(data.measured.shares).toBe('1')
+    expect(data.narrative.headline).toBeTruthy()
+    expect(data.limitations.join(' ')).toMatch(/cost basis|jurisdiction/i)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    expect(data.report.kind).toBe('VAULT_POSITION')
+    expect(data.report.coverage.state).toBe('COMPLETE')
+    const unrealized = data.report.riskRegister.find(
+      (entry: any) => entry.id === 'UNREALIZED_YIELD_UNSETTLED'
+    )
+    expect(unrealized.severity).toBe('INFO')
+    expect(unrealized.evidence.unrealizedYieldUsdc).toBe(100)
+    // The disclosure items are always present, whatever the position looks like.
+    expect(data.report.riskRegister.map((entry: any) => entry.id)).toEqual(
+      expect.arrayContaining(['COST_BASIS_OUTSIDE_VAULT', 'TAX_RULES_NOT_APPLIED'])
+    )
+    expect(data.limitations).toEqual(data.report.limitations)
+  })
+
+  it('skips the model and reports NO_POSITION when the address holds no shares', async () => {
+    state.vaultAssets = 1_234_567_890n
+    state.vaultSupply = 1_000_000_000_000n
+    state.vaultShares = 0n
+    state.vaultPrincipal = 0n
+    state.vaultPending = 0n
+    const fetchMock = stubLlmNarrative()
+
+    const { data } = await generateLiveServiceData(vaultYieldReportManifest, { address })
+
+    expect(data.status).toBe('NO_POSITION')
+    expect(data.measured.currentValueUsdc).toBe(0)
+    expect(data.narrative).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('returns UNAVAILABLE when the share balance cannot be read', async () => {
+    state.vaultAssets = 1_234_567_890n
+    state.vaultSupply = 1_000_000_000_000n
+    state.vaultShares = null
+    const fetchMock = stubLlmNarrative()
+
+    const { data } = await generateLiveServiceData(vaultYieldReportManifest, { address })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(data.measured).toEqual({})
+    expect(data.narrative).toBeNull()
+    expect(data.unavailable).toContain('vault balanceOf(address)')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 
@@ -427,13 +1130,14 @@ describe('no fabricated service figures remain in the source', () => {
     }
   })
 
-  it('keeps copilot service catalog copy precise about the EOA-only testnet payment path', () => {
+  it('keeps copilot service catalog copy precise about which wallets can pay', () => {
     const source = read('src/hooks/useArcCopilot.ts')
-    expect(source).toContain('explicitly selected external EOA')
+    // EOA key holders only: an injected wallet or a Circle Wallet created as an EOA.
+    expect(source).toContain('external EOA or an active Circle Wallet signing session')
     expect(source).toContain('provider earnings remain pending')
-    expect(source).toContain('Passkey/MSCA, UCW and autonomous session payments are unsupported')
+    expect(source).toContain('Passkey/MSCA and autonomous session payments are unsupported')
     expect(source).toContain('These are catalog rates, not successful calls')
-    expect(source).toContain('These are catalog entries. Paid testnet calls require external EOA selection')
+    expect(source).toContain('These are catalog entries. Paid testnet calls require an external EOA or Circle Wallet')
     expect(source).not.toContain('Gasless Micro-Settlement (<150ms)')
     expect(source).not.toContain('Instant Verified Payload (HTTP 200 OK)')
     expect(source).not.toContain('Arbitrage Scan Completed!')

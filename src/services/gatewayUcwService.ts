@@ -23,6 +23,7 @@ import {
   type GatewayTransferSpecPayload,
 } from './gatewayService'
 import { getExplorerTxUrl } from '../config/sendConfig'
+import { prepareCircleTypedData } from './ucwTypedData'
 import { normalizeCircleBlockchain } from '../utils/circleBlockchain'
 import { logger } from '../utils/logger'
 
@@ -326,7 +327,9 @@ export async function executeUcwGatewayTransfer(
     spec,
   }
 
-  const typedData = {
+  // One preparer for every Circle challenge: it declares EIP712Domain (already present here)
+  // and makes the payload JSON-safe, so no caller can drift from Circle's validator rules.
+  const typedData = prepareCircleTypedData({
     types: GATEWAY_EIP712_TYPES,
     domain: GATEWAY_EIP712_DOMAIN,
     primaryType: 'BurnIntent',
@@ -338,7 +341,7 @@ export async function executeUcwGatewayTransfer(
         value: burnValue.toString(),
       },
     },
-  }
+  })
 
   // Step 3: Sign BurnIntent via Circle UCW Challenge
   onStepProgress?.('signing')

@@ -1,6 +1,6 @@
 // src/services/llmService.ts
 // Intelligent LLM Intent Engine & Tool Calling for Arcis AI Copilot
-// Supports OpenAI GPT-4o-mini with seamless, zero-latency Local NLP Fallback
+// Supports Multi-Provider LLMs (OpenRouter) with seamless, zero-latency Local NLP Fallback
 
 import type { CopilotActionPayload, CopilotMessage } from '../types/marketplace'
 import { arcTestnet } from '../config/arcChain'
@@ -38,7 +38,7 @@ export { DEFAULT_COPILOT_SLIPPAGE }
 export interface LLMResult {
   message: string
   actionPayload?: CopilotActionPayload
-  source: 'gpt-4o-mini' | 'local-nlp'
+  source: string
   executionTimeMs: number
 }
 
@@ -154,16 +154,16 @@ export function extractSwapTokens(prompt: string): { fromTok: string; toTok: str
   return { fromTok: 'USDC', toTok: 'EURC' }
 }
 
-export function getOpenAIApiKey(): string {
+export function getOpenRouterApiKey(): string {
   if (typeof window === 'undefined') return ''
-  return localStorage.getItem(STORAGE_KEYS.OPENAI_API_KEY)?.trim() || ''
+  return localStorage.getItem(STORAGE_KEYS.OPENROUTER_API_KEY)?.trim() || ''
 }
 
-export function setOpenAIApiKey(key: string): void {
+export function setOpenRouterApiKey(key: string): void {
   if (typeof window === 'undefined') return
   const normalizedKey = key.trim()
-  if (normalizedKey) localStorage.setItem(STORAGE_KEYS.OPENAI_API_KEY, normalizedKey)
-  else localStorage.removeItem(STORAGE_KEYS.OPENAI_API_KEY)
+  if (normalizedKey) localStorage.setItem(STORAGE_KEYS.OPENROUTER_API_KEY, normalizedKey)
+  else localStorage.removeItem(STORAGE_KEYS.OPENROUTER_API_KEY)
 }
 
 export function isExplicitTransactionCommand(prompt: string): boolean {
@@ -208,7 +208,7 @@ export async function queryArcisLLM(
   if (promptAmount.status === 'ambiguous' || promptAmount.status === 'invalid') {
     return { message: promptAmount.message, source: 'local-nlp', executionTimeMs: Date.now() - startTime }
   }
-  const customApiKey = getOpenAIApiKey()
+  const customApiKey = getOpenRouterApiKey()
   const [livePrices, portfolio, liveMaxFeePerGas] = await Promise.all([
     getLiveTokenPrices(),
     portfolioSnapshot ? Promise.resolve(portfolioSnapshot) : getLivePortfolioSnapshot(walletAddress),
@@ -237,19 +237,19 @@ export async function queryArcisLLM(
           { message: data.message, actionPayload: data.actionPayload }, userPrompt, walletAddress,
           livePrices, chatHistory, portfolio, liveMaxFeePerGas
         )
-        return { ...safeResult, source: (data.source || 'gpt-4o-mini') as any, executionTimeMs: Date.now() - startTime }
+        return { ...safeResult, source: (data.source || 'ai-copilot') as any, executionTimeMs: Date.now() - startTime }
       }
     } else {
       const data = await res.json().catch(() => ({}))
       if (customApiKey && !data.fallbackToLocal) {
         try {
-          const gptResult = await callGPT4oMini(userPrompt, customApiKey, walletAddress, livePrices, chatHistory, portfolio)
+          const llmResult = await callCopilotLLM(userPrompt, customApiKey, walletAddress, livePrices, chatHistory, portfolio)
           const safeResult = await quoteResult(
-            gptResult, userPrompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas
+            llmResult, userPrompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas
           )
-          return { ...safeResult, source: 'gpt-4o-mini', executionTimeMs: Date.now() - startTime }
+          return { ...safeResult, source: 'byok-llm', executionTimeMs: Date.now() - startTime }
         } catch (directErr) {
-          console.warn('Direct BYOK GPT-4o-mini call failed:', directErr)
+          console.warn('Direct BYOK LLM call failed:', directErr)
         }
       }
     }
@@ -410,7 +410,7 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
 
 export const queryArcoLLM = queryArcisLLM
 
-async function callGPT4oMini(
+async function callCopilotLLM(
   userPrompt: string,
   apiKey: string,
   walletAddress?: string,
@@ -456,14 +456,12 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
     { type: 'function', function: { name: 'execute_send', description: 'Send or transfer USDC/EURC/WETH/cirBTC to a recipient address on Arc Testnet with optional memo. WBTC is NOT supported on Arc.', parameters: { type: 'object', properties: { recipient: { type: 'string' }, amount: { type: 'number' }, token: { type: 'string' }, memo: { type: 'string' } }, required: ['recipient', 'amount'] } } },
   ]
 
-  const isOpenRouter = apiKey.startsWith('sk-or-')
-  const endpoint = isOpenRouter ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions'
-  const modelName = isOpenRouter ? 'openai/gpt-4o-mini' : 'gpt-4o-mini'
+  const endpoint = 'https://openrouter.ai/api/v1/chat/completions'
+  const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
+  const localEnv = (typeof process !== 'undefined' && process.env) || {}
+  const configuredModel = String(localEnv.OPENROUTER_MODEL || globalEnv.OPENROUTER_MODEL || '').trim()
+  const modelName = configuredModel
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }
-  if (isOpenRouter) {
-    headers['HTTP-Referer'] = 'https://arcis.finance'
-    headers['X-Title'] = 'Arcis Protocol'
-  }
   const cleanHistory = (chatHistory || []).slice(-6).filter((m) => m.content && m.content.trim() !== '').map((m) => ({
     role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
     content: m.content.replace(/<[^>]*>?/gm, '').trim(),
@@ -472,10 +470,10 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
   const lastItem = cleanHistory[cleanHistory.length - 1]
   if (!lastItem || lastItem.role !== 'user' || lastItem.content !== userPrompt.trim()) messagesPayload.push({ role: 'user', content: userPrompt })
   const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ model: modelName, messages: messagesPayload, tools: ARC_COPILOT_TOOLS, tool_choice: 'auto', temperature: 0.2 }) })
-  if (!response.ok) throw new Error(`OpenAI API error (${response.status}): ${await response.text()}`)
+  if (!response.ok) throw new Error(`OpenRouter API error (${response.status}): ${await response.text()}`)
   const data = await response.json()
   const choice = data.choices?.[0]
-  if (!choice) throw new Error('No choice returned from OpenAI')
+  if (!choice) throw new Error('No choice returned from OpenRouter')
   const toolCalls = choice.message?.tool_calls
   if (toolCalls && toolCalls.length > 0) {
     const call = toolCalls[0]

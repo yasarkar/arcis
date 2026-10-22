@@ -3,7 +3,9 @@
 // Tracks real execution counts, live settled volume, accumulated YieldVault fees, and physical latency.
 
 import { MARKETPLACE_STATS } from '../config/servicesRegistry'
+import { WEB2_CALL_BASELINE_USD } from './marketplaceHeroStats'
 import { getAccumulatedYieldVaultFees } from './x402PaymentEngine'
+import { notifyPlatformCallRecorded } from './platformStatsClient'
 import type { MarketplaceStats } from '../types/marketplace'
 
 const ECOSYSTEM_STATS_STORAGE_KEY = 'arcis_live_ecosystem_stats_v3'
@@ -108,13 +110,17 @@ class EcosystemStatsService {
       getAccumulatedYieldVaultFees().toFixed(4)
     )
 
-    // Average user savings vs standard Web2 API request (~$0.05-$0.10 baseline)
-    const netSavingsPerCall = Math.max(0, 0.05 - priceUsdc)
+    // Average user savings vs a standard Web2 API request. The baseline is shared with the hero
+    // card's ledger-derived savings so the two can never quote different assumptions.
+    const netSavingsPerCall = Math.max(0, WEB2_CALL_BASELINE_USD - priceUsdc)
     this.stats.savedSubscriptionCostUsd = Number(
       (this.stats.savedSubscriptionCostUsd + netSavingsPerCall).toFixed(4)
     )
 
     this.notify()
+    // The protocol-wide total itself lives in the shared ledger; this only lets the card show the
+    // user's own call immediately instead of waiting for the next server poll.
+    notifyPlatformCallRecorded()
   }
 
   /**

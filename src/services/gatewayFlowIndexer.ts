@@ -16,6 +16,11 @@
 // Nothing in this module invents a figure. A read that fails is reported as UNAVAILABLE,
 // a read that only covers part of the requested window says so, and a previously successful
 // read that is served after a later failure is labelled STALE — every case carries `readAt`.
+//
+// `buildGatewayFlowServiceData` attaches the shared institutional envelope
+// (`x402/institutionalReport.ts`) to every payload: read coverage, freshness, a data-quality
+// grade and a graded register of the window-truncation, flow-direction and source-concentration
+// findings, each with its evidence, threshold and remediation.
 
 import { formatUnits, parseAbiItem, type Address, type PublicClient } from 'viem'
 import { ARC_TOKENS } from '../config/arcChain'
@@ -25,6 +30,16 @@ import {
   GATEWAY_CHAIN_NAMES,
 } from '../config/gatewayConfig'
 import { getArcPublicClient } from './rpc'
+import {
+  buildInstitutionalReport,
+  formatInstitutionalReportHeader,
+  formatRiskRegisterLines,
+  institutionalRisk,
+  type InstitutionalReport,
+  type InstitutionalRisk,
+} from './x402/institutionalReport'
+
+export const GATEWAY_FLOW_SERVICE_ID = 'arc-cross-chain-gateway-flow-indexer'
 
 export type GatewayFlowWindow = '1h' | '24h' | '7d'
 
@@ -323,7 +338,153 @@ export async function readGatewayFlow(
 export function buildGatewayFlowServiceData(read: GatewayFlowRead): Record<string, any> {
   const available = read.status !== 'UNAVAILABLE'
 
+  // Two planned scans: mint side (AttestationUsed) and burn side (GatewayBurned). A stale replay
+  // is a complete measurement that could not be refreshed, so it keeps full coverage and is
+  // graded on freshness instead.
+  const expectedReads = 2
+  const measuredReads = available ? expectedReads : 0
+
+  const risks: InstitutionalRisk[] = []
+
+  if (!available) {
+    risks.push(
+      institutionalRisk({
+        id: 'GATEWAY_FLOW_READ_FAILED',
+        category: 'DATA_QUALITY',
+        severity: 'HIGH',
+        title: 'The Gateway flow scan returned nothing',
+        finding: `${read.error || 'The on-chain read returned nothing usable'}, so no inflow, outflow or per-chain figure is published.`,
+        evidence: { measuredReads, expectedReads, error: read.error ?? null },
+        threshold: 'Both the mint and burn scans must return before a flow figure is published.',
+        remediation:
+          'Re-run once the Arc RPC answers. A failed scan is never replaced with a cached or estimated figure beyond the stale-replay window.',
+      })
+    )
+  }
+
+  if (read.status === 'STALE') {
+    risks.push(
+      institutionalRisk({
+        id: 'GATEWAY_FLOW_STALE',
+        category: 'DATA_QUALITY',
+        severity: 'MEDIUM',
+        title: 'Served flow figures are a replay, not a fresh read',
+        finding: `The refresh failed, so the figures are the last successful read, ${read.ageSeconds} second(s) old.`,
+        evidence: { ageSeconds: read.ageSeconds, readAt: read.readAt, error: read.error ?? null },
+        threshold: 'A read older than the freshness window is served only as STALE.',
+        remediation:
+          'Treat the figures as historical until a refresh succeeds; the report carries the read time so the age is never implicit.',
+      })
+    )
+  }
+
+  if (read.window?.partialWindow) {
+    risks.push(
+      institutionalRisk({
+        id: 'WINDOW_COVERAGE_PARTIAL',
+        category: 'DATA_QUALITY',
+        severity: 'MEDIUM',
+        title: 'The scanned block range is shorter than the requested window',
+        finding: `The single-scan block cap covers ${read.window.scannedBlocks} blocks (~${read.window.coveredSeconds}s) of the requested ${read.window.requestedSeconds}s, so totals undercount the window.`,
+        evidence: {
+          scannedBlocks: read.window.scannedBlocks,
+          coveredSeconds: read.window.coveredSeconds,
+          requestedSeconds: read.window.requestedSeconds,
+        },
+        threshold: 'Scanned blocks are capped at the module’s MAX_LOG_RANGE_BLOCKS limit.',
+        remediation:
+          'Shorten the requested window or compare consecutive calls; the reported totals describe the covered span only.',
+      })
+    )
+  }
+
+  if (read.flowDirection === 'OUTFLOW') {
+    risks.push(
+      institutionalRisk({
+        id: 'NET_LIQUIDITY_OUTFLOW',
+        category: 'MARKET_STRUCTURE',
+        severity: 'LOW',
+        title: 'Net USDC left Arc during the window',
+        finding: `Burns exceeded mints by ${Math.abs(read.netInflowUsdc ?? 0)} USDC over the measured window.`,
+        evidence: {
+          netUsdcInflowUsdc: read.netInflowUsdc,
+          grossInflowUsdc: read.grossInflowUsdc,
+          grossOutflowUsdc: read.grossOutflowUsdc,
+        },
+        threshold: 'Net flow (minted − burned) < 0.',
+        remediation:
+          'The report states the measured direction and does not attribute a motive to any transfer.',
+      })
+    )
+  }
+
+  const topShare = read.topSourceChains?.[0]
+  if (topShare && typeof topShare.sharePct === 'number' && topShare.sharePct >= 80) {
+    risks.push(
+      institutionalRisk({
+        id: 'SINGLE_SOURCE_CONCENTRATION',
+        category: 'CONCENTRATION',
+        severity: 'LOW',
+        title: 'Inflows came overwhelmingly from one source chain',
+        finding: `${topShare.chain} accounts for ${topShare.sharePct}% of the USDC minted onto Arc in this window.`,
+        evidence: {
+          sourceChain: topShare.chain,
+          sourceDomain: topShare.domain,
+          sharePct: topShare.sharePct,
+          inflowUsdc: topShare.inflowUsdc,
+        },
+        threshold: 'Leading source-domain share >= 80% of measured minted USDC.',
+        remediation:
+          'A single-source window is a measured fact about this window only; it is not a routing recommendation.',
+      })
+    )
+  }
+
+  if (available && read.transferCount === 0) {
+    risks.push(
+      institutionalRisk({
+        id: 'NO_GATEWAY_ACTIVITY',
+        category: 'COMPOSITION',
+        severity: 'INFO',
+        title: 'No Gateway transfer was observed in the window',
+        finding: 'No AttestationUsed or GatewayBurned log matched the scanned range, so every figure is a true zero for that span.',
+        evidence: { transferCount: 0, scannedBlocks: read.window?.scannedBlocks ?? null },
+        threshold: null,
+        remediation:
+          'Widen the window or re-check after block production; zero activity is reported as zero, not as unavailability.',
+      })
+    )
+  }
+
+  const report: InstitutionalReport = buildInstitutionalReport({
+    kind: 'GATEWAY_FLOW',
+    serviceId: GATEWAY_FLOW_SERVICE_ID,
+    title: 'Cross-Chain Gateway Flow Report',
+    subject: { type: 'NETWORK', identifier: 'Arc Testnet' },
+    issuedAt: Date.now(),
+    asOf: read.readAt,
+    freshness: {
+      state: read.status === 'LIVE' ? 'CURRENT' : read.status === 'STALE' ? 'STALE' : 'UNKNOWN',
+      ageSeconds: available ? read.ageSeconds : null,
+    },
+    coverage: { measuredReads, expectedReads },
+    risks,
+    methodology: [
+      'GatewayMinter.AttestationUsed logs are the mint side (USDC arriving on Arc) and GatewayWallet.GatewayBurned logs are the burn side (USDC leaving Arc).',
+      'Both scans use getLogs over a block range derived from the requested window and a measured block time; the covered span is stated with the totals.',
+      'Net flow is signed minted − burned, so a negative net is printed as an outflow rather than as an absolute figure.',
+      'Per-source-chain shares come from AttestationUsed.sourceDomain and are never extrapolated beyond the scanned window.',
+    ],
+    limitations: [
+      'Only Circle Gateway contract activity is measured; USDC moved by other rails (direct CCTP v2 burns, exchange transfers) is outside this report.',
+      'A single getLogs scan is block-capped, so a long window can cover fewer seconds than requested and says so in the window block.',
+      'The report quantifies liquidity migration; it does not identify counterparties or attribute intent to any transfer.',
+    ],
+  })
+
   return {
+    report,
+    limitations: report.limitations,
     status: read.status,
     source: read.source,
     readAt: read.readAt,
@@ -396,14 +557,18 @@ export function formatGatewayFlowReport(data: Record<string, any> | null | undef
     data.timeWindow === '24h' || data.timeWindow === '7d' ? data.timeWindow : '1h'
   const readAt = typeof data.readAt === 'string' ? data.readAt : 'unknown'
   const source = typeof data.source === 'string' ? data.source : 'unknown source'
+  const reportHeader = formatInstitutionalReportHeader(data.report)
+  const registerLines = formatRiskRegisterLines(data.report)
 
   if (data.status === 'UNAVAILABLE') {
     return [
+      ...(reportHeader ? [reportHeader, ''] : []),
       `Circle Gateway USDC flow report (${WINDOW_LABEL[timeWindow]}): UNAVAILABLE`,
       '',
       `• Source read: ${source}`,
       `• Attempted at: ${readAt}`,
       `• Reason: ${data.error || 'the on-chain read returned nothing usable'}`,
+      ...(registerLines.length > 0 ? ['', ...registerLines] : []),
       '',
       'No inflow, outflow, whale or sentiment figure is shown because none could be read from Arc L1.',
     ].join('\n')
@@ -415,6 +580,7 @@ export function formatGatewayFlowReport(data: Record<string, any> | null | undef
   const isStale = data.status === 'STALE'
 
   const lines: string[] = [
+    ...(reportHeader ? [reportHeader, ''] : []),
     `Circle Gateway USDC flow report (${WINDOW_LABEL[timeWindow]})${isStale ? ' — STALE' : ''}:`,
     '',
     `• Net USDC flow onto Arc L1 (minted - burned): ${formatUsdcOrUnavailable(data.netUsdcInflowUsdc)}`,
@@ -458,6 +624,10 @@ export function formatGatewayFlowReport(data: Record<string, any> | null | undef
         : `Read directly at ${readAt}.`,
       `Source: ${source}`
     )
+  }
+
+  if (registerLines.length > 0) {
+    lines.push('', ...registerLines)
   }
 
   return lines.join('\n')

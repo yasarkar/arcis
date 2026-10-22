@@ -195,6 +195,13 @@ describe('Gateway UCW Execution & Multi-Chain Tests', () => {
       expect(signArgs.data.primaryType).toBe('BurnIntent')
       expect(signArgs.data.domain.name).toBe('GatewayWallet')
       expect(signArgs.data.message.maxFee).toBe('3850')
+      // Circle's validator hashes the domain with `types.EIP712Domain`; the declaration must
+      // cover every provided domain field or it fails with "extra data provided in the message".
+      expect(signArgs.data.types.EIP712Domain).toEqual([
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+      ])
+      expect(signArgs.data.types.EIP712Domain).toHaveLength(Object.keys(signArgs.data.domain).length)
       expect(signArgs.data.message.maxBlockHeight).toBe('65324520')
       expect(signArgs.blockchain).toBe('ARC-TESTNET')
 

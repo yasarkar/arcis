@@ -12,6 +12,17 @@ export interface ServiceTelemetryRecord {
   timestamp: number
 }
 
+/**
+ * Why the most recent paid call was voided. Kept on the service's telemetry so its catalog card
+ * can name the reason (a cleared field means the last call succeeded, not that nothing failed).
+ */
+export interface ServiceLastFailure {
+  kind: string
+  label: string
+  detail: string
+  at: number
+}
+
 export interface ServiceTelemetryData {
   serviceId: string
   latencyMs: number
@@ -22,6 +33,7 @@ export interface ServiceTelemetryData {
   isProbing: boolean
   probeTarget?: 'endpoint' | 'rpc'
   history: ServiceTelemetryRecord[]
+  lastFailure?: ServiceLastFailure | null
 }
 
 const STORAGE_KEY = 'arcis_live_service_telemetry_v1'
@@ -114,8 +126,18 @@ class ServiceTelemetryService {
   /**
    * Records a genuine execution made through x402Client
    */
-  public recordExecution(serviceId: string, measuredLatencyMs: number, success: boolean) {
+  public recordExecution(
+    serviceId: string,
+    measuredLatencyMs: number,
+    success: boolean,
+    failure?: { kind: string; label: string; detail: string } | null
+  ) {
     const entry = this.getOrCreateServiceTelemetry(serviceId, measuredLatencyMs, 99.8)
+
+    // A successful call clears the previous reason; a probe must not overwrite it, so this is only
+    // written by real executions (which is what `recordExecution` records).
+    if (success) entry.lastFailure = null
+    else if (failure) entry.lastFailure = { ...failure, at: Date.now() }
 
     // Add new execution record
     const newRecord: ServiceTelemetryRecord = {
