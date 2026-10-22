@@ -15,15 +15,21 @@ import {
   SESSION_KEY_UPDATED_EVENT,
 } from '../services/sessionKeyService'
 import { executeDirectCopilotAction, type CopilotUcwHandlers } from '../services/copilotExecutionService'
+import { resolveX402Payer } from '../services/x402/ucwPaymentSigner'
 import { tokenAmountToUsd } from '../services/tokenPriceService'
 import {
   formatGatewayFlowReport,
   formatUsdcOrUnavailable,
   GATEWAY_FLOW_SOURCE,
 } from '../services/gatewayFlowIndexer'
+import {
+  formatInstitutionalReportHeader,
+  formatRiskRegisterLines,
+} from '../services/x402/institutionalReport'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload, CopilotActionType } from '../types/marketplace'
 import type { SessionKeyConfig, SessionActionType } from '../types/sessionKey'
 import { formatCopilotError, canceledActionTitle } from '../utils/errorUtils'
+import { formatX402FailureNote } from '../utils/x402FailureDiagnosis'
 import { classifyCopilotIntent, copilotActionIntent, invalidateCopilotDrafts } from '../utils/copilotIntent'
 
 function normalizeActionType(type?: CopilotActionType | string): SessionActionType {
@@ -33,6 +39,18 @@ function normalizeActionType(type?: CopilotActionType | string): SessionActionTy
   if (type.includes('bridge')) return 'bridge'
   return 'send'
 }
+
+const formatUsdReportValue = (value: unknown): string =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : 'unavailable'
+
+const formatPctReportValue = (value: unknown): string =>
+  typeof value === 'number' && Number.isFinite(value) ? `${value}%` : 'unavailable'
+
+/** A paid call is billable once Gateway accepts it, not only after final reconciliation. */
+const isPaidOrSettled = (result: any): boolean =>
+  Boolean(result?.success && (hasVerifiedX402Settlement(result) || result?.payment?.status === 'settlement_pending'))
 
 export function isTransactionalAction(type?: CopilotActionType | string): boolean {
   if (!type) return false
@@ -58,7 +76,7 @@ import {
   createArcisWelcomeMessage,
   createArcoWelcomeMessage,
   isGatewayFlowReportQuery,
-  isActionOrStrategyIntent,
+  isActionOrStrategyIntent, isPortfolioAnalysisQuery, isVaultReportQuery,
 } from '../config/copilotTopics'
 
 export {
@@ -69,7 +87,7 @@ export {
   createArcisWelcomeMessage,
   createArcoWelcomeMessage,
   isGatewayFlowReportQuery,
-  isActionOrStrategyIntent,
+  isActionOrStrategyIntent, isPortfolioAnalysisQuery, isVaultReportQuery,
 }
 
 
@@ -82,6 +100,13 @@ export function useArcCopilot(
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false)
   const [currentSteps, setCurrentSteps] = useState<CopilotStepLog[]>([])
   const [messages, setMessages] = useState<CopilotMessage[]>([createArcisWelcomeMessage()])
+
+  // Paid x402 calls: an injected EOA signs its own EIP-3009 authorization; a Circle Wallet
+  // (created as an EOA) signs through Circle's typed-data challenge. Passkey/MSCA smart
+  // accounts and session keys cannot produce such a signature, so they stay blocked.
+  const paidCallPayer = resolveX402Payer(ucwHandlers?.authSource, ucwHandlers?.signTypedData)
+  const paidCallKind = paidCallPayer?.kind
+  const paidCallSigner = paidCallPayer?.signer
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress))
   const pendingActionRef = useRef<CopilotActionPayload | null>(null)
   const queryBusyRef = useRef<boolean>(false)
@@ -565,6 +590,401 @@ export function useArcCopilot(
     }
   }
 
+  // Paid analysis/reporting agents: a portfolio query buys a measured risk report and, when
+  // that measurement exists, a narrative around it. A vault query buys the vault position
+  // report. Both flows show each paid step, its cost and the running total.
+  const runPaidPortfolioAnalysis = async (targetAddressInput?: string): Promise<void> => {
+    const steps: CopilotStepLog[] = []
+    let totalCost = 0
+    const targetAddress = targetAddressInput || walletAddress
+
+    if (!walletAddress) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Connect a wallet first: these paid analysis agents charge the connected EOA (an injected wallet or a Circle Wallet) per call.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+    if (!targetAddress) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Give me a 20-byte Arc address to analyse, or connect a wallet so I can read your own portfolio.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+    if (!paidCallKind) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+
+    const riskService = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-portfolio-risk-exposure')
+    const analystService = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-onchain-portfolio-analyst')
+    if (!riskService || !analystService) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'The portfolio analysis services are not listed in the catalog, so no paid call was made.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+
+    steps.push({
+      stepNumber: 1,
+      serviceId: riskService.id,
+      serviceName: riskService.name,
+      status: 'executing',
+      costUsdc: 0,
+      durationMs: 0,
+      detail: 'Reading Arc token balances and, if requested, the Circle Gateway unified balance...',
+    })
+    setCurrentSteps([...steps])
+
+    let risk: any
+    try {
+      risk = await executeX402Call(
+        riskService,
+        { address: targetAddress, includeGatewayBalance: true },
+        walletAddress,
+        provider,
+        paidCallKind,
+        paidCallSigner
+      )
+    } catch (err: any) {
+      steps[0].status = 'failed'
+      steps[0].resultSummary = err?.message || 'Portfolio risk call failed.'
+      setCurrentSteps([...steps])
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Portfolio risk analysis failed before a measurement was returned: ${err?.message || 'unknown error'}.`,
+        timestamp: Date.now(),
+        steps: [...steps],
+      })
+      return
+    }
+
+    const riskPaid = isPaidOrSettled(risk)
+    if (riskPaid) {
+      totalCost += risk.costUsdc
+      steps[0].costUsdc = risk.costUsdc
+    }
+    const riskData = risk?.data as any
+    const riskUsable = isServiceDataAvailable(risk)
+    steps[0].durationMs = risk?.executionTimeMs || 0
+    steps[0].status = riskUsable ? 'completed' : 'failed'
+    steps[0].resultSummary = riskUsable
+      ? `Measured ${formatUsdReportValue(riskData?.totalUsd)} across ${Array.isArray(riskData?.holdings) ? riskData.holdings.length : 0} assets.`
+      : `No measurement returned: ${risk?.error || riskData?.reason || 'service data unavailable'}`
+    setCurrentSteps([...steps])
+
+    if (!riskUsable) {
+      const unavailable = Array.isArray(riskData?.unavailable) ? riskData.unavailable.join(', ') : null
+      const riskNote = formatX402FailureNote(risk)
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Portfolio risk analysis could not measure this wallet.${unavailable ? `\n\n• <strong>Unavailable:</strong> ${unavailable}` : ''}${riskData?.reason ? `\n\n${riskData.reason}` : ''}${riskNote ? `\n\n${riskNote}` : ''}\n\nNo narrative call was made, so you were not charged twice.${riskPaid ? `\n\nPayment: ${risk.costUsdc} USDC for the failed measurement; Gateway acceptance is not final settlement.` : ''}`,
+        timestamp: Date.now(),
+        steps: [...steps],
+        ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+      })
+      return
+    }
+
+    steps.push({
+      stepNumber: 2,
+      serviceId: analystService.id,
+      serviceName: analystService.name,
+      status: 'executing',
+      costUsdc: 0,
+      durationMs: 0,
+      detail: 'Narrating the measured facts; the model cannot add or alter a figure...',
+    })
+    setCurrentSteps([...steps])
+
+    let analyst: any
+    try {
+      analyst = await executeX402Call(
+        analystService,
+        { address: targetAddress, includeGatewayBalance: true },
+        walletAddress,
+        provider,
+        paidCallKind,
+        paidCallSigner
+      )
+    } catch (err: any) {
+      steps[1].status = 'failed'
+      steps[1].resultSummary = err?.message || 'Analyst call failed.'
+      setCurrentSteps([...steps])
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `The measured portfolio is below, but the narrative call failed: ${err?.message || 'unknown error'}.`,
+        timestamp: Date.now(),
+        steps: [...steps],
+        ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+      })
+      return
+    }
+
+    const analystPaid = isPaidOrSettled(analyst)
+    if (analystPaid) {
+      totalCost += analyst.costUsdc
+      steps[1].costUsdc = analyst.costUsdc
+    }
+    const analystData = analyst?.data as any
+    const analystUsable = isServiceDataAvailable(analyst)
+    steps[1].durationMs = analyst?.executionTimeMs || 0
+    steps[1].status = analystUsable ? 'completed' : 'failed'
+    steps[1].resultSummary = analystUsable
+      ? 'Measured facts narrated without model-generated figures.'
+      : `Narrative unavailable: ${analyst?.error || analystData?.reason || 'service data unavailable'}`
+    setCurrentSteps([...steps])
+
+    const measured = riskData || {}
+    const narrative = analystUsable && analystData?.narrative && typeof analystData.narrative === 'object'
+      ? analystData.narrative
+      : null
+    const observations: string[] = Array.isArray(narrative?.observations)
+      ? narrative.observations.filter((item: unknown): item is string => typeof item === 'string')
+      : []
+    const narrativeRisks: string[] = Array.isArray(narrative?.risks)
+      ? narrative.risks.filter((item: unknown): item is string => typeof item === 'string')
+      : []
+    const riskFlags: string[] = Array.isArray(measured?.riskFlags) ? measured.riskFlags : []
+
+    const lines: string[] = []
+    lines.push('Paid portfolio analysis completed — measured facts below, analysis only; no transaction was executed.')
+
+    // The measured risk call carries the institutional envelope; render its identity and its
+    // graded register before the narrative so severity, evidence and thresholds are visible.
+    const riskReportHeader = formatInstitutionalReportHeader(riskData?.report)
+    if (riskReportHeader) lines.push(riskReportHeader)
+
+    lines.push(
+      [
+        `• <strong>Measured total:</strong> ${formatUsdReportValue(measured?.totalUsd)}`,
+        `• <strong>Concentration:</strong> ${formatPctReportValue(measured?.concentrationPct)}`,
+        `• <strong>Stablecoin share:</strong> ${formatPctReportValue(measured?.stablecoinSharePct)}`,
+        `• <strong>Gateway balance:</strong> ${formatUsdReportValue(measured?.gatewayBalanceUsdc)}`,
+        `• <strong>Risk flags:</strong> ${riskFlags.length > 0 ? riskFlags.map((flag) => flag.replace(/_/g, ' ')).join(', ') : 'none reported'}`,
+      ].join('\n')
+    )
+
+    const riskRegisterLines = formatRiskRegisterLines(riskData?.report, 4)
+    if (riskRegisterLines.length > 0) lines.push(riskRegisterLines.join('\n'))
+
+    if (narrative) {
+      lines.push(
+        [
+          `<strong>Analyst narrative:</strong> ${narrative.headline || ''}`,
+          ...observations.map((observation) => `• ${observation}`),
+          ...(narrativeRisks.length > 0 ? [`<strong>Risks:</strong> ${narrativeRisks.join(' ')}`] : []),
+        ].join('\n')
+      )
+    } else {
+      const analystNote = formatX402FailureNote(analyst)
+      lines.push(
+        `Narrative unavailable: ${analystData?.reason || analyst?.error || 'the model did not return a usable narrative'}.${analystNote ? `\n\n${analystNote}` : ''}`
+      )
+    }
+    if (totalCost > 0) {
+      lines.push(
+        `Payment: ${totalCost.toFixed(3)} USDC across ${steps.filter((step) => step.costUsdc > 0).length} paid call(s). Gateway acceptance is not final settlement; provider accounting stays pending until reconciliation.`
+      )
+    }
+    addMessage({
+      id: 'assistant-' + Date.now(),
+      role: 'assistant',
+      content: lines.join('\n\n'),
+      timestamp: Date.now(),
+      steps: [...steps],
+      ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+      actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
+    })
+  }
+
+  const runPaidVaultReport = async (targetAddressInput?: string): Promise<void> => {
+    const steps: CopilotStepLog[] = []
+    let totalCost = 0
+    const targetAddress = targetAddressInput || walletAddress
+
+    if (!walletAddress) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Connect a wallet first: the vault report is a paid call charged to the connected EOA (an injected wallet or a Circle Wallet).',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+    if (!targetAddress) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Give me a 20-byte Arc address whose vault position should be reported.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+    if (!paidCallKind) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+
+    const service = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-vault-yield-tax-report')
+    if (!service) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'The vault reporting service is not listed in the catalog, so no paid call was made.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+
+    steps.push({
+      stepNumber: 1,
+      serviceId: service.id,
+      serviceName: service.name,
+      status: 'executing',
+      costUsdc: 0,
+      durationMs: 0,
+      detail: 'Reading vault shares, principal, pending yield and redeemable value on-chain...',
+    })
+    setCurrentSteps([...steps])
+
+    let report: any
+    try {
+      report = await executeX402Call(service, { address: targetAddress }, walletAddress, provider, paidCallKind, paidCallSigner)
+    } catch (err: any) {
+      steps[0].status = 'failed'
+      steps[0].resultSummary = err?.message || 'Vault report call failed.'
+      setCurrentSteps([...steps])
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Vault report failed before a measurement was returned: ${err?.message || 'unknown error'}.`,
+        timestamp: Date.now(),
+        steps: [...steps],
+      })
+      return
+    }
+
+    const paid = isPaidOrSettled(report)
+    if (paid) {
+      totalCost += report.costUsdc
+      steps[0].costUsdc = report.costUsdc
+    }
+    const data = report?.data as any
+    const usable = isServiceDataAvailable(report)
+    steps[0].durationMs = report?.executionTimeMs || 0
+    steps[0].status = usable ? 'completed' : 'failed'
+    steps[0].resultSummary = usable
+      ? data?.status === 'NO_POSITION'
+        ? 'This address holds no vault shares.'
+        : 'Vault position measured on-chain and narrated.'
+      : `Report unavailable: ${report?.error || data?.reason || 'service data unavailable'}`
+    setCurrentSteps([...steps])
+
+    if (!usable) {
+      const unavailable = Array.isArray(data?.unavailable) ? data.unavailable.join(', ') : null
+      const reportNote = formatX402FailureNote(report)
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Vault report could not be produced.${unavailable ? `\n\n• <strong>Unavailable:</strong> ${unavailable}` : ''}${data?.reason ? `\n\n${data.reason}` : ''}${reportNote ? `\n\n${reportNote}` : ''}${totalCost > 0 ? `\n\nPayment: ${totalCost} USDC; Gateway acceptance is not final settlement.` : ''}`,
+        timestamp: Date.now(),
+        steps: [...steps],
+        ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+      })
+      return
+    }
+
+    const measured = data?.measured && typeof data.measured === 'object' ? data.measured : {}
+    const narrative = data?.narrative && typeof data.narrative === 'object' ? data.narrative : null
+    const observations: string[] = Array.isArray(narrative?.observations)
+      ? narrative.observations.filter((item: unknown): item is string => typeof item === 'string')
+      : []
+    const narrativeRisks: string[] = Array.isArray(narrative?.risks)
+      ? narrative.risks.filter((item: unknown): item is string => typeof item === 'string')
+      : []
+    const limitations: string[] = Array.isArray(data?.limitations) ? data.limitations : []
+
+    const lines: string[] = []
+    if (data?.status === 'NO_POSITION') {
+      lines.push('Vault report completed — this address holds no vault shares, so there is no position to report.')
+    } else {
+      lines.push('Paid vault report completed — measured from the ERC-4626 vault; this is not a tax filing.')
+      lines.push(
+        [
+          `• <strong>Shares:</strong> ${measured?.shares ?? 'unavailable'}`,
+          `• <strong>Redeemable value:</strong> ${formatUsdReportValue(measured?.currentValueUsdc)}`,
+          `• <strong>Principal:</strong> ${formatUsdReportValue(measured?.principalUsdc)}`,
+          `• <strong>Pending yield:</strong> ${formatUsdReportValue(measured?.pendingYieldUsdc)}`,
+          `• <strong>Unrealized yield:</strong> ${formatUsdReportValue(measured?.unrealizedYieldUsdc)}`,
+        ].join('\n')
+      )
+    }
+
+    // The position report carries the institutional envelope; show its identity and graded
+    // findings (impairment, unrealized gain, disclosure limits) before the narrative.
+    const positionReportHeader = formatInstitutionalReportHeader(data?.report)
+    if (positionReportHeader) lines.push(positionReportHeader)
+    const positionRegisterLines = formatRiskRegisterLines(data?.report, 4)
+    if (positionRegisterLines.length > 0) lines.push(positionRegisterLines.join('\n'))
+
+    if (narrative) {
+      lines.push(
+        [
+          `<strong>Report narrative:</strong> ${narrative.headline || ''}`,
+          ...observations.map((observation) => `• ${observation}`),
+          ...(narrativeRisks.length > 0 ? [`<strong>Risks:</strong> ${narrativeRisks.join(' ')}`] : []),
+        ].join('\n')
+      )
+    }
+    if (limitations.length > 0) {
+      lines.push(`<strong>Limitations:</strong> ${limitations.join(' ')}`)
+    }
+    if (totalCost > 0) {
+      lines.push(
+        `Payment: ${totalCost.toFixed(3)} USDC. Gateway acceptance is not final settlement; provider accounting stays pending until reconciliation.`
+      )
+    }
+    addMessage({
+      id: 'assistant-' + Date.now(),
+      role: 'assistant',
+      content: lines.join('\n\n'),
+      timestamp: Date.now(),
+      steps: [...steps],
+      ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+      actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
+    })
+  }
+
   // Orchestrate execution of natural language query or quick prompt
   const executeQuery = async (queryText: string) => {
     if (!queryText.trim()) return
@@ -597,6 +1017,18 @@ export function useArcCopilot(
       }
       addMessage(userMsg)
       if (intent.kind === 'command' || intent.kind === 'correction') invalidateDrafts()
+      // Paid analysis/report intents are answered before the generic read-only-reply gate:
+      // they are measurements bought per call, not transaction drafts.
+      if (isVaultReportQuery(queryText) || isPortfolioAnalysisQuery(queryText)) {
+        const paidTargetAddress = queryText.match(/0x[a-fA-F0-9]{40}/)?.[0]
+        if (isVaultReportQuery(queryText)) {
+          await runPaidVaultReport(paidTargetAddress)
+        } else {
+          await runPaidPortfolioAnalysis(paidTargetAddress)
+        }
+        setCurrentSteps([])
+        return
+      }
       if ('message' in intent) {
         addMessage({ id: 'assistant-' + Date.now(), role: 'assistant', content: intent.message, timestamp: Date.now() })
         setCurrentSteps([])
@@ -608,7 +1040,7 @@ export function useArcCopilot(
       if (currentGeneration !== queryGenerationRef.current) return
 
       // 0. PRIORITY ACTION & STRATEGY ROUTING
-      // If the query is an action, swap, bridge, deposit, faucet, portfolio analysis,
+      // If the query is an action, swap, bridge, deposit, faucet,
       // or multi-turn correction, directly dispatch to the LLM / Local NLP Engine.
       if (isActionOrStrategyIntent(queryText)) {
         await handleLLMIntent(queryText, portfolioSnapshot)
@@ -744,13 +1176,13 @@ Arc L1 solves this with sub-second deterministic finality:
 <strong>Key Protections:</strong>
 
 • <strong>Instant State Inclusion:</strong>
-Transactions are included in blocks and finalized in under 500 milliseconds, giving sandwich bots zero time window to attack.
+Transactions are included in blocks and finalized in under 500 milliseconds, which leaves a far smaller window for front-running than a multi-second public mempool.
 
-• <strong>Private Relayer Routing:</strong>
-Arcis routes swap calls directly to block builders through encrypted private relayer tunnels.
+• <strong>No Private Relayer:</strong>
+Arcis does not operate a private relayer or bundle pipeline — swaps are submitted as ordinary Arc transactions. The Mempool MEV Shield Simulator only measures a trade's exposure; it provides no transaction protection.
 
-• <strong>Price Certainty:</strong>
-The quoted price on your screen matches the exact on-chain execution price with zero unexpected slippage.`,
+• <strong>Price Transparency:</strong>
+The quote is read from live pool reserves, and slippage tolerance is yours to set; pool depth can still move the execution price, which is why that limit exists.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1046,7 +1478,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `x402 is an HTTP payment protocol that can return payment requirements (HTTP 402) before a paid service response. Circle Gateway nanopayments require a connected external EOA and pre-funded Gateway USDC; this app does not deposit or withdraw funds automatically. Supported testnet calls require an explicit wallet signature. Circle accepts each call for later batch settlement, so provider accounting remains pending until nonce-based reconciliation reports confirmed. Passkey/MSCA and autonomous session payments remain unsupported.`,
+        content: `x402 is an HTTP payment protocol that can return payment requirements (HTTP 402) before a paid service response. Circle Gateway nanopayments require an EOA key holder — an external EOA or a Circle Wallet created as an EOA — plus pre-funded Gateway USDC; this app does not deposit or withdraw funds automatically. Circle Wallet payments are authorized with its PIN/biometric typed-data challenge. Supported testnet calls require an explicit wallet signature. Circle accepts each call for later batch settlement, so provider accounting remains pending until nonce-based reconciliation reports confirmed. Passkey/MSCA smart accounts and autonomous session payments remain unsupported.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1068,16 +1500,17 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       })
       setCurrentSteps([...steps])
 
-      const eoaOnlyPaidCall = () => ucwHandlers?.authSource === 'evm'
-        ? executeX402Call(s1, { fromToken: 'USDC', toToken: 'WETH', amount: 25000 }, walletAddress, provider, 'external_eoa')
-        : Promise.resolve({ statusCode: 503, success: false, error: 'Circle Gateway payments are available only through an explicitly selected external EOA; passkey/MSCA, UCW and autonomous session signers are unsupported.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>)
-      const r1 = await eoaOnlyPaidCall()
+      const paidCall = () => paidCallKind
+        ? executeX402Call(s1, { fromToken: 'USDC', toToken: 'WETH', amount: 25000 }, walletAddress, provider, paidCallKind, paidCallSigner)
+        : Promise.resolve({ statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>)
+      const r1 = await paidCall()
       const finishFailedStep = (
         step: CopilotStepLog,
         result: Awaited<ReturnType<typeof executeX402Call>>
       ) => {
         const verifiedSettlement = hasVerifiedX402Settlement(result)
         const acceptedPayment = result.payment?.status === 'settlement_pending' && result.success
+        const failureNote = acceptedPayment ? null : formatX402FailureNote(result)
         step.status = 'failed'
         step.costUsdc = acceptedPayment || verifiedSettlement ? result.costUsdc : 0
         step.durationMs = result.executionTimeMs
@@ -1091,7 +1524,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
         addMessage({
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `Arbitrage scan could not be completed. ${result.error || 'A usable service response and Gateway payment acceptance were not both confirmed.'} No trade action was created.`,
+          content: `Arbitrage scan could not be completed. ${result.error || 'A usable service response and Gateway payment acceptance were not both confirmed.'} No trade action was created.${failureNote ? `\n\n${failureNote}` : ''}`,
           timestamp: Date.now(),
           steps: [...steps],
           ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
@@ -1123,9 +1556,9 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       })
       setCurrentSteps([...steps])
 
-      const r2 = ucwHandlers?.authSource === 'evm'
-        ? await executeX402Call(s2, { pair: 'USDC/WETH', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, 'external_eoa')
-        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an explicitly selected external EOA.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      const r2 = paidCallKind
+        ? await executeX402Call(s2, { pair: 'USDC/WETH', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, paidCallKind, paidCallSigner)
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
       if (!isSuccessfulX402ServiceResult(r2)) {
         finishFailedStep(steps[1], r2)
         return
@@ -1147,13 +1580,13 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
         status: 'executing',
         costUsdc: 0,
         durationMs: 0,
-        detail: 'Inspecting mempool sandwich risks and private relayer tunnel...',
+        detail: 'Measuring how much of the USDC/WETH pool a 25,000 USDC sale would move...',
       })
       setCurrentSteps([...steps])
 
-      const r3 = ucwHandlers?.authSource === 'evm'
-        ? await executeX402Call(s3, { targetTxAmountUsdc: 25000, slippageTolerancePct: 0.2 }, walletAddress, provider, 'external_eoa')
-        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an explicitly selected external EOA.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      const r3 = paidCallKind
+        ? await executeX402Call(s3, { pair: 'USDC/WETH', tokenIn: 'USDC', targetTxAmountUsdc: 25000, slippageTolerancePct: 0.2 }, walletAddress, provider, paidCallKind, paidCallSigner)
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
       if (!isSuccessfulX402ServiceResult(r3)) {
         finishFailedStep(steps[2], r3)
         return
@@ -1196,19 +1629,19 @@ The separate MEV service returned analysis only. No relayer protection or trade 
 
 <strong>Listed Services:</strong>
 
-1. <strong>Arc Cross-DEX Arbitrage Sentinel:</strong>
+1. <strong>Cross-DEX Arbitrage Sentinel:</strong>
 Listed rate: $0.005 USDC per query
 Intended output: spread and route estimates when the service is enabled and its data sources are available.
 
-2. <strong>Deep Liquidity Depth & Slippage Predictor:</strong>
+2. <strong>Liquidity Depth & Slippage Scout:</strong>
 Listed rate: $0.002 USDC per query
 Intended output: route depth and slippage estimates when the service is enabled and its data sources are available.
 
-3. <strong>Flash-Loan Yield & Liquidation Radar:</strong>
+3. <strong>Flash-Loan & Liquidation Radar:</strong>
 Listed rate: $0.008 USDC per query
 Intended output: liquidation analysis only if a valid opportunity feed is connected.
 
-4. <strong>Arc Mempool & MEV Shield Simulator:</strong>
+4. <strong>Mempool MEV Shield Simulator:</strong>
 Listed rate: $0.004 USDC per query
 Intended output: risk analysis only; this is not transaction protection.
 
@@ -1216,7 +1649,7 @@ Intended output: risk analysis only; this is not transaction protection.
 Listed rate: $0.003 USDC per query
 Intended output: Gateway flow data only when a successful paid service response is available.
 
-These are catalog rates, not successful calls. Paid calls require a selected external EOA, Arc Testnet and a previously funded Circle Gateway balance. Circle facilitator acceptance serves the result, but provider earnings remain pending until Circle reports a matching confirmed transfer. Passkey/MSCA, UCW and autonomous session payments are unsupported; this app never deposits automatically.`,
+These are catalog rates, not successful calls. Paid calls require an external EOA or a Circle Wallet EOA, Arc Testnet and a previously funded Circle Gateway balance. Circle facilitator acceptance serves the result, but provider earnings remain pending until Circle reports a matching confirmed transfer. Passkey/MSCA and autonomous session payments are unsupported; this app never deposits automatically.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1230,7 +1663,7 @@ These are catalog rates, not successful calls. Paid calls require a selected ext
         role: 'assistant',
         content: `x402 Developer Integration (design overview, not a live payout promise):
 
-A provider can integrate an HTTP 402 payment challenge and register a service manifest. Paid testnet calls are limited to an explicitly selected external EOA and Circle Gateway; each requires a signature and an already-funded Gateway balance. Facilitator acceptance is not final settlement and provider accounting stays pending until nonce reconciliation. Withdrawals only adjust the internal ledger; no USDC payout is sent.`,
+A provider can integrate an HTTP 402 payment challenge and register a service manifest. Paid testnet calls require an external EOA or a Circle Wallet EOA and Circle Gateway; each requires a signature and an already-funded Gateway balance. Facilitator acceptance is not final settlement and provider accounting stays pending until nonce reconciliation. Withdrawals only adjust the internal ledger; no USDC payout is sent.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1241,15 +1674,15 @@ A provider can integrate an HTTP 402 payment challenge and register a service ma
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `Choosing an x402 AI service (catalog rates; paid testnet calls require a selected external EOA):
+          content: `Choosing an x402 AI service (catalog rates; paid testnet calls require an external EOA or Circle Wallet):
 
-• <strong>Arbitrage research:</strong> the Arc Cross-DEX Arbitrage Sentinel is listed at $0.005/query.
-• <strong>Route/slippage estimates:</strong> the Deep Liquidity Slippage Predictor is listed at $0.002/query.
-• <strong>Liquidation research:</strong> the Yield & Liquidation Radar is listed at $0.008/query; its opportunity feed is unavailable until connected.
-• <strong>MEV risk analysis:</strong> the Mempool & MEV Shield is listed at $0.004/query and does not itself protect or execute a transaction.
-• <strong>Gateway flow reporting:</strong> the Flow Indexer is listed at $0.003/query when a successful service response is available.
+• <strong>Arbitrage research:</strong> the Cross-DEX Arbitrage Sentinel is listed at $0.005/query.
+• <strong>Route/slippage estimates:</strong> the Liquidity Depth & Slippage Scout is listed at $0.002/query.
+• <strong>Liquidation research:</strong> the Flash-Loan & Liquidation Radar is listed at $0.008/query; its opportunity feed is unavailable until connected.
+• <strong>MEV risk analysis:</strong> the Mempool MEV Shield Simulator is listed at $0.004/query and does not itself protect or execute a transaction.
+• <strong>Gateway flow reporting:</strong> the Cross-Chain Gateway Flow Indexer is listed at $0.003/query when a successful service response is available.
 
-These are catalog entries. Paid testnet calls require external EOA selection and Circle Gateway configuration; a successful facilitator acceptance is still pending provider reconciliation, not a chain receipt. Open the AI Services tab to inspect the catalog.`,
+These are catalog entries. Paid testnet calls require an external EOA or Circle Wallet and Circle Gateway configuration; a successful facilitator acceptance is still pending provider reconciliation, not a chain receipt. Open the AI Services tab to inspect the catalog.`,
           timestamp: Date.now(),
           actionPayload: {
             type: 'ai-services',
@@ -1376,9 +1809,9 @@ Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very 
       })
       setCurrentSteps([...steps])
 
-      const r = ucwHandlers?.authSource === 'evm'
-        ? await executeX402Call(s, { timeWindow: '1h' }, walletAddress, provider, 'external_eoa')
-        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an explicitly selected external EOA.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      const r = paidCallKind
+        ? await executeX402Call(s, { timeWindow: '1h' }, walletAddress, provider, paidCallKind, paidCallSigner)
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
       const settlementVerified = hasVerifiedX402Settlement(r)
       const paymentAccepted = r.payment?.status === 'settlement_pending' && r.success
       const serviceAvailable = isSuccessfulX402ServiceResult(r)
@@ -1400,6 +1833,7 @@ Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very 
             error: r.error || 'paid service data or trusted settlement could not be verified',
           })
 
+      const flowNote = serviceAvailable ? null : formatX402FailureNote(r)
       steps[0].status = serviceAvailable ? 'completed' : 'failed'
       steps[0].durationMs = r.executionTimeMs
       steps[0].resultSummary = serviceAvailable
@@ -1410,7 +1844,7 @@ Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very 
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: flowReport,
+        content: flowNote ? `${flowReport}\n\n${flowNote}` : flowReport,
         timestamp: Date.now(),
         steps: [...steps],
         totalCostUsdc: totalCost,
@@ -1561,7 +1995,7 @@ The displayed session budget is local UI metadata, not an on-chain spending limi
 
 • The session budget shown in this UI is local metadata, not an on-chain spending cap.
 • Automated signing/delegation is disabled because SessionKeyModule is not integrated with this frontend.
-• Paid x402 testnet calls require an explicitly selected external EOA and pre-funded Circle Gateway USDC; this app never auto-deposits. Passkey/MSCA, UCW and autonomous session payments are unsupported.
+• Paid x402 testnet calls require an external EOA or a Circle Wallet EOA and pre-funded Circle Gateway USDC; this app never auto-deposits. Passkey/MSCA and autonomous session payments are unsupported.
 • Facilitator acceptance is not final settlement; provider earnings remain pending until nonce reconciliation reports a matching Circle transfer.
 • Catalog prices are not evidence that a paid call can currently be completed.`,
         timestamp: Date.now(),
@@ -1619,7 +2053,7 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
 
 
     // ─────────────────────────────────────────────────────────────
-    // FALLBACK: GPT-4o-mini & SMART LOCAL NLP INTENT PARSER
+    // FALLBACK: AI COPILOT LLM & SMART LOCAL NLP INTENT PARSER
     // ─────────────────────────────────────────────────────────────
     else {
       await handleLLMIntent(queryText, portfolioSnapshot)

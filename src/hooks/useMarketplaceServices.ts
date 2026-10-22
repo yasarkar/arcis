@@ -1,19 +1,20 @@
 // src/hooks/useMarketplaceServices.ts
 // Hook for managing x402 marketplace services, filtering, execution, and session budget
-
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useClearOnWalletDisconnect } from './useClearOnWalletDisconnect'
 import {
   ARC_SERVICES_REGISTRY,
-  MARKETPLACE_STATS,
 } from '../config/servicesRegistry'
 import { ecosystemStatsService } from '../services/ecosystemStatsService'
 import {
   executeX402Call,
   getSessionBudget,
   resetSessionBudget,
+  deductSessionBudget,
   type SessionBudgetState,
 } from '../services/x402Client'
+import { deductSessionSpend } from '../services/sessionKeyService'
+import { resolveX402Payer, type UcwTypedDataChallenge } from '../services/x402/ucwPaymentSigner'
 import type {
   x402Service,
   ServiceCategory,
@@ -44,7 +45,8 @@ function saveCustomServices(list: x402Service[]) {
 export function useMarketplaceServices(
   walletAddress?: string,
   provider?: any,
-  authSource?: 'passkey' | 'ucw' | 'evm' | null
+  authSource?: 'passkey' | 'ucw' | 'evm' | null,
+  ucwSignTypedData?: UcwTypedDataChallenge
 ) {
   const [customServices, setCustomServices] = useState<x402Service[]>(loadCustomServices)
   const [services, setServices] = useState<x402Service[]>([
@@ -143,24 +145,34 @@ export function useMarketplaceServices(
     setIsExecuting(true)
     setExecutionResult(null)
     try {
-      if (authSource !== 'evm') {
+      // An injected EOA signs locally; a Circle Wallet (created as an EOA) signs through its
+      // Circle challenge. A passkey/MSCA wallet can do neither, so it stays unofferable.
+      const payer = resolveX402Payer(authSource, ucwSignTypedData)
+      if (!payer) {
         const result: x402ExecutionResult = {
           statusCode: 503,
           success: false,
-          error: 'Circle Gateway paid calls require an explicitly selected connected external EOA. Passkey/MSCA and Circle UCW signers are unsupported.',
+          error: 'Circle Gateway paid calls require a connected external EOA or an active Circle Wallet signing session. Passkey/MSCA wallets are unsupported.',
           executionTimeMs: 0,
           costUsdc: 0,
         }
         setExecutionResult(result)
         return result
       }
-      const result = await executeX402Call(service, payload, walletAddress, provider, 'external_eoa')
+      const result = await executeX402Call(service, payload, walletAddress, provider, payer.kind, payer.signer)
       setExecutionResult(result)
-      refreshSessionBudget()
 
-      // Increment stats dynamically and persist across sessions
+      // Increment stats dynamically and persist spend to active session envelope
       if (result.success) {
-        ecosystemStatsService.recordExecution(service.pricing.priceUsdc)
+        const cost = result.costUsdc > 0 ? result.costUsdc : service.pricing.priceUsdc
+        if (cost > 0) {
+          deductSessionSpend(cost, walletAddress)
+          deductSessionBudget(cost)
+        }
+        refreshSessionBudget()
+        ecosystemStatsService.recordExecution(cost)
+      } else {
+        refreshSessionBudget()
       }
       return result
     } catch (err: any) {

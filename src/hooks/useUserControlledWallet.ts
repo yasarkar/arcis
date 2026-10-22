@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSocialProviderInfo } from '../config/socialAuthConfig';
 import { normalizeCircleBlockchain } from '../utils/circleBlockchain';
 import { isRealTxHash } from '../utils/ucwTxHash';
+import { prepareCircleTypedData } from '../services/ucwTypedData';
 
 export interface UcwWalletInfo {
   id: string;
@@ -1202,7 +1203,9 @@ export function useUserControlledWallet() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               userToken: uToken,
-              data: params.data,
+              // Last-resort guard for every Circle challenge, so a caller that forgets the
+              // domain type or sends a bigint still produces a payload Circle accepts.
+              data: prepareCircleTypedData(params.data),
               memo: params.memo,
               blockchain: targetBlockchain,
               walletId: params.walletId,

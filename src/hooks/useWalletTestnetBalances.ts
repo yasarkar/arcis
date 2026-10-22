@@ -181,35 +181,7 @@ export async function fetchWalletTestnetBalancesData(
         })
       }
 
-      const multicallResults = await resilientMulticall<bigint>(
-        client,
-        batchedContracts,
-        { allowFailure: true }
-      )
-
-      const formatted: Partial<Record<WalletBalanceToken, string>> = {}
-      requestedTokens.forEach((token, index) => {
-        const result = multicallResults[index]
-        const { decimals, places } = TOKEN_FORMAT[token]
-        if (result && result.status === 'success') {
-          formatted[token] = floorToPlaces(parseFloat(formatUnits(result.result, decimals)), places).toFixed(places)
-          return
-        }
-        // USDC drives deposit validation: a failed read must fail the whole chain.
-        if (token === 'USDC') {
-          throw result?.error ?? new Error(`USDC read failed for ${chainKey}`)
-        }
-        console.warn(`[useWalletTestnetBalances] Failed to fetch ${token} balance on ${chainKey}:`, result?.error)
-        formatted[token] = (0).toFixed(places)
-      })
-
-      const usdcFormatted = formatted.USDC as string
-
-      const eurcFormatted = formatted.EURC
-      const cirbtcFormatted = formatted.cirBTC
-      const wethFormatted = formatted.WETH
-
-      // Fetch Native Gas Currency balance
+      // Fetch Native Gas Currency balance independently in parallel
       const isArc = chainKey === 'Arc_Testnet' || chainKey === 'Arc'
       const netConfig = TESTNET_NETWORKS[chainKey]
       const nativeSymbol = isArc ? 'USDC' : (netConfig?.nativeCurrency?.symbol || 'ETH')
@@ -217,29 +189,73 @@ export async function fetchWalletTestnetBalancesData(
       const nativeDecimals = netConfig?.nativeCurrency?.decimals ?? 18
       let nativeFormatted = '0.0000'
 
-      if (isArc) {
-        // On Arc, the native gas IS USDC (unified 1-to-1 balance pool).
-        // To avoid double-counting and follow Arc guidelines, native gas amount is the USDC amount.
-        nativeFormatted = usdcFormatted
-      } else {
-        try {
-          const nativeBal = await resilientGetBalance(client, { address: readAddress })
-          const rawUnits = parseFloat(formatUnits(nativeBal, nativeDecimals))
-          nativeFormatted = rawUnits < 0.0001 && rawUnits > 0 ? rawUnits.toFixed(5) : rawUnits.toFixed(4)
-        } catch (err) {
-          console.warn(`[useWalletTestnetBalances] Failed to fetch native balance on ${chainKey}:`, err)
-          nativeFormatted = '0.0000'
+      const nativePromise = isArc
+        ? Promise.resolve(null)
+        : resilientGetBalance(client, { address: readAddress })
+            .then((nativeBal) => {
+              const rawUnits = parseFloat(formatUnits(nativeBal, nativeDecimals))
+              return rawUnits < 0.0001 && rawUnits > 0 ? rawUnits.toFixed(5) : rawUnits.toFixed(4)
+            })
+            .catch((err) => {
+              console.warn(`[useWalletTestnetBalances] Failed to fetch native balance on ${chainKey}:`, err)
+              return '0.0000'
+            })
+
+      const formatted: Partial<Record<WalletBalanceToken, string>> = {}
+      let legacyWethFormatted: string | undefined = undefined
+      let chainError: string | undefined = undefined
+
+      try {
+        const multicallResults = await resilientMulticall<bigint>(
+          client,
+          batchedContracts,
+          { allowFailure: true }
+        )
+
+        requestedTokens.forEach((token, index) => {
+          const result = multicallResults[index]
+          const { decimals, places } = TOKEN_FORMAT[token]
+          if (result && result.status === 'success') {
+            formatted[token] = floorToPlaces(parseFloat(formatUnits(result.result, decimals)), places).toFixed(places)
+            return
+          }
+          // USDC drives deposit validation: a failed read flags a chain error
+          if (token === 'USDC') {
+            chainError = result?.error ? String(result.error) : `USDC read failed for ${chainKey}`
+            formatted[token] = (0).toFixed(places)
+            return
+          }
+          console.warn(`[useWalletTestnetBalances] Failed to fetch ${token} balance on ${chainKey}:`, result?.error)
+          formatted[token] = (0).toFixed(places)
+        })
+
+        if (includeLegacyWeth) {
+          const legacyResult = multicallResults[multicallResults.length - 1]
+          if (legacyResult && legacyResult.status === 'success' && legacyResult.result > 0n) {
+            legacyWethFormatted = floorToPlaces(parseFloat(formatUnits(legacyResult.result, 18)), 4).toFixed(4)
+          }
         }
+      } catch (err: any) {
+        console.warn(`[useWalletTestnetBalances] Multicall failed on ${chainKey}:`, err)
+        chainError = err?.message || `Token query failed for ${chainKey}`
+        requestedTokens.forEach((token) => {
+          if (!formatted[token]) {
+            formatted[token] = (0).toFixed(TOKEN_FORMAT[token].places)
+          }
+        })
       }
 
-      // Legacy slot is always last when present; a failed read stays undefined
-      // (same ignore semantics as the old standalone try/catch).
-      let legacyWethFormatted: string | undefined = undefined
-      if (includeLegacyWeth) {
-        const legacyResult = multicallResults[multicallResults.length - 1]
-        if (legacyResult && legacyResult.status === 'success' && legacyResult.result > 0n) {
-          legacyWethFormatted = floorToPlaces(parseFloat(formatUnits(legacyResult.result, 18)), 4).toFixed(4)
-        }
+      const usdcFormatted = (formatted.USDC ?? '0.00') as string
+      const eurcFormatted = formatted.EURC
+      const cirbtcFormatted = formatted.cirBTC
+      const wethFormatted = formatted.WETH
+
+      const nativeRes = await nativePromise
+      if (isArc) {
+        // On Arc, the native gas IS USDC (unified 1-to-1 balance pool).
+        nativeFormatted = usdcFormatted
+      } else if (nativeRes !== null) {
+        nativeFormatted = nativeRes
       }
 
       return {
@@ -259,6 +275,7 @@ export async function fetchWalletTestnetBalancesData(
           decimals: nativeDecimals,
           isArcGas: isArc,
         },
+        error: chainError,
       }
     })
   )
