@@ -21,7 +21,8 @@ import {
   hashServiceManifest,
 } from '../src/config/x402/authorization'
 import { OFFICIAL_MANIFESTS } from '../src/config/x402/manifests'
-import { usdcToBaseUnits } from '../src/config/x402/pricing'
+import { splitSettlementAmount, usdcToBaseUnits } from '../src/config/x402/pricing'
+import { resolveSettlementRoute, resolveX402TreasuryAddress } from '../src/config/x402/treasury'
 import {
   CIRCLE_BATCHING_METADATA,
   DEFAULT_X402_DOMAIN,
@@ -31,7 +32,9 @@ import {
   X402_NETWORKS,
   X402_SCHEMES,
 } from '../src/config/x402/schemes'
+import { arePayoutAddressesConfirmed, auditManifestPayout } from '../src/config/x402/payouts'
 import { generateLiveServiceData } from '../src/services/aiServicesDataProvider'
+import { isLlmConfigured } from '../src/services/x402/llmEngine'
 import type {
   PaymentReceipt,
   ProviderLedger,
@@ -40,12 +43,12 @@ import type {
   X402PaymentRequirements,
 } from '../src/types/x402'
 import { createBoundedTtlMap, createBoundedTtlSet } from './_utils/boundedStore'
+import { checkRateLimit } from './_utils/rateLimiter'
+import { extractTrustedClientIp } from './_utils/trustedIp'
 import {
   getStorageDriver,
-  kvConfirmPendingProviderSettlement,
   kvCreateProviderSettlementIntent,
   kvDelIfValue,
-  kvFailPendingProviderSettlement,
   kvGet,
   kvGetPendingProviderSettlement,
   kvMarkProviderSettlementAccepted,
@@ -54,6 +57,18 @@ import {
   kvSetIfAbsent,
   kvUpdateProviderLedger,
 } from './_utils/redisStorage'
+import { readLatencySnapshot } from './_utils/x402Latency'
+import { isX402PayoutConfigured, resolveX402TreasurySigner, sendProviderPayout } from './_utils/x402Payout'
+import { runReconcileSweep } from './_utils/x402Reconciler'
+import { reconcileSettlementByNonce } from './_utils/x402Settlement'
+import { readPlatformStats, recordPlatformCall } from './_utils/x402Stats'
+
+function getEnv(key: string): string {
+  const localEnv = (typeof process !== 'undefined' && process.env) || {}
+  const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
+  const val = localEnv[key] || globalEnv[key] || ''
+  return String(val).replace(/^["']|["']$/g, '').trim()
+}
 
 // In-memory fallback stores for non-KV / isolated environments (audit ARC-008).
 // The durable KV reservation is the authoritative replay guard whenever a payment settles; these
@@ -82,6 +97,7 @@ const serverProviderStore = createBoundedTtlMap<{
   unclaimedEarningsUsdc: number
   pendingUsdc: number
   withdrawnUsdc: number
+  services?: Record<string, { callsServed?: number; pendingMicros?: number; grossMicros?: number }>
 }>({
   name: 'provider-ledger-store',
   maxEntries: 5_000,
@@ -100,12 +116,12 @@ function parseAuthorizationInteger(value: unknown): bigint {
   return BigInt(text)
 }
 
-function isGatewayPaymentOption(option: unknown, providerAddress: string, amount: string): option is Record<string, any> {
+function isGatewayPaymentOption(option: unknown, expectedPayTo: string, amount: string): option is Record<string, any> {
   if (!isRecord(option) || !isRecord(option.extra)) return false
   return option.scheme === X402_SCHEMES.EXACT &&
     option.network === X402_NETWORKS.CAIP2_ARC_TESTNET &&
     typeof option.asset === 'string' && option.asset.toLowerCase() === ARC_TESTNET_TOKENS.USDC.toLowerCase() &&
-    typeof option.payTo === 'string' && option.payTo.toLowerCase() === providerAddress.toLowerCase() &&
+    typeof option.payTo === 'string' && option.payTo.toLowerCase() === expectedPayTo.toLowerCase() &&
     String(option.amount) === amount &&
     option.maxTimeoutSeconds === CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS &&
     option.extra.name === CIRCLE_BATCHING_METADATA.NAME &&
@@ -122,13 +138,6 @@ function safeEqualSecret(received: string, expected: string): boolean {
 
 function pendingSettlementKey(providerAddress: string, nonce: string): string {
   return `arcis:x402:pending:{${providerAddress.toLowerCase()}}:${nonce.toLowerCase()}`
-}
-
-function parseGatewayUsdcMicros(value: unknown): number | null {
-  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$/.test(value)) return null
-  const [whole, fraction = ''] = value.split('.')
-  const micros = BigInt(whole) * 1_000_000n + BigInt((fraction + '000000').slice(0, 6))
-  return micros <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(micros) : null
 }
 
 function safeChecksumAddress(addr: string): Address {
@@ -267,7 +276,7 @@ function isSafePublicHttpsUrl(rawUrl: string): boolean {
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
     if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.test')) return false
     if (isIP(host) && !isPublicIpAddress(host)) return false
-    const allowedHosts = (process.env.X402_UPSTREAM_HOST_ALLOWLIST || '').split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean)
+    const allowedHosts = getEnv('X402_UPSTREAM_HOST_ALLOWLIST').split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean)
     return allowedHosts.includes(host)
   } catch {
     return false
@@ -316,7 +325,10 @@ async function fetchCommunityUpstreamJson(rawUrl: string, requestBody: unknown, 
 
 function createPaymentRequirements(manifest: ServiceManifest): X402PaymentRequirements {
   const amount = usdcToBaseUnits(manifest.pricing.priceUsdc)
-  const providerAddress = safeChecksumAddress(manifest.provider.address)
+  // A fee-bearing call settles to the protocol treasury; the provider is paid its net earnings on
+  // withdrawal. `createSettlementUnavailableResponse` refuses the challenge when the route is null.
+  const route = resolveSettlementRoute(manifest)
+  const payTo = route?.payTo ?? safeChecksumAddress(manifest.provider.address)
   const verifyingContract = safeChecksumAddress((manifest.accepts[0]?.extra?.verifyingContract as string) || GATEWAY_CONTRACTS.testnet.gatewayWallet)
   return {
     x402Version: 2,
@@ -324,11 +336,35 @@ function createPaymentRequirements(manifest: ServiceManifest): X402PaymentRequir
       scheme: X402_SCHEMES.EXACT,
       network: X402_NETWORKS.CAIP2_ARC_TESTNET,
       asset: ARC_TESTNET_TOKENS.USDC,
-      payTo: providerAddress,
+      payTo,
       amount,
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
       extra: { name: CIRCLE_BATCHING_METADATA.NAME, version: CIRCLE_BATCHING_METADATA.VERSION, verifyingContract },
     }],
+  }
+}
+
+/**
+ * Explains why a paid call produced no result. A `native`/`llm` service answers UNAVAILABLE
+ * because an input could not be read or the model produced no narrative; without this the caller
+ * only sees "no available result" and cannot tell a bad address from a misconfigured model.
+ * Only known fields are copied, each bounded, so a service cannot smuggle arbitrary data out.
+ */
+function createServiceFailureDiagnostics(manifest: ServiceManifest, data: unknown) {
+  const source = isRecord(data) ? (data as Record<string, unknown>) : {}
+  const unavailable = Array.isArray(source.unavailable)
+    ? source.unavailable
+        .filter((item): item is string => typeof item === 'string')
+        .slice(0, 10)
+        .map((item) => item.slice(0, 160))
+    : []
+  return {
+    serviceId: manifest.id,
+    engine: manifest.engine,
+    resultStatus: typeof source.status === 'string' ? source.status.slice(0, 40) : null,
+    unavailable,
+    reason: typeof source.reason === 'string' ? source.reason.slice(0, 400) : null,
+    charged: false,
   }
 }
 
@@ -348,14 +384,16 @@ function createUnsettledPaymentResponse(params: {
   nonce: Hex
   requirements: X402PaymentRequirements
   latencyMs: number
+  /** The payee the authorization named (treasury for a fee-bearing service). */
+  payTo: Address
 }): Response {
-  const { manifest, payerAddress, signature, nonce, requirements, latencyMs } = params
+  const { manifest, payerAddress, signature, nonce, requirements, latencyMs, payTo } = params
   const providerAddress = safeChecksumAddress(manifest.provider.address)
   const payment: PaymentReceipt = {
     id: `rcpt_${Date.now()}`,
     idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${nonce}`,
     payer: payerAddress,
-    payTo: providerAddress,
+    payTo,
     payerAddress,
     providerAddress,
     serviceId: manifest.id,
@@ -409,6 +447,7 @@ function create402ChallengeResponse(manifest: ServiceManifest, message = 'Paymen
   const baseUnits = usdcToBaseUnits(price)
   const requirements = createPaymentRequirements(manifest)
   const providerAddr = safeChecksumAddress(manifest.provider.address)
+  const recipientAddr = requirements.accepts[0].payTo
   const responseBody = {
     x402Version: 2,
     resource: { url: manifest.serve.path, description: manifest.description, mimeType: 'application/json' },
@@ -422,9 +461,13 @@ function create402ChallengeResponse(manifest: ServiceManifest, message = 'Paymen
       statusCode: 402,
       paymentRequired: true,
       token: 'USDC',
-      recipient: providerAddr,
+      recipient: recipientAddr,
       amountUsdc: price,
       amountUnits: baseUnits.toString(),
+      // The payee above is the treasury whenever this is non-zero; the provider earns the rest.
+      protocolFeeBps: Math.max(0, Math.trunc(Number(manifest.pricing.protocolFeeBps) || 0)),
+      providerAddress: providerAddr,
+      feeUsdc: splitSettlementAmount(Number(baseUnits), Number(manifest.pricing.protocolFeeBps) || 0).feeMicros / 1_000_000,
       scheme: requirements.accepts[0].scheme,
       chainId: arcTestnet.id,
       nonce: nonceHex,
@@ -444,7 +487,7 @@ function create402ChallengeResponse(manifest: ServiceManifest, message = 'Paymen
       'X-Payment-Required': 'true',
       'X-Payment-Token': 'USDC',
       'X-Payment-Amount': price.toString(),
-      'X-Payment-Recipient': providerAddr,
+      'X-Payment-Recipient': recipientAddr,
       'X-Payment-Scheme': requirements.accepts[0].scheme,
       'X-Payment-ChainId': arcTestnet.id.toString(),
       'X-Payment-Nonce': nonceHex,
@@ -452,60 +495,130 @@ function create402ChallengeResponse(manifest: ServiceManifest, message = 'Paymen
   })
 }
 
-async function reconcileGatewaySettlement(req: Request, match: RegExpMatchArray): Promise<Response> {
-  const expectedSecret = process.env.X402_RECONCILIATION_SECRET || ''
+function hasValidReconciliationSecret(req: Request): boolean {
+  const expectedSecret = getEnv('X402_RECONCILIATION_SECRET')
   const suppliedSecret = req.headers.get('x-x402-reconciliation-secret') || ''
   const authorization = req.headers.get('authorization') || ''
   const providedSecret = suppliedSecret || (authorization.startsWith('Bearer ') ? authorization.slice(7) : '')
-  if (!expectedSecret || !providedSecret || !safeEqualSecret(providedSecret, expectedSecret)) {
+  return Boolean(expectedSecret && providedSecret && safeEqualSecret(providedSecret, expectedSecret))
+}
+
+async function reconcileGatewaySettlement(req: Request, match: RegExpMatchArray): Promise<Response> {
+  if (!hasValidReconciliationSecret(req)) {
     return new Response(JSON.stringify({ success: false, error: 'Reconciliation is unavailable without valid internal authorization.' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
   }
-  const rawProvider = match[1]
-  const rawNonce = match[2]
-  if (!isAddress(rawProvider) || !/^0x[0-9a-fA-F]{64}$/.test(rawNonce)) return new Response(JSON.stringify({ success: false, error: 'Invalid provider address or authorization nonce.' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
-  const providerAddress = safeChecksumAddress(rawProvider).toLowerCase()
-  const nonce = rawNonce.toLowerCase()
-  const providerKey = providerLedgerKey(providerAddress)
-  const pendingKey = pendingSettlementKey(providerAddress, nonce)
-  let pending: Awaited<ReturnType<typeof kvGetPendingProviderSettlement>>
-  try { pending = await kvGetPendingProviderSettlement(pendingKey) } catch { return new Response(JSON.stringify({ success: false, error: 'Shared settlement storage is unavailable; no reconciliation was attempted.' }), { status: 503, headers: { 'Content-Type': 'application/json' } }) }
-  if (!pending || pending.providerAddress !== providerAddress || pending.nonce !== nonce) return new Response(JSON.stringify({ success: false, error: 'No matching Gateway settlement intent was found.' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
-  if (pending.status === 'confirmed' || pending.status === 'failed') return new Response(JSON.stringify({ success: true, status: pending.status, idempotent: true, pendingUsdc: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const result = await reconcileSettlementByNonce(match[1], match[2])
+  return new Response(JSON.stringify(result.body), { status: result.status, headers: { 'Content-Type': 'application/json' } })
+}
 
-  try {
-    const gatewayApi = 'https://gateway-api-testnet.circle.com'
-    const query = new URLSearchParams({ nonce, network: X402_NETWORKS.CAIP2_ARC_TESTNET, token: 'USDC' })
-    const transferResponse = await fetch(`${gatewayApi}/v1/x402/transfers?${query}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8_000) })
-    if (!transferResponse.ok) return new Response(JSON.stringify({ success: false, error: 'Circle transfer status is temporarily unavailable; pending balance was not changed.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
-    const transferBody = await transferResponse.json()
-    const transfers = Array.isArray(transferBody?.transfers) ? transferBody.transfers : []
-    const matching = transfers.filter((transfer: any) => isRecord(transfer) && typeof transfer.nonce === 'string' && transfer.nonce.toLowerCase() === nonce)
-    if (matching.length !== 1) return new Response(JSON.stringify({ success: true, status: 'pending', pendingUsdc: pending.amountUsdc, transferFound: false }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    const transfer = matching[0]
-    if (!['received', 'batched', 'confirmed', 'completed', 'failed'].includes(transfer.status)) return new Response(JSON.stringify({ success: false, error: 'Circle transfer status was not recognized; ledger was not changed.' }), { status: 502, headers: { 'Content-Type': 'application/json' } })
-    const transferAmountMicros = parseGatewayUsdcMicros(transfer.amount)
-    const exactMatch = transfer.token === 'USDC' && transfer.sendingNetwork === X402_NETWORKS.CAIP2_ARC_TESTNET && transfer.recipientNetwork === X402_NETWORKS.CAIP2_ARC_TESTNET && transfer.fromAddress?.toLowerCase() === pending.payerAddress && transfer.toAddress?.toLowerCase() === pending.providerAddress && transferAmountMicros === pending.amountMicros && typeof transfer.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(transfer.id) && (!pending.settlementRef || pending.settlementRef === transfer.id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(pending.settlementRef))
-    if (!exactMatch) return new Response(JSON.stringify({ success: false, error: 'Circle returned a transfer that does not exactly match the pending authorization; no ledger credit was applied.' }), { status: 409, headers: { 'Content-Type': 'application/json' } })
-    if (pending.status === 'settling') {
-      const accepted = await kvMarkProviderSettlementAccepted(providerKey, pendingKey, transfer.id)
-      if (accepted === 'unavailable') return new Response(JSON.stringify({ success: false, error: 'Circle transfer exists but durable provider accounting is unavailable; no balance was credited.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
-      pending = { ...pending, status: 'pending', settlementRef: transfer.id }
-    }
-    if (transfer.status === 'confirmed' || transfer.status === 'completed') {
-      const result = await kvConfirmPendingProviderSettlement(providerKey, pendingKey, transfer.id, typeof transfer.txHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(transfer.txHash) ? transfer.txHash : undefined)
-      if (result === 'unavailable') return new Response(JSON.stringify({ success: false, error: 'Shared atomic ledger storage is unavailable; reconciliation was not confirmed.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
-      return new Response(JSON.stringify({ success: true, status: 'confirmed', idempotent: result === 'already_confirmed', transferId: transfer.id, txHash: typeof transfer.txHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(transfer.txHash) ? transfer.txHash : undefined, pendingUsdc: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    }
-    if (transfer.status === 'failed') {
-      const result = await kvFailPendingProviderSettlement(providerKey, pendingKey, transfer.id)
-      if (result === 'unavailable') return new Response(JSON.stringify({ success: false, error: 'Shared atomic ledger storage is unavailable; failed settlement remains pending for manual review.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
-      return new Response(JSON.stringify({ success: true, status: result === 'already_confirmed' ? 'confirmed' : 'failed', pendingUsdc: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    }
-    if (!['received', 'batched'].includes(transfer.status)) return new Response(JSON.stringify({ success: false, error: 'Circle transfer status was not recognized; ledger was not changed.' }), { status: 502, headers: { 'Content-Type': 'application/json' } })
-    return new Response(JSON.stringify({ success: true, status: 'pending', circleStatus: transfer.status, pendingUsdc: pending.amountUsdc }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-  } catch {
-    return new Response(JSON.stringify({ success: false, error: 'Circle transfer reconciliation failed; pending balance was not changed.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+/** Public, secret-free settlement configuration for the buyer readiness panel. */
+function createX402ConfigResponse(): Response {
+  const settlementEnabled = getEnv('ENABLE_GATEWAY_SETTLE').toLowerCase() === 'true'
+  const storageDriver = getStorageDriver()
+  const reconciliationConfigured = getEnv('X402_RECONCILIATION_SECRET').length >= 32
+  const payoutsConfirmed = arePayoutAddressesConfirmed()
+  const payoutIssues = OFFICIAL_MANIFESTS
+    .map((manifest) => {
+      const audit = auditManifestPayout(manifest)
+      return audit.usable
+        ? null
+        : { serviceId: manifest.id, address: manifest.provider.address, reason: audit.reason || 'unusable payout address' }
+    })
+    .filter((issue): issue is { serviceId: string; address: string; reason: string } => issue !== null)
+  const intervalMinutes = Math.max(
+    1,
+    Math.min(1440, parseInt(getEnv('X402_RECONCILE_INTERVAL_MINUTES') || '5', 10) || 5)
+  )
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      protocol: 'x402-Gateway-V1',
+      network: { name: arcTestnet.name, chainId: arcTestnet.id },
+      chainId: arcTestnet.id,
+      settlementEnabled,
+      payoutsConfirmed,
+      payoutsReady: payoutsConfirmed && payoutIssues.length === 0,
+      payoutIssues,
+      protocolFee: {
+        bps: Math.max(0, ...OFFICIAL_MANIFESTS.map((manifest) => manifest.pricing.protocolFeeBps ?? 0)),
+        treasuryAddress: resolveX402TreasuryAddress(),
+        treasuryConfigured: resolveX402TreasuryAddress() !== null,
+        treasuryPayoutsConfigured: isX402PayoutConfigured(),
+      },
+      storage: { driver: storageDriver, shared: storageDriver !== 'memory' },
+      reconciliation: {
+        configured: reconciliationConfigured,
+        enabled: getEnv('X402_RECONCILE_ENABLED').toLowerCase() !== 'false',
+        intervalMinutes,
+      },
+      facilitator: { network: 'testnet', host: 'gateway-api-testnet.circle.com' },
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+  )
+}
+
+/**
+ * Refuses to start a payment when configured settlement cannot safely complete.
+ * Returns null while settlement is off (the existing 503-on-settle path stays authoritative).
+ */
+function createSettlementUnavailableResponse(manifest: ServiceManifest): Response | null {
+  if (getEnv('ENABLE_GATEWAY_SETTLE').toLowerCase() !== 'true') return null
+
+  // A fee-bearing call pays the treasury, so there must be a treasury (and a key able to pay
+  // providers out of it). Without both, refuse before the payer signs anything.
+  const route = resolveSettlementRoute(manifest)
+  if (!route) {
+    const feeBps = Math.max(0, Math.trunc(Number(manifest.pricing.protocolFeeBps) || 0))
+    return new Response(
+      JSON.stringify({
+        success: false,
+        statusCode: 503,
+        status: 'treasury_unconfigured',
+        error: `Settlement is unavailable for ${manifest.id}: it charges a ${feeBps / 100}% protocol fee but no usable treasury address is configured (X402_TREASURY_ADDRESS).`,
+      }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    )
   }
+  if (route.feeBps > 0 && !isX402PayoutConfigured()) {
+    const signer = resolveX402TreasurySigner()
+    return new Response(
+      JSON.stringify({
+        success: false,
+        statusCode: 503,
+        status: 'treasury_payout_unconfigured',
+        error: `Settlement is unavailable for ${manifest.id}: provider payouts from the treasury cannot be signed. ${'reason' in signer ? signer.reason : ''}`.trim(),
+      }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  const audit = auditManifestPayout(manifest)
+  if (!audit.usable) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        statusCode: 503,
+        status: 'payout_address_unusable',
+        error: `Settlement is unavailable for ${manifest.id}: its provider payout address cannot receive funds (${audit.reason}).`,
+      }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  if (!arePayoutAddressesConfirmed()) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        statusCode: 503,
+        status: 'payout_addresses_unconfirmed',
+        error: 'Settlement is paused until the operator confirms the provider payout addresses (X402_PAYOUT_ADDRESSES_CONFIRMED=true).',
+      }),
+      { status: 503, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  return null
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -513,6 +626,37 @@ export async function GET(req: Request): Promise<Response> {
   const pathname = url.pathname
   const reconcileMatch = pathname.match(/\/provider\/([^/]+)\/reconcile\/([^/]+)/)
   if (reconcileMatch) return new Response(JSON.stringify({ success: false, error: 'Reconciliation requires an authorized POST request.' }), { status: 405, headers: { 'Content-Type': 'application/json' } })
+  if (/\/x402\/config\/?$/.test(pathname)) return createX402ConfigResponse()
+  // Protocol-wide paid-call totals. Public and identical for every caller, so it is edge-cached:
+  // one invocation per cache window instead of one per visitor.
+  if (/\/x402\/stats\/?$/.test(pathname)) {
+    const snapshot = await readPlatformStats()
+    const cacheable = snapshot.source !== 'unavailable'
+    return new Response(JSON.stringify({ success: true, ...snapshot }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': cacheable
+          ? 'public, max-age=0, s-maxage=15, stale-while-revalidate=45'
+          : 'no-store',
+      },
+    })
+  }
+  // One shared latency reading for the AI Services hero card. Public and identical for every
+  // caller, so it is edge-cached like the stats snapshot instead of being measured per visitor.
+  if (/\/x402\/latency\/?$/.test(pathname)) {
+    const snapshot = await readLatencySnapshot()
+    const cacheable = snapshot.source !== 'unavailable'
+    return new Response(JSON.stringify({ success: true, ...snapshot }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': cacheable
+          ? 'public, max-age=0, s-maxage=15, stale-while-revalidate=45'
+          : 'no-store',
+      },
+    })
+  }
   if (pathname.endsWith('/services') || pathname.endsWith('/manifests')) {
     let allManifests = [...OFFICIAL_MANIFESTS]
     try {
@@ -531,6 +675,41 @@ export async function GET(req: Request): Promise<Response> {
   if (pathname.endsWith('/health')) {
     return new Response(JSON.stringify({ status: 'healthy', protocol: 'x402-Gateway-V1', network: arcTestnet.name, chainId: arcTestnet.id, timestamp: Date.now() }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
+
+  // Per-service readiness. The manifest advertises `/api/x402/health/:id`; before this it
+  // fell through to the 402 challenge, so a probe could never reveal a service that would
+  // answer UNAVAILABLE (a paid `llm` service without its server credential, for example).
+  const healthMatch = pathname.match(/\/x402\/health\/([a-z0-9-]+)\/?$/)
+  if (healthMatch) {
+    const manifest = await findManifest(healthMatch[1])
+    if (!manifest) {
+      return new Response(JSON.stringify({ success: false, error: `Service "${healthMatch[1]}" not found`, statusCode: 404 }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+    }
+    const payout = auditManifestPayout(manifest)
+    const payoutConfirmed = arePayoutAddressesConfirmed()
+    const llmConfigured = manifest.engine === 'llm' ? isLlmConfigured() : null
+    const checks = [
+      { id: 'manifest', ok: true, detail: 'Service manifest is registered.' },
+      { id: 'payout', ok: payout.usable, detail: payout.usable ? 'Provider payout address can receive USDC.' : payout.reason || 'Provider payout address is unusable.' },
+      { id: 'payout-confirmation', ok: payoutConfirmed, detail: payoutConfirmed ? 'Operator confirmed the provider payout addresses.' : 'X402_PAYOUT_ADDRESSES_CONFIRMED is not set.' },
+      ...(llmConfigured === null
+        ? []
+        : [{ id: 'llm-credential', ok: llmConfigured, detail: llmConfigured ? 'Server LLM credential is configured.' : 'No OPENROUTER_API_KEY is configured; this service would answer UNAVAILABLE.' }]),
+    ]
+    const ready = checks.every((check) => check.ok)
+    return new Response(
+      JSON.stringify({
+        success: true,
+        serviceId: manifest.id,
+        engine: manifest.engine,
+        status: ready ? 'ready' : 'degraded',
+        checks,
+        settlementEnabled: getEnv('ENABLE_GATEWAY_SETTLE').toLowerCase() === 'true',
+        timestamp: Date.now(),
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+    )
+  }
   const providerMatch = pathname.match(/\/provider\/([^/]+)/)
   if (providerMatch?.[1]) {
     const rawAddr = providerMatch[1]
@@ -545,11 +724,23 @@ export async function GET(req: Request): Promise<Response> {
       // missing/corrupt durable ledger degrades the response to those numbers instead of failing.
       console.warn('[x402-tollgate] Provider ledger could not be read from storage; using the in-memory mirror:', err)
     }
+    // The atomic provider ledger carries a per-service dimension (`services`). Rows are reported
+    // from that map only — never by copying the wallet-wide total onto every listed service.
+    const serviceRows = Object.entries(stats?.services || {})
+      .map(([serviceId, row]) => ({
+        serviceId,
+        callsServed: Math.max(0, Math.trunc(Number(row?.callsServed) || 0)),
+        grossUsdc: Number(((Math.max(0, Math.trunc(Number(row?.grossMicros) || 0))) / 1_000_000).toFixed(6)),
+        pendingUsdc: Number(((Math.max(0, Math.trunc(Number(row?.pendingMicros) || 0))) / 1_000_000).toFixed(6)),
+      }))
+      .filter((row) => /^[a-z0-9-]{1,100}$/.test(row.serviceId))
+      .sort((a, b) => b.callsServed - a.callsServed || a.serviceId.localeCompare(b.serviceId))
+
     const ledger: ProviderLedger = {
       providerAddress: safeChecksumAddress(providerAddr),
-      // The atomic provider ledger is wallet-wide. Until per-service dimensions are stored
-      // atomically, do not copy provider totals onto every listed service.
-      services: [],
+      services: serviceRows,
+      totalCallsServed: Number(stats?.totalCallsServed) || 0,
+      totalUsdcEarned: Number(stats?.totalUsdcEarned) || 0,
       pendingUsdc: stats?.pendingUsdc || 0,
       availableUsdc: stats?.unclaimedEarningsUsdc || 0,
       withdrawnUsdc: stats?.withdrawnUsdc || 0,
@@ -559,7 +750,13 @@ export async function GET(req: Request): Promise<Response> {
   const serviceId = pathname.split('/').filter(Boolean).pop()
   if (serviceId) {
     const manifest = await findManifest(serviceId)
-    if (manifest) return create402ChallengeResponse(manifest, 'Payment Required. Unpaid probe returned requirements.')
+    if (manifest) {
+      // Refuse before a payer signs anything: a challenge for a service that cannot settle would
+      // spend the payer's signature on a payment that is guaranteed to be rejected.
+      const unavailable = createSettlementUnavailableResponse(manifest)
+      if (unavailable) return unavailable
+      return create402ChallengeResponse(manifest, 'Payment Required. Unpaid probe returned requirements.')
+    }
   }
   return new Response(JSON.stringify({ error: 'Endpoint not found', statusCode: 404 }), { status: 404, headers: { 'Content-Type': 'application/json' } })
 }
@@ -569,6 +766,15 @@ export async function POST(req: Request): Promise<Response> {
   const pathname = new URL(req.url).pathname
   const reconcileMatch = pathname.match(/\/provider\/([^/]+)\/reconcile\/([^/]+)/)
   if (reconcileMatch) return reconcileGatewaySettlement(req, reconcileMatch)
+
+  // One sweep, for an external scheduler (Vercel Cron or any authorized caller).
+  if (/\/x402\/reconcile\/?$/.test(pathname)) {
+    if (!hasValidReconciliationSecret(req)) {
+      return new Response(JSON.stringify({ success: false, error: 'Reconciliation is unavailable without valid internal authorization.' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+    }
+    const summary = await runReconcileSweep()
+    return new Response(JSON.stringify({ success: true, summary }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+  }
 
   if (pathname.endsWith('/services') || pathname.endsWith('/register')) {
     try {
@@ -649,7 +855,46 @@ export async function POST(req: Request): Promise<Response> {
         return new Response(JSON.stringify({ success: false, error: 'Ledger update was not confirmed' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
       }
       serverProviderStore.set(lower, update.ledger)
-      return new Response(JSON.stringify({ success: true, providerAddress: safeChecksumAddress(providerAddress), amountUsdc, remainingBalanceUsdc: update.ledger.unclaimedEarningsUsdc, totalWithdrawnUsdc: update.ledger.withdrawnUsdc, settlementStatus: 'offchain_ledger_only', message: 'This only moves the internal provider ledger. No USDC payout was sent to a wallet.', timestamp: Date.now() }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+      // The ledger reservation above only marks the earnings as claimed. Fee-bearing calls settled
+      // to the treasury, so the money becomes real here: the treasury pays the provider on-chain.
+      const amountMicros = Math.round(amountUsdc * 1_000_000)
+      const payout = await sendProviderPayout({ provider: safeChecksumAddress(providerAddress), amountMicros })
+      if (payout.status === 'paid') {
+        return new Response(JSON.stringify({ success: true, providerAddress: safeChecksumAddress(providerAddress), amountUsdc, remainingBalanceUsdc: update.ledger.unclaimedEarningsUsdc, totalWithdrawnUsdc: update.ledger.withdrawnUsdc, settlementStatus: 'treasury_payout', txHash: payout.txHash, treasuryAddress: payout.treasuryAddress, message: 'Treasury paid the withdrawal on Arc Testnet.', timestamp: Date.now() }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+
+      if (payout.status === 'unknown') {
+        // The transfer may have landed. Keep both the ledger reservation and the nonce so nothing
+        // can be paid twice; the provider must reconcile the tx before retrying.
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Treasury payout was submitted but not confirmed on Arc Testnet. Do not retry this authorization; reconcile the payout transaction before withdrawing again.',
+          statusCode: 503,
+          settlementStatus: 'treasury_payout_unknown',
+          txHash: payout.txHash,
+          authorizationNonce: nonce.toLowerCase(),
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+      }
+
+      // Nothing left the treasury: give the reserved earnings back and free the nonce so the
+      // provider can retry once payouts are configured (or after a definitive on-chain failure).
+      const refund = await kvUpdateProviderLedger(providerLedgerKey(lower), { refundWithdrawMicros: amountMicros })
+      const refundedLedger = refund.status === 'updated' && refund.ledger ? refund.ledger : update.ledger
+      serverProviderStore.set(lower, refundedLedger)
+      await kvDelIfValue(nonceKey, '1')
+      if (refund.status !== 'updated') {
+        console.error('[x402-tollgate] Withdrawal refund after a failed treasury payout could not be written; ledger holds a stale reservation', { provider: lower, amountMicros, payoutStatus: payout.status })
+      }
+      const reason = payout.status === 'unconfigured' ? payout.reason : payout.error
+      return new Response(JSON.stringify({
+        success: false,
+        statusCode: 503,
+        settlementStatus: payout.status === 'unconfigured' ? 'treasury_payout_unconfigured' : 'treasury_payout_failed',
+        error: `No USDC left the treasury, so nothing was withdrawn. ${reason}`.trim(),
+        remainingBalanceUsdc: refundedLedger.unclaimedEarningsUsdc,
+        refunded: true,
+      }), { status: payout.status === 'unconfigured' ? 503 : 502, headers: { 'Content-Type': 'application/json' } })
     } catch (err: any) {
       return new Response(JSON.stringify({ success: false, error: err.message || 'Provider ledger operation failed' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
     }
@@ -659,15 +904,38 @@ export async function POST(req: Request): Promise<Response> {
   if (!serviceId) return new Response(JSON.stringify({ error: 'Missing service ID', statusCode: 400 }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   const manifest = await findManifest(serviceId)
   if (!manifest) return new Response(JSON.stringify({ error: `Service "${serviceId}" not found`, statusCode: 404 }), { status: 404, headers: { 'Content-Type': 'application/json' } })
+  const settlementUnavailable = createSettlementUnavailableResponse(manifest)
+  if (settlementUnavailable) return settlementUnavailable
+  // An `llm` service spends server-credential tokens on every accepted call. Cap it per IP before
+  // any signature work so anonymous flooding cannot amplify provider cost.
+  if (manifest.engine === 'llm') {
+    const clientIp = extractTrustedClientIp(req)
+    const llmRate = await checkRateLimit(`x402-llm:${clientIp}`, 10, 60_000)
+    if (!llmRate.allowed) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Rate limit exceeded for LLM services. Retry after the window resets.',
+        statusCode: 429,
+        retryAfterSeconds: llmRate.retryAfterSeconds,
+      }), { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': String(llmRate.retryAfterSeconds) } })
+    }
+  }
   const requiredBaseUnits = usdcToBaseUnits(manifest.pricing.priceUsdc)
   const providerChecksum = safeChecksumAddress(manifest.provider.address)
   const verifyingContract = safeChecksumAddress((manifest.accepts[0]?.extra?.verifyingContract as string) || GATEWAY_CONTRACTS.testnet.gatewayWallet)
   const requirements = createPaymentRequirements(manifest)
+  // The payee the payer signs for: the treasury on a fee-bearing service, the provider otherwise.
+  const settlementRoute = resolveSettlementRoute(manifest)
+  const settlementRecipient = settlementRoute?.payTo ?? safeChecksumAddress(manifest.provider.address)
+  const amountMicros = Number(requiredBaseUnits)
+  const feeSplit = splitSettlementAmount(amountMicros, settlementRoute?.feeBps ?? 0)
+  const protocolFeeUsdc = feeSplit.feeMicros / 1_000_000
+  const providerEarnedUsdc = feeSplit.providerMicros / 1_000_000
   const facilitatorRequirements = {
     scheme: X402_SCHEMES.EXACT,
     network: X402_NETWORKS.CAIP2_ARC_TESTNET,
     asset: ARC_TESTNET_TOKENS.USDC,
-    payTo: providerChecksum,
+    payTo: settlementRecipient,
     amount: requiredBaseUnits,
     maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
     extra: { name: CIRCLE_BATCHING_METADATA.NAME, version: CIRCLE_BATCHING_METADATA.VERSION, verifyingContract },
@@ -691,7 +959,7 @@ export async function POST(req: Request): Promise<Response> {
     const property = payloadProperties[key]
     if (!isRecord(property)) return new Response(JSON.stringify({ success: false, error: `Unknown request field: ${key}`, statusCode: 400 }), { status: 400, headers: { 'Content-Type': 'application/json' } })
     const validType = property.type === 'integer' ? Number.isSafeInteger(value) : property.type === 'number' ? typeof value === 'number' && Number.isFinite(value) : typeof value === property.type
-    if (!validType || (property.enum && (!Array.isArray(property.enum) || !property.enum.includes(value))) || (typeof value === 'number' && ((typeof property.minimum === 'number' && value < property.minimum) || (typeof property.maximum === 'number' && value > property.maximum))) || (typeof value === 'string' && value.length > 4096)) {
+    if (!validType || (property.enum && (!Array.isArray(property.enum) || !property.enum.includes(value))) || (typeof value === 'number' && ((typeof property.minimum === 'number' && value < property.minimum) || (typeof property.maximum === 'number' && value > property.maximum))) || (typeof value === 'string' && (value.length > 4096 || (typeof property.pattern === 'string' && !new RegExp(property.pattern).test(value))))) {
       return new Response(JSON.stringify({ success: false, error: `Request field does not match the service schema: ${key}`, statusCode: 400 }), { status: 400, headers: { 'Content-Type': 'application/json' } })
     }
   }
@@ -721,8 +989,8 @@ export async function POST(req: Request): Promise<Response> {
       nonce = typeof auth.nonce === 'string' ? auth.nonce as Hex : null
       validAfter = parseAuthorizationInteger(auth.validAfter)
       explicitValidBefore = parseAuthorizationInteger(auth.validBefore)
-      if (auth.to?.toLowerCase() !== providerChecksum.toLowerCase() || parseAuthorizationInteger(auth.value) !== BigInt(requiredBaseUnits)) throw new Error('Payment authorization does not match price/provider')
-      if (!isGatewayPaymentOption(parsed.accepted, providerChecksum, requiredBaseUnits)) throw new Error('Accepted payment option does not match the Arc Testnet challenge')
+      if (auth.to?.toLowerCase() !== settlementRecipient.toLowerCase() || parseAuthorizationInteger(auth.value) !== BigInt(requiredBaseUnits)) throw new Error('Payment authorization does not match price/recipient')
+      if (!isGatewayPaymentOption(parsed.accepted, settlementRecipient, requiredBaseUnits)) throw new Error('Accepted payment option does not match the Arc Testnet challenge')
       if (!isRecord(parsed.resource) || !hasOnlyKeys(parsed.resource, ['url', 'description', 'mimeType']) || parsed.resource.url !== manifest.serve.path || parsed.resource.description !== manifest.description || parsed.resource.mimeType !== 'application/json') throw new Error('Payment resource does not match this service')
       acceptedPaymentOption = parsed.accepted
       paymentResource = parsed.resource
@@ -741,7 +1009,7 @@ export async function POST(req: Request): Promise<Response> {
   let recoveredAddress: Address | null = null
   for (const domain of candidateDomains) {
     try {
-      const recovered = await recoverTypedDataAddress({ domain, types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES, primaryType: 'TransferWithAuthorization', message: { from: payerAddress, to: providerChecksum, value: BigInt(requiredBaseUnits), validAfter: validAfter!, validBefore: explicitValidBefore!, nonce: resolvedNonce }, signature })
+      const recovered = await recoverTypedDataAddress({ domain, types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES, primaryType: 'TransferWithAuthorization', message: { from: payerAddress, to: settlementRecipient, value: BigInt(requiredBaseUnits), validAfter: validAfter!, validBefore: explicitValidBefore!, nonce: resolvedNonce }, signature })
       if (recovered.toLowerCase() === payerAddress.toLowerCase()) { recoveredAddress = recovered; break }
     } catch (err) {
       // A failed recovery attempt is expected for the wrong domain; the next candidate is tried and
@@ -756,17 +1024,20 @@ export async function POST(req: Request): Promise<Response> {
   const pendingKey = pendingSettlementKey(providerChecksum, resolvedNonce)
   const scopedNonceKey = `arcis:x402:nonce:{${providerChecksum.toLowerCase()}}:${resolvedNonce.toLowerCase()}`
   const scopedReservationKey = `arcis:x402:reservation:{${providerChecksum.toLowerCase()}}:${resolvedNonce.toLowerCase()}`
+  const unsettledParams = { manifest, payerAddress, signature, nonce: resolvedNonce, requirements, payTo: settlementRecipient }
   if (!acceptedPaymentOption || !paymentResource) return create402ChallengeResponse(manifest, 'A complete Circle Gateway x402 payment payload is required.')
   if (serverNonceStore.has(nonceIdentity) || serverUsedAuthorizationNonces.has(nonceIdentity)) return new Response(JSON.stringify({ error: 'Nonce replay detected. Authorization signature has already been consumed.', statusCode: 409 }), { status: 409, headers: { 'Content-Type': 'application/json' } })
-  if (process.env.ENABLE_GATEWAY_SETTLE !== 'true') return createUnsettledPaymentResponse({ manifest, payerAddress, signature, nonce: resolvedNonce, requirements, latencyMs: Math.round(performance.now() - startTime) })
+  if (getEnv('ENABLE_GATEWAY_SETTLE').toLowerCase() !== 'true') return createUnsettledPaymentResponse({ ...unsettledParams, latencyMs: Math.round(performance.now() - startTime) })
   const reservation = await kvSetIfAbsent(scopedReservationKey, `${manifest.id}:${providerChecksum.toLowerCase()}`, CIRCLE_BATCHING_METADATA.FULL_VALIDITY_SECONDS)
   if (reservation !== 'acquired') {
     if (reservation === 'exists') {
       let pending: Awaited<ReturnType<typeof kvGetPendingProviderSettlement>>
       try { pending = await kvGetPendingProviderSettlement(pendingKey) } catch { return new Response(JSON.stringify({ success: false, error: 'Shared settlement storage is unavailable; do not retry this authorization.' }), { status: 503, headers: { 'Content-Type': 'application/json' } }) }
       if (pending?.status === 'pending' && pending.payerAddress === payerAddress.toLowerCase() && pending.serviceId === manifest.id) {
-        const pendingReceipt: PaymentReceipt = { id: `rcpt_${pending.createdAt}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: providerChecksum, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: pending.amountUsdc, authorizedMaxUsdc: pending.amountUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, settlementRef: pending.settlementRef, protocolFeeUsdc: 0, providerEarnedUsdc: 0, latencyMs: 0, status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: pending.createdAt }
-        return new Response(JSON.stringify({ statusCode: 200, success: true, error: 'Payment already accepted; Circle batch settlement remains pending. Do not retry.', costUsdc: pending.amountUsdc, providerEarnedUsdc: 0, payment: pendingReceipt, requirements }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        const pendingSplit = splitSettlementAmount(pending.amountMicros, settlementRoute?.feeBps ?? 0)
+        const pendingEarned = pendingSplit.providerMicros / 1_000_000
+        const pendingReceipt: PaymentReceipt = { id: `rcpt_${pending.createdAt}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: settlementRecipient, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: pending.amountUsdc, authorizedMaxUsdc: pending.amountUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, settlementRef: pending.settlementRef, protocolFeeUsdc: pendingSplit.feeMicros / 1_000_000, providerEarnedUsdc: pendingEarned, latencyMs: 0, status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: pending.createdAt }
+        return new Response(JSON.stringify({ statusCode: 200, success: true, error: 'Payment already accepted; Circle batch settlement remains pending. Do not retry.', costUsdc: pending.amountUsdc, protocolFeeUsdc: pendingSplit.feeMicros / 1_000_000, providerEarnedUsdc: pendingEarned, payment: pendingReceipt, requirements }), { status: 200, headers: { 'Content-Type': 'application/json' } })
       }
     }
     return new Response(JSON.stringify({ error: reservation === 'exists' ? 'Nonce is already being processed, pending reconciliation, or consumed.' : 'Shared replay-protection storage is unavailable.', statusCode: reservation === 'exists' ? 409 : 503 }), { status: reservation === 'exists' ? 409 : 503, headers: { 'Content-Type': 'application/json' } })
@@ -799,6 +1070,7 @@ export async function POST(req: Request): Promise<Response> {
       costUsdc: 0,
       data: undefined,
       status: 'voided',
+      diagnostics: createServiceFailureDiagnostics(manifest, serviceData),
     }), { status: 503, headers: { 'Content-Type': 'application/json' } })
   }
 
@@ -808,6 +1080,11 @@ export async function POST(req: Request): Promise<Response> {
     serviceId: manifest.id,
     amountMicros: Number(requiredBaseUnits),
     amountUsdc: manifest.pricing.priceUsdc,
+    // The treasury keeps this share of the gross amount; the provider is credited the remainder.
+    feeMicros: feeSplit.feeMicros,
+    recipientAddress: settlementRecipient.toLowerCase(),
+    // Only a treasury-held share is withdrawable; a direct provider payment is already theirs.
+    escrowed: settlementRecipient.toLowerCase() !== providerChecksum.toLowerCase(),
     nonce: resolvedNonce.toLowerCase(),
     status: 'settling' as const,
     createdAt: Date.now(),
@@ -823,10 +1100,10 @@ export async function POST(req: Request): Promise<Response> {
   let facilitatorResponse: any
   try {
     const { BatchFacilitatorClient } = await import('@circle-fin/x402-batching/server')
-    const facilitator = new BatchFacilitatorClient({ url: process.env.GATEWAY_FACILITATOR_URL || 'https://gateway-api-testnet.circle.com' })
+    const facilitator = new BatchFacilitatorClient({ url: getEnv('GATEWAY_FACILITATOR_URL') || 'https://gateway-api-testnet.circle.com' })
     const paymentPayload = {
       x402Version: 2,
-      payload: { signature, authorization: { from: payerAddress, to: providerChecksum, value: requiredBaseUnits, validAfter: validAfter!.toString(), validBefore: validBefore.toString(), nonce: resolvedNonce } },
+      payload: { signature, authorization: { from: payerAddress, to: settlementRecipient, value: requiredBaseUnits, validAfter: validAfter!.toString(), validBefore: validBefore.toString(), nonce: resolvedNonce } },
       accepted: facilitatorRequirements,
       resource: paymentResource,
     }
@@ -846,13 +1123,13 @@ export async function POST(req: Request): Promise<Response> {
   if (facilitatorResponse?.success === false) {
     await kvRejectProviderSettlementIntent(pendingKey)
     await kvSet(scopedReservationKey, 'settlement_failed', CIRCLE_BATCHING_METADATA.FULL_VALIDITY_SECONDS)
-    return createUnsettledPaymentResponse({ manifest, payerAddress, signature, nonce: resolvedNonce, requirements, latencyMs: Math.round(performance.now() - startTime) })
+    return createUnsettledPaymentResponse({ ...unsettledParams, latencyMs: Math.round(performance.now() - startTime) })
   }
   if (!facilitatorAccepted || !settlementRef) {
     // Keep the durable nonce intent reserved: Circle may have accepted the transfer despite a
     // network/response failure. Reconciliation can recover it by nonce without a second settle.
     await kvSet(scopedReservationKey, 'settlement_unknown', CIRCLE_BATCHING_METADATA.FULL_VALIDITY_SECONDS)
-    const unknownReceipt: PaymentReceipt = { id: `rcpt_${Date.now()}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: providerChecksum, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: 0, authorizedMaxUsdc: manifest.pricing.priceUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, protocolFeeUsdc: 0, providerEarnedUsdc: 0, latencyMs: Math.round(performance.now() - startTime), status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: Date.now() }
+    const unknownReceipt: PaymentReceipt = { id: `rcpt_${Date.now()}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: settlementRecipient, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: 0, authorizedMaxUsdc: manifest.pricing.priceUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, protocolFeeUsdc: 0, providerEarnedUsdc: 0, latencyMs: Math.round(performance.now() - startTime), status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: Date.now() }
     return new Response(JSON.stringify({ statusCode: 503, success: false, error: 'Gateway settlement outcome is unknown. Do not retry this authorization; reconcile it by nonce before any further action.', costUsdc: 0, payment: unknownReceipt, requirements }), { status: 503, headers: { 'Content-Type': 'application/json' } })
   }
 
@@ -862,11 +1139,18 @@ export async function POST(req: Request): Promise<Response> {
     console.error('[x402-tollgate] Gateway accepted payment but pending ledger transition failed; reconcile by nonce', { provider: providerChecksum, nonce: resolvedNonce, settlementRef })
     return new Response(JSON.stringify({ statusCode: 503, success: false, error: 'Gateway accepted the payment but durable provider accounting is unavailable. Do not retry; reconcile by nonce before taking action.', settlementRef, costUsdc: 0, requirements }), { status: 503, headers: { 'Content-Type': 'application/json' } })
   }
+  // The facilitator accepted this authorization, so it is a paid call. The counter's claim key makes
+  // this exactly-once even when reconciliation later observes the same settlement.
+  await recordPlatformCall('accepted', {
+    providerAddress: providerChecksum,
+    nonce: resolvedNonce,
+    serviceId: manifest.id,
+    amountMicros: Number(requiredBaseUnits),
+  })
   serverNonceStore.add(nonceIdentity)
   serverUsedAuthorizationNonces.add(nonceIdentity)
   await kvSet(scopedReservationKey, `settlement_pending:${settlementRef}`, 30 * 24 * 60 * 60)
-  const providerEarnedUsdc = 0
-  const paymentReceipt: PaymentReceipt = { id: `rcpt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: providerChecksum, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: manifest.pricing.priceUsdc, authorizedMaxUsdc: manifest.pricing.priceUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, settlementRef, protocolFeeUsdc: 0, providerEarnedUsdc, latencyMs: Math.round(performance.now() - startTime), status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: Date.now() }
-  const executionReceipt: X402ExecutionReceipt = { statusCode: 200, success: true, data: serviceData, executionTimeMs: Math.round(performance.now() - startTime), costUsdc: manifest.pricing.priceUsdc, protocolFeeUsdc: 0, providerEarnedUsdc, payment: paymentReceipt, actionablePayload, authProof: { signature, payerAddress, timestamp: Date.now() }, engineMode: 'gateway_batched', gasSponsored: false }
+  const paymentReceipt: PaymentReceipt = { id: `rcpt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: settlementRecipient, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: manifest.pricing.priceUsdc, authorizedMaxUsdc: manifest.pricing.priceUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, settlementRef, protocolFeeUsdc, providerEarnedUsdc, latencyMs: Math.round(performance.now() - startTime), status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: Date.now() }
+  const executionReceipt: X402ExecutionReceipt = { statusCode: 200, success: true, data: serviceData, executionTimeMs: Math.round(performance.now() - startTime), costUsdc: manifest.pricing.priceUsdc, protocolFeeUsdc, providerEarnedUsdc, payment: paymentReceipt, actionablePayload, authProof: { signature, payerAddress, timestamp: Date.now() }, engineMode: 'gateway_batched', gasSponsored: false }
   return new Response(JSON.stringify(executionReceipt), { status: 200, headers: { 'Content-Type': 'application/json', 'PAYMENT-RESPONSE': Buffer.from(JSON.stringify(paymentReceipt)).toString('base64') } })
 }

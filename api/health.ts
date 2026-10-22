@@ -129,7 +129,7 @@ export async function GET(req: Request) {
     circleConfigured = readEnv('CIRCLE_API_KEY') !== ''
 
     // 5. Check AI Copilot Configuration
-    copilotConfigured = readEnv('OPENAI_API_KEY') !== '' || readEnv('OPENROUTER_API_KEY') !== ''
+    copilotConfigured = readEnv('OPENROUTER_API_KEY') !== ''
   }
 
   const isHealthy = rpcStatus.connected

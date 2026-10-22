@@ -1,7 +1,5 @@
 // api/copilot.ts
 // Secure Server-Side AI Copilot Orchestrator for Arcis
-// Interacts with OpenAI / OpenRouter GPT-4o-mini without exposing API keys to the client browser.
-
 import { arcTestnet } from '../src/config/arcChain'
 import { ARC_GAS_LIMITS } from '../src/config/feeTiers'
 import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from '../src/services/arcGasService'
@@ -25,7 +23,7 @@ import {
   WBTC_UNSUPPORTED_MESSAGE,
 } from '../src/config/copilotTokens'
 
-// A BYOK credential is honored only when it is unmistakably an OpenAI / OpenRouter key.
+// A BYOK credential is honored only when it is unmistakably an OpenRouter key.
 // Any other Authorization value is ignored, so an arbitrary header can never be forwarded
 // upstream as the provider key. Keys are never logged.
 const BYOK_KEY_PATTERN = /^sk-(or-)?[A-Za-z0-9_-]{16,}$/
@@ -50,13 +48,13 @@ export async function POST(req: Request) {
     const authHeader = req.headers.get('authorization')
     const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}
     const clientKey = authHeader ? authHeader.replace(/^Bearer\s+/i, '').trim() : ''
-    const serverKey = globalEnv.OPENAI_API_KEY || globalEnv.OPENROUTER_API_KEY || ''
+    const serverKey = globalEnv.OPENROUTER_API_KEY || ''
     // Server key is the default; a client key is used only when it is a well-formed BYOK key.
     const apiKey = BYOK_KEY_PATTERN.test(clientKey) ? clientKey : serverKey
 
     if (!apiKey) {
       return apiError(
-        'No OpenAI / OpenRouter API key configured on server or in request.',
+        'No OpenRouter API key configured on server or in request.',
         'MISSING_AI_KEY',
         401,
         null,
@@ -220,21 +218,18 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       },
     ]
 
-    const isOpenRouter = apiKey.startsWith('sk-or-')
-    const endpoint = isOpenRouter
-      ? 'https://openrouter.ai/api/v1/chat/completions'
-      : 'https://api.openai.com/v1/chat/completions'
-    const modelName = isOpenRouter ? 'openai/gpt-4o-mini' : 'gpt-4o-mini'
+    const endpoint = 'https://openrouter.ai/api/v1/chat/completions'
+    const configuredModel = String(globalEnv.OPENROUTER_MODEL || '').trim()
+    const modelName = configuredModel
+    const sourceLabel = `openrouter/${modelName}`
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     }
 
-    if (isOpenRouter) {
-      headers['HTTP-Referer'] = 'https://arcis.finance'
-      headers['X-Title'] = 'Arcis Protocol'
-    }
+    headers['HTTP-Referer'] = 'https://arcis.finance'
+    headers['X-Title'] = 'Arcis Protocol'
 
     const cleanHistory = (chatHistory || [])
       .slice(-6)
@@ -315,12 +310,12 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         if (fromTok === 'WBTC' || toTok === 'WBTC') {
           return apiSuccess({
             message: WBTC_UNSUPPORTED_MESSAGE,
-            source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini',
+            source: sourceLabel,
           })
         }
         const amountCheck = validateSendAmount(args.amount, fromTok)
         if (!amountCheck.ok || amountCheck.normalized == null) {
-          return apiSuccess({ message: `Invalid swap amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini' })
+          return apiSuccess({ message: `Invalid swap amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: sourceLabel })
         }
         const amount = amountCheck.normalized
         const slippageBps = copilotSlippageBps(args)
@@ -364,7 +359,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       } else if (funcName === 'execute_deposit_yield') {
         const amountCheck = validateSendAmount(args.amount, 'USDC')
         if (!amountCheck.ok || amountCheck.normalized == null) {
-          return apiSuccess({ message: `Invalid deposit amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini' })
+          return apiSuccess({ message: `Invalid deposit amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: sourceLabel })
         }
         const amount = amountCheck.normalized
         const yearlyReturn = Number((amount * 0.0842).toFixed(2))
@@ -385,7 +380,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         const toChain = args.toChain || 'Arc Testnet'
         const amountCheck = validateSendAmount(args.amount, 'USDC')
         if (!amountCheck.ok || amountCheck.normalized == null) {
-          return apiSuccess({ message: `Invalid bridge amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini' })
+          return apiSuccess({ message: `Invalid bridge amount. ${amountCheck.error || 'Please provide an amount greater than zero.'}`, source: sourceLabel })
         }
         const amount = amountCheck.normalized
         actionPayload = {
@@ -407,7 +402,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         }
       } else if (funcName === 'execute_send') {
         const recipient = args.recipient || ''
-        const source = isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini'
+        const source = sourceLabel
         // Canonical casing matters: 'cirBTC' is a real Arc ERC-20 (8 decimals), 'CIRBTC' would not
         // resolve in the App Kit / Circle transfer APIs and 'WBTC' does not exist on Arc at all.
         const token = canonicalCopilotTokenSymbol(args.token)
@@ -470,7 +465,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
     return apiSuccess({
       message: outputMessage,
       actionPayload,
-      source: isOpenRouter ? 'openrouter/gpt-4o-mini' : 'gpt-4o-mini',
+      source: sourceLabel,
     })
   } catch (error: any) {
     console.error('[Copilot API Error]:', error)

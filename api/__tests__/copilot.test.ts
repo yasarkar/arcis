@@ -22,7 +22,6 @@ function makeRequest(ip: string, auth?: string): Request {
 beforeEach(() => {
   // Make the suite independent of any ambient provider key, so "no usable key" is deterministic
   // and no test can reach a real provider.
-  vi.stubEnv('OPENAI_API_KEY', '')
   vi.stubEnv('OPENROUTER_API_KEY', '')
   // ARC-007: a per-IP bucket now requires a sanitizing edge. Vercel (the production runtime for
   // these handlers) overwrites x-forwarded-for, so the suite reproduces that runtime here and the
@@ -61,7 +60,8 @@ describe('POST /api/copilot — credential handling', () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, any]
-    expect(String(url)).toContain('api.openai.com')
+    // The copilot is OpenRouter-only: the same endpoint serves a server key and a BYOK key.
+    expect(String(url)).toContain('openrouter.ai')
     expect(init.headers.Authorization).toBe('Bearer sk-testsecret0123456789abcdef')
     // The upstream rejection is surfaced to the caller as a provider failure.
     expect(res.status).toBe(502)

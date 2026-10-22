@@ -67,8 +67,10 @@ async function captureUpstreamRequest(payload: Record<string, unknown>) {
 }
 
 beforeEach(() => {
-  vi.stubEnv('OPENAI_API_KEY', 'sk-testserverkey0123456789')
-  vi.stubEnv('OPENROUTER_API_KEY', '')
+  // Hermetic provider config: every case here is about the contract sent upstream, so the suite
+  // supplies its own key/model rather than depending on the developer's .env.
+  vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-v1-testserverkey0123456789')
+  vi.stubEnv('OPENROUTER_MODEL', 'deepseek/deepseek-v4.1-flash')
   // ARC-007: reproduce the production runtime (Vercel overwrites x-forwarded-for) so each simulated
   // client keeps its own rate-limit bucket.
   vi.stubEnv('VERCEL', '1')

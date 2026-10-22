@@ -194,6 +194,70 @@ export async function kvMget(keys: string[]): Promise<(string | null)[]> {
   return Promise.all(keys.map((key) => kvGet(key)))
 }
 
+/** Redis glob (`*`, `?`, `[...]`) to RegExp, used only by the in-memory fallback. */
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+  return new RegExp(`^${escaped}$`)
+}
+
+/**
+ * Returns keys matching a Redis glob pattern, bounded by `limit`.
+ *
+ * Used by the settlement reconciler to enumerate `arcis:x402:pending:*` records. The scan is
+ * read-only and bounded on every driver: Upstash REST and ioredis follow at most 20 cursor pages,
+ * and the in-memory fallback stops at `limit`. A driver failure falls through to the next driver
+ * rather than returning a partial result as success.
+ */
+export async function kvScanKeys(pattern: string, limit = 200): Promise<string[]> {
+  const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit) || 200))
+  const keys = new Set<string>()
+
+  if (getRestConfig()) {
+    try {
+      let cursor = '0'
+      for (let page = 0; page < 20 && keys.size < safeLimit; page += 1) {
+        const result = await execRest(['SCAN', cursor, 'MATCH', pattern, 'COUNT', Math.min(100, safeLimit)])
+        if (!Array.isArray(result) || result.length !== 2) break
+        cursor = String(result[0])
+        if (Array.isArray(result[1])) {
+          for (const key of result[1]) if (typeof key === 'string') keys.add(key)
+        }
+        if (cursor === '0') break
+      }
+      return [...keys].slice(0, safeLimit)
+    } catch (err) {
+      console.warn('[redisStorage] Upstash REST SCAN failed, falling back:', err)
+    }
+  }
+
+  try {
+    const client = await getIoredisClient()
+    if (client && ioredisAvailable) {
+      let cursor = '0'
+      for (let page = 0; page < 20 && keys.size < safeLimit; page += 1) {
+        const [nextCursor, batch] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', Math.min(100, safeLimit))
+        cursor = String(nextCursor)
+        if (Array.isArray(batch)) for (const key of batch) if (typeof key === 'string') keys.add(key)
+        if (cursor === '0') break
+      }
+      return [...keys].slice(0, safeLimit)
+    }
+  } catch (err) {
+    console.warn('[redisStorage] ioredis SCAN failed, falling back:', err)
+  }
+
+  const matcher = globToRegExp(pattern)
+  for (const [key, item] of memoryStore.entries()) {
+    if (item.expiresAt && item.expiresAt <= Date.now()) {
+      memoryStore.delete(key)
+      continue
+    }
+    if (matcher.test(key)) keys.add(key)
+    if (keys.size >= safeLimit) break
+  }
+  return [...keys]
+}
+
 /**
  * Set a string value in storage with optional TTL in seconds.
  */
@@ -230,12 +294,21 @@ export async function kvSetIfAbsent(
   return 'acquired'
 }
 
+export type ProviderServiceLedger = {
+  callsServed: number
+  /** Exact base-unit (6 decimals) amounts, so per-service money never drifts through floats. */
+  pendingMicros: number
+  grossMicros: number
+}
+
 export type ProviderLedger = {
   totalCallsServed: number
   totalUsdcEarned: number
   unclaimedEarningsUsdc: number
   pendingUsdc: number
   withdrawnUsdc: number
+  /** Per-service dimension, written atomically with the wallet-wide totals. */
+  services?: Record<string, ProviderServiceLedger>
 }
 
 export type ProviderLedgerDeltaResult =
@@ -248,8 +321,22 @@ export type PendingProviderSettlement = {
   providerAddress: string
   payerAddress: string
   serviceId: string
+  /** Gross amount Circle transfers to the settlement recipient (the treasury for fee-bearing calls). */
   amountMicros: number
   amountUsdc: number
+  /** Protocol fee taken from the gross amount; the provider is credited `amountMicros - feeMicros`. */
+  feeMicros?: number
+  /**
+   * The payee Circle actually transfers to: the protocol treasury for a fee-bearing call, the
+   * provider itself otherwise. Absent on records created before escrow, where it is the provider.
+   */
+  recipientAddress?: string
+  /**
+   * True when the settlement recipient holds the provider's share (the escrow model). A direct
+   * payout to the provider is not withdrawable a second time, so it only grows `totalUsdcEarned`.
+   * Absent on records created before escrow, which are treated as escrowed.
+   */
+  escrowed?: boolean
   nonce: string
   settlementRef?: string
   status: 'settling' | 'pending' | 'confirmed' | 'failed'
@@ -275,6 +362,9 @@ function isValidSettlementKeys(providerKey: string, pendingKey: string, nonceKey
     /^0x[0-9a-f]{64}$/.test(nonce) &&
     typeof settlement.serviceId === 'string' && /^[a-z0-9-]{1,100}$/.test(settlement.serviceId) &&
     Number.isSafeInteger(settlement.amountMicros) && settlement.amountMicros > 0 && settlement.amountMicros <= 1_000_000 &&
+    (settlement.feeMicros === undefined || (Number.isSafeInteger(settlement.feeMicros) && settlement.feeMicros >= 0 && settlement.feeMicros <= settlement.amountMicros)) &&
+    (settlement.recipientAddress === undefined || /^0x[0-9a-f]{40}$/.test(settlement.recipientAddress)) &&
+    (settlement.escrowed === undefined || typeof settlement.escrowed === 'boolean') &&
     settlement.amountUsdc === settlement.amountMicros / 1_000_000 &&
     Number.isSafeInteger(settlement.createdAt) && settlement.createdAt > 0 &&
     settlement.status === 'settling' &&
@@ -362,6 +452,22 @@ export async function kvRejectProviderSettlementIntent(
   } catch { return 'unavailable' }
 }
 
+/**
+ * Returns a normalised per-service ledger row, creating it on demand.
+ * Memory-fallback only: the durable path performs the same work inside the atomic Lua scripts.
+ */
+function ensureProviderServiceRow(ledger: ProviderLedger, serviceId: string): ProviderServiceLedger {
+  if (!ledger.services || typeof ledger.services !== 'object') ledger.services = {}
+  const current = ledger.services[serviceId]
+  const row: ProviderServiceLedger = {
+    callsServed: Math.max(0, Math.trunc(Number(current?.callsServed) || 0)),
+    pendingMicros: Math.max(0, Math.trunc(Number(current?.pendingMicros) || 0)),
+    grossMicros: Math.max(0, Math.trunc(Number(current?.grossMicros) || 0)),
+  }
+  ledger.services[serviceId] = row
+  return row
+}
+
 export async function kvMarkProviderSettlementAccepted(
   providerKey: string,
   pendingKey: string,
@@ -379,11 +485,24 @@ export async function kvMarkProviderSettlementAccepted(
     if settlement.status ~= 'settling' then return 'unavailable' end
     local ledgerRaw = redis.call('GET', KEYS[1])
     local data = ledgerRaw and cjson.decode(ledgerRaw) or {}
+    local netMicros = (tonumber(settlement.amountMicros) or 0) - (tonumber(settlement.feeMicros) or 0)
     data.totalCallsServed = (tonumber(data.totalCallsServed) or 0) + 1
     data.totalUsdcEarned = tonumber(data.totalUsdcEarned) or 0
     data.unclaimedEarningsUsdc = tonumber(data.unclaimedEarningsUsdc) or 0
-    data.pendingUsdc = (tonumber(data.pendingUsdc) or 0) + tonumber(settlement.amountMicros) / 1000000
+    data.pendingUsdc = (tonumber(data.pendingUsdc) or 0) + netMicros / 1000000
     data.withdrawnUsdc = tonumber(data.withdrawnUsdc) or 0
+    local serviceId = settlement.serviceId
+    if type(serviceId) == 'string' and serviceId ~= '' then
+      local services = data.services
+      if type(services) ~= 'table' then services = {} end
+      local row = services[serviceId]
+      if type(row) ~= 'table' then row = { callsServed = 0, pendingMicros = 0, grossMicros = 0 } end
+      row.callsServed = (tonumber(row.callsServed) or 0) + 1
+      row.pendingMicros = (tonumber(row.pendingMicros) or 0) + netMicros
+      row.grossMicros = tonumber(row.grossMicros) or 0
+      services[serviceId] = row
+      data.services = services
+    end
     settlement.status = 'pending'
     settlement.settlementRef = ARGV[1]
     redis.call('SET', KEYS[1], cjson.encode(data))
@@ -415,8 +534,12 @@ export async function kvMarkProviderSettlementAccepted(
     const ledgerItem = memoryStore.get(providerKey)
     ledger = { totalCallsServed: 0, totalUsdcEarned: 0, unclaimedEarningsUsdc: 0, pendingUsdc: 0, withdrawnUsdc: 0, ...(ledgerItem ? JSON.parse(ledgerItem.value) : {}) }
   } catch { return 'unavailable' }
+  const netMicros = settlement.amountMicros - (settlement.feeMicros ?? 0)
   ledger.totalCallsServed += 1
-  ledger.pendingUsdc = Number((ledger.pendingUsdc + settlement.amountMicros / 1e6).toFixed(6))
+  ledger.pendingUsdc = Number((ledger.pendingUsdc + netMicros / 1e6).toFixed(6))
+  const serviceRow = ensureProviderServiceRow(ledger, settlement.serviceId)
+  serviceRow.callsServed += 1
+  serviceRow.pendingMicros += netMicros
   settlement.status = 'pending'
   settlement.settlementRef = settlementRef
   memoryStoreSet(providerKey, { value: JSON.stringify(ledger) })
@@ -464,7 +587,7 @@ export async function kvGetPendingProviderSettlement(key: string): Promise<Pendi
     const provider = record?.providerAddress?.toLowerCase()
     const nonce = record?.nonce?.toLowerCase()
     const expectedKey = `arcis:x402:pending:{${provider}}:${nonce}`
-    if (key !== expectedKey || !/^0x[0-9a-f]{40}$/.test(provider || '') || !/^0x[0-9a-f]{40}$/.test(record.payerAddress) || !/^0x[0-9a-f]{64}$/.test(nonce || '') || !Number.isSafeInteger(record.amountMicros) || record.amountMicros <= 0 || record.amountUsdc !== record.amountMicros / 1_000_000 || typeof record.serviceId !== 'string' || !/^[a-z0-9-]{1,100}$/.test(record.serviceId) || !Number.isFinite(record.createdAt) || !['settling', 'pending', 'confirmed', 'failed'].includes(record.status) || (['pending', 'confirmed'].includes(record.status) && (typeof record.settlementRef !== 'string' || record.settlementRef.length < 1 || record.settlementRef.length > 256)) || (record.settlementRef !== undefined && (typeof record.settlementRef !== 'string' || record.settlementRef.length < 1 || record.settlementRef.length > 256)) || (record.transferId !== undefined && (typeof record.transferId !== 'string' || !isCircleTransferId(record.transferId))) || (record.chainTxHash !== undefined && (typeof record.chainTxHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(record.chainTxHash))) || (record.failureReason !== undefined && (typeof record.failureReason !== 'string' || record.failureReason.length > 500))) return null
+    if (key !== expectedKey || !/^0x[0-9a-f]{40}$/.test(provider || '') || !/^0x[0-9a-f]{40}$/.test(record.payerAddress) || !/^0x[0-9a-f]{64}$/.test(nonce || '') || !Number.isSafeInteger(record.amountMicros) || record.amountMicros <= 0 || record.amountUsdc !== record.amountMicros / 1_000_000 || (record.feeMicros !== undefined && (!Number.isSafeInteger(record.feeMicros) || record.feeMicros < 0 || record.feeMicros > record.amountMicros)) || (record.recipientAddress !== undefined && !/^0x[0-9a-f]{40}$/.test(record.recipientAddress)) || (record.escrowed !== undefined && typeof record.escrowed !== 'boolean') || typeof record.serviceId !== 'string' || !/^[a-z0-9-]{1,100}$/.test(record.serviceId) || !Number.isFinite(record.createdAt) || !['settling', 'pending', 'confirmed', 'failed'].includes(record.status) || (['pending', 'confirmed'].includes(record.status) && (typeof record.settlementRef !== 'string' || record.settlementRef.length < 1 || record.settlementRef.length > 256)) || (record.settlementRef !== undefined && (typeof record.settlementRef !== 'string' || record.settlementRef.length < 1 || record.settlementRef.length > 256)) || (record.transferId !== undefined && (typeof record.transferId !== 'string' || !isCircleTransferId(record.transferId))) || (record.chainTxHash !== undefined && (typeof record.chainTxHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(record.chainTxHash))) || (record.failureReason !== undefined && (typeof record.failureReason !== 'string' || record.failureReason.length > 500))) return null
     return record
   } catch { return null }
 }
@@ -491,11 +614,21 @@ export async function kvConfirmPendingProviderSettlement(
     local ledgerRaw = redis.call('GET', KEYS[1])
     if not ledgerRaw then return 'unavailable' end
     local data = cjson.decode(ledgerRaw)
-    local amount = tonumber(settlement.amountMicros) / 1000000
+    local netMicros = (tonumber(settlement.amountMicros) or 0) - (tonumber(settlement.feeMicros) or 0)
+    local amount = netMicros / 1000000
     if (tonumber(data.pendingUsdc) or 0) + 0.0000001 < amount then return 'unavailable' end
     data.pendingUsdc = math.floor(((tonumber(data.pendingUsdc) or 0) - amount) * 1000000 + 0.5) / 1000000
     data.totalUsdcEarned = math.floor(((tonumber(data.totalUsdcEarned) or 0) + amount) * 1000000 + 0.5) / 1000000
-    data.unclaimedEarningsUsdc = math.floor(((tonumber(data.unclaimedEarningsUsdc) or 0) + amount) * 1000000 + 0.5) / 1000000
+    local withdrawable = amount
+    if settlement.escrowed == false then withdrawable = 0 end
+    data.unclaimedEarningsUsdc = math.floor(((tonumber(data.unclaimedEarningsUsdc) or 0) + withdrawable) * 1000000 + 0.5) / 1000000
+    if type(data.services) == 'table' and type(settlement.serviceId) == 'string' then
+      local row = data.services[settlement.serviceId]
+      if type(row) == 'table' then
+        row.pendingMicros = math.max(0, (tonumber(row.pendingMicros) or 0) - netMicros)
+        row.grossMicros = (tonumber(row.grossMicros) or 0) + netMicros
+      end
+    end
     settlement.status = 'confirmed'
     settlement.transferId = ARGV[1]
     settlement.chainTxHash = ARGV[2] ~= '' and ARGV[2] or nil
@@ -529,11 +662,18 @@ export async function kvConfirmPendingProviderSettlement(
   } catch { return 'unavailable' }
   if (settlement.status === 'confirmed') return settlement.transferId === transferId ? 'already_confirmed' : 'unavailable'
   if (settlement.status !== 'pending') return 'unavailable'
-  const amount = settlement.amountMicros / 1e6
+  const netMicros = settlement.amountMicros - (settlement.feeMicros ?? 0)
+  const amount = netMicros / 1e6
   if (ledger.pendingUsdc + 1e-7 < amount) return 'unavailable'
   ledger.pendingUsdc = Number((ledger.pendingUsdc - amount).toFixed(6))
   ledger.totalUsdcEarned = Number((ledger.totalUsdcEarned + amount).toFixed(6))
-  ledger.unclaimedEarningsUsdc = Number((ledger.unclaimedEarningsUsdc + amount).toFixed(6))
+  // Only escrowed earnings sit in the treasury and can be withdrawn from it.
+  if (settlement.escrowed !== false) {
+    ledger.unclaimedEarningsUsdc = Number((ledger.unclaimedEarningsUsdc + amount).toFixed(6))
+  }
+  const serviceRow = ensureProviderServiceRow(ledger, settlement.serviceId)
+  serviceRow.pendingMicros = Math.max(0, serviceRow.pendingMicros - netMicros)
+  serviceRow.grossMicros += netMicros
   settlement.status = 'confirmed'
   settlement.transferId = transferId
   settlement.chainTxHash = chainTxHash
@@ -567,9 +707,16 @@ export async function kvFailPendingProviderSettlement(
     local ledgerRaw = redis.call('GET', KEYS[1])
     if not ledgerRaw then return 'unavailable' end
     local data = cjson.decode(ledgerRaw)
-    local amount = tonumber(settlement.amountMicros) / 1000000
+    local netMicros = (tonumber(settlement.amountMicros) or 0) - (tonumber(settlement.feeMicros) or 0)
+    local amount = netMicros / 1000000
     if (tonumber(data.pendingUsdc) or 0) + 0.0000001 < amount then return 'unavailable' end
     data.pendingUsdc = (tonumber(data.pendingUsdc) or 0) - amount
+    if type(data.services) == 'table' and type(settlement.serviceId) == 'string' then
+      local row = data.services[settlement.serviceId]
+      if type(row) == 'table' then
+        row.pendingMicros = math.max(0, (tonumber(row.pendingMicros) or 0) - netMicros)
+      end
+    end
     settlement.status = 'failed'
     settlement.transferId = ARGV[1]
     settlement.failureReason = 'Circle Gateway reported failed; no provider earnings credited.'
@@ -604,9 +751,12 @@ export async function kvFailPendingProviderSettlement(
   if (settlement.status === 'failed') return settlement.transferId === transferId ? 'already_failed' : 'unavailable'
   if (settlement.status === 'confirmed') return settlement.transferId === transferId ? 'already_confirmed' : 'unavailable'
   if (settlement.status !== 'pending') return 'unavailable'
-  const amount = settlement.amountMicros / 1e6
+  const netMicros = settlement.amountMicros - (settlement.feeMicros ?? 0)
+  const amount = netMicros / 1e6
   if (ledger.pendingUsdc + 1e-7 < amount) return 'unavailable'
   ledger.pendingUsdc = Number((ledger.pendingUsdc - amount).toFixed(6))
+  const serviceRow = ensureProviderServiceRow(ledger, settlement.serviceId)
+  serviceRow.pendingMicros = Math.max(0, serviceRow.pendingMicros - netMicros)
   settlement.status = 'failed'
   settlement.transferId = transferId
   settlement.failureReason = 'Circle Gateway reported failed; no provider earnings credited.'
@@ -618,13 +768,21 @@ export async function kvFailPendingProviderSettlement(
 /** Atomically applies provider earnings/withdrawal deltas to the shared JSON ledger record. */
 export async function kvUpdateProviderLedger(
   key: string,
-  delta: { calls?: number; earnedMicros?: number; withdrawMicros?: number; idempotencyKey?: string }
+  delta: {
+    calls?: number
+    earnedMicros?: number
+    withdrawMicros?: number
+    /** Reverses a withdrawal whose payout failed: the provider keeps the balance. */
+    refundWithdrawMicros?: number
+    idempotencyKey?: string
+  }
 ): Promise<ProviderLedgerDeltaResult> {
   const calls = Math.max(0, Math.trunc(delta.calls || 0))
   const earnedMicros = Math.max(0, Math.trunc(delta.earnedMicros || 0))
   const withdrawMicros = Math.max(0, Math.trunc(delta.withdrawMicros || 0))
+  const refundMicros = Math.max(0, Math.trunc(delta.refundWithdrawMicros || 0))
   const idempotencyKey = delta.idempotencyKey || ''
-  if (!calls && !earnedMicros && !withdrawMicros) return { status: 'unavailable' }
+  if (!calls && !earnedMicros && !withdrawMicros && !refundMicros) return { status: 'unavailable' }
   if (idempotencyKey && !/^arcis:x402:settlement:\{0x[0-9a-f]{40}\}:0x[0-9a-f]{64}$/.test(idempotencyKey)) {
     return { status: 'unavailable' }
   }
@@ -649,8 +807,8 @@ export async function kvUpdateProviderLedger(
     end
     calls = calls + tonumber(ARGV[1])
     earned = earned + tonumber(ARGV[2])
-    unclaimed = unclaimed + tonumber(ARGV[2]) - tonumber(ARGV[3])
-    withdrawn = withdrawn + tonumber(ARGV[3])
+    unclaimed = unclaimed + tonumber(ARGV[2]) - tonumber(ARGV[3]) + tonumber(ARGV[4])
+    withdrawn = math.max(0, withdrawn + tonumber(ARGV[3]) - tonumber(ARGV[4]))
     data.totalCallsServed = calls
     data.totalUsdcEarned = earned / 1000000
     data.pendingUsdc = pending / 1000000
@@ -680,7 +838,7 @@ export async function kvUpdateProviderLedger(
       const result = parseResult(await execRest([
         'EVAL', script, idempotencyKey ? 2 : 1, key,
         ...(idempotencyKey ? [idempotencyKey] : []),
-        calls, earnedMicros, withdrawMicros,
+        calls, earnedMicros, withdrawMicros, refundMicros,
       ]))
       if (result) return result
     } catch (err) {
@@ -698,7 +856,8 @@ export async function kvUpdateProviderLedger(
         ...(idempotencyKey ? [idempotencyKey] : []),
         calls,
         earnedMicros,
-        withdrawMicros
+        withdrawMicros,
+        refundMicros
       ))
       if (result) return result
     }
@@ -712,7 +871,7 @@ export async function kvUpdateProviderLedger(
     const idempotencyItem = memoryStore.get(idempotencyKey)
     if (idempotencyItem && (!idempotencyItem.expiresAt || idempotencyItem.expiresAt > Date.now())) return { status: 'duplicate' }
   }
-  let ledger = { totalCallsServed: 0, totalUsdcEarned: 0, unclaimedEarningsUsdc: 0, pendingUsdc: 0, withdrawnUsdc: 0 }
+  let ledger: ProviderLedger = { totalCallsServed: 0, totalUsdcEarned: 0, unclaimedEarningsUsdc: 0, pendingUsdc: 0, withdrawnUsdc: 0 }
   if (item && (!item.expiresAt || item.expiresAt > Date.now())) {
     try {
       ledger = { ...ledger, ...JSON.parse(item.value) }
@@ -727,8 +886,12 @@ export async function kvUpdateProviderLedger(
     totalCallsServed: ledger.totalCallsServed + calls,
     totalUsdcEarned: Number((ledger.totalUsdcEarned + earnedMicros / 1e6).toFixed(6)),
     pendingUsdc: Number((ledger.pendingUsdc || 0).toFixed(6)),
-    unclaimedEarningsUsdc: Number(((unclaimedMicros + earnedMicros - withdrawMicros) / 1e6).toFixed(6)),
-    withdrawnUsdc: Number((ledger.withdrawnUsdc + withdrawMicros / 1e6).toFixed(6)),
+    unclaimedEarningsUsdc: Number(((unclaimedMicros + earnedMicros - withdrawMicros + refundMicros) / 1e6).toFixed(6)),
+    withdrawnUsdc: Number(
+      (Math.max(0, Math.round(ledger.withdrawnUsdc * 1e6) + withdrawMicros - refundMicros) / 1e6).toFixed(6)
+    ),
+    // Withdrawals are wallet-wide; the per-service breakdown must survive the rewrite.
+    services: ledger.services,
   }
   memoryStoreSet(key, { value: JSON.stringify(ledger) })
   if (idempotencyKey) memoryStoreSet(idempotencyKey, { value: '1', expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 })
@@ -914,6 +1077,79 @@ export async function kvIncr(
   entry.count += 1
   const ttl = Math.max(1, Math.round((entry.expiresAt - now) / 1000))
   return { current: entry.count, ttl }
+}
+
+/**
+ * Runs a Lua script atomically against the shared store.
+ *
+ * Returns `null` when no durable driver answered, so callers can decide whether a process-local
+ * fallback is acceptable instead of treating a memory read as shared state.
+ */
+export async function kvEval(
+  script: string,
+  keys: string[],
+  args: Array<string | number>
+): Promise<unknown | null> {
+  if (getRestConfig()) {
+    try {
+      const result = await execRest(['EVAL', script, keys.length, ...keys, ...args])
+      if (result !== null && result !== undefined) return result
+    } catch (err) {
+      console.warn('[redisStorage] Upstash REST EVAL failed, falling back:', err)
+    }
+  }
+
+  try {
+    const client = await getIoredisClient()
+    if (client && ioredisAvailable) {
+      return await client.eval(script, keys.length, ...keys, ...args)
+    }
+  } catch (err) {
+    console.warn('[redisStorage] ioredis EVAL failed:', err)
+  }
+
+  return null
+}
+
+/**
+ * Reads a whole hash. `null` means no durable driver answered, which is distinct from `{}` for a
+ * hash that simply has no fields yet.
+ */
+export async function kvHgetall(key: string): Promise<Record<string, string> | null> {
+  if (getRestConfig()) {
+    try {
+      const result = await execRest(['HGETALL', key])
+      if (Array.isArray(result)) {
+        const flat: Record<string, string> = {}
+        for (let index = 0; index + 1 < result.length; index += 2) {
+          flat[String(result[index])] = String(result[index + 1])
+        }
+        return flat
+      }
+      if (result && typeof result === 'object') {
+        const mapped: Record<string, string> = {}
+        for (const [field, value] of Object.entries(result as Record<string, unknown>)) {
+          mapped[field] = String(value)
+        }
+        return mapped
+      }
+      return {}
+    } catch (err) {
+      console.warn(`[redisStorage] Upstash REST HGETALL failed for "${key}", falling back:`, err)
+    }
+  }
+
+  try {
+    const client = await getIoredisClient()
+    if (client && ioredisAvailable) {
+      const result = await client.hgetall(key)
+      if (result && typeof result === 'object') return result as Record<string, string>
+    }
+  } catch (err) {
+    console.warn(`[redisStorage] ioredis HGETALL failed for "${key}":`, err)
+  }
+
+  return null
 }
 
 /**

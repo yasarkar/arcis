@@ -87,6 +87,17 @@ describe('Circle Gateway settlement intent storage', () => {
     expect(await kvGet(fixture.providerKey)).toBeNull()
   })
 
+  it('credits a direct provider payment as earned but not as withdrawable treasury balance', async () => {
+    const direct = { ...intent(), escrowed: false }
+    expect(await kvCreateProviderSettlementIntent(fixture.providerKey, fixture.pendingKey, fixture.nonceKey, direct)).toBe('created')
+    expect(await kvMarkProviderSettlementAccepted(fixture.providerKey, fixture.pendingKey, 'opaque-circle-ref')).toBe('pending')
+    expect(await kvConfirmPendingProviderSettlement(fixture.providerKey, fixture.pendingKey, fixture.transferId, undefined)).toBe('confirmed')
+    const ledger = JSON.parse((await kvGet(fixture.providerKey)) || '{}')
+    expect(ledger.totalUsdcEarned).toBe(0.005)
+    // The provider already received the gross amount: withdrawing it again would pay twice.
+    expect(ledger.unclaimedEarningsUsdc).toBe(0)
+  })
+
   it('rejects cross-provider keys, invalid amounts, and non-UUID transfer confirmation', async () => {
     const otherProviderKey = `arcis:x402:provider:{0x${'e'.repeat(40)}}`
     expect(await kvCreateProviderSettlementIntent(otherProviderKey, fixture.pendingKey, fixture.nonceKey, intent())).toBe('unavailable')
