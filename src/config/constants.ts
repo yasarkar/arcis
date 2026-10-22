@@ -121,7 +121,7 @@ export const STORAGE_KEYS = {
   TX_HISTORY: 'arc_unified_history',
   LEGACY_BRIDGE_HISTORY: 'cctp_bridge_history',
   COPILOT_SFX: 'arcis_copilot_sfx_enabled',
-  OPENAI_API_KEY: 'arcis_openai_api_key',
+  OPENROUTER_API_KEY: 'arcis_openrouter_api_key',
   PRIVACY_SETTINGS: 'arcis_privacy_settings',
   SESSION_BUDGET: 'arcis_session_budget',
   SESSION_KEYS: 'arcis_session_keys',

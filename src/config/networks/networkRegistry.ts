@@ -46,6 +46,13 @@ const customArcRpc = (
 // 2. CUSTOM VIEM CHAIN DEFINITIONS (Pure Viem, no Wagmi/RainbowKit)
 // ─────────────────────────────────────────────────────────────
 
+const MULTICALL3_CONTRACTS = {
+  multicall3: {
+    address: '0xca11bde05977b3631167028862be2a173976ca11' as `0x${string}`,
+    blockCreated: 0,
+  },
+} as const
+
 export const arcTestnet = defineChain({
   id: 5042002,
   name: 'Arc Testnet',
@@ -74,12 +81,7 @@ export const arcTestnet = defineChain({
       url: 'https://testnet.arcscan.app',
     },
   },
-  contracts: {
-    multicall3: {
-      address: '0xca11bde05977b3631167028862be2a173976ca11',
-      blockCreated: 0,
-    },
-  },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -111,12 +113,7 @@ export const arcMainnet = defineChain({
       url: 'https://arcscan.app',
     },
   },
-  contracts: {
-    multicall3: {
-      address: '0xca11bde05977b3631167028862be2a173976ca11',
-      blockCreated: 0,
-    },
-  },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: false,
 })
 
@@ -148,6 +145,7 @@ export const hyperEVMTestnet = defineChain({
       url: 'https://testnet-explorer.hyperliquid.xyz',
     },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -174,6 +172,7 @@ export const seiTestnet = defineChain({
   blockExplorers: {
     default: { name: 'SeiTrace', url: 'https://seitrace.com/?chain=atlantic-2' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -200,6 +199,7 @@ export const sonicTestnet = defineChain({
   blockExplorers: {
     default: { name: 'SonicScan', url: 'https://testnet.sonicscan.org' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -218,6 +218,7 @@ export const unichainSepolia = defineChain({
   blockExplorers: {
     default: { name: 'Uniscan', url: 'https://sepolia.uniscan.xyz' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -242,6 +243,7 @@ export const worldChainSepolia = defineChain({
   blockExplorers: {
     default: { name: 'Worldscan', url: 'https://sepolia.worldscan.org' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -281,6 +283,7 @@ export const monadTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Monad Explorer', url: 'https://testnet.monadexplorer.com' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -299,6 +302,7 @@ export const inkTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Ink Explorer', url: 'https://explorer.sepolia.inkonchain.com' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -317,6 +321,7 @@ export const lineaSepolia = defineChain({
   blockExplorers: {
     default: { name: 'LineaScan', url: 'https://sepolia.lineascan.build' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -335,6 +340,7 @@ export const plumeTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Plume Explorer', url: 'https://testnet-explorer.plumenetwork.xyz' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -353,6 +359,7 @@ export const injectiveTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Injective Explorer', url: 'https://testnet.explorer.injective.network' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -371,6 +378,7 @@ export const xdcApothem = defineChain({
   blockExplorers: {
     default: { name: 'Blocksscan', url: 'https://apothem.blocksscan.io' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -385,6 +393,7 @@ export const codexTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Codex Explorer', url: 'https://explorer.codex-stg.xyz' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -399,6 +408,7 @@ export const cronosTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Cronos Explorer', url: 'https://explorer.cronos.org/testnet' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -413,6 +423,7 @@ export const edgeTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Edge Explorer', url: 'https://edge-testnet.explorer.alchemy.com' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -427,6 +438,7 @@ export const morphTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Morph Explorer', url: 'https://explorer-hoodi.morphl2.io' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -441,6 +453,7 @@ export const pharosTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Pharos Scan', url: 'https://atlantic.pharosscan.xyz' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -455,6 +468,7 @@ export const plasmaTestnet = defineChain({
   blockExplorers: {
     default: { name: 'Plasma Scan', url: 'https://testnet.plasmascan.to' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -469,6 +483,7 @@ export const xLayerTestnet = defineChain({
   blockExplorers: {
     default: { name: 'OKX Explorer', url: 'https://web3.okx.com/explorer/x-layer-testnet' },
   },
+  contracts: MULTICALL3_CONTRACTS,
   testnet: true,
 })
 
@@ -696,7 +711,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'Arbiscan', url: 'https://sepolia.arbiscan.io' },
     tokens: {
       USDC: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
-      EURC: '0xA8C865719483955250774276726980b0D0008d68',
+      EURC: '0xA8c865719483955250774276726980B0D0008d68',
       WETH: '0x980B62Da83eFf3D4576C647993b0c1D7faf17c73',
     },
     tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
@@ -838,7 +853,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'SnowTrace', url: 'https://testnet.snowtrace.io' },
     tokens: {
       USDC: '0x5425890298aed601595a70ab815c96711a31bc65',
-      EURC: '0x3231cb76718CDef2155FC47b5286d82e6eDA273f',
+      EURC: '0x3231Cb76718CDeF2155FC47b5286d82e6eDA273f',
     },
     tokenDecimals: { USDC: 6, EURC: 6 },
     ui: {
@@ -1187,7 +1202,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Ink Explorer', url: 'https://explorer.sepolia.inkonchain.com' },
     tokens: {
-      USDC: '0x266854124190e44720D45B3878bC165eb3F01C60',
+      USDC: '0x266854124190e44720D45B3878bc165eb3f01C60',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1229,7 +1244,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'LineaScan', url: 'https://sepolia.lineascan.build' },
     tokens: {
-      USDC: '0xFE224D5154DE6f536F52f010c223c2a07530e84b',
+      USDC: '0xfe224d5154de6F536F52f010C223C2a07530e84B',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1271,7 +1286,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Plume Explorer', url: 'https://testnet-explorer.plumenetwork.xyz' },
     tokens: {
-      USDC: '0xba228a0C6cf5Cd2B9F4f74d64B79c0926d2e3b2e',
+      USDC: '0xbA228a0c6CF5Cd2b9f4F74d64b79c0926D2e3B2e',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1313,7 +1328,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Injective Explorer', url: 'https://testnet.explorer.injective.network' },
     tokens: {
-      USDC: '0x7b66C729ee944749f7b13F89A5A4e99f0BfFf191',
+      USDC: '0x7B66C729eE944749f7B13F89a5A4E99F0Bfff191',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1355,7 +1370,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Blocksscan', url: 'https://apothem.blocksscan.io' },
     tokens: {
-      USDC: '0x3234ff14F44621c1ea3E6Eca4a194165682Ffe5a',
+      USDC: '0x3234Ff14f44621C1Ea3E6ECA4a194165682ffe5a',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1806,7 +1821,7 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'BaseScan', url: 'https://basescan.org' },
     tokens: {
       USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-      EURC: '0x60a3E35Cc302bFA44Cb288Bc5a4F316Fdb1DD429',
+      EURC: '0x60a3E35CC302BFa44CB288bC5A4f316Fdb1DD429',
       WETH: '0x4200000000000000000000000000000000000006',
     },
     tokenDecimals: { USDC: 6, EURC: 6, WETH: 18 },
@@ -1982,7 +1997,7 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'SnowTrace', url: 'https://snowtrace.io' },
     tokens: {
       USDC: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
-      EURC: '0xC891EB4cbdEFf6e073e859e987815Ed43c477641',
+      EURC: '0xC891eB4CBDeFF6E073E859e987815ed43c477641',
     },
     tokenDecimals: { USDC: 6, EURC: 6 },
     ui: {

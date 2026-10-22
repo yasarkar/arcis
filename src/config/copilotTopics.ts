@@ -140,6 +140,16 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
         title: 'Which x402 AI service should I use for my use case?',
         prompt: 'Which x402 AI service should I use for my use case?',
       },
+      {
+        id: 'arb-6',
+        title: 'Run a paid portfolio risk analysis on my wallet.',
+        prompt: 'Run a portfolio risk analysis on my wallet.',
+      },
+      {
+        id: 'arb-7',
+        title: 'Generate my vault yield report.',
+        prompt: 'Generate my vault yield report.',
+      },
     ],
   },
   {
@@ -296,6 +306,53 @@ export function isGatewayFlowReportQuery(query: string): boolean {
 }
 
 /**
+ * Detects a portfolio analysis request that the paid analysis agents answer:
+ * `arc-portfolio-risk-exposure` then `arc-onchain-portfolio-analyst`.
+ * Strategy/rebalance asks stay on the free conversational path: those discuss an action,
+ * while this intent is a paid measurement of what the wallet actually holds.
+ */
+export function isPortfolioAnalysisQuery(query: string): boolean {
+  if (!query) return false
+  const p = query.toLowerCase()
+  if (p.includes('strategy') || p.includes('strateji') || p.includes('rebalance') || p.includes('dengele')) return false
+  if (p.includes('propose') || p.includes('öner')) return false
+  const mentionsPortfolio =
+    p.includes('portfolio') ||
+    p.includes('portföy') ||
+    p.includes('my wallet holdings') ||
+    p.includes('wallet exposure')
+  if (!mentionsPortfolio) return false
+  return [
+    'risk',
+    'exposure',
+    'concentration',
+    'stablecoin',
+    'analysis',
+    'analyse',
+    'analyze',
+    'breakdown',
+    'analiz',
+    'konsantrasyon',
+    'dağılım',
+    'maruziyet',
+  ].some((keyword) => p.includes(keyword))
+}
+
+/**
+ * Detects a vault reporting request that the paid `arc-vault-yield-tax-report` agent answers.
+ * Explaining what the vault is (APY, af-USDC mechanics) is not a report and stays free.
+ */
+export function isVaultReportQuery(query: string): boolean {
+  if (!query) return false
+  const p = query.toLowerCase()
+  const mentionsVault = p.includes('vault') || p.includes('af-usdc') || p.includes('getiri')
+  if (!mentionsVault) return false
+  return ['report', 'tax', 'statement', 'position', 'rapor', 'vergi', 'pozisyon'].some((keyword) =>
+    p.includes(keyword)
+  )
+}
+
+/**
  * Detects if a user query is an action, transaction command, portfolio strategy request,
  * multi-turn correction, or parameterized input that must be handled by LLM / Local NLP
  * rather than being intercepted by static educational FAQ substring matches.
@@ -305,6 +362,8 @@ export function isActionOrStrategyIntent(query: string): boolean {
 
   // Analytics report queries are answered by the Gateway flow service, not an action intent.
   if (isGatewayFlowReportQuery(query)) return false
+  // Paid analysis/reporting intents are measurements, not transaction actions.
+  if (isPortfolioAnalysisQuery(query) || isVaultReportQuery(query)) return false
   const p = query.toLowerCase().trim()
 
   // 1. Slash commands always route to intent/action handling

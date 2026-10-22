@@ -11,7 +11,7 @@ export const MARKETPLACE_STATS: MarketplaceStats = {
   totalVolumeUsdc: 0.0,
   totalYieldGeneratedUsdc: 0.0,
   averageResponseTimeMs: 120,
-  activeServicesCount: 5,
+  activeServicesCount: OFFICIAL_MANIFESTS.length,
   savedSubscriptionCostUsd: 0.0,
 }
 
