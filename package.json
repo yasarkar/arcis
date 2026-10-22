@@ -21,6 +21,8 @@
     "test": "vitest run",
     "ci": "npm run typecheck && npm test",
     "preflight:x402": "node scripts/x402-staging-preflight.mjs",
+    "preflight:ucw-smoke": "node scripts/ucw-smoke-preflight.mjs",
+    "audit:x402-payouts": "tsx scripts/audit-x402-payouts.ts",
     "verify:cctp-routes": "tsx scripts/verify-cctp-route-matrix.ts",
     "check:circle": "node scripts/verify-circle-email-auth.mjs"
   },

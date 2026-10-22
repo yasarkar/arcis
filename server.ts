@@ -25,6 +25,7 @@ import * as x402Handler from './api/x402'
 import * as historyHandler from './api/history'
 import * as vaultHandler from './api/vault'
 import { startVaultKeeper } from './api/_utils/vaultKeeper'
+import { startX402Reconciler } from './api/_utils/x402Reconciler'
 import { signInternalClientIpHeaders } from './api/_utils/trustedIp'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -246,4 +247,5 @@ app.listen(PORT, () => {
   ╚════════════════════════════════════════════════════════════════╝
   `)
   startVaultKeeper()
+  startX402Reconciler()
 })
