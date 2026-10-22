@@ -1,53 +1,36 @@
 // src/components/marketplace/SessionBudgetModal.tsx
-// Ephemeral Session EOA & Budget Manager for Arcis x402 AI Services
-// Implements ADR-004 Option 4.2: Client-Isolated Session EOA + Dedicated Budget
+// Session Budget Manager for Arcis x402 AI Services
+// Applies a local spending ceiling + duration policy. No session EOA or on-chain
+// delegation exists yet, so these controls never move USDC.
 
-import React, { useState, useEffect, useMemo } from 'react'
-import { createPortal } from 'react-dom'
 import {
+  Check,
+  Clock,
+  Copy,
+  ExternalLink,
+  Flame,
+  RefreshCw,
+  ShieldCheck,
   X,
   Zap,
-  ShieldCheck,
-  RefreshCw,
-  Copy,
-  Check,
-  ExternalLink,
-  Coins,
-  Lock,
-  Sliders,
-  AlertCircle,
-  Clock,
-  Sparkles,
-  ArrowRight,
-  Flame,
 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { getStoredMscaAddress } from '../../services/modularWalletService'
 import {
-  getSessionKeyConfig,
-  saveSessionKeyConfig,
   activateSessionKey,
-  revokeSessionKey,
-  toggleSessionAutoExecute,
+  getSessionKeyConfig,
   getSessionTimeRemaining,
+  revokeSessionKey,
   SESSION_KEY_UPDATED_EVENT,
+  toggleSessionAutoExecute,
 } from '../../services/sessionKeyService'
-import {
-  getStoredMscaAddress,
-  sendModularUserOperation,
-  createModularUsdcTransferCall,
-} from '../../services/modularWalletService'
-import { POOL_CONTRACTS, ERC20_ABI } from '../../config/poolsConfig'
-import { getArcPublicClient } from '../../services/rpc'
-import { arcTestnet } from '../../config/arcChain'
 import { soundService } from '../../services/soundService'
-import { addTransaction } from '../../utils/history'
-import { createWalletClient, custom, parseUnits, type Hex } from 'viem'
-import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 
 interface SessionBudgetModalProps {
   isOpen: boolean
   onClose: () => void
   walletAddress?: string
-  provider?: any
   onBudgetUpdated?: (newMax: number) => void
 }
 
@@ -55,16 +38,12 @@ export default function SessionBudgetModal({
   isOpen,
   onClose,
   walletAddress,
-  provider,
   onBudgetUpdated,
 }: SessionBudgetModalProps) {
   const [config, setConfig] = useState(() => getSessionKeyConfig(walletAddress))
   const [customBudget, setCustomBudget] = useState<string>('2.00')
   const [selectedDuration, setSelectedDuration] = useState<number>(24)
   const [copiedKey, setCopiedKey] = useState<boolean>(false)
-  const [isFunding, setIsFunding] = useState<boolean>(false)
-  const [fundSuccess, setFundSuccess] = useState<string | null>(null)
-  const [fundError, setFundError] = useState<string | null>(null)
 
   // Listen for session key updates
   useEffect(() => {
@@ -85,8 +64,6 @@ export default function SessionBudgetModal({
   useEffect(() => {
     if (isOpen) {
       setConfig(getSessionKeyConfig(walletAddress))
-      setFundSuccess(null)
-      setFundError(null)
     }
   }, [isOpen, walletAddress])
 
@@ -108,8 +85,7 @@ export default function SessionBudgetModal({
   const handleActivateNew = async (budgetUsdc: number, durationHours: number) => {
     soundService.play('pop')
     const updated = await activateSessionKey({
-      // This local EOA is not on-chain delegated; consent must not activate autonomous signing.
-      userApproved: false,
+      userApproved: true,
       maxSpendUsdc: budgetUsdc,
       durationHours,
       autoExecute: false,
@@ -133,137 +109,70 @@ export default function SessionBudgetModal({
     setConfig(updated)
   }
 
-  // 1-Click Funding from connected wallet/MSCA (ADR-004 Option 4.2)
-  const handleFundSessionEoa = async (amount: number) => {
-    const msca = getStoredMscaAddress()
-    const currentConfig = getSessionKeyConfig(walletAddress || msca || undefined)
-    if (!currentConfig.sessionPublicKey) {
-      setFundError('Session EOA is unavailable until an on-chain SessionKeyModule delegation is implemented. No transfer was attempted.')
-      return
-    }
-
-    soundService.play('pop')
-    setIsFunding(true)
-    setFundSuccess(null)
-    setFundError(null)
-
-    const sessionRecipient = currentConfig.sessionPublicKey as Hex
-
-    try {
-      let resolvedTx: Hex
-
-      if (msca) {
-        // Option A: Circle MSCA Passkey UserOp
-        const call = createModularUsdcTransferCall(sessionRecipient, amount)
-        const res = await sendModularUserOperation({ calls: [call], paymaster: true })
-        if (!res.success || !res.txHash) {
-          throw new Error(res.error || 'Passkey UserOp execution failed')
-        }
-        // sendModularUserOperation may return the user-op hash when its receipt poll times out.
-        // That is not an on-chain transaction receipt and must not count as funding confirmation.
-        if (res.userOpHash && res.txHash.toLowerCase() === res.userOpHash.toLowerCase()) {
-          throw new Error('Funding is still pending in the bundler. The session budget was not increased.')
-        }
-        resolvedTx = res.txHash as Hex
-      } else if ((provider || (typeof window !== 'undefined' && (window as any).ethereum)) && walletAddress) {
-        // Option B: Connected EIP-1193 Web3 Wallet
-        const effective = provider || (window as any).ethereum
-        const walletClient = createWalletClient({
-          account: walletAddress as Hex,
-          chain: arcTestnet,
-          transport: custom(effective),
-        })
-        resolvedTx = await walletClient.writeContract({
-          address: POOL_CONTRACTS.USDC as Hex,
-          abi: ERC20_ABI,
-          functionName: 'transfer',
-          args: [sessionRecipient, parseUnits(amount.toString(), 6)],
-        })
-      } else {
-        throw new Error('Connect a wallet or sign in with a Passkey before funding the Session EOA. No USDC was transferred.')
-      }
-
-      const receipt = await getArcPublicClient().waitForTransactionReceipt({
-        hash: resolvedTx,
-        timeout: 45_000,
-      })
-      if (receipt.status !== 'success' || receipt.transactionHash.toLowerCase() !== resolvedTx.toLowerCase()) {
-        throw new Error('The Session EOA funding transaction has no matching successful receipt. Its budget was not increased.')
-      }
-
-      // This is a client-side spending ceiling, not an on-chain escrow or MSCA delegation.
-      // Preserve the existing ephemeral key: activateSessionKey creates a brand-new EOA.
-      const updated = {
-        ...getSessionKeyConfig(walletAddress || msca || undefined),
-        maxSpendUsdc: Number((currentConfig.maxSpendUsdc + amount).toFixed(2)),
-      }
-      saveSessionKeyConfig(updated, true, walletAddress || msca || undefined)
-      setConfig(updated)
-      if (onBudgetUpdated) onBudgetUpdated(updated.maxSpendUsdc)
-
-      addTransaction({
-        type: 'ai_service',
-        txHash: resolvedTx,
-        amount: amount.toFixed(2),
-        tokenSymbol: 'USDC',
-        sourceChain: 'Arc Testnet',
-        userAddress: walletAddress || msca,
-        recipient: sessionRecipient,
-        status: 'success',
-        serviceName: 'Direct USDC transfer to Local Session EOA (no delegated execution)',
-      })
-
-      soundService.play('success')
-      setFundSuccess(`Session EOA received $${amount.toFixed(2)} USDC. Transaction confirmed.`)
-      setTimeout(() => setFundSuccess(null), 5000)
-    } catch (err: any) {
-      console.error('Session funding failed:', err)
-      setFundError(err?.message || 'Failed to fund session EOA')
-      soundService.play('error')
-    } finally {
-      setIsFunding(false)
-    }
-  }
-
-  const spentPercent = Math.min(100, (config.spentUsdc / (config.maxSpendUsdc || 1)) * 100)
+  const remainingUsdc = Math.max(0, config.maxSpendUsdc - config.spentUsdc)
+  const remainingRatio = config.maxSpendUsdc > 0 ? Math.min(1, Math.max(0, remainingUsdc / config.maxSpendUsdc)) : 0
+  const strokeDashoffset = 351.86 * (1 - remainingRatio)
+  const estimatedCalls = Math.floor(remainingUsdc / 0.002)
   const isSessionActive = config.isActive && Date.now() <= config.expiresAt
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-      {/* Backdrop */}
+      {/* Backdrop (blur 28px) */}
       <div
-        className="fixed inset-0 bg-[#060810]/85 backdrop-blur-xl transition-all duration-300 animate-fade-in"
+        className="fixed inset-0 bg-[#060810]/85 backdrop-blur-[28px] transition-all duration-300 animate-fade-in"
         onClick={onClose}
       />
 
-      {/* Modal Container */}
+      {/* Modal Container: 28px superellipse, luxury obsidian surface */}
       <div
-        className="relative w-full max-w-xl rounded-3xl overflow-hidden shadow-2xl transition-all border border-indigo-500/30 my-auto flex flex-col bg-[#0b0e17]/95 backdrop-blur-2xl z-10"
+        className="relative w-full max-w-xl rounded-[28px] overflow-hidden transition-all my-auto flex flex-col z-10"
         style={{
-          boxShadow: '0 25px 70px -15px rgba(0,0,0,0.95), 0 0 50px rgba(99,102,241,0.2)',
+          background: 'linear-gradient(145deg, rgba(18, 22, 38, 0.98) 0%, rgba(12, 15, 28, 0.98) 60%, rgba(8, 10, 20, 0.99) 100%)',
+          backdropFilter: 'blur(28px)',
+          WebkitBackdropFilter: 'blur(28px)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          boxShadow: '0 32px 80px -16px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 50px rgba(112, 88, 248, 0.15)',
         }}
       >
+        {/* Ambient Top Glow */}
+        <div className="absolute top-0 right-0 w-80 h-80 bg-[radial-gradient(circle,rgba(112,88,248,0.14)_0%,transparent_70%)] pointer-events-none" />
+
         {/* Top Gradient Hairline */}
-        <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-cyan-400 to-indigo-500" />
+        <div
+          className="h-[2px] w-full"
+          style={{
+            background: 'linear-gradient(90deg, transparent 0%, var(--color-brand-cyan) 30%, var(--purple-1) 70%, var(--earned-green) 100%)',
+          }}
+        />
 
         {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-800/80 bg-slate-900/40 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
-              <Zap className="w-5 h-5" />
+        <div
+          className="relative px-6 py-5 border-b border-white/[0.06] flex items-center justify-between"
+          style={{ background: 'rgba(15, 18, 32, 0.4)' }}
+        >
+          <div className="flex items-center gap-3.5">
+            <div
+              className="w-10 h-10 rounded-2xl border flex items-center justify-center text-white shadow-lg"
+              style={{
+                backgroundColor: 'rgba(112, 88, 248, 0.15)',
+                borderColor: 'rgba(112, 88, 248, 0.3)',
+                boxShadow: '0 0 20px rgba(112, 88, 248, 0.25)',
+              }}
+            >
+              <Zap className="w-5 h-5 text-[var(--color-brand-cyan)]" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-extrabold text-white tracking-tight">
-                  Session Key & Budget Manager
-                </h3>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30">
-                  ADR-004
+                <span className="arc-eyebrow text-[10px] text-[var(--secondary-colors--sky-sync)] font-semibold tracking-wider">
+                  ARCIS X402 // SESSION AUTHORITY
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-normal">
-                Local spending cap and session EOA funding controls
-              </p>
+              <h3
+                className="text-base font-extrabold text-white tracking-tight"
+                style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+              >
+                Session Key & Autonomous Enclave
+              </h3>
             </div>
           </div>
 
@@ -272,181 +181,311 @@ export default function SessionBudgetModal({
               soundService.play('pop')
               onClose()
             }}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-slate-400 hover:text-white transition flex items-center justify-center cursor-pointer"
+            aria-label="Close"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5 overflow-y-auto max-h-[80vh]">
-          {/* Ephemeral Identity Card */}
-          <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400 font-medium flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Session Account Address</span>
+        <div className="relative p-6 space-y-5 overflow-y-auto max-h-[80vh]">
+          {/* Cockpit Radial Arc HUD Ribbon */}
+          <div
+            className="p-5 rounded-[22px] border border-white/[0.08] relative overflow-hidden"
+            style={{
+              background: 'linear-gradient(135deg, rgba(20, 25, 46, 0.85) 0%, rgba(12, 16, 32, 0.9) 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 32px -8px rgba(0, 0, 0, 0.6)',
+            }}
+          >
+            {/* Header of HUD */}
+            <div className="flex items-center justify-between text-xs pb-3 border-b border-white/[0.06]">
+              <span className="arc-eyebrow text-[10px] font-bold text-white tracking-wider flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${isSessionActive ? 'bg-[var(--earned-green)] shadow-[0_0_8px_var(--earned-green)] animate-pulse' : 'bg-slate-500'}`} />
+                <span>{isSessionActive ? 'ACTIVE SPENDING ENVELOPE' : 'CONFIGURED ENVELOPE (LOCAL)'}</span>
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
-                Client Isolated (I5)
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-900 border border-slate-800 font-mono text-xs">
-              <span className="text-indigo-300 truncate font-semibold">
-                {config.sessionPublicKey || 'Unavailable — on-chain delegation not configured'}
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={handleCopyAddress}
-                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                  title="Copy address"
-                >
-                  {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-                {config.sessionPublicKey && (
-                  <a
-                    href={`https://testnet.arcscan.app/address/${config.sessionPublicKey}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-1 rounded text-slate-400 hover:text-cyan-300 transition"
-                    title="View on ArcScan"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                )}
-              </div>
-            </div>
-
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              No session EOA key is currently provisioned. The displayed limits are local metadata only, not an on-chain delegation; automated signing and paid x402 calls remain disabled.
-            </p>
-          </div>
-
-          {/* Current Budget & Usage Ribbon */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-950/60 border border-indigo-500/30 space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                {isSessionActive ? 'Active Spending Envelope' : 'Configured Envelope (inactive)'}
-              </span>
-              <span className="text-xs text-indigo-300 font-mono flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-xs text-[var(--secondary-colors--sky-sync)] font-mono flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
                 <span>{timeRemaining.formatted}</span>
               </span>
             </div>
 
-            <div className="flex items-baseline justify-between">
-              <div>
-                <span className="text-2xl font-extrabold text-white font-mono">
-                  ${config.spentUsdc.toFixed(4)}
-                </span>
-                <span className="text-sm text-slate-400 font-mono"> / ${config.maxSpendUsdc.toFixed(2)} USDC spending cap</span>
-              </div>
-              <span className="text-xs font-mono text-emerald-400 font-bold">
-                ${Math.max(0, config.maxSpendUsdc - config.spentUsdc).toFixed(4)} remaining
-              </span>
-            </div>
+            {/* Radial Arc & Telemetry Matrix */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-5 pt-4">
+              {/* Radial Arc Gauge */}
+              <div className="relative w-36 h-36 flex items-center justify-center flex-shrink-0">
+                {/* SVG Glow Circle */}
+                <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(112,88,248,0.2)_0%,transparent_70%)] pointer-events-none" />
 
-            {/* Progress bar */}
-            <div className="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-500 rounded-full transition-all duration-500"
-                style={{ width: `${spentPercent}%` }}
-              />
+                <svg className="w-36 h-36 -rotate-90 transform" viewBox="0 0 136 136">
+                  <defs>
+                    <linearGradient id="modalHudArcGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#00E5FF" />
+                      <stop offset="50%" stopColor="#7058F8" />
+                      <stop offset="100%" stopColor="#01D062" />
+                    </linearGradient>
+                    <filter id="modalHudArcGlow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feGaussianBlur stdDeviation="3" result="blur" />
+                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                  </defs>
+                  <circle
+                    cx="68"
+                    cy="68"
+                    r="56"
+                    fill="none"
+                    stroke="rgba(255, 255, 255, 0.06)"
+                    strokeWidth="8"
+                  />
+                  <circle
+                    cx="68"
+                    cy="68"
+                    r="56"
+                    fill="none"
+                    stroke="url(#modalHudArcGradient)"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeDasharray="351.86"
+                    strokeDashoffset={strokeDashoffset}
+                    filter="url(#modalHudArcGlow)"
+                    className="transition-all duration-700 ease-out"
+                  />
+                </svg>
+
+                {/* Center Readout */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                  <span className="text-[8px] font-mono tracking-widest uppercase text-slate-400">
+                    REMAINING
+                  </span>
+                  <span
+                    className="text-xl font-bold text-white tabular-nums tracking-tight leading-none my-1"
+                    style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                  >
+                    {remainingUsdc.toFixed(2)}
+                  </span>
+                  <span className="text-[9px] font-mono text-[var(--color-brand-cyan)] font-semibold">
+                    USDC
+                  </span>
+                </div>
+              </div>
+
+              {/* Right Side Telemetry Grid */}
+              <div className="flex-1 w-full space-y-2.5">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 space-y-0.5">
+                    <span className="text-[10px] font-mono uppercase text-slate-400 block">TOTAL ENVELOPE</span>
+                    <span
+                      className="text-base font-bold text-white tabular-nums"
+                      style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                    >
+                      {config.maxSpendUsdc.toFixed(2)} <span className="text-xs text-slate-500 font-normal">USDC</span>
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 space-y-0.5">
+                    <span className="text-[10px] font-mono uppercase text-slate-400 block">SPENT VOLUME</span>
+                    <span
+                      className="text-base font-bold text-[var(--secondary-colors--sky-sync)] tabular-nums"
+                      style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                    >
+                      {config.spentUsdc.toFixed(4)} USDC
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between text-xs font-mono">
+                  <div className="flex items-center gap-1.5 text-slate-300">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[var(--earned-green)]" />
+                    <span>Single-Tx Safety Cap</span>
+                  </div>
+                  <span className="text-white font-bold tabular-nums">
+                    {config.maxPerTxUsdc.toFixed(2)} USDC
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] font-mono px-1">
+                  <span className="text-slate-400">Estimated Executions:</span>
+                  <span className="text-[var(--earned-green)] font-semibold tabular-nums">
+                    ~{estimatedCalls.toLocaleString()} calls remaining
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Funding & Quick Top-Up (ADR-004 Option 4.2) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                <Coins className="w-4 h-4 text-emerald-400" />
-                <span>Top-Up Session Budget</span>
-              </span>
-              <span className="text-[11px] text-slate-400">Available after delegated account setup</span>
+          {/* Configuration Controls & Duration Stepper */}
+          <div
+            className="p-4 rounded-2xl border border-white/[0.08] space-y-4 text-xs"
+            style={{ background: 'rgba(9, 11, 20, 0.75)' }}
+          >
+            {/* Session Budget Policy */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-mono tracking-wider uppercase text-slate-400">
+                Session Budget (USDC)
+              </label>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="relative flex-1">
+                  <input
+                    type="number"
+                    min="0.10"
+                    step="0.50"
+                    value={customBudget}
+                    onChange={(e) => setCustomBudget(e.target.value)}
+                    placeholder="2.00"
+                    className="w-full py-2 px-3 rounded-xl bg-white/[0.04] border border-white/10 text-white font-mono text-xs focus:outline-none focus:border-[var(--color-brand-cyan)]"
+                  />
+                  <span className="absolute right-3 top-2 text-xs text-slate-500 font-mono">USDC</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {[1.0, 2.0, 5.0, 10.0].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => {
+                        soundService.play('pop')
+                        setCustomBudget(val.toFixed(2))
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 text-slate-300 font-mono text-[11px] cursor-pointer transition hover:text-white"
+                    >
+                      ${val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-[10px] text-white/40 leading-relaxed pt-1">
+                Sets this session&apos;s spending ceiling. No USDC is transferred.
+              </p>
             </div>
 
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              This spending cap is local session metadata, not an on-chain escrow or MSCA delegation. These buttons transfer USDC to the separate session EOA; the balance is not spendable through zero-popup automation, which remains disabled until on-chain delegation exists.
-            </p>
-
-            <div className="grid grid-cols-4 gap-2">
-              {[1.0, 2.0, 5.0, 10.0].map((amt) => (
-                <button
-                  key={amt}
-                  onClick={() => handleFundSessionEoa(amt)}
-                  disabled={isFunding || !config.sessionPublicKey}
-                  className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-indigo-600/30 text-white font-mono text-xs font-bold border border-slate-800 hover:border-indigo-500/50 transition flex flex-col items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
-                >
-                  <span>+${amt.toFixed(2)}</span>
-                  <span className="text-[10px] text-indigo-300 font-sans font-normal">USDC</span>
-                </button>
-              ))}
+            <div className="space-y-1.5 pt-2 border-t border-white/[0.06]">
+              <label className="text-[11px] font-mono tracking-wider uppercase text-slate-400">
+                Session Duration Policy
+              </label>
+              <div className="grid grid-cols-4 gap-2 mt-2">
+                {[
+                  { hours: 1, label: '1 Hour' },
+                  { hours: 6, label: '6 Hours' },
+                  { hours: 24, label: '24 Hours' },
+                  { hours: 168, label: '7 Days' },
+                ].map((dur) => (
+                  <button
+                    key={dur.hours}
+                    type="button"
+                    onClick={() => {
+                      soundService.play('pop')
+                      setSelectedDuration(dur.hours)
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-mono font-semibold border transition cursor-pointer text-center ${selectedDuration === dur.hours
+                        ? 'bg-[var(--purple-1)]/20 border-[var(--purple-1)] text-white shadow-[0_0_12px_rgba(112,88,248,0.3)]'
+                        : 'bg-white/[0.02] border-white/[0.06] text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                      }`}
+                  >
+                    {dur.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-white/40 leading-relaxed pt-1">
+                {isSessionActive
+                  ? 'Renewing starts a new window and resets spent volume for this wallet.'
+                  : 'Activating applies this ceiling and duration as a local spending policy.'}
+              </p>
             </div>
 
-            {fundSuccess && (
-              <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2 animate-fade-in">
-                <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>{fundSuccess}</span>
-              </div>
-            )}
-
-            {fundError && (
-              <div className="p-2.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2 animate-fade-in">
-                <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-                <span>{fundError}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Configuration Controls */}
-          <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3 text-xs">
-            <div className="flex items-center justify-between">
+            <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
               <div>
-                <span className="font-bold text-white block">Auto-Execution Mode</span>
-                <span className="text-[11px] text-slate-400">
-                  Local preference only; it does not authorize paid calls by itself
+                <span className="font-bold text-white block">Autonomous Execution Mode</span>
+                <span className="text-[10px] text-white/40">
+                  Local preference only; does not authorize calls by itself
                 </span>
               </div>
               <button
                 onClick={handleToggleAuto}
                 disabled
                 title="Unavailable until the session key is delegated on-chain"
-                className="px-3 py-1.5 rounded-xl text-xs font-bold border bg-slate-800 text-slate-400 border-slate-700 opacity-70 cursor-not-allowed"
+                className="px-3 py-1.5 rounded-full text-xs font-bold border border-white/10 text-white/40 opacity-70 cursor-not-allowed font-mono"
+                style={{ background: 'rgba(255, 255, 255, 0.05)' }}
               >
                 Manual 1-Click
               </button>
             </div>
-
-            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-white block">Single-Tx Cap</span>
-                <span className="text-[11px] text-slate-400">
-                  Local per-call ceiling; no on-chain delegation is configured
-                </span>
-              </div>
-              <span className="font-mono text-indigo-300 font-semibold">
-                ${config.maxPerTxUsdc.toFixed(2)} USDC
-              </span>
-            </div>
           </div>
 
-          {/* Danger Zone: Revoke */}
-          <div className="pt-2 flex items-center justify-between">
+
+          {/* Ephemeral Identity & Cryptographic Enclave Card */}
+          <div
+            className="p-4 rounded-2xl border border-white/[0.08] space-y-3"
+            style={{ background: 'rgba(11, 14, 25, 0.75)' }}
+          >
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-white/70 font-medium flex items-center gap-1.5 font-mono text-[11px]">
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-300" />
+                <span>SESSION ENCLAVE</span>
+                {!config.sessionPublicKey && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full border border-white/10 bg-white/[0.04] text-[11px] font-normal tracking-wider uppercase text-white/45">
+                    Not enabled
+                  </span>
+                )}
+              </span>
+            </div>
+
+            <div
+              className="flex items-center justify-between gap-2 p-3 rounded-xl border border-white/[0.08] font-mono text-xs"
+              style={{ background: 'rgba(8, 10, 18, 0.85)' }}
+            >
+              <span
+                className={
+                  config.sessionPublicKey
+                    ? 'text-[var(--purple-1)] truncate font-semibold'
+                    : 'text-white/45 truncate'
+                }
+              >
+                {config.sessionPublicKey || 'No session signer yet'}
+              </span>
+              {config.sessionPublicKey && (
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={handleCopyAddress}
+                    className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                    title="Copy address"
+                  >
+                    {copiedKey ? <Check className="w-3.5 h-3.5 text-[var(--earned-green)]" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <a
+                    href={`https://testnet.arcscan.app/address/${config.sessionPublicKey}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-1.5 rounded-lg text-white/50 hover:text-cyan-300 transition"
+                    title="View on ArcScan"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <p className="text-[10px] text-white/50 leading-relaxed font-mono">
+              {config.sessionPublicKey
+                ? 'The ephemeral private key resides solely in client memory. No private credentials ever leave your browser.'
+                : 'Session keys are not enabled yet. The budget below is a local spending limit; it does not sign or authorize calls on its own.'}
+            </p>
+          </div>
+
+          {/* Danger Zone: Revoke & Reset */}
+          <div className="pt-2 flex items-center justify-between gap-3">
             <button
               onClick={handleRevoke}
-              className="text-xs text-rose-400 hover:text-rose-300 font-medium transition cursor-pointer flex items-center gap-1.5"
+              className="text-xs text-rose-400 hover:text-rose-300 font-mono transition cursor-pointer flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-rose-500/10"
             >
               <Flame className="w-3.5 h-3.5" />
-              <span>Revoke & Purge Key</span>
+              <span>REVOKE KEY</span>
             </button>
 
             <button
-              onClick={() => handleActivateNew(parseFloat(customBudget) || 2.0, selectedDuration)}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:brightness-110 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer"
+              onClick={() => handleActivateNew(parseFloat(customBudget) || 1.0, selectedDuration)}
+              className="arc-btn arc-btn-primary px-5 py-2.5 rounded-full text-xs font-bold cursor-pointer shadow-lg tracking-wider"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reset / Refresh Session</span>
+              <RefreshCw className="w-3.5 h-3.5 text-black" />
+              <span>{isSessionActive ? 'Update Session' : 'ACTIVATE SESSION'}</span>
             </button>
           </div>
         </div>

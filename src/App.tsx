@@ -61,6 +61,7 @@ interface CopilotHostProps {
   executeUcwTransfer?: CopilotUcwHandlers['executeUcwTransfer']
   executeUcwContract?: CopilotUcwHandlers['executeUcwContract']
   pollUcwChallengeTx?: CopilotUcwHandlers['pollChallengeTx']
+  executeUcwSignTypedData?: CopilotUcwHandlers['signTypedData']
   onNavigateToTab: (tab: string) => void
 }
 
@@ -75,6 +76,7 @@ function CopilotHost({
   executeUcwTransfer,
   executeUcwContract,
   pollUcwChallengeTx,
+  executeUcwSignTypedData,
   onNavigateToTab,
 }: CopilotHostProps) {
   // Arcis AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
@@ -84,6 +86,9 @@ function CopilotHost({
     authSource: activeAuthSource,
     executeUcwTransfer,
     executeUcwContract,
+    // A Circle Wallet has no EIP-1193 provider, so its x402 payment authorization
+    // is signed through Circle's typed-data challenge instead.
+    signTypedData: executeUcwSignTypedData,
     // The copilot's UCW bridge resolves its burn hash through this callback
     // rather than reading the Circle session token from browser storage.
     pollChallengeTx: pollUcwChallengeTx,
@@ -478,6 +483,16 @@ export default function App() {
                   walletConnected={walletConnected}
                   provider={connectedProvider}
                   authSource={activeAuthSource}
+                  ucwSignTypedData={executeUcwSignTypedData}
+                  // The post-call action card executes swaps/sends directly, so it needs the same
+                  // UCW handlers the copilot uses. Without them a UCW payer can buy the signal but
+                  // not act on it.
+                  ucwHandlers={{
+                    authSource: activeAuthSource,
+                    executeUcwContract,
+                    executeUcwTransfer,
+                    pollChallengeTx: pollUcwChallengeTx,
+                  }}
                   onNavigate={handleTabNavigate}
                 />
               </div>
@@ -561,6 +576,7 @@ export default function App() {
           executeUcwTransfer={executeUcwTransfer}
           executeUcwContract={executeUcwContract}
           pollUcwChallengeTx={pollUcwChallengeTx}
+          executeUcwSignTypedData={executeUcwSignTypedData}
           onNavigateToTab={handleNavigateToTab}
         />
 

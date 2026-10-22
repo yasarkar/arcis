@@ -3,7 +3,7 @@
 // Turns raw intelligence (arbitrage spreads, slippage routes, liquidity alerts)
 // into real on-chain Arc Testnet transactions or direct workflow navigation.
 
-import React, { useState } from 'react'
+import { useState } from 'react'
 import {
   Zap,
   TrendingUp,
@@ -17,6 +17,7 @@ import {
 import type { ActionableSignalPayload, CopilotActionPayload } from '../../types/marketplace'
 import type { InlineExecutionReceipt, ExecutionProgressState } from '../../types/sessionKey'
 import { executeDirectCopilotAction } from '../../services/copilotExecutionService'
+import type { CopilotUcwHandlers } from '../../services/copilot/copilotCommon'
 import { soundService } from '../../services/soundService'
 
 export function getExplicitTradeAmount(details: ActionableSignalPayload['details']): number | undefined {
@@ -70,6 +71,11 @@ interface ServiceActionCardProps {
   payload: ActionableSignalPayload
   walletAddress?: string
   walletConnected?: boolean
+  /**
+   * Circle Wallet executors. Without them the card would execute a post-payment swap through an
+   * injected EIP-1193 provider, which a UCW-only session does not have.
+   */
+  ucwHandlers?: CopilotUcwHandlers
   onNavigateTab?: (tab: string) => void
 }
 
@@ -77,6 +83,7 @@ export default function ServiceActionCard({
   payload,
   walletAddress,
   walletConnected,
+  ucwHandlers,
   onNavigateTab,
 }: ServiceActionCardProps) {
   const [isExecuting, setIsExecuting] = useState<boolean>(false)
@@ -133,7 +140,8 @@ export default function ServiceActionCard({
         actionPayload,
         walletAddress,
         provider,
-        (st) => setProgressState(st)
+        (st) => setProgressState(st),
+        ucwHandlers
       )
 
       setReceipt(res)
@@ -157,29 +165,44 @@ export default function ServiceActionCard({
 
   return (
     <div
-      className="mt-4 rounded-2xl p-4 md:p-5 border border-indigo-500/30 overflow-hidden relative"
+      className="arc-card glow-card mt-4 rounded-2xl p-4 md:p-5 overflow-hidden relative"
       style={{
-        background: 'linear-gradient(135deg, rgba(24, 28, 50, 0.95) 0%, rgba(18, 14, 38, 0.95) 100%)',
-        boxShadow: '0 12px 32px -8px rgba(99, 102, 241, 0.2)',
+        background: 'linear-gradient(135deg, rgba(20, 24, 42, 0.95) 0%, rgba(13, 16, 30, 0.95) 100%)',
+        border: '1px solid rgba(47, 87, 140, 0.4)',
+        boxShadow: '0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 0 24px rgba(152, 150, 255, 0.08)',
       }}
     >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+          <div
+            className="w-8 h-8 rounded-xl border flex items-center justify-center transition-colors"
+            style={{
+              backgroundColor: 'rgba(1, 208, 98, 0.1)',
+              borderColor: 'rgba(1, 208, 98, 0.25)',
+            }}
+          >
             {payload.type === 'arbitrage' ? (
-              <Zap className="w-4 h-4 text-emerald-400" />
+              <Zap className="w-4 h-4 text-[var(--earned-green)]" />
             ) : payload.type === 'swap' ? (
-              <TrendingUp className="w-4 h-4 text-cyan-400" />
+              <TrendingUp className="w-4 h-4 text-cyan-300" />
             ) : (
-              <Coins className="w-4 h-4 text-purple-400" />
+              <Coins className="w-4 h-4 text-[var(--purple-1)]" />
             )}
           </div>
           <div>
-            <h5 className="text-xs md:text-sm font-bold text-white flex items-center gap-2">
+            <h5
+              className="text-xs md:text-sm font-bold text-white flex items-center gap-2"
+              style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+            >
               <span>{payload.title}</span>
             </h5>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[11px] font-semibold text-emerald-400 font-mono">
+              <span
+                className="text-[10px] font-semibold font-mono tracking-wider"
+                style={{
+                  color: 'var(--earned-green)',
+                }}
+              >
                 {payload.badgeText}
               </span>
             </div>
@@ -191,23 +214,25 @@ export default function ServiceActionCard({
           <button
             onClick={handleExecute}
             disabled={isExecuting || (requiresTradeAmount && !hasValidTradeAmount)}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:brightness-110 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer disabled:opacity-50"
+            className="arc-btn arc-btn-primary px-4 py-2 rounded-full text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg cursor-pointer disabled:opacity-50 tracking-wider"
           >
             {isExecuting ? (
               <>
-                <Clock className="w-3.5 h-3.5 animate-spin text-white" />
+                <Clock className="w-3.5 h-3.5 animate-spin text-black" />
                 <span className="capitalize">{progressState}...</span>
               </>
             ) : (
               <>
                 <span>
-                  {payload.type === 'arbitrage'
-                    ? 'Review Quote in Swap'
-                    : payload.type === 'navigate' || payload.type === 'deposit'
-                      ? 'Apply & Proceed'
-                      : 'Execute Opportunity on Arc'}
+                  {payload.details.buttonLabel
+                    ? payload.details.buttonLabel
+                    : payload.type === 'arbitrage'
+                      ? 'Review Quote in Swap'
+                      : payload.type === 'navigate' || payload.type === 'deposit'
+                        ? 'Apply & Proceed'
+                        : 'Execute Opportunity on Arc'}
                 </span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <ArrowRight className="w-3.5 h-3.5 text-black" />
               </>
             )}
           </button>
@@ -215,11 +240,17 @@ export default function ServiceActionCard({
       </div>
 
       {/* Signal Execution Details Grid */}
-      {!receipt && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 my-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs">
+      {!receipt ? (
+        <div
+          className="grid grid-cols-2 sm:grid-cols-4 gap-2 my-3 p-3 rounded-xl border border-white/5 text-xs"
+          style={{ background: 'rgba(8, 10, 18, 0.7)' }}
+        >
           <div>
-            <span className="text-[10px] text-slate-400 block font-medium">Input Amount</span>
-            <span className="font-mono font-bold text-white">
+            <span className="text-[10px] text-white/50 block font-medium">Input Amount</span>
+            <span
+              className="font-bold text-white tabular-nums"
+              style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+            >
               {tradeAmount ?? 'Not provided'} {fromTok}
             </span>
           </div>
@@ -233,14 +264,20 @@ export default function ServiceActionCard({
             </div>
           ) : null}
           <div>
-            <span className="text-[10px] text-slate-400 block font-medium">Estimated Output</span>
-            <span className="font-mono font-bold text-cyan-400">
+            <span className="text-[10px] text-white/50 block font-medium">Estimated Output</span>
+            <span
+              className="font-bold text-cyan-300 tabular-nums"
+              style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+            >
               {payload.details.estimatedOut ? payload.details.estimatedOut.toFixed(4) : '--'} {toTok}
             </span>
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 block font-medium">Net Advantage / Spread</span>
-            <span className="font-mono font-bold text-emerald-400">
+            <span className="text-[10px] text-white/50 block font-medium">Net Advantage / Spread</span>
+            <span
+              className="font-bold tabular-nums"
+              style={{ color: 'var(--earned-green)', fontFamily: 'var(--fonts--space-grotesk)' }}
+            >
               {payload.details.spreadPct
                 ? `+${payload.details.spreadPct.toFixed(2)}%`
                 : payload.details.estimatedProfitUsdc
@@ -249,9 +286,9 @@ export default function ServiceActionCard({
             </span>
           </div>
           <div>
-            <span className="text-[10px] text-slate-400 block font-medium">Target Route / Pool</span>
+            <span className="text-[10px] text-white/50 block font-medium">Target Route / Pool</span>
             <span
-              className="font-mono text-[11px] text-slate-300 truncate block"
+              className="font-mono text-[11px] text-white/70 truncate block"
               title={payload.details.optimalPool || payload.details.poolAddress || 'Arcis Curve StableSwap'}
             >
               {payload.details.optimalPool
@@ -260,7 +297,7 @@ export default function ServiceActionCard({
             </span>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Error state */}
       {errorMsg && (
