@@ -21,8 +21,9 @@ import {
   VolumeX,
   Settings,
 } from 'lucide-react'
-import { EXPLORE_TOPIC_CATEGORIES } from '../../hooks/useArcCopilot'
+import { EXPLORE_TOPIC_CATEGORIES, exploreTopicQuestions } from '../../hooks/useArcCopilot'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload } from '../../types/marketplace'
+import type { Recommendation } from '../../services/x402/nextActions'
 import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey'
 import { getSessionTimeRemaining } from '../../services/sessionKeyService'
 import { playSound, soundService } from '../../services/soundService'
@@ -31,6 +32,7 @@ import { classifyCopilotIntent } from '../../utils/copilotIntent'
 import CopilotMessageContent from './CopilotMessageContent'
 import SessionKeyModal from './SessionKeyModal'
 import InlineActionCard from './InlineActionCard'
+import NextStepRail from '../marketplace/NextStepRail'
 import { CopilotSlashMenu } from './CopilotSlashMenu'
 import { COPILOT_SLASH_COMMANDS, type SlashCommandItem } from '../../config/copilotSlashCommands'
 import { logger } from '../../utils/logger'
@@ -61,6 +63,12 @@ interface ArcCopilotDrawerProps {
   onRevokeSession: () => void
   onToggleAutoExecute: (enabled: boolean) => void
   onExecuteInline: (messageId: string, actionPayload: CopilotActionPayload) => Promise<void>
+  /** Runs a next-step card in this chat; resolves false when the chat has no flow for it. */
+  onExecuteNextStep?: (recommendation: Recommendation) => Promise<boolean>
+  /** Whether the chat can run this card itself; drives the button label and the fallback. */
+  canExecuteNextStep?: (recommendation: Recommendation) => boolean
+  /** Whether this session can actually be charged for a paid call (address + a signing payer). */
+  canPayForCalls?: boolean
   onNavigateToTab?: (tab: string) => void
 }
 
@@ -83,6 +91,9 @@ export default function ArcCopilotDrawer({
   onRevokeSession,
   onToggleAutoExecute,
   onExecuteInline,
+  onExecuteNextStep,
+  canExecuteNextStep,
+  canPayForCalls,
   onNavigateToTab,
 }: ArcCopilotDrawerProps) {
   const [inputText, setInputText] = useState<string>('')
@@ -656,6 +667,33 @@ export default function ArcCopilotDrawer({
               )}
             </div>
 
+            {/* Next step cards derived from the report this message just bought. Same engine and
+                same cards as the AI Services shelf; opening one navigates there, where the
+                playground can run it with the suggested inputs. */}
+            {msg.role === 'assistant' && msg.nextSteps && msg.nextSteps.length > 0 && (
+              <div className="pl-9.5 w-full max-w-[96%]">
+                <NextStepRail
+                  recommendations={msg.nextSteps}
+                  compact
+                  actionLabel={(recommendation) =>
+                    canExecuteNextStep?.(recommendation)
+                      ? 'Run in chat'
+                      : 'Open in AI Services'
+                  }
+                  onOpen={async (recommendation) => {
+                    // The card runs its paid step in this chat when the copilot has that flow;
+                    // otherwise the catalogue is where it can be run with those inputs.
+                    if (canExecuteNextStep?.(recommendation) && onExecuteNextStep) {
+                      await onExecuteNextStep(recommendation)
+                      return
+                    }
+                    onNavigateToTab?.('ai-services')
+                    onClose()
+                  }}
+                />
+              </div>
+            )}
+
             {/* Explore Topics Chips placed directly below the welcome bubble */}
             {index === 0 && msg.role === 'assistant' && (
               <div className="pl-9.5 space-y-3 select-text w-full max-w-[96%]">
@@ -687,7 +725,7 @@ export default function ArcCopilotDrawer({
                 {/* 5 Questions for the Selected Topic (only shown when a topic is selected) */}
                 {selectedTopicId && (
                   <div className="space-y-1.5 pt-1 animate-fade-in">
-                    {EXPLORE_TOPIC_CATEGORIES.find((t) => t.id === selectedTopicId)?.questions.map(
+                    {exploreTopicQuestions(selectedTopicId, canPayForCalls ?? Boolean(walletAddress)).map(
                       (q) => (
                         <button
                           key={q.id}
