@@ -1,14 +1,14 @@
+import { ArrowRight, Check, CheckCircle2, ChevronDown, Droplets } from 'lucide-react'
 import { useState } from 'react'
-import { ArrowRight, ChevronDown, Check, CheckCircle2, Fingerprint, Droplets } from 'lucide-react'
 import { PinnedNetworkIcon } from '../common/PinnedIcons'
 
 // Visual Artwork Assets
+import aiAgentImg from '../../assets/hero/Arcis_AI_Agent.jpg'
+import nativeGasImg from '../../assets/hero/arcis_native_gas.jpg'
+import passkeyVaultImg from '../../assets/hero/arcis_passkey_vault.jpg'
+import realYieldImg from '../../assets/hero/arcis_real_yield.jpg'
 import heroTitaniumCardImg from '../../assets/hero/Arcis_Titanium_Card.jpg'
 import unifiedVaultImg from '../../assets/hero/Arcis_Unified_Vault.jpg'
-import passkeyVaultImg from '../../assets/hero/arcis_passkey_vault.jpg'
-import nativeGasImg from '../../assets/hero/arcis_native_gas.jpg'
-import realYieldImg from '../../assets/hero/arcis_real_yield.jpg'
-import aiAgentImg from '../../assets/hero/Arcis_AI_Agent.jpg'
 import universalBridgeImg from '../../assets/hero/Arcis_Universal_Bridge.jpg'
 import usdcTokenImg from '../../assets/Token-Icon/USDC Token.svg'
 
@@ -448,7 +448,7 @@ export default function HomePage({
 
         {/* Background Hero Visual Artwork (Dynamic Levitation, Orbit Rings & Atmospheric Shimmer) */}
         <div className="absolute -right-48 sm:-right-64 md:-right-80 lg:-right-88 xl:-right-[26rem] top-1/2 -translate-y-1/2 w-[620px] sm:w-[780px] md:w-[940px] lg:w-[1120px] xl:w-[1260px] pointer-events-none select-none z-0 opacity-60 sm:opacity-75 md:opacity-90 lg:opacity-100 transition-all duration-700">
-          
+
           {/* Pulsing Multi-layered Atmospheric Backlight */}
           <div className="absolute inset-0 bg-gradient-to-tr from-blue-600/30 via-cyan-500/20 to-indigo-600/35 rounded-full blur-[130px] pointer-events-none -z-10 animate-hero-glow group-hover:scale-110 group-hover:opacity-95 transition-all duration-700" />
           <div className="absolute top-1/4 left-1/4 w-3/5 h-3/5 bg-sky-400/20 rounded-full blur-[90px] pointer-events-none -z-10 animate-pulse" style={{ animationDuration: '4s' }} />
@@ -575,18 +575,6 @@ export default function HomePage({
               <span>Launch App</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-
-            {!walletConnected && onOpenCircleAuth && (
-              <button
-                type="button"
-                onClick={onOpenCircleAuth}
-                className="px-5 py-3.5 rounded-full text-sm font-semibold flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 text-white border border-white/10 hover:border-cyan-500/40 shadow-lg hover:shadow-cyan-500/10 transition-all cursor-pointer hover:scale-105 active:scale-95"
-              >
-                <Fingerprint className="w-4 h-4 text-cyan-400" />
-                <span>Sign in with Passkey</span>
-              </button>
-            )}
-
             <a
               href="#features-showcase"
               className="text-[13px] px-2 py-3.5 text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
@@ -710,11 +698,10 @@ export default function HomePage({
                 {/* Background Visual Artwork (Ambient Background Layer, Feather-Dissolved) */}
                 {pillar.image && (
                   <div
-                    className={`absolute ${
-                      isReversed
-                        ? '-left-28 sm:-left-36 md:-left-48 lg:-left-56 xl:-left-56'
-                        : '-right-20 sm:-right-28 md:-right-36 lg:-right-40 xl:-right-48'
-                    } ${pillar.imageContainerClass || ''} top-1/2 -translate-y-1/2 w-[400px] sm:w-[520px] md:w-[640px] lg:w-[760px] xl:w-[860px] pointer-events-none select-none z-0 opacity-40 sm:opacity-55 md:opacity-75 lg:opacity-90 transition-all duration-700`}
+                    className={`absolute ${isReversed
+                      ? '-left-28 sm:-left-36 md:-left-48 lg:-left-56 xl:-left-56'
+                      : '-right-20 sm:-right-28 md:-right-36 lg:-right-40 xl:-right-48'
+                      } ${pillar.imageContainerClass || ''} top-1/2 -translate-y-1/2 w-[400px] sm:w-[520px] md:w-[640px] lg:w-[760px] xl:w-[860px] pointer-events-none select-none z-0 opacity-40 sm:opacity-55 md:opacity-75 lg:opacity-90 transition-all duration-700`}
                   >
                     {/* Soft Backlight */}
                     <div
@@ -739,9 +726,8 @@ export default function HomePage({
 
                 {/* Foreground Content: Text & Bullets */}
                 <div
-                  className={`relative z-10 max-w-xl lg:max-w-2xl xl:max-w-3xl flex flex-col gap-5 text-left py-2 ${
-                    isReversed ? 'lg:ml-auto' : ''
-                  }`}
+                  className={`relative z-10 max-w-xl lg:max-w-2xl xl:max-w-3xl flex flex-col gap-5 text-left py-2 ${isReversed ? 'lg:ml-auto' : ''
+                    }`}
                 >
                   <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-snug">
                     {pillar.title}

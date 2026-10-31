@@ -11,9 +11,9 @@ vi.mock('../../services/soundService', () => ({ soundService: { play: vi.fn() } 
 
 import { VisualDataDashboard } from './ServicePlaygroundModal'
 
-function render(payload: Record<string, unknown>): string {
+function render(payload: Record<string, unknown>, onNavigateTab: (tab: string) => void = () => {}): string {
   return renderToStaticMarkup(
-    React.createElement(VisualDataDashboard, { data: payload, outputViewMode: 'visual' }) as any
+    React.createElement(VisualDataDashboard, { data: payload, outputViewMode: 'visual', onNavigateTab }) as any
   )
 }
 
@@ -112,5 +112,56 @@ describe('VisualDataDashboard institutional report', () => {
   it('does not print an empty severity pill when the register is absent', () => {
     const html = render({ status: 'VAULT_READ', tvlUsdc: 1234.56789 })
     expect(html).not.toContain('QUALITY')
+  })
+
+  it('renders ANALYSIS REPORT for REPORT_READY status', () => {
+    const html = render({ status: 'REPORT_READY', currentValueUsdc: 100 })
+    expect(html).toContain('ANALYSIS REPORT')
+    expect(html).not.toContain('REPORT READY')
+  })
+
+  it('does not render technical shareDecimals as a metric card', () => {
+    const html = render({
+      status: 'REPORT_READY',
+      currentValueUsdc: 1050,
+      shareDecimals: 9,
+    })
+    expect(html).toContain('Redeemable Value')
+    expect(html).not.toContain('Share Decimals')
+    expect(html).not.toContain('SHARE DECIMALS')
+  })
+
+  it('renders vault analytics risk register entry with action button and technical explanation', () => {
+    const vaultReport = {
+      schema: 'arcis.institutional-report/v1',
+      reportId: 'ARX-VAN-20261023-ABCDEF12',
+      kind: 'VAULT_ANALYTICS',
+      riskRegister: [
+        {
+          id: 'VAULT_ACTIVE_RESERVES',
+          category: 'COMPOSITION',
+          severity: 'INFO',
+          title: 'USDC Yield Vault Operating Normally',
+          finding: 'Vault holds 1234.56 USDC in verified on-chain assets across 1000 shares.',
+          evidence: { totalAssetsUsdc: 1234.56, sharePriceUsdc: 1.234568 },
+          threshold: 'Vault totalAssets() > 0',
+          remediation: 'Deposit liquidity',
+          advisoryOnly: true,
+        },
+      ],
+      riskSummary: { highestSeverity: 'INFO', counts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 1 } },
+    }
+
+    const html = render({
+      status: 'VAULT_READ',
+      tvlUsdc: 1234.56,
+      sharePriceUsdc: 1.234568,
+      report: vaultReport,
+    })
+
+    expect(html).toContain('Risk register (1)')
+    expect(html).toContain('Active Yield Vault Reserves')
+    expect(html).toContain('Open USDC Yield Vault')
+    expect(html).toContain('This automated surveillance audit inspects live accounting state from the Arc ERC-4626 USDC Yield Vault')
   })
 })

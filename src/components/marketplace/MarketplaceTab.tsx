@@ -25,6 +25,7 @@ import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { OFFICIAL_MANIFESTS } from '../../config/x402/manifests'
 import { useMarketplaceServices } from '../../hooks/useMarketplaceServices'
 import { usePlatformStats } from '../../hooks/usePlatformStats'
+import { useReportDigests } from '../../hooks/useReportDigests'
 import { useServiceTelemetry } from '../../hooks/useServiceTelemetry'
 import { useSharedLatency } from '../../hooks/useSharedLatency'
 import {
@@ -41,6 +42,8 @@ import {
 } from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
 import type { SessionKeyConfig } from '../../types/sessionKey'
+import type { x402Service } from '../../types/marketplace'
+import NextStepRail, { LastMeasurementBadge } from './NextStepRail'
 import ProviderHubModal from './ProviderHubModal'
 import RegisterServiceModal from './RegisterServiceModal'
 import ServicePlaygroundModal from './ServicePlaygroundModal'
@@ -108,11 +111,27 @@ export default function MarketplaceTab({
 
   const [isSessionModalOpen, setIsSessionModalOpen] = useState<boolean>(false)
 
+  // Inputs the shelf asked the playground to open with (a next-step re-run). A plain card click
+  // sets this to `undefined`, so a recommendation never leaks into an unrelated call.
+  const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | undefined>(
+    undefined
+  )
+
   // Every financial figure on the card is derived from the shared settlement ledger through one
   // module, so the numbers cannot disagree about their source or about what an outage means.
   // `unavailable` renders as a dash: a counter outage must not look like "zero calls" or "zero
   // savings" to a visitor.
   const { snapshot: platformStats } = usePlatformStats()
+
+  // The wallet's own paid reports, read back from the server. A settled call re-reads the store so
+  // the shelf and the card lines reflect the run that just happened, not a local tally.
+  const settlementKey =
+    executionResult?.payment?.settlementRef ?? executionResult?.payment?.id ?? null
+  const {
+    byService: digestsByService,
+    recommendations: nextSteps,
+  } = useReportDigests(walletAddress, settlementKey)
+  const digestNow = Date.now()
 
   // The displayed fee must be the fee the settlement path actually deducts. It is read from the
   // official manifests (all 0 today) instead of a hardcoded marketing percentage.
@@ -305,6 +324,25 @@ export default function MarketplaceTab({
     sessionIsActive && averageServicePriceUsdc > 0
       ? Math.floor(remainingUsdc / averageServicePriceUsdc)
       : 0
+
+  /** Opens a service with the inputs a recommendation was derived for. */
+  const openServiceWithParams = (
+    serviceId: string,
+    params?: Record<string, unknown> | undefined
+  ) => {
+    const service = services.find((entry) => entry.id === serviceId)
+    if (!service) return
+    soundService.play('pop')
+    setPendingPayload(params)
+    openPlayground(service)
+  }
+
+  /** A plain card open: the playground starts from the service's own defaults. */
+  const openService = (service: x402Service) => {
+    soundService.play('pop')
+    setPendingPayload(undefined)
+    openPlayground(service)
+  }
 
   const handleResetEnvelope = () => {
     soundService.play('pop')
@@ -638,6 +676,16 @@ export default function MarketplaceTab({
         </div>
       </div>
 
+      {/* ── NEXT STEP RAIL (derived from this wallet's own paid reports) ── */}
+      {walletAddress && (
+        <NextStepRail
+          recommendations={nextSteps}
+          onOpen={(recommendation) =>
+            openServiceWithParams(recommendation.action.serviceId, recommendation.action.params)
+          }
+        />
+      )}
+
       {/* ── UNIFIED FILTER & SEARCH COMMAND BAR (DESIGN.md: .glass-panel & .ub-action-btn) ── */}
       <div className={`glass-panel rounded-2xl p-2.5 sm:p-3 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 shadow-xl relative transition-all duration-200 ${isSortOpen ? 'z-30' : 'z-20'}`}>
         {/* Left Group: Search Input + Segmented Buttons */}
@@ -855,13 +903,11 @@ export default function MarketplaceTab({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 relative z-0">
         {displayedServices.map((service) => {
           const telemetry = getServiceTelemetry(service)
+          const lastMeasurement = digestsByService.get(service.id)
           return (
             <div
               key={service.id}
-              onClick={() => {
-                soundService.play('pop')
-                openPlayground(service)
-              }}
+              onClick={() => openService(service)}
               className="arc-card glow-card flex flex-col justify-between group cursor-pointer"
               style={{
                 padding: '24px',
@@ -948,6 +994,11 @@ export default function MarketplaceTab({
                   </p>
                 </div>
 
+                {/* Last measurement this wallet actually bought, with its age */}
+                {lastMeasurement && (
+                  <LastMeasurementBadge digest={lastMeasurement} now={digestNow} />
+                )}
+
                 {/* Tags */}
                 <div className="flex flex-wrap gap-1.5">
                   {service.tags.map((tag) => (
@@ -1028,8 +1079,7 @@ export default function MarketplaceTab({
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    soundService.play('pop')
-                    openPlayground(service)
+                    openService(service)
                   }}
                   className="arc-btn arc-btn-primary w-full py-2.5 px-4 rounded-full text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg tracking-wider group-hover:scale-[1.02] active:scale-[0.98]"
                 >
@@ -1091,6 +1141,7 @@ export default function MarketplaceTab({
         isOpen={isPlaygroundOpen}
         onClose={closePlayground}
         service={activeService}
+        initialPayload={pendingPayload}
         isExecuting={isExecuting}
         executionResult={executionResult}
         onExecute={runService}

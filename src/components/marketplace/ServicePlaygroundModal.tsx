@@ -5,14 +5,11 @@ import {
   ArrowRight,
   ArrowUpRight,
   Check,
-  CheckCircle2,
   ChevronRight,
   Copy,
-  ExternalLink,
   FileJson,
   Info,
   Lock,
-  Sliders,
   Sparkles,
   X,
   Zap
@@ -21,24 +18,24 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { getChainDisplayName, getChainIconId } from '../../config/chainMeta'
-import { ChainIcon } from '../common/ChainIcon'
-import { PortfolioAssetIcon } from '../portfolio/PortfolioAssetIcon'
 import { useChainSwitch } from '../../hooks/useChainSwitch'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
 import { useX402Config } from '../../hooks/useX402Config'
+import type { CopilotUcwHandlers } from '../../services/copilot/copilotCommon'
 import {
   serviceTelemetryService,
   type ServiceTelemetryData,
 } from '../../services/serviceTelemetryService'
 import { getSessionKeyConfig, SESSION_KEY_UPDATED_EVENT } from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
-import type { CopilotUcwHandlers } from '../../services/copilot/copilotCommon'
 import type { SessionBudgetState } from '../../services/x402Client'
 import type { x402ExecutionResult, x402Service } from '../../types/marketplace'
 import type { SessionKeyConfig } from '../../types/sessionKey'
-import { evaluateX402Readiness } from '../../utils/x402Readiness'
 import { diagnoseX402Failure } from '../../utils/x402FailureDiagnosis'
+import { evaluateX402Readiness } from '../../utils/x402Readiness'
+import { ChainIcon } from '../common/ChainIcon'
+import { PortfolioAssetIcon } from '../portfolio/PortfolioAssetIcon'
 import MarketplaceSelect from './MarketplaceSelect'
 import ServiceActionCard from './ServiceActionCard'
 
@@ -46,6 +43,8 @@ interface ServicePlaygroundModalProps {
   isOpen: boolean
   onClose: () => void
   service: x402Service | null
+  /** Inputs to pre-fill instead of the service defaults (a re-run proposed by the shelf). */
+  initialPayload?: Record<string, unknown>
   isExecuting: boolean
   executionResult: x402ExecutionResult | null
   onExecute: (service: x402Service, payload: Record<string, any>) => Promise<any>
@@ -168,6 +167,31 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
       problemText: 'Outbound cross-chain volume exceeded inbound volume during the observation period.',
       riskText: 'Pool depth and DEX trade slippage may temporarily increase in the short term.',
       solutionText: 'Inspect route slippage and bridge depth before submitting large block orders.',
+      actionLabel: 'Manage Gateway Transfers',
+      actionTab: 'unified',
+    }
+  }
+
+  if (id === 'GATEWAY_NET_INFLOW') {
+    const netUsdc = typeof evidence.netUsdcInflowUsdc === 'number'
+      ? `+$${evidence.netUsdcInflowUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : 'positive'
+    return {
+      humanTitle: `Net Liquidity Expansion (${netUsdc} USDC)`,
+      problemText: `Inbound cross-chain Gateway mints exceeded outbound burns by ${netUsdc} USDC during the observation window.`,
+      solutionText: 'On-chain DEX liquidity and pool depth are expanding. You can provide liquidity or execute trades on Arc.',
+      actionLabel: 'Manage Unified Balance',
+      actionTab: 'unified',
+    }
+  }
+
+  if (id === 'NO_GATEWAY_ACTIVITY') {
+    return {
+      humanTitle: 'No Gateway Activity in Window',
+      problemText: 'No cross-chain mint or burn transactions occurred during the scanned block range.',
+      solutionText: 'Deposit or transfer USDC via Circle Gateway to establish unified cross-chain balance.',
+      actionLabel: 'Open Circle Gateway',
+      actionTab: 'unified',
     }
   }
 
@@ -176,6 +200,218 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
       humanTitle: 'Single-Source Inflow Concentration',
       problemText: 'Over 80% of inbound capital to Arc originated from a single source blockchain network.',
       riskText: 'Network congestion or fee spikes on the origin network could bottleneck cross-chain liquidity inflows.',
+      solutionText: 'Diversify gateway deposit routes across secondary origin networks.',
+      actionLabel: 'Manage Gateway Deposits',
+      actionTab: 'unified',
+    }
+  }
+
+  if (id === 'VAULT_ACTIVE_RESERVES') {
+    const sharePrice = evidence.sharePriceUsdc !== null && evidence.sharePriceUsdc !== undefined
+      ? `${evidence.sharePriceUsdc} USDC`
+      : 'active'
+    const tvl = typeof evidence.totalAssetsUsdc === 'number'
+      ? `$${evidence.totalAssetsUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : 'verified'
+    return {
+      humanTitle: `Active Yield Vault Reserves (${sharePrice} / share)`,
+      problemText: `The ERC-4626 vault holds ${tvl} in verified on-chain assets, establishing an active exchange rate of 1 share = ${sharePrice}.`,
+      solutionText: `You can deposit USDC into this automated yield vault to earn on-chain returns or inspect existing allocations.`,
+      actionLabel: 'Open USDC Yield Vault',
+      actionTab: 'pools',
+    }
+  }
+
+  if (id === 'VAULT_NO_SHARES') {
+    return {
+      humanTitle: 'Vault Awaiting Initial Liquidity',
+      problemText: 'The ERC-4626 yield vault is active on Arc Testnet but currently reports zero shares outstanding.',
+      solutionText: 'Deposit initial USDC liquidity to bootstrap share minting and activate vault yield generation.',
+      actionLabel: 'Initialize Vault Liquidity',
+      actionTab: 'pools',
+    }
+  }
+
+  if (id === 'VAULT_ASSETS_WITHOUT_SHARES') {
+    return {
+      humanTitle: 'Vault Accounting Discrepancy',
+      problemText: 'The vault reports assets held while zero shares are outstanding.',
+      riskText: 'Share redemption value cannot be mathematically derived without active share supply.',
+      solutionText: 'Review vault contract state before committing new deposits.',
+      actionLabel: 'Inspect Vault State',
+      actionTab: 'pools',
+    }
+  }
+
+  if (id === 'VAULT_READ_FAILED') {
+    return {
+      humanTitle: 'Vault RPC Accounting Query Interrupted',
+      problemText: 'Unable to query totalAssets or totalSupply from the Arc ERC-4626 smart contract.',
+      riskText: 'Share price and TVL figures are temporarily withheld to prevent inaccurate metrics.',
+      solutionText: 'Re-run the scan once Arc Testnet RPC node connectivity normalizes.',
+    }
+  }
+
+  if (id === 'NO_HISTORICAL_SERIES') {
+    return {
+      humanTitle: 'Real-Time State Read (No Historical Series)',
+      problemText: 'The requested observation window is recorded for correlation; ERC-4626 contracts expose instantaneous balances.',
+      solutionText: 'Successive independent scans can be compared to establish historical return trajectories.',
+    }
+  }
+
+  if (id === 'NO_VAULT_POSITION') {
+    return {
+      humanTitle: 'No Active Vault Position',
+      problemText: 'The scanned address currently holds zero shares in the Arc USDC yield vault.',
+      solutionText: 'Deposit USDC into the automated yield vault to begin earning verified on-chain yields.',
+      actionLabel: 'Deposit into USDC Vault',
+      actionTab: 'pools',
+    }
+  }
+
+  if (id === 'ROUTE_RECOMMENDATION') {
+    const railName = evidence.recommendedRail === 'gateway' ? 'Circle Gateway' : 'CCTP Bridge'
+    const savings =
+      typeof evidence.savingsUsdc === 'number' && evidence.savingsUsdc > 0
+        ? `saves $${evidence.savingsUsdc.toFixed(2)} USDC`
+        : 'lowest fee'
+    const dest = String(evidence.destinationChain || 'destination').replace(/_/g, ' ')
+    return {
+      humanTitle: `${railName} Optimal Bridge Rail (${savings})`,
+      problemText: `${railName} delivers the lowest verified cost for transferring ${evidence.amountUsdc || ''} USDC to ${dest}.`,
+      solutionText: `Proceed with bridging via ${railName} to minimize fees and guarantee reliable settlement.`,
+      actionLabel: `Bridge via ${railName}`,
+      actionTab: 'bridge',
+    }
+  }
+
+  if (id === 'ROUTE_UNAVAILABLE') {
+    return {
+      humanTitle: 'Bridge Route Unavailable',
+      problemText: 'The requested destination chain or transfer amount could not be quoted on live bridge rails.',
+      solutionText: 'Select a verified destination chain supported by Circle Gateway or CCTP on testnet.',
+      actionLabel: 'Open Bridge',
+      actionTab: 'bridge',
+    }
+  }
+
+  if (id === 'ROUTE_PARTIAL') {
+    return {
+      humanTitle: 'Partial Route Pricing',
+      problemText: 'Only one bridge rail returned pricing; direct comparative savings are held back.',
+      solutionText: 'Review individual rail fee breakdown before initiating the cross-chain transfer.',
+      actionLabel: 'Open Bridge',
+      actionTab: 'bridge',
+    }
+  }
+
+  if (id === 'ARBITRAGE_OPPORTUNITY') {
+    const profit = typeof evidence.netProfitUsdc === 'number' ? `+$${evidence.netProfitUsdc.toFixed(2)} USDC` : 'Net Profit'
+    const spread = typeof evidence.spreadPct === 'number' ? `${evidence.spreadPct.toFixed(2)}%` : 'spread'
+    return {
+      humanTitle: `Arbitrage Opportunity Detected (${profit})`,
+      problemText: `Verified ${spread} price divergence between Arc pool rate and oracle external benchmark.`,
+      solutionText: `You can capture approx. ${profit} net profit after deducting estimated gas execution costs.`,
+      actionLabel: 'Execute Arbitrage Swap',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'SPREAD_BELOW_THRESHOLD') {
+    const spread = typeof evidence.spreadPct === 'number' ? `${evidence.spreadPct.toFixed(2)}%` : 'measured spread'
+    return {
+      humanTitle: 'Tight DEX Spread (Below Hurdle)',
+      problemText: `The pool spread of ${spread} does not exceed transaction gas and fee hurdles.`,
+      solutionText: 'Monitor the pair or widen price tolerance thresholds before submitting orders.',
+      actionLabel: 'Inspect Pair Pool',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'ARBITRAGE_READ_UNAVAILABLE') {
+    return {
+      humanTitle: 'Arbitrage Scanner Interrupted',
+      problemText: 'On-chain pool reserves or external oracle feeds could not be retrieved for this pair.',
+      solutionText: 'Verify that the pair has deployed liquidity on Arc Testnet and retry.',
+      actionLabel: 'Open DEX Swaps',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'HIGH_SLIPPAGE_RISK') {
+    const impact = typeof evidence.priceImpactPct === 'number' ? `${evidence.priceImpactPct.toFixed(2)}%` : 'elevated'
+    return {
+      humanTitle: `High Slippage Warning (${impact} impact)`,
+      problemText: `Trade size causes ${impact} price impact against live pool depth.`,
+      riskText: 'Large single-block orders in shallow pools incur severe execution slippage and negative pricing.',
+      solutionText: 'Split the order into smaller tranches or route via multi-hop pools to preserve capital.',
+      actionLabel: 'Inspect Swap Route',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'OPTIMAL_SLIPPAGE_ROUTE') {
+    const impact = typeof evidence.priceImpactPct === 'number' ? `${evidence.priceImpactPct.toFixed(2)}%` : 'low'
+    return {
+      humanTitle: `Deep Liquidity Route Verified (${impact} impact)`,
+      problemText: `Verified tight execution price with only ${impact} price impact on Arc Testnet DEX.`,
+      solutionText: 'The pool depth accommodates this trade size efficiently with minimal slippage.',
+      actionLabel: 'Execute Swap',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'SLIPPAGE_QUOTE_UNAVAILABLE') {
+    return {
+      humanTitle: 'Slippage Route Query Interrupted',
+      problemText: 'Could not obtain a live swap quote or price benchmark for this token pair.',
+      solutionText: 'Ensure the pool is active on Arc Testnet and retry with an adjusted trade size.',
+      actionLabel: 'Open DEX Swaps',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'MEV_SANDWICH_EXPOSURE') {
+    const exp = typeof evidence.tradeReserveExposurePct === 'number' ? `${evidence.tradeReserveExposurePct.toFixed(1)}%` : 'elevated'
+    return {
+      humanTitle: `Mempool Sandwich Threat (${exp} of pool)`,
+      problemText: `Trade size consumes ${exp} of the pool's entire liquidity reserve.`,
+      riskText: 'Block builders and searchers can extract value via front-running and back-running sandwich bundles.',
+      solutionText: 'Tighten max slippage tolerance or route through Arc native FIFO sequencer.',
+      actionLabel: 'Adjust Slippage on Swap',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'LOW_MEV_RISK') {
+    const exp = typeof evidence.tradeReserveExposurePct === 'number' ? `${evidence.tradeReserveExposurePct.toFixed(2)}%` : 'minimal'
+    return {
+      humanTitle: `Protected MEV Profile (${exp} of pool)`,
+      problemText: `Trade size is modest (${exp} of pool depth) and well below MEV sandwich thresholds.`,
+      solutionText: 'Arc L1 native deterministic FIFO ordering protects this transaction from mempool reordering.',
+      actionLabel: 'Open Swap Terminal',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'MEV_ANALYSIS_UNAVAILABLE') {
+    return {
+      humanTitle: 'MEV Shield Query Interrupted',
+      problemText: 'On-chain reserve depth or token valuation could not be verified for this trade.',
+      solutionText: 'Select an active Arc DEX pair with positive pool depth.',
+      actionLabel: 'Open DEX Swaps',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'FLASH_LOAN_UNAVAILABLE') {
+    return {
+      humanTitle: 'Liquidation Feed Unavailable',
+      problemText: 'No on-chain liquidation engine is currently deployed on Arc Testnet.',
+      solutionText: 'Arcis monitors verified contract state only and does not synthesize liquidation signals.',
+      actionLabel: 'Explore Services',
+      actionTab: 'ai-services',
     }
   }
 
@@ -221,6 +457,69 @@ function getTechnicalExplanation(entry: any): string {
 
     case 'SINGLE_SOURCE_CONCENTRATION':
       return `This gateway routing rule audits the origin network diversity of incoming cross-chain liquidity transfers to Arc. It was triggered because over 80% of recent inbound capital was routed from a single source blockchain rail. Heavy reliance on a single external chain introduces shared dependency on that specific network's confirmation times and gas fees.`
+
+    case 'GATEWAY_NET_INFLOW':
+      return `This cross-chain monitor calculates net liquidity expansion by subtracting Gateway burned volume from attestation mints. A positive differential confirms organic capital accumulation on Arc L1.`
+
+    case 'NO_GATEWAY_ACTIVITY':
+      return `This telemetry probe audits GatewayMinter and GatewayWallet event logs across the target block window. Zero matched events indicates dormancy in the selected timeframe without implying RPC communication errors.`
+
+    case 'VAULT_ACTIVE_RESERVES':
+      return `This automated surveillance audit inspects live accounting state from the Arc ERC-4626 USDC Yield Vault. It confirms that totalAssets() and totalSupply() are positive and reconcilable, establishing a deterministic share exchange rate. Findings are advisory-only reads derived directly from on-chain RPC calls.`
+
+    case 'VAULT_NO_SHARES':
+      return `This heuristic audits vault share minting state. When totalSupply() is 0, ERC-4626 accounting mathematics cannot compute a share price ratio (totalAssets / totalSupply). The vault is fully functional and ready for initial liquidity provision.`
+
+    case 'VAULT_ASSETS_WITHOUT_SHARES':
+      return `This consistency check flags when totalAssets() > 0 but totalSupply() == 0. Such states can occur during migration or unbacked donation transfers. Per-share economics cannot be computed until shares are minted against the balance.`
+
+    case 'VAULT_READ_FAILED':
+      return `This protocol health monitor requires complete responses for both totalAssets() and totalSupply() before calculating TVL or share price. Partial reads are safely rejected to prevent fabricated zero-value states.`
+
+    case 'NO_HISTORICAL_SERIES':
+      return `Standard ERC-4626 vault smart contracts do not store historical time-series data on-chain. Real-time reserves and exchange rates are read via eth_call, and window parameters are logged for client correlation without projecting unverified past APY.`
+
+    case 'NO_VAULT_POSITION':
+      return `This surveillance check inspects the ERC-4626 balanceOf balance for the requested address. With zero shares held, no principal or accrued yield is attributed to the account. Depositing USDC activates share issuance and yield compounding.`
+
+    case 'ROUTE_RECOMMENDATION':
+      return `This cross-chain routing algorithm evaluates live quotes between Circle Gateway (unified balance burn-intents) and CCTP v2 forwarders. The selected rail delivers the lowest net cost (protocol fee + source gas) to the destination network.`
+
+    case 'ROUTE_UNAVAILABLE':
+      return `This check confirms whether the target destination network is supported by Circle Gateway domains and CCTP token messagers on Arc Testnet. Unregistered networks are rejected to prevent unfulfillable transfers.`
+
+    case 'ROUTE_PARTIAL':
+      return `When one rail query times out or is unsupported on the destination, single-rail pricing is preserved without computing synthetic comparative savings.`
+
+    case 'ARBITRAGE_OPPORTUNITY':
+      return `This scanner compares constant-product pool reserves against external aggregated oracle benchmarks. When price divergence exceeds pool trading fees and gas costs, an actionable cross-venue opportunity is flagged.`
+
+    case 'SPREAD_BELOW_THRESHOLD':
+      return `When net profit margin after deducting Arc gas fees falls below the user's minNetProfitPct parameter, trades are not recommended to prevent negative net return.`
+
+    case 'ARBITRAGE_READ_UNAVAILABLE':
+      return `Requires active on-chain contract reserves and validated external oracle feeds. Synthesized or mocked quotes are rejected.`
+
+    case 'HIGH_SLIPPAGE_RISK':
+      return `This liquidity rule audits marginal price impact against constant-product or StableSwap invariants. Price impacts exceeding 1.0% indicate order sizes disproportionate to local pool reserves.`
+
+    case 'OPTIMAL_SLIPPAGE_ROUTE':
+      return `This optimizer models pool invariant curve slope against current reserves. The trade volume executes within the linear, low-slippage region of the pool.`
+
+    case 'SLIPPAGE_QUOTE_UNAVAILABLE':
+      return `Queries require both an active pool swap quote from the router and valid oracle spot pricing to measure relative price impact.`
+
+    case 'MEV_SANDWICH_EXPOSURE':
+      return `This surveillance monitor tracks trade size against total pool reserve depth. Trades exceeding 5% of pool liquidity create sufficient price impact to incentivize atomic sandwich arbitrage by mempool searchers.`
+
+    case 'LOW_MEV_RISK':
+      return `When trade-to-reserve exposure remains below 5%, the potential MEV extraction profit is less than the gas cost required to execute a sandwich attack on Arc L1.`
+
+    case 'MEV_ANALYSIS_UNAVAILABLE':
+      return `MEV risk evaluation requires verifying both on-chain pool reserves and oracle exchange rates to compute real trade-to-liquidity ratios without guessing.`
+
+    case 'FLASH_LOAN_UNAVAILABLE':
+      return `Arcis interfaces exclusively with verified smart contract accounting. In the absence of an on-chain liquidation protocol on Arc Testnet, liquidation metrics are withheld.`
 
     default: {
       const category = String(entry?.category ?? 'RISK').replace(/_/g, ' ').toLowerCase()
@@ -322,27 +621,24 @@ function RiskRegisterCard({
           aria-expanded={isTechOpen}
         >
           <Info
-            className={`w-4 h-4 shrink-0 transition-colors duration-200 ${
-              isTechOpen
+            className={`w-4 h-4 shrink-0 transition-colors duration-200 ${isTechOpen
                 ? 'text-[var(--secondary-colors--sky-sync)]'
                 : 'text-white/50 group-hover/specs:text-[var(--secondary-colors--sky-sync)]'
-            }`}
+              }`}
           />
           <span
-            className={`max-w-0 opacity-0 ${
-              isTechOpen
+            className={`max-w-0 opacity-0 ${isTechOpen
                 ? 'max-w-[190px] opacity-100 ml-0.5'
                 : 'group-hover/specs:max-w-[190px] group-hover/specs:opacity-100 group-hover/specs:ml-0.5'
-            } transition-all duration-300 ease-out whitespace-nowrap overflow-hidden text-[11px] font-mono font-medium tracking-wide text-white/70 group-hover/specs:text-white`}
+              } transition-all duration-300 ease-out whitespace-nowrap overflow-hidden text-[11px] font-mono font-medium tracking-wide text-white/70 group-hover/specs:text-white`}
           >
             Technical Specifications
           </span>
           <ChevronRight
-            className={`w-3 h-3 shrink-0 transition-all duration-300 ${
-              isTechOpen
+            className={`w-3 h-3 shrink-0 transition-all duration-300 ${isTechOpen
                 ? 'rotate-90 text-[var(--secondary-colors--sky-sync)]'
                 : 'text-white/40 max-w-0 opacity-0 group-hover/specs:max-w-[14px] group-hover/specs:opacity-100'
-            }`}
+              }`}
           />
         </button>
       </div>
@@ -409,15 +705,34 @@ export function VisualDataDashboard({
     ? data.unavailable.filter((item: unknown): item is string => typeof item === 'string')
     : []
   const reason = typeof data.reason === 'string' ? data.reason : null
-  // Institutional envelope. `report` is present on the reporting & risk agents and carries the
-  // identity, freshness, read coverage and the graded risk register; payloads that predate it
-  // simply render as before.
+  // Institutional envelope or direct riskRegister/register on service results.
   const report: Record<string, any> | null =
     data.report && typeof data.report === 'object' && !Array.isArray(data.report)
       ? (data.report as Record<string, any>)
       : null
-  const riskRegister: any[] = Array.isArray(report?.riskRegister) ? report!.riskRegister : []
-  const reportSummary = report?.riskSummary ?? null
+  const rawRegister: any[] = Array.isArray(report?.riskRegister)
+    ? report!.riskRegister
+    : Array.isArray(data?.riskRegister)
+      ? data.riskRegister
+      : Array.isArray(data?.register)
+        ? data.register
+        : []
+  const riskRegister: any[] = rawRegister
+  const reportSummary =
+    report?.riskSummary ??
+    (rawRegister.length > 0
+      ? {
+          highestSeverity: rawRegister[0]?.severity ?? 'INFO',
+          counts: rawRegister.reduce(
+            (acc: Record<string, number>, r: any) => {
+              const sev = String(r?.severity ?? 'INFO')
+              acc[sev] = (acc[sev] || 0) + 1
+              return acc
+            },
+            {} as Record<string, number>
+          ),
+        }
+      : null)
 
   const SEVERITY_TONE: Record<string, { color: string; background: string; border: string }> = {
     CRITICAL: { color: '#fecdd3', background: 'rgba(244, 63, 94, 0.22)', border: 'rgba(244, 63, 94, 0.55)' },
@@ -438,8 +753,8 @@ export function VisualDataDashboard({
       : null
   const shieldAction: Record<string, any> | null =
     data.recommendedShieldAction &&
-    typeof data.recommendedShieldAction === 'object' &&
-    !Array.isArray(data.recommendedShieldAction)
+      typeof data.recommendedShieldAction === 'object' &&
+      !Array.isArray(data.recommendedShieldAction)
       ? (data.recommendedShieldAction as Record<string, any>)
       : null
 
@@ -484,7 +799,7 @@ export function VisualDataDashboard({
 
   for (const [k, v] of Object.entries(view)) {
     if (typeof v === 'number' && Number.isFinite(v)) {
-      if (k === 'readAt' || k === 'timestamp') continue
+      if (k === 'readAt' || k === 'timestamp' || k === 'shareDecimals' || k === 'decimals') continue
       const meta = knownMetrics[k] || { label: k.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()) }
       let formatted = v.toLocaleString(undefined, { maximumFractionDigits: 4 })
       if (meta.isCurrency) {
@@ -533,15 +848,43 @@ export function VisualDataDashboard({
       {/* Top Status & Risk Badges */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
         <div className="space-y-1.5">
-          {status && (
-            <h3
-              className={`text-2xl sm:text-3xl font-black tracking-tight ${status === 'UNAVAILABLE' ? 'text-rose-400' : 'text-white'
-                }`}
-              style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
-            >
-              {status.replace(/_/g, ' ')}
-            </h3>
-          )}
+          <div className="flex items-center gap-2.5">
+            {status && (
+              <h3
+                className={`text-2xl sm:text-3xl font-black tracking-tight ${status === 'UNAVAILABLE' ? 'text-rose-400' : 'text-white'
+                  }`}
+                style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+              >
+                {status === 'PORTFOLIO_ANALYZED' || status === 'REPORT_READY'
+                  ? 'ANALYSIS REPORT'
+                  : status.replace(/_/g, ' ')}
+              </h3>
+            )}
+
+            {note && (
+              <div className="relative group/note inline-flex">
+                <div
+                  className="inline-flex items-center justify-center p-1.5 rounded-xl text-[11px] font-mono font-bold tracking-tight transition cursor-help select-none hover:bg-white/[0.05]"
+                  style={{
+                    color: 'var(--secondary-colors--blockstream-gold)',
+                  }}
+                >
+                  <Info className="w-4 h-4 flex-shrink-0" />
+                </div>
+
+                {/* Note Content Tooltip */}
+                <div className="absolute left-0 top-full mt-2 hidden group-hover/note:flex flex-col z-50 w-80 sm:w-96 p-3.5 rounded-2xl bg-[#090c18] border border-[rgba(233,161,63,0.35)] shadow-2xl backdrop-blur-2xl animate-fade-in pointer-events-none">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[12px] font-mono font-bold uppercase tracking-wider text-[var(--secondary-colors--blockstream-gold)]">
+                    <Info className="w-4 h-4 flex-shrink-0" />
+                    <span>Protocol Verification Note</span>
+                  </div>
+                  <p className="text-xs font-mono leading-relaxed text-white/90">
+                    {note}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           {data.address && (
             <div className="text-xs font-mono text-white/50 flex items-center gap-2 pt-0.5">
@@ -571,46 +914,22 @@ export function VisualDataDashboard({
           )}
         </div>
 
-        {/* Right side controls: Protocol Verification Note (Tooltip) + Raw JSON toggle button */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {note && (
-            <div className="relative group/note inline-flex">
-              <div
-                className="inline-flex items-center gap-1.5 py-1.5 rounded-xl text-[11px] font-mono font-bold tracking-tight transition cursor-help select-none shadow-sm hover:brightness-110"
-                style={{
-                  color: 'var(--secondary-colors--blockstream-gold)',
-                }}
-              >
-                <Info className="w-4 h-4 flex-shrink-0" />
-              </div>
-
-              {/* Note Content Tooltip */}
-              <div className="absolute right-0 top-full mt-2 hidden group-hover/note:flex flex-col z-50 w-80 sm:w-96 p-3.5 rounded-2xl bg-[#090c18] border border-[rgba(233,161,63,0.35)] shadow-2xl backdrop-blur-2xl animate-fade-in pointer-events-none">
-                <div className="flex items-center gap-1.5 mb-1.5 text-[12px] font-mono font-bold uppercase tracking-wider text-[var(--secondary-colors--blockstream-gold)]">
-                  <Info className="w-4 h-4 flex-shrink-0" />
-                  <span>Protocol Verification Note</span>
-                </div>
-                <p className="text-xs font-mono leading-relaxed text-white/90">
-                  {note}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {onToggleViewMode && (
+        {/* Right side controls: Raw JSON toggle button */}
+        {onToggleViewMode && (
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={onToggleViewMode}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-semibold transition cursor-pointer shadow-sm ${outputViewMode === 'raw'
-                  ? 'bg-white/20 border-white/30 text-white font-bold'
-                  : 'bg-white/[0.05] hover:bg-white/[0.1] border-white/10 hover:border-white/20 text-white/80 hover:text-white'
+                ? 'bg-white/20 border-white/30 text-white font-bold'
+                : 'bg-white/[0.05] hover:bg-white/[0.1] border-white/10 hover:border-white/20 text-white/80 hover:text-white'
                 }`}
               title={outputViewMode === 'raw' ? 'Switch to Visual Report' : 'View Raw JSON Payload'}
             >
               <FileJson className="w-4 h-4 flex-shrink-0" />
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {outputViewMode === 'raw' ? (
@@ -673,77 +992,6 @@ export function VisualDataDashboard({
                   </div>
                 </div>
               ))}
-            </div>
-          )}
-
-          {/* Analyst narrative (llm services): executive intelligence card */}
-          {(narrativeHeadline || narrativeObservations.length > 0 || narrativeRisks.length > 0) && (
-            <div
-              className="relative rounded-2xl border border-white/[0.1] p-5 space-y-3.5 overflow-hidden transition-all"
-              style={{
-                background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(99, 102, 241, 0.03) 40%, rgba(15, 17, 26, 0.85) 100%)',
-                backdropFilter: 'blur(24px)',
-                boxShadow: '0 8px 32px -4px rgba(0, 0, 0, 0.4)',
-              }}
-            >
-              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--purple-1)]/20 to-[var(--color-brand-primary)]/20 border border-[var(--purple-1)]/30 flex items-center justify-center text-[var(--purple-1)] shadow-inner">
-                    <Sparkles className="w-3.5 h-3.5" />
-                  </div>
-                  <span
-                    className="text-[11px] font-mono uppercase tracking-[2px] font-semibold text-white/70"
-                    style={{ fontFamily: 'var(--fonts--space-mono, monospace)' }}
-                  >
-                    ANALYST NARRATIVE
-                  </span>
-                </div>
-              </div>
-
-              {narrativeHeadline && (
-                <h4
-                  className="text-lg sm:text-xl font-bold text-white leading-snug tracking-tight"
-                  style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
-                >
-                  {narrativeHeadline}
-                </h4>
-              )}
-
-              {narrativeObservations.length > 0 && (
-                <div className="space-y-2">
-                  {narrativeObservations.map((observation, i) => (
-                    <div key={`observation-${i}`} className="flex items-start gap-2.5 text-xs text-white/85 leading-relaxed">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand-primary)] mt-1.5 shrink-0 shadow-[0_0_8px_var(--color-brand-primary)]" />
-                      <p>{observation}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {narrativeRisks.length > 0 && (
-                <div
-                  className="p-3 rounded-xl border space-y-2 mt-2"
-                  style={{
-                    backgroundColor: 'rgba(233, 161, 63, 0.08)',
-                    borderColor: 'rgba(233, 161, 63, 0.25)',
-                  }}
-                >
-                  <span
-                    className="text-[10px] font-mono uppercase tracking-[1.5px] font-bold block"
-                    style={{ color: 'var(--secondary-colors--blockstream-gold)' }}
-                  >
-                    RISKS &amp; ADVISORIES
-                  </span>
-                  <ul className="space-y-1.5 text-xs text-white/85">
-                    {narrativeRisks.map((risk, i) => (
-                      <li key={`risk-${i}`} className="leading-relaxed flex items-start gap-2">
-                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--secondary-colors--blockstream-gold)]" />
-                        <span>{risk}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
           )}
 
@@ -865,8 +1113,8 @@ export function VisualDataDashboard({
                       const formattedUsd = typeof h.valueUsd === 'number'
                         ? `≈ $${h.valueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                         : h.valueUsd !== null && h.valueUsd !== undefined
-                        ? `≈ $${h.valueUsd}`
-                        : null
+                          ? `≈ $${h.valueUsd}`
+                          : null
 
                       return (
                         <div
@@ -946,14 +1194,85 @@ export function VisualDataDashboard({
                               {typeof c.valueUsd === 'number'
                                 ? `$${c.valueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : c.valueUsd !== null && c.valueUsd !== undefined
-                                ? `$${c.valueUsd}`
-                                : '—'}
+                                  ? `$${c.valueUsd}`
+                                  : '—'}
                             </div>
                           </div>
                         </div>
                       )
                     })}
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Analyst narrative (llm services): executive intelligence card */}
+          {(narrativeHeadline || narrativeObservations.length > 0 || narrativeRisks.length > 0) && (
+            <div
+              className="relative rounded-2xl border border-white/[0.1] p-5 space-y-3.5 overflow-hidden transition-all"
+              style={{
+                background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(99, 102, 241, 0.03) 40%, rgba(15, 17, 26, 0.85) 100%)',
+                backdropFilter: 'blur(24px)',
+                boxShadow: '0 8px 32px -4px rgba(0, 0, 0, 0.4)',
+              }}
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--purple-1)]/20 to-[var(--color-brand-primary)]/20 border border-[var(--purple-1)]/30 flex items-center justify-center text-[var(--purple-1)] shadow-inner">
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </div>
+                  <span
+                    className="text-[11px] font-mono uppercase tracking-[2px] font-semibold text-white/70"
+                    style={{ fontFamily: 'var(--fonts--space-mono, monospace)' }}
+                  >
+                    ANALYST NARRATIVE
+                  </span>
+                </div>
+              </div>
+
+              {narrativeHeadline && (
+                <h4
+                  className="text-lg sm:text-xl font-bold text-white leading-snug tracking-tight"
+                  style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                >
+                  {narrativeHeadline}
+                </h4>
+              )}
+
+              {narrativeObservations.length > 0 && (
+                <div className="space-y-2">
+                  {narrativeObservations.map((observation, i) => (
+                    <div key={`observation-${i}`} className="flex items-start gap-2.5 text-xs text-white/85 leading-relaxed">
+                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand-primary)] mt-1.5 shrink-0 shadow-[0_0_8px_var(--color-brand-primary)]" />
+                      <p>{observation}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {narrativeRisks.length > 0 && (
+                <div
+                  className="p-3 rounded-xl border space-y-2 mt-2"
+                  style={{
+                    backgroundColor: 'rgba(233, 161, 63, 0.08)',
+                    borderColor: 'rgba(233, 161, 63, 0.25)',
+                  }}
+                >
+                  <span
+                    className="text-[10px] font-mono uppercase tracking-[1.5px] font-bold block"
+                    style={{ color: 'var(--secondary-colors--blockstream-gold)' }}
+                  >
+                    RISKS &amp; ADVISORIES
+                  </span>
+                  <ul className="space-y-1.5 text-xs text-white/85">
+                    {narrativeRisks.map((risk, i) => (
+                      <li key={`risk-${i}`} className="leading-relaxed flex items-start gap-2">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--secondary-colors--blockstream-gold)]" />
+                        <span>{risk}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>
@@ -1001,11 +1320,10 @@ export function VisualDataDashboard({
                 backdropFilter: 'blur(16px)',
               }}
             >
-              <div className="px-4 py-3 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-2">
+              <div className="px-6 py-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span
-                    className="text-[11px] font-mono uppercase tracking-[1.5px] font-semibold text-white/80"
-                    style={{ fontFamily: 'var(--fonts--space-mono, monospace)' }}
+                    className="text-[12px] font-mono uppercase tracking-[1.5px] font-semibold text-white/80"
                   >
                     Risk register ({riskRegister.length})
                   </span>
@@ -1146,6 +1464,7 @@ export default function ServicePlaygroundModal({
   isOpen,
   onClose,
   service,
+  initialPayload,
   isExecuting,
   executionResult,
   onExecute,
@@ -1271,11 +1590,21 @@ export default function ServicePlaygroundModal({
 
           next[param.name] = prev[param.name] !== undefined ? prev[param.name] : param.defaultValue
         })
+
+        // A shelf recommendation supplies the inputs it was derived for (the parameter a re-run
+        // must change, for example). Only declared form fields are accepted, so an unknown key can
+        // never reach a paid request.
+        if (initialPayload) {
+          for (const [key, value] of Object.entries(initialPayload)) {
+            if (Object.prototype.hasOwnProperty.call(next, key)) next[key] = value
+          }
+        }
+
         return next
       })
       setUserWantsConfigure(false)
     }
-  }, [service, walletAddress])
+  }, [service, walletAddress, initialPayload])
 
   // Live telemetry
   const [liveTelemetry, setLiveTelemetry] = useState<ServiceTelemetryData | null>(null)
@@ -1425,11 +1754,7 @@ export default function ServicePlaygroundModal({
   }
 
   // Active displayed JSON in console
-  const displayedJson = executionResult?.data || service.examples.response
-
-  const displayedCostUsdc = executionResult?.payment?.status === 'settlement_pending'
-    ? (executionResult.payment.amountUsdc || executionResult.costUsdc)
-    : executionResult?.costUsdc ?? service.pricing.priceUsdc
+  const displayedJson = executionResult?.data || null
 
   const stepIndex = currentStep === 'configure' ? 1 : currentStep === 'executing' ? 2 : 3
 
@@ -1440,7 +1765,7 @@ export default function ServicePlaygroundModal({
   ]
 
   const renderStepBoxes = () => (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3.5 w-full mb-6">
+    <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full mb-5">
       {stepItems.map((st) => {
         const isCompleted = st.idx < stepIndex
         const isActive = st.idx === stepIndex
@@ -1457,11 +1782,11 @@ export default function ServicePlaygroundModal({
             }}
             title={isClickable ? 'Click to modify parameters' : undefined}
             className={`p-2.5 sm:p-3.5 rounded-2xl border transition-all duration-300 relative overflow-hidden select-none ${isCompleted
-                ? `border-[rgba(1,208,98,0.4)] bg-[rgba(1,208,98,0.08)] shadow-[0_4px_16px_rgba(1,208,98,0.12)] ${isClickable ? 'cursor-pointer hover:border-[rgba(1,208,98,0.7)] hover:bg-[rgba(1,208,98,0.14)] hover:scale-[1.02]' : ''
-                }`
-                : isActive
-                  ? 'border-[var(--purple-1)] bg-[linear-gradient(135deg,rgba(112,88,248,0.22)_0%,rgba(6,182,212,0.14)_100%)] shadow-[0_0_24px_rgba(112,88,248,0.28),inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-[var(--purple-1)]/50'
-                  : 'border-white/[0.07] bg-white/[0.02] opacity-55'
+              ? `border-indigo-500/40 bg-indigo-500/10 shadow-[0_4px_16px_rgba(99,102,241,0.15)] ${isClickable ? 'cursor-pointer hover:border-indigo-400/70 hover:bg-indigo-500/15 hover:scale-[1.02]' : ''
+              }`
+              : isActive
+                ? 'border-[var(--purple-1)] bg-[linear-gradient(135deg,rgba(112,88,248,0.22)_0%,rgba(6,182,212,0.14)_100%)] shadow-[0_0_24px_rgba(112,88,248,0.28),inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-[var(--purple-1)]/50'
+                : 'border-white/[0.07] bg-white/[0.02] opacity-55'
               }`}
           >
             {/* Top Glowing Hairline Indicator */}
@@ -1477,7 +1802,7 @@ export default function ServicePlaygroundModal({
               <div
                 className="absolute top-0 left-0 right-0 h-[2px]"
                 style={{
-                  background: 'linear-gradient(90deg, transparent, var(--earned-green), transparent)',
+                  background: 'linear-gradient(90deg, transparent, #818cf8, transparent)',
                 }}
               />
             )}
@@ -1486,13 +1811,13 @@ export default function ServicePlaygroundModal({
               {/* Number Badge or Checkmark */}
               <span
                 className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg inline-flex items-center justify-center font-mono text-[10px] sm:text-xs font-bold transition-all shrink-0 ${isCompleted
-                    ? 'bg-[var(--earned-green)] text-black shadow-[0_0_8px_rgba(1,208,98,0.5)]'
-                    : isActive
-                      ? 'bg-[var(--purple-1)] text-black shadow-[0_0_12px_rgba(152,150,255,0.6)]'
-                      : 'bg-white/10 text-white/40'
+                  ? 'bg-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.6)]'
+                  : isActive
+                    ? 'bg-[var(--purple-1)] text-black shadow-[0_0_12px_rgba(152,150,255,0.6)]'
+                    : 'bg-white/10 text-white/40'
                   }`}
               >
-                {isCompleted ? <Check className="w-3.5 h-3.5 text-black stroke-[3]" /> : `0${st.idx}`}
+                {isCompleted ? <Check className="w-3.5 h-3.5 text-white stroke-[3]" /> : `0${st.idx}`}
               </span>
 
               {/* Title & Subtitle */}
@@ -1621,12 +1946,6 @@ export default function ServicePlaygroundModal({
               className="p-5 sm:p-6 rounded-2xl border border-white/[0.08] space-y-4 shadow-sm"
               style={{ background: 'rgba(255, 255, 255, 0.02)' }}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
-                <span className="arc-eyebrow text-[11px] text-white/70 font-semibold tracking-wider flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5 text-[var(--purple-1)]" />
-                  <span>Required Inputs</span>
-                </span>
-              </div>
 
               {/* Form Parameter Fields */}
               <div className="space-y-4">
@@ -1748,7 +2067,7 @@ export default function ServicePlaygroundModal({
               </p>
             )}
 
-            {/* Execution CTA Action & Demo Preview */}
+            {/* Execution CTA Action */}
             <div className="space-y-3 pt-2">
               <button
                 onClick={handleRun}
@@ -1833,14 +2152,6 @@ export default function ServicePlaygroundModal({
             {/* Step Progress Boxes */}
             {renderStepBoxes()}
 
-            {/* Simulation Notice if Sample */}
-            {!executionResult && (
-              <div className="p-3 rounded-xl border border-cyan-500/25 bg-cyan-500/10 text-cyan-200 text-xs font-mono flex items-center justify-between">
-                <span>SIMULATION PREVIEW — Illustrative sample from service manifest.</span>
-                <span className="text-[10px] uppercase font-bold text-cyan-400">Not a paid run</span>
-              </div>
-            )}
-
             {/* Content Display: VisualDataDashboard with integrated Raw JSON toggle */}
             <div
               className="p-5 sm:p-6 rounded-2xl border border-white/10 shadow-lg min-h-[300px]"
@@ -1882,40 +2193,6 @@ export default function ServicePlaygroundModal({
             {/* Error Banner — names the cause and whether anything was charged */}
             {executionResult && !executionResult.success && executionResult.error && (
               <ServiceFailureBanner result={executionResult} />
-            )}
-
-            {/* Confirmed Settlement Receipt Footer */}
-            {executionResult?.success && (
-              <div
-                className="p-4 rounded-2xl border border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs font-mono"
-                style={{ background: 'rgba(255, 255, 255, 0.02)' }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full bg-[rgba(1,208,98,0.15)] text-[var(--earned-green)] flex items-center justify-center">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="text-white font-bold block">
-                      Paid Call Settled ({displayedCostUsdc} USDC)
-                    </span>
-                    <span className="text-white/40 text-[10px]">
-                      Duration: {executionResult.executionTimeMs}ms • Circle Gateway Rail
-                    </span>
-                  </div>
-                </div>
-
-                {executionResult.txHash && (
-                  <a
-                    href={executionResult.explorerUrl || `https://testnet.arcscan.app/tx/${executionResult.txHash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-cyan-500/30 text-cyan-300 hover:text-white bg-cyan-500/10 transition cursor-pointer text-xs"
-                  >
-                    <span>ArcScan Receipt</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                )}
-              </div>
             )}
           </div>
         )}

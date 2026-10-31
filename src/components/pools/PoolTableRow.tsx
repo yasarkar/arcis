@@ -35,6 +35,18 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
     token2Icon = WethIcon
     feeTier = `${(pool.feeTierPercent || 0.30).toFixed(2)}%`
     version = POOL_VERSION
+  } else if (pool.id === 'eurc-cirbtc-pool') {
+    primaryName = 'EURC / cirBTC'
+    token1Icon = EurcIcon
+    token2Icon = CirBtcIcon
+    feeTier = `${(pool.feeTierPercent || 0.25).toFixed(2)}%`
+    version = POOL_VERSION
+  } else if (pool.id === 'cirbtc-weth-pool') {
+    primaryName = 'cirBTC / WETH'
+    token1Icon = CirBtcIcon
+    token2Icon = WethIcon
+    feeTier = `${(pool.feeTierPercent || 0.30).toFixed(2)}%`
+    version = POOL_VERSION
   } else if (pool.id === 'eurc-weth-pool') {
     primaryName = 'EURC / WETH'
     token1Icon = EurcIcon
