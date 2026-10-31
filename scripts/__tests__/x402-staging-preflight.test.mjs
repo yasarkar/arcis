@@ -150,4 +150,61 @@ describe('x402 staging preflight', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(fetchImpl.mock.calls[0][0].hostname).toBe('rpc.testnet.arc.network')
   })
+
+  it('accepts an enabled settlement setup in live mode and probes a KV reservation write', async () => {
+    const token = 'opaque-live-93fd4820-value'
+    const secret = 'h'.repeat(48)
+    const env = {
+      VITE_APP_ENV: 'testnet',
+      ENABLE_GATEWAY_SETTLE: 'true',
+      GATEWAY_FACILITATOR_URL: 'https://gateway-api-testnet.circle.com',
+      KV_REST_API_URL: 'https://kv-stage.upstash.io',
+      KV_REST_API_TOKEN: token,
+      X402_RECONCILIATION_SECRET: secret,
+    }
+
+    const staticResult = inspectX402StagingConfig(env, { mode: 'live' })
+    expect(staticResult.ready).toBe(true)
+    expect(staticResult.checks.find(({ name }) => name === 'Settlement enabled')?.status).toBe('WARN')
+
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ jsonrpc: '2.0', id: 'arc-x402-preflight', result: '0x4cef52' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ result: null }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ result: 'OK' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ result: 1 }) })
+
+    const checks = await runReadOnlyChecks(env, { fetchImpl, mode: 'live' })
+    expect(checks.map(({ status }) => status)).toEqual(['PASS', 'PASS', 'PASS'])
+    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual(['SET', expect.stringMatching(/^arcis:x402:preflight:write:[a-f0-9]{32}$/), '1', 'EX', 60, 'NX'])
+    expect(JSON.parse(fetchImpl.mock.calls[3][1].body)).toEqual(['DEL', expect.stringMatching(/^arcis:x402:preflight:write:[a-f0-9]{32}$/)])
+
+    const report = formatPreflightReport(staticResult, checks, 'live')
+    expect(report).toContain('[live]')
+    expect(report).not.toContain(token)
+    expect(report).not.toContain(secret)
+    expect(report).not.toContain('preflight:write:')
+  })
+
+  it('blocks live mode when settlement is not enabled', () => {
+    const result = inspectX402StagingConfig({
+      VITE_APP_ENV: 'testnet',
+      KV_REST_API_URL: 'https://kv-stage.upstash.io',
+      KV_REST_API_TOKEN: 'opaque-93fd4820-value',
+      X402_RECONCILIATION_SECRET: 'i'.repeat(40),
+    }, { mode: 'live' })
+    expect(result.ready).toBe(false)
+    expect(result.checks.find(({ name }) => name === 'Settlement enabled')?.status).toBe('BLOCKED')
+  })
+
+  it('keeps safe-off mode blocking an enabled settlement setup', () => {
+    const result = inspectX402StagingConfig({
+      VITE_APP_ENV: 'testnet',
+      ENABLE_GATEWAY_SETTLE: 'true',
+      KV_REST_API_URL: 'https://kv-stage.upstash.io',
+      KV_REST_API_TOKEN: 'opaque-93fd4820-value',
+      X402_RECONCILIATION_SECRET: 'j'.repeat(40),
+    })
+    expect(result.ready).toBe(false)
+    expect(result.checks.find(({ name }) => name === 'Settlement safe-off')?.status).toBe('BLOCKED')
+  })
 })

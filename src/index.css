@@ -1325,6 +1325,8 @@
     animation: none !important;
   }
 }
-
-
-
+@media (min-width: 1024px) {
+  .history-kpi-grid {
+    grid-template-columns: var(--kpi-desktop-cols, repeat(4, minmax(0, 1fr)));
+  }
+}

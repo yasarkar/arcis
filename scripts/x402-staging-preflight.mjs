@@ -26,16 +26,24 @@ function looksLikePlaceholder(value) {
   return !value || /(?:your[-_ ]|placeholder|change[-_ ]?me|replace[-_ ]?me|example|\.\.\.|<[^>]+>|\btoken\b|\bpassword\b)/i.test(value)
 }
 
-export function inspectX402StagingConfig(env = {}) {
+export function inspectX402StagingConfig(env = {}, { mode = 'safe-off' } = {}) {
   const checks = []
+  const liveMode = mode === 'live'
   const target = (env.VITE_APP_ENV || env.VITE_NETWORK || env.APP_ENV || '').trim().toLowerCase()
   if (target === 'mainnet') add(checks, 'Network target', 'BLOCKED', 'Mainnet target detected; this preflight is testnet-only.')
   else if (target && target !== 'testnet') add(checks, 'Network target', 'BLOCKED', 'Network target is not the expected Arc Testnet setting.')
   else if (!target) add(checks, 'Network target', 'BLOCKED', 'Set VITE_APP_ENV=testnet explicitly for staging; the application default is not sufficient evidence.')
   else add(checks, 'Network target', 'PASS', 'Explicit Arc Testnet target selected.')
 
-  if ((env.ENABLE_GATEWAY_SETTLE || '').trim().toLowerCase() === 'true') {
-    add(checks, 'Settlement safe-off', 'BLOCKED', 'ENABLE_GATEWAY_SETTLE is enabled; preflight will not contact the facilitator.')
+  const settlementEnabled = (env.ENABLE_GATEWAY_SETTLE || '').trim().toLowerCase() === 'true'
+  if (liveMode) {
+    if (settlementEnabled) {
+      add(checks, 'Settlement enabled', 'WARN', 'Gateway settlement is enabled; this preflight still never signs or submits a payment.')
+    } else {
+      add(checks, 'Settlement enabled', 'BLOCKED', 'Live mode requires ENABLE_GATEWAY_SETTLE=true.')
+    }
+  } else if (settlementEnabled) {
+    add(checks, 'Settlement safe-off', 'BLOCKED', 'ENABLE_GATEWAY_SETTLE is enabled; preflight will not contact the facilitator. Use --live to validate an enabled setup.')
   } else {
     add(checks, 'Settlement safe-off', 'PASS', 'Gateway settlement remains disabled; no payment can be submitted by this check.')
   }
@@ -96,15 +104,16 @@ export function inspectX402StagingConfig(env = {}) {
   return { checks, ready: checks.every((check) => check.status !== 'BLOCKED') }
 }
 
-export async function runReadOnlyChecks(env, { fetchImpl = fetch } = {}) {
+export async function runReadOnlyChecks(env, { fetchImpl = fetch, mode = 'safe-off' } = {}) {
   const checks = []
-  const staticResult = inspectX402StagingConfig(env)
+  const liveMode = mode === 'live'
+  const staticResult = inspectX402StagingConfig(env, { mode })
   if (!staticResult.ready) {
     add(checks, 'Read-only network checks', 'SKIPPED', 'Resolve static blockers before any network access.')
     return checks
   }
-  if ((env.ENABLE_GATEWAY_SETTLE || '').trim().toLowerCase() === 'true') {
-    add(checks, 'Read-only network checks', 'SKIPPED', 'Settlement is enabled; no network requests were made.')
+  if (!liveMode && (env.ENABLE_GATEWAY_SETTLE || '').trim().toLowerCase() === 'true') {
+    add(checks, 'Read-only network checks', 'SKIPPED', 'Settlement is enabled; no network requests were made. Use --live to validate an enabled setup.')
     return checks
   }
 
@@ -159,13 +168,43 @@ export async function runReadOnlyChecks(env, { fetchImpl = fetch } = {}) {
       add(checks, 'Shared KV read (GET-only)', 'BLOCKED', 'KV GET failed or returned an unexpected response; endpoint, key, token, and error details were not printed.')
     }
   }
+
+  // Live mode also proves the reservation primitive works: SET NX then DEL a random key.
+  if (liveMode) {
+    const writeKey = `arcis:x402:preflight:write:${randomBytes(16).toString('hex')}`
+    try {
+      const setResponse = await fetchImpl(rest, {
+        method: 'POST',
+        redirect: 'error',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${restToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(['SET', writeKey, '1', 'EX', 60, 'NX']),
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (!setResponse.ok) throw new Error('KV write HTTP failure')
+      const setBody = await setResponse.json()
+      if (setBody?.result !== 'OK') throw new Error('KV write was not acquired')
+
+      const delResponse = await fetchImpl(rest, {
+        method: 'POST',
+        redirect: 'error',
+        headers: { Accept: 'application/json', Authorization: `Bearer ${restToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(['DEL', writeKey]),
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (!delResponse.ok) throw new Error('KV cleanup HTTP failure')
+      add(checks, 'Shared KV write (SET NX + DEL)', 'PASS', 'A random key was reserved with SET NX and deleted; the key and token were not printed.')
+    } catch {
+      add(checks, 'Shared KV write (SET NX + DEL)', 'BLOCKED', 'KV write probe failed; settlement reservations could not be stored. Endpoint, key and token were not printed.')
+    }
+  }
+
   return checks
 }
 
-export function formatPreflightReport(result, networkChecks = []) {
+export function formatPreflightReport(result, networkChecks = [], mode = 'safe-off') {
   const hasNetworkChecks = networkChecks.length > 0
   const lines = [
-    `x402 Arc Testnet staging preflight (${hasNetworkChecks ? 'explicit read-only network checks' : 'local/static; no network calls'})`,
+    `x402 Arc Testnet staging preflight [${mode}] (${hasNetworkChecks ? 'explicit read-only network checks' : 'local/static; no network calls'})`,
     ...result.checks.map(({ name, status, detail }) => `[${status}] ${name}: ${detail}`),
     ...networkChecks.map(({ name, status, detail }) => `[${status}] ${name}: ${detail}`),
     `Result: ${!result.ready ? 'BLOCKED — resolve static blockers before staging validation' : networkChecks.some((check) => check.status !== 'PASS') ? 'BLOCKED — resolve read-only connectivity blockers before staging validation' : networkChecks.length ? 'read-only checks complete; payment/staging settlement not tested' : 'no static blockers found'}`,
@@ -183,10 +222,12 @@ async function main() {
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
-  const result = inspectX402StagingConfig(env)
-  const readOnlyRequested = process.argv.slice(2).includes('--read-only')
-  const networkChecks = readOnlyRequested ? await runReadOnlyChecks(env) : []
-  console.log(formatPreflightReport(result, networkChecks))
+  const args = process.argv.slice(2)
+  const liveMode = args.includes('--live')
+  const mode = liveMode ? 'live' : 'safe-off'
+  const result = inspectX402StagingConfig(env, { mode })
+  const networkChecks = liveMode || args.includes('--read-only') ? await runReadOnlyChecks(env, { mode }) : []
+  console.log(formatPreflightReport(result, networkChecks, mode))
   if (!result.ready || networkChecks.some((check) => check.status !== 'PASS')) process.exitCode = 1
 }
 

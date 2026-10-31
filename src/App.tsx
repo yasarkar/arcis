@@ -121,6 +121,9 @@ function CopilotHost({
           onRevokeSession={copilot.revokeSession}
           onToggleAutoExecute={copilot.toggleAutoExecute}
           onExecuteInline={copilot.executeInlineAction}
+          onExecuteNextStep={copilot.executeNextStep}
+          canExecuteNextStep={copilot.canExecuteNextStep}
+          canPayForCalls={copilot.canPayForCalls}
           onNavigateToTab={(tab) => onNavigateToTab(tab as any)}
         />
         </Suspense>
