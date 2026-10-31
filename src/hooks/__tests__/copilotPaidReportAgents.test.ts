@@ -65,8 +65,18 @@ vi.mock('../../services/x402Client', async (original) => ({
 }))
 
 import { useArcCopilot } from '../useArcCopilot'
+import type { Recommendation } from '../../services/x402/nextActions'
+import {
+  buildInstitutionalReport,
+  institutionalRisk,
+} from '../../services/x402/institutionalReport'
 import { executeX402Call } from '../../services/x402Client'
-import { isPortfolioAnalysisQuery, isVaultReportQuery } from '../../config/copilotTopics'
+import {
+  exploreTopicQuestions,
+  isPortfolioAnalysisQuery,
+  isVaultAnalyticsQuery,
+  isVaultReportQuery,
+} from '../../config/copilotTopics'
 
 const WALLET = '0x1111111111111111111111111111111111111111'
 
@@ -108,6 +118,21 @@ const ANALYST_DATA = {
   },
   unavailable: [],
   note: 'narrative contains no figures',
+}
+
+const VAULT_ANALYTICS_DATA = {
+  status: 'VAULT_READ',
+  windowDays: 30,
+  vaultAddress: '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A',
+  totalAssetsUsdc: 250000,
+  totalSupplyShares: '237867.75',
+  sharePriceUsdc: 1.05,
+  tvlUsdc: 250000,
+  shareDecimals: 9,
+  readAt: 1761234567890,
+  unavailable: [],
+  limitations: ['No historical series is readable on-chain for this vault, so no APY is computed from windowDays.'],
+  note: 'Read from the vault contract.',
 }
 
 const VAULT_DATA = {
@@ -161,8 +186,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.mocked(executeX402Call).mockImplementation(async (service: any) => {
     if (service.id === 'arc-portfolio-risk-exposure') return paidResult(RISK_DATA, 0.004) as any
-    if (service.id === 'arc-onchain-portfolio-analyst') return paidResult(ANALYST_DATA, 0.01) as any
     if (service.id === 'arc-vault-yield-tax-report') return paidResult(VAULT_DATA, 0.012) as any
+    if (service.id === 'arc-yield-vault-analytics') return paidResult(VAULT_ANALYTICS_DATA, 0.002) as any
     throw new Error(`unexpected service ${service.id}`)
   })
 })
@@ -179,24 +204,61 @@ describe('paid portfolio analysis intent', () => {
     expect(isPortfolioAnalysisQuery('Analyze my wallet portfolio and propose the optimal DeFi yield strategy.')).toBe(false)
   })
 
-  it('buys the measured risk report and then the narrative, reporting both costs', async () => {
+  it('buys the measured risk report, reporting cost', async () => {
     await query('Run a portfolio risk analysis on my wallet.')
 
     const calls = vi.mocked(executeX402Call).mock.calls
     expect(calls.map(([service]) => service.id)).toEqual([
       'arc-portfolio-risk-exposure',
-      'arc-onchain-portfolio-analyst',
     ])
     expect(calls[0][1]).toMatchObject({ address: WALLET, includeGatewayBalance: true })
 
     const final = messages().filter((message) => message.role === 'assistant').at(-1)!
     expect(final.content).toContain('$860.00')
-    expect(final.content).toContain('Stablecoin-heavy portfolio')
     expect(final.content).toContain('HIGH CONCENTRATION')
-    expect(final.totalCostUsdc).toBeCloseTo(0.014, 6)
-    expect(final.steps?.map((step) => step.status)).toEqual(['completed', 'completed'])
-    expect(final.steps?.map((step) => step.costUsdc)).toEqual([0.004, 0.01])
+    expect(final.totalCostUsdc).toBeCloseTo(0.004, 6)
+    expect(final.steps?.map((step) => step.status)).toEqual(['completed'])
+    expect(final.steps?.map((step) => step.costUsdc)).toEqual([0.004])
     expect(final.actionPayload?.type).toBe('ai-services')
+  })
+
+  it('attaches the next step derived from the report it just bought', async () => {
+    const now = Date.now()
+    const report = buildInstitutionalReport({
+      kind: 'PORTFOLIO_EXPOSURE',
+      serviceId: 'arc-portfolio-risk-exposure',
+      title: 'Portfolio Risk & Exposure Report',
+      subject: { type: 'WALLET', identifier: WALLET },
+      issuedAt: now,
+      asOf: now,
+      coverage: { measuredReads: 6, expectedReads: 7 },
+      risks: [
+        institutionalRisk({
+          id: 'GATEWAY_BALANCE_UNAVAILABLE',
+          category: 'DATA_QUALITY',
+          severity: 'MEDIUM',
+          title: 'Circle Gateway balance was requested but not read',
+          finding: 'The Circle Gateway unified balance could not be read.',
+          evidence: { gatewayRequested: true },
+          threshold: 'A unified total requires a successful Gateway balance read.',
+          remediation: 'Retry, or call with includeGatewayBalance=false for an Arc-only total.',
+        }),
+      ],
+      methodology: ['read balances'],
+      limitations: ['no history'],
+    })
+    vi.mocked(executeX402Call).mockResolvedValueOnce(
+      paidResult({ ...RISK_DATA, report }, 0.004) as any
+    )
+
+    await query('Run a portfolio risk analysis on my wallet.')
+
+    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
+    expect(final.nextSteps?.map((step) => step.ruleId)).toEqual(['gateway-scope-fallback'])
+    expect(final.nextSteps?.[0].action.params).toMatchObject({
+      address: WALLET,
+      includeGatewayBalance: false,
+    })
   })
 
   it('stops after the risk call when the measurement is unavailable', async () => {
@@ -219,7 +281,7 @@ describe('paid portfolio analysis intent', () => {
     expect(executeX402Call).toHaveBeenCalledTimes(1)
     const final = messages().filter((message) => message.role === 'assistant').at(-1)!
     expect(final.content).toContain('USDC wallet balance')
-    expect(final.content).toContain('No narrative call was made')
+    expect(final.content).toContain('No charge was incurred on an unmeasured portfolio')
     expect(final.totalCostUsdc).toBeCloseTo(0.004, 6)
   })
 
@@ -247,16 +309,15 @@ describe('paid portfolio analysis intent', () => {
     const calls = vi.mocked(executeX402Call).mock.calls
     expect(calls.map(([service]) => service.id)).toEqual([
       'arc-portfolio-risk-exposure',
-      'arc-onchain-portfolio-analyst',
     ])
-    expect(calls.map(([, , , , kind]) => kind)).toEqual(['ucw_eoa', 'ucw_eoa'])
+    expect(calls.map(([, , , , kind]) => kind)).toEqual(['ucw_eoa'])
     expect(calls.every(([, , , , , signer]) => typeof signer === 'function')).toBe(true)
 
     const final = messages().filter((message) => message.role === 'assistant').at(-1)!
-    expect(final.totalCostUsdc).toBeCloseTo(0.014, 6)
+    expect(final.totalCostUsdc).toBeCloseTo(0.004, 6)
   })
 
-  it('renders the institutional envelope and graded register before the narrative', async () => {
+  it('renders the institutional envelope and graded register', async () => {
     const report = {
       reportId: 'ARX-PRX-20261022-0A1B2C3D',
       dataQuality: { grade: 'A', rationale: '9 of 9 planned reads returned.' },
@@ -280,7 +341,6 @@ describe('paid portfolio analysis intent', () => {
 
     vi.mocked(executeX402Call)
       .mockImplementationOnce(async () => paidResult({ ...RISK_DATA, report }, 0.004) as any)
-      .mockImplementationOnce(async () => paidResult(ANALYST_DATA, 0.01) as any)
 
     await query('Run a portfolio risk analysis on my wallet.')
 
@@ -290,10 +350,6 @@ describe('paid portfolio analysis intent', () => {
     expect(final.content).toContain('[HIGH] Single-asset concentration above the review threshold')
     expect(final.content).toContain('Threshold: Largest single-asset share > 50%')
     expect(final.content).toContain('Action: The report states the measured share.')
-    // Severity and evidence must be readable before the model's prose, not after it.
-    expect(final.content.indexOf('Risk register')).toBeLessThan(
-      final.content.indexOf('Analyst narrative')
-    )
   })
 })
 
@@ -318,6 +374,43 @@ describe('paid vault report intent', () => {
     expect(final.content).toContain('Only the vault principal')
     expect(final.totalCostUsdc).toBeCloseTo(0.012, 6)
     expect(final.steps?.[0].costUsdc).toBeCloseTo(0.012, 6)
+  })
+
+  it('attaches the impairment cross-check from the report it just bought', async () => {
+    const now = Date.now()
+    const report = buildInstitutionalReport({
+      kind: 'VAULT_POSITION',
+      serviceId: 'arc-vault-yield-tax-report',
+      title: 'Vault Yield & Tax Report',
+      subject: { type: 'WALLET', identifier: WALLET },
+      issuedAt: now,
+      asOf: now,
+      coverage: { measuredReads: 5, expectedReads: 5 },
+      risks: [
+        institutionalRisk({
+          id: 'PRINCIPAL_IMPAIRMENT',
+          category: 'COMPOSITION',
+          severity: 'HIGH',
+          title: 'Redeemable value is below the recorded principal',
+          finding: 'Redeemable value is 6% below principal.',
+          evidence: { shortfallPct: 6 },
+          threshold: 'Shortfall >= 5% is graded HIGH.',
+          remediation: 'Review the position against the vault’s own read.',
+        }),
+      ],
+      methodology: ['read vault position'],
+      limitations: ['no cost basis'],
+    })
+    vi.mocked(executeX402Call).mockResolvedValueOnce(
+      paidResult({ ...VAULT_DATA, report }, 0.012) as any
+    )
+
+    await query('Generate my vault yield report.')
+
+    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
+    expect(final.nextSteps?.map((step) => step.ruleId)).toEqual(['vault-impairment-cross-check'])
+    expect(final.nextSteps?.[0].action.serviceId).toBe('arc-yield-vault-analytics')
+    expect(final.nextSteps?.[0].action.priceUsdc).toBe(0.002)
   })
 
   it('shows the graded position findings when the report carries an envelope', async () => {
@@ -352,5 +445,249 @@ describe('paid vault report intent', () => {
     expect(final.content).toContain('ARX-VPR-20261022-1B2C3D4E')
     expect(final.content).toContain('[INFO] Measured gain is unrealized')
     expect(final.content).toContain('Redeemable value exceeds principal by 100 USDC.')
+  })
+})
+
+describe('paid vault analytics cross-check', () => {
+  const crossCheck = (windowDays: unknown = '30'): Recommendation => ({
+    id: 'vault-impairment-cross-check:VAULT:test',
+    ruleId: 'vault-impairment-cross-check',
+    subject: { type: 'VAULT', identifier: '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A' },
+    tier: 'cross_check',
+    severity: 'HIGH',
+    title: "Cross-check the vault's own TVL and share price",
+    rationale: 'A principal-impairment finding is a claim about the vault economics.',
+    triggerSignalIds: ['VAULT_POSITION:PRINCIPAL_IMPAIRMENT'],
+    reportIds: ['ARX-VPR-20261022-1B2C3D4E'],
+    expiresAt: null,
+    action: {
+      kind: 'open_service',
+      serviceId: 'arc-yield-vault-analytics',
+      serviceName: 'USDC Yield Vault Analytics',
+      params: { windowDays },
+      priceUsdc: 0.002,
+    },
+  })
+
+  it('classifies vault TVL and share-price asks but not an APY explanation', () => {
+    expect(isVaultAnalyticsQuery("What is the vault's TVL right now?")).toBe(true)
+    expect(isVaultAnalyticsQuery('How much is one vault share worth?')).toBe(true)
+    expect(isVaultAnalyticsQuery('vault pay fiyatı ne kadar')).toBe(true)
+    expect(isVaultAnalyticsQuery('How does the Real-Yield Vault (af-USDC) earn APY?')).toBe(false)
+    expect(isVaultAnalyticsQuery('Generate my vault yield report.')).toBe(false)
+  })
+
+  it('buys the vault read when asked for its TVL, and never for an APY explanation', async () => {
+    await query("What is the vault's TVL right now?")
+
+    const calls = vi.mocked(executeX402Call).mock.calls
+    expect(calls.map(([service]) => service.id)).toEqual(['arc-yield-vault-analytics'])
+    expect(calls[0][1]).toEqual({ windowDays: '30' })
+
+    vi.mocked(executeX402Call).mockClear()
+    await query('How does the Real-Yield Vault (af-USDC) earn APY?')
+    expect(executeX402Call).not.toHaveBeenCalled()
+  })
+
+  it('offers a one-click chip in AI Services whose prompt buys the vault read', async () => {
+    const chip = exploreTopicQuestions('ai-services', true).find((question) => /tvl/i.test(question.prompt))
+    expect(chip).toBeDefined()
+    expect(chip!.title).toContain('TVL')
+
+    await query(chip!.prompt)
+
+    expect(vi.mocked(executeX402Call).mock.calls.map(([service]) => service.id)).toEqual([
+      'arc-yield-vault-analytics',
+    ])
+  })
+
+  it('buys the vault read itself and reports TVL, share price and the window limit', async () => {
+    const executed = await render().executeNextStep(crossCheck())
+    await vi.runAllTimersAsync()
+
+    expect(executed).toBe(true)
+    const calls = vi.mocked(executeX402Call).mock.calls
+    expect(calls.map(([service]) => service.id)).toEqual(['arc-yield-vault-analytics'])
+    expect(calls[0][1]).toEqual({ windowDays: '30' })
+
+    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
+    expect(final.content).toContain('measured from the ERC-4626 vault itself')
+    expect(final.content).toContain('$250,000.00')
+    expect(final.content).toContain('$1.05')
+    expect(final.content).toContain('237867.75 shares (9 decimals)')
+    expect(final.content).toContain('30 days — echoed for traceability')
+    expect(final.content).toContain('no historical series')
+    expect(final.totalCostUsdc).toBeCloseTo(0.002, 6)
+    expect(final.steps?.map((step) => step.status)).toEqual(['completed'])
+    expect(final.steps?.[0].costUsdc).toBeCloseTo(0.002, 6)
+  })
+
+  it('falls back to the 30-day window when a card carries an invalid one', async () => {
+    await render().executeNextStep(crossCheck('365'))
+    await vi.runAllTimersAsync()
+
+    expect(vi.mocked(executeX402Call).mock.calls[0][1]).toEqual({ windowDays: '30' })
+  })
+
+  it('states the empty vault instead of inventing a share price', async () => {
+    vi.mocked(executeX402Call).mockResolvedValueOnce(
+      paidResult(
+        {
+          ...VAULT_ANALYTICS_DATA,
+          status: 'VAULT_EMPTY',
+          totalSupplyShares: '0',
+          sharePriceUsdc: null,
+        },
+        0.002
+      ) as any
+    )
+
+    await render().executeNextStep(crossCheck())
+    await vi.runAllTimersAsync()
+
+    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
+    expect(final.content).toContain('no shares are outstanding')
+    expect(final.content).toContain('Share price:</strong> unavailable')
+  })
+
+  it('does not charge the vault read without a connected wallet', async () => {
+    const executed = await render('').executeNextStep(crossCheck())
+    await vi.runAllTimersAsync()
+
+    expect(executed).toBe(true)
+    expect(executeX402Call).not.toHaveBeenCalled()
+    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
+    expect(final.content).toMatch(/Connect a wallet/i)
+  })
+})
+
+describe('paid-service chips behind a connected wallet', () => {
+  it('hides only the paid prompts until a wallet is connected', () => {
+    const free = exploreTopicQuestions('ai-services', false)
+    expect(free.some((question) => question.requiresWallet)).toBe(false)
+    expect(free.map((question) => question.id)).not.toContain('arb-8')
+    expect(free.map((question) => question.id)).not.toContain('arb-6')
+    expect(free.length).toBeGreaterThan(0)
+
+    const connected = exploreTopicQuestions('ai-services', true)
+    expect(connected.map((question) => question.id)).toEqual(
+      expect.arrayContaining(['arb-6', 'arb-7', 'arb-8'])
+    )
+    expect(connected.length).toBe(free.length + 3)
+  })
+
+  it('returns no questions for a topic that does not exist', () => {
+    expect(exploreTopicQuestions('no-such-topic', true)).toEqual([])
+  })
+
+  it('offers them only to a session that can actually be charged', () => {
+    expect(render().canPayForCalls).toBe(true)
+    expect(render('').canPayForCalls).toBe(false)
+    expect(render(WALLET, 'ucw').canPayForCalls).toBe(false)
+
+    const signTypedData = vi.fn(async () => ({ success: true, signature: `0x${'ab'.repeat(65)}` }))
+    expect(render(WALLET, 'ucw', { signTypedData }).canPayForCalls).toBe(true)
+  })
+})
+
+describe('executing a next-step card in the chat', () => {
+  const recommendation = (overrides: Partial<Recommendation['action']> = {}): Recommendation => ({
+    id: 'gateway-scope-fallback:WALLET:test',
+    ruleId: 'gateway-scope-fallback',
+    subject: { type: 'WALLET', identifier: WALLET },
+    tier: 'reparameterize',
+    severity: 'MEDIUM',
+    title: 'Re-run as an Arc-only total that states its scope',
+    rationale: 'The Circle Gateway unified balance could not be read.',
+    triggerSignalIds: ['PORTFOLIO_EXPOSURE:GATEWAY_BALANCE_UNAVAILABLE'],
+    reportIds: ['ARX-PRX-20261022-ABCDEF12'],
+    expiresAt: null,
+    action: {
+      kind: 'rerun',
+      serviceId: 'arc-portfolio-risk-exposure',
+      serviceName: 'Portfolio Risk & Exposure Engine',
+      params: { address: WALLET, includeGatewayBalance: false },
+      priceUsdc: 0.004,
+      ...overrides,
+    },
+  })
+
+  it('re-runs the report with the corrected input the card showed', async () => {
+    const executed = await render().executeNextStep(recommendation())
+    await vi.runAllTimersAsync()
+
+    expect(executed).toBe(true)
+    const calls = vi.mocked(executeX402Call).mock.calls
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0].id).toBe('arc-portfolio-risk-exposure')
+    expect(calls[0][1]).toEqual({ address: WALLET, includeGatewayBalance: false })
+  })
+
+  it('keeps a refresh on the vault flow', async () => {
+    const executed = await render().executeNextStep(
+      recommendation({
+        serviceId: 'arc-vault-yield-tax-report',
+        serviceName: 'Vault Yield & Tax Reporter',
+        params: { address: WALLET },
+        priceUsdc: 0.012,
+      })
+    )
+    await vi.runAllTimersAsync()
+
+    expect(executed).toBe(true)
+    const calls = vi.mocked(executeX402Call).mock.calls
+    expect(calls.map(([service]) => service.id)).toEqual(['arc-vault-yield-tax-report'])
+    expect(calls[0][1]).toEqual({ address: WALLET })
+  })
+
+  it('does not spend twice when the card is clicked again mid-flight', async () => {
+    const copilot = render()
+    const [first, second] = await Promise.all([
+      copilot.executeNextStep(recommendation()),
+      copilot.executeNextStep(recommendation()),
+    ])
+    await vi.runAllTimersAsync()
+
+    expect(first).toBe(true)
+    expect(second).toBe(true)
+    expect(executeX402Call).toHaveBeenCalledTimes(1)
+  })
+
+  it('only offers in-chat execution for the flows the chat owns', () => {
+    const copilot = render()
+
+    expect(copilot.canExecuteNextStep(recommendation())).toBe(true)
+    expect(
+      copilot.canExecuteNextStep(recommendation({ serviceId: 'arc-vault-yield-tax-report' }))
+    ).toBe(true)
+    expect(
+      copilot.canExecuteNextStep(
+        recommendation({
+          kind: 'open_service',
+          serviceId: 'arc-yield-vault-analytics',
+          params: { windowDays: '30' },
+        })
+      )
+    ).toBe(true)
+    expect(
+      copilot.canExecuteNextStep(
+        recommendation({ kind: 'open_service', serviceId: 'arc-cross-chain-gateway-flow-indexer' })
+      )
+    ).toBe(false)
+  })
+
+  it('declines a step the chat has no paid flow for, without spending', async () => {
+    const executed = await render().executeNextStep(
+      recommendation({
+        kind: 'open_service',
+        serviceId: 'arc-cross-chain-gateway-flow-indexer',
+        serviceName: 'Cross-Chain Gateway Flow Indexer',
+        params: { address: WALLET },
+        priceUsdc: 0.004,
+      })
+    )
+
+    expect(executed).toBe(false)
+    expect(executeX402Call).not.toHaveBeenCalled()
   })
 })

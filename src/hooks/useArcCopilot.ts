@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { ARC_SERVICES_REGISTRY } from '../config/servicesRegistry'
 import { executeX402Call, hasVerifiedX402Settlement, isServiceDataAvailable, isSuccessfulX402ServiceResult } from '../services/x402Client'
+import { recommendationsForReport } from '../services/x402/nextActions'
 import { queryArcisLLM } from '../services/llmService'
 import { getLivePortfolioSnapshot } from '../services/portfolioContextService'
 import {
@@ -27,6 +28,7 @@ import {
   formatRiskRegisterLines,
 } from '../services/x402/institutionalReport'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload, CopilotActionType } from '../types/marketplace'
+import type { Recommendation } from '../services/x402/nextActions'
 import type { SessionKeyConfig, SessionActionType } from '../types/sessionKey'
 import { formatCopilotError, canceledActionTitle } from '../utils/errorUtils'
 import { formatX402FailureNote } from '../utils/x402FailureDiagnosis'
@@ -47,6 +49,16 @@ const formatUsdReportValue = (value: unknown): string =>
 
 const formatPctReportValue = (value: unknown): string =>
   typeof value === 'number' && Number.isFinite(value) ? `${value}%` : 'unavailable'
+
+/**
+ * The paid flows this chat can run itself. A card's action kind only says how the
+ * catalogue should open it; in-chat execution depends on having a flow for the service.
+ */
+const CHAT_EXECUTABLE_SERVICES = new Set<string>([
+  'arc-portfolio-risk-exposure',
+  'arc-vault-yield-tax-report',
+  'arc-yield-vault-analytics',
+])
 
 /** A paid call is billable once Gateway accepts it, not only after final reconciliation. */
 const isPaidOrSettled = (result: any): boolean =>
@@ -76,7 +88,8 @@ import {
   createArcisWelcomeMessage,
   createArcoWelcomeMessage,
   isGatewayFlowReportQuery,
-  isActionOrStrategyIntent, isPortfolioAnalysisQuery, isVaultReportQuery,
+  isActionOrStrategyIntent, isPortfolioAnalysisQuery, isVaultReportQuery, isVaultAnalyticsQuery,
+  exploreTopicQuestions,
 } from '../config/copilotTopics'
 
 export {
@@ -88,6 +101,7 @@ export {
   createArcoWelcomeMessage,
   isGatewayFlowReportQuery,
   isActionOrStrategyIntent, isPortfolioAnalysisQuery, isVaultReportQuery,
+  exploreTopicQuestions,
 }
 
 
@@ -107,9 +121,15 @@ export function useArcCopilot(
   const paidCallPayer = resolveX402Payer(ucwHandlers?.authSource, ucwHandlers?.signTypedData)
   const paidCallKind = paidCallPayer?.kind
   const paidCallSigner = paidCallPayer?.signer
+  // A session can be charged only when it has both an address to bill and a payer that can
+  // sign the authorization. Passkey/MSCA and a Circle Wallet without its challenge signer
+  // are connected but cannot pay, so paid prompts are not offered to them.
+  const canPayForCalls = Boolean(walletAddress) && paidCallPayer !== null
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress))
   const pendingActionRef = useRef<CopilotActionPayload | null>(null)
   const queryBusyRef = useRef<boolean>(false)
+  // Guards a next-step card: a second click must not buy the same report twice.
+  const nextStepInFlightRef = useRef<boolean>(false)
   const queryGenerationRef = useRef<number>(0)
   const queryAbortRef = useRef<AbortController | null>(null)
   // Separate from network generations: protects cards that are still being streamed.
@@ -593,7 +613,10 @@ export function useArcCopilot(
   // Paid analysis/reporting agents: a portfolio query buys a measured risk report and, when
   // that measurement exists, a narrative around it. A vault query buys the vault position
   // report. Both flows show each paid step, its cost and the running total.
-  const runPaidPortfolioAnalysis = async (targetAddressInput?: string): Promise<void> => {
+  const runPaidPortfolioAnalysis = async (
+    targetAddressInput?: string,
+    includeGatewayBalance: boolean = true
+  ): Promise<void> => {
     const steps: CopilotStepLog[] = []
     let totalCost = 0
     const targetAddress = targetAddressInput || walletAddress
@@ -630,12 +653,11 @@ export function useArcCopilot(
     }
 
     const riskService = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-portfolio-risk-exposure')
-    const analystService = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-onchain-portfolio-analyst')
-    if (!riskService || !analystService) {
+    if (!riskService) {
       addMessage({
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: 'The portfolio analysis services are not listed in the catalog, so no paid call was made.',
+        content: 'The portfolio risk service is not listed in the catalog, so no paid call was made.',
         timestamp: Date.now(),
       })
       setCurrentSteps([])
@@ -657,7 +679,7 @@ export function useArcCopilot(
     try {
       risk = await executeX402Call(
         riskService,
-        { address: targetAddress, includeGatewayBalance: true },
+        { address: targetAddress, includeGatewayBalance },
         walletAddress,
         provider,
         paidCallKind,
@@ -697,81 +719,22 @@ export function useArcCopilot(
       addMessage({
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Portfolio risk analysis could not measure this wallet.${unavailable ? `\n\n• <strong>Unavailable:</strong> ${unavailable}` : ''}${riskData?.reason ? `\n\n${riskData.reason}` : ''}${riskNote ? `\n\n${riskNote}` : ''}\n\nNo narrative call was made, so you were not charged twice.${riskPaid ? `\n\nPayment: ${risk.costUsdc} USDC for the failed measurement; Gateway acceptance is not final settlement.` : ''}`,
+        content: `Portfolio risk analysis could not measure this wallet.${unavailable ? `\n\n• <strong>Unavailable:</strong> ${unavailable}` : ''}${riskData?.reason ? `\n\n${riskData.reason}` : ''}${riskNote ? `\n\n${riskNote}` : ''}\n\nNo charge was incurred on an unmeasured portfolio.${riskPaid ? `\n\nPayment: ${risk.costUsdc} USDC for the failed measurement; Gateway acceptance is not final settlement.` : ''}`,
         timestamp: Date.now(),
         steps: [...steps],
         ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
       })
       return
     }
-
-    steps.push({
-      stepNumber: 2,
-      serviceId: analystService.id,
-      serviceName: analystService.name,
-      status: 'executing',
-      costUsdc: 0,
-      durationMs: 0,
-      detail: 'Narrating the measured facts; the model cannot add or alter a figure...',
-    })
-    setCurrentSteps([...steps])
-
-    let analyst: any
-    try {
-      analyst = await executeX402Call(
-        analystService,
-        { address: targetAddress, includeGatewayBalance: true },
-        walletAddress,
-        provider,
-        paidCallKind,
-        paidCallSigner
-      )
-    } catch (err: any) {
-      steps[1].status = 'failed'
-      steps[1].resultSummary = err?.message || 'Analyst call failed.'
-      setCurrentSteps([...steps])
-      addMessage({
-        id: 'assistant-' + Date.now(),
-        role: 'assistant',
-        content: `The measured portfolio is below, but the narrative call failed: ${err?.message || 'unknown error'}.`,
-        timestamp: Date.now(),
-        steps: [...steps],
-        ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
-      })
-      return
-    }
-
-    const analystPaid = isPaidOrSettled(analyst)
-    if (analystPaid) {
-      totalCost += analyst.costUsdc
-      steps[1].costUsdc = analyst.costUsdc
-    }
-    const analystData = analyst?.data as any
-    const analystUsable = isServiceDataAvailable(analyst)
-    steps[1].durationMs = analyst?.executionTimeMs || 0
-    steps[1].status = analystUsable ? 'completed' : 'failed'
-    steps[1].resultSummary = analystUsable
-      ? 'Measured facts narrated without model-generated figures.'
-      : `Narrative unavailable: ${analyst?.error || analystData?.reason || 'service data unavailable'}`
-    setCurrentSteps([...steps])
 
     const measured = riskData || {}
-    const narrative = analystUsable && analystData?.narrative && typeof analystData.narrative === 'object'
-      ? analystData.narrative
-      : null
-    const observations: string[] = Array.isArray(narrative?.observations)
-      ? narrative.observations.filter((item: unknown): item is string => typeof item === 'string')
-      : []
-    const narrativeRisks: string[] = Array.isArray(narrative?.risks)
-      ? narrative.risks.filter((item: unknown): item is string => typeof item === 'string')
-      : []
     const riskFlags: string[] = Array.isArray(measured?.riskFlags) ? measured.riskFlags : []
 
     const lines: string[] = []
     lines.push('Paid portfolio analysis completed — measured facts below, analysis only; no transaction was executed.')
 
     // The measured risk call carries the institutional envelope; render its identity and its
-    // graded register before the narrative so severity, evidence and thresholds are visible.
+    // graded register so severity, evidence and thresholds are visible.
     const riskReportHeader = formatInstitutionalReportHeader(riskData?.report)
     if (riskReportHeader) lines.push(riskReportHeader)
 
@@ -788,20 +751,6 @@ export function useArcCopilot(
     const riskRegisterLines = formatRiskRegisterLines(riskData?.report, 4)
     if (riskRegisterLines.length > 0) lines.push(riskRegisterLines.join('\n'))
 
-    if (narrative) {
-      lines.push(
-        [
-          `<strong>Analyst narrative:</strong> ${narrative.headline || ''}`,
-          ...observations.map((observation) => `• ${observation}`),
-          ...(narrativeRisks.length > 0 ? [`<strong>Risks:</strong> ${narrativeRisks.join(' ')}`] : []),
-        ].join('\n')
-      )
-    } else {
-      const analystNote = formatX402FailureNote(analyst)
-      lines.push(
-        `Narrative unavailable: ${analystData?.reason || analyst?.error || 'the model did not return a usable narrative'}.${analystNote ? `\n\n${analystNote}` : ''}`
-      )
-    }
     if (totalCost > 0) {
       lines.push(
         `Payment: ${totalCost.toFixed(3)} USDC across ${steps.filter((step) => step.costUsdc > 0).length} paid call(s). Gateway acceptance is not final settlement; provider accounting stays pending until reconciliation.`
@@ -813,6 +762,11 @@ export function useArcCopilot(
       content: lines.join('\n\n'),
       timestamp: Date.now(),
       steps: [...steps],
+      nextSteps: recommendationsForReport(riskData?.report, {
+        serviceId: riskService.id,
+        requestParams: { address: targetAddress, includeGatewayBalance },
+        limit: 2,
+      }),
       ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
       actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
     })
@@ -980,6 +934,172 @@ export function useArcCopilot(
       content: lines.join('\n\n'),
       timestamp: Date.now(),
       steps: [...steps],
+      nextSteps: recommendationsForReport(data?.report, {
+        serviceId: service.id,
+        requestParams: { address: targetAddress },
+        limit: 2,
+      }),
+      ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+      actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
+    })
+  }
+
+
+  // The vault's own economics, bought as a separate read: the position report says what a
+  // holder is owed, this measures the vault that owes it (assets, shares, share price).
+  const runPaidVaultAnalytics = async (windowDaysInput?: unknown): Promise<void> => {
+    const steps: CopilotStepLog[] = []
+    let totalCost = 0
+    const requestedWindow = String(windowDaysInput ?? '30')
+    const windowDays = requestedWindow === '7' || requestedWindow === '90' ? requestedWindow : '30'
+
+    if (!walletAddress) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Connect a wallet first: the vault analytics read is a paid call charged to the connected EOA (an injected wallet or a Circle Wallet).',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+    if (!paidCallKind) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+
+    const service = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-yield-vault-analytics')
+    if (!service) {
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: 'The vault analytics service is not listed in the catalog, so no paid call was made.',
+        timestamp: Date.now(),
+      })
+      setCurrentSteps([])
+      return
+    }
+
+    steps.push({
+      stepNumber: 1,
+      serviceId: service.id,
+      serviceName: service.name,
+      status: 'executing',
+      costUsdc: 0,
+      durationMs: 0,
+      detail: 'Reading vault total assets, share supply and share price on-chain...',
+    })
+    setCurrentSteps([...steps])
+
+    let result: any
+    try {
+      result = await executeX402Call(
+        service,
+        { windowDays },
+        walletAddress,
+        provider,
+        paidCallKind,
+        paidCallSigner
+      )
+    } catch (err: any) {
+      steps[0].status = 'failed'
+      steps[0].resultSummary = err?.message || 'Vault analytics call failed.'
+      setCurrentSteps([...steps])
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Vault analytics failed before a measurement was returned: ${err?.message || 'unknown error'}.`,
+        timestamp: Date.now(),
+        steps: [...steps],
+      })
+      return
+    }
+
+    const paid = isPaidOrSettled(result)
+    if (paid) {
+      totalCost += result.costUsdc
+      steps[0].costUsdc = result.costUsdc
+    }
+    const data = result?.data as any
+    const usable = isServiceDataAvailable(result)
+    steps[0].durationMs = result?.executionTimeMs || 0
+    steps[0].status = usable ? 'completed' : 'failed'
+    steps[0].resultSummary = usable
+      ? data?.status === 'VAULT_EMPTY'
+        ? `Vault holds ${formatUsdReportValue(data?.tvlUsdc)} of assets against zero shares, so no share price is measurable.`
+        : `Vault TVL ${formatUsdReportValue(data?.tvlUsdc)} at ${formatUsdReportValue(data?.sharePriceUsdc)} per share.`
+      : `Vault analytics unavailable: ${result?.error || data?.reason || 'service data unavailable'}`
+    setCurrentSteps([...steps])
+
+    if (!usable) {
+      const unavailable = Array.isArray(data?.unavailable) ? data.unavailable.join(', ') : null
+      const readNote = formatX402FailureNote(result)
+      addMessage({
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Vault analytics could not measure the vault.${unavailable ? `\n\n• <strong>Unavailable:</strong> ${unavailable}` : ''}${data?.reason ? `\n\n${data.reason}` : ''}${readNote ? `\n\n${readNote}` : ''}${totalCost > 0 ? `\n\nPayment: ${totalCost} USDC; Gateway acceptance is not final settlement.` : ''}`,
+        timestamp: Date.now(),
+        steps: [...steps],
+        ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+      })
+      return
+    }
+
+    const limitations: string[] = Array.isArray(data?.limitations) ? data.limitations : []
+    const sharesText =
+      typeof data?.totalSupplyShares === 'string'
+        ? `${data.totalSupplyShares} shares (${data?.shareDecimals ?? '?'} decimals)`
+        : 'unavailable'
+
+    const lines: string[] = []
+    lines.push(
+      data?.status === 'VAULT_EMPTY'
+        ? 'Paid vault analytics completed — the vault holds assets but no shares are outstanding, so no holder has a claim priced by a share.'
+        : 'Paid vault analytics completed — measured from the ERC-4626 vault itself, not inferred from a position.'
+    )
+
+    const vaultReportHeader = formatInstitutionalReportHeader(data?.report)
+    if (vaultReportHeader) lines.push(vaultReportHeader)
+
+    lines.push(
+      [
+        `• <strong>Vault TVL:</strong> ${formatUsdReportValue(data?.tvlUsdc)}`,
+        `• <strong>Share price:</strong> ${formatUsdReportValue(data?.sharePriceUsdc)}`,
+        `• <strong>Total assets:</strong> ${formatUsdReportValue(data?.totalAssetsUsdc)}`,
+        `• <strong>Shares outstanding:</strong> ${sharesText}`,
+        `• <strong>Vault:</strong> ${data?.vaultAddress || 'unavailable'}`,
+        `• <strong>Observation window:</strong> ${windowDays} days — echoed for traceability; the vault publishes no historical series, so no APY or window return is derived from it.`,
+      ].join('\n')
+    )
+
+    const registerLines = formatRiskRegisterLines(data?.report, 4)
+    if (registerLines.length > 0) lines.push(registerLines.join('\n'))
+
+    if (limitations.length > 0) {
+      lines.push(`<strong>Limitations:</strong> ${limitations.join(' ')}`)
+    }
+    if (totalCost > 0) {
+      lines.push(
+        `Payment: ${totalCost.toFixed(3)} USDC. Gateway acceptance is not final settlement; provider accounting stays pending until reconciliation.`
+      )
+    }
+    addMessage({
+      id: 'assistant-' + Date.now(),
+      role: 'assistant',
+      content: lines.join('\n\n'),
+      timestamp: Date.now(),
+      steps: [...steps],
+      nextSteps: recommendationsForReport(data?.report, {
+        serviceId: service.id,
+        requestParams: { windowDays },
+        limit: 2,
+      }),
       ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
       actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
     })
@@ -1019,10 +1139,16 @@ export function useArcCopilot(
       if (intent.kind === 'command' || intent.kind === 'correction') invalidateDrafts()
       // Paid analysis/report intents are answered before the generic read-only-reply gate:
       // they are measurements bought per call, not transaction drafts.
-      if (isVaultReportQuery(queryText) || isPortfolioAnalysisQuery(queryText)) {
+      if (
+        isVaultReportQuery(queryText) ||
+        isPortfolioAnalysisQuery(queryText) ||
+        isVaultAnalyticsQuery(queryText)
+      ) {
         const paidTargetAddress = queryText.match(/0x[a-fA-F0-9]{40}/)?.[0]
         if (isVaultReportQuery(queryText)) {
           await runPaidVaultReport(paidTargetAddress)
+        } else if (isVaultAnalyticsQuery(queryText)) {
+          await runPaidVaultAnalytics()
         } else {
           await runPaidPortfolioAnalysis(paidTargetAddress)
         }
@@ -2068,6 +2194,48 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
   }
 }
 
+  /**
+   * Runs a next-step card inside this chat, with the inputs the recommendation was derived for.
+   * A step the chat has no paid flow for returns false; the caller opens the catalogue instead.
+   * The card's action kind decides how the shelf opens it, not whether this chat can run it.
+   */
+  const canExecuteNextStep = (recommendation: Recommendation): boolean =>
+    CHAT_EXECUTABLE_SERVICES.has(recommendation.action.serviceId)
+
+  const executeNextStep = async (recommendation: Recommendation): Promise<boolean> => {
+    const { action } = recommendation
+
+    const params = action.params
+    const requestedAddress =
+      typeof params.address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(params.address)
+        ? params.address
+        : walletAddress
+
+    const run =
+      action.serviceId === 'arc-portfolio-risk-exposure'
+        ? () => runPaidPortfolioAnalysis(requestedAddress, params.includeGatewayBalance !== false)
+        : action.serviceId === 'arc-vault-yield-tax-report'
+          ? () => runPaidVaultReport(requestedAddress)
+          : action.serviceId === 'arc-yield-vault-analytics'
+            ? () => runPaidVaultAnalytics(params.windowDays)
+            : null
+
+    if (!run) return false
+    // A card click spends real USDC; a second click while the first call is in flight must not
+    // buy the same report twice.
+    if (nextStepInFlightRef.current) return true
+
+    nextStepInFlightRef.current = true
+    setIsAnalyzing(true)
+    try {
+      await run()
+      return true
+    } finally {
+      nextStepInFlightRef.current = false
+      setIsAnalyzing(false)
+    }
+  }
+
   const clearChat = () => {
     invalidateDrafts()
     queryGenerationRef.current += 1
@@ -2084,6 +2252,7 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
     toggleOpen,
     setIsOpen,
     isAnalyzing,
+    canPayForCalls,
     messages,
     currentSteps,
     sessionConfig,
@@ -2092,6 +2261,8 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
     revokeSession,
     toggleAutoExecute,
     executeQuery,
+    canExecuteNextStep,
+    executeNextStep,
     clearChat,
   }
 }

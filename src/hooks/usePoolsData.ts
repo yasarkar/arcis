@@ -289,6 +289,59 @@ export function usePoolsData(
         apy = totalApr
         apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'EURC-ETH Incentive')
 
+      } else if (pool.id === 'eurc-cirbtc-pool') {
+        const s = onchainPoolState?.[pool.contractAddress] || onchainPoolState?.[POOL_CONTRACTS.EURC_CIRBTC_POOL]
+        const resA = parseFloat(s?.reserveA || '0') || 0
+        const resB = parseFloat(s?.reserveB || '0') || 0
+        const eurcPrice = liveEurcPrice || 1.08
+        exchangeRate = liveBtcPrice / eurcPrice
+        const reserveUsd = resA * eurcPrice + resB * liveBtcPrice
+        tvlUsd = reserveUsd < 1000 ? parseFloat(reserveUsd.toFixed(2)) : Math.floor(reserveUsd)
+        const ratioA = reserveUsd > 0 ? Math.round(((resA * eurcPrice) / reserveUsd) * 100) : 50
+        const ratioB = reserveUsd > 0 ? Math.max(0, 100 - ratioA) : 50
+        reserves = { tokenA: resA, tokenB: resB, ratioA, ratioB }
+        totalLp = s?.totalLp || '0'
+        const eurcVolA = parseFloat(s?.volume24hA || '0')
+        const btcVolB = parseFloat(s?.volume24hB || '0')
+        volume24hUsd = parseFloat((eurcVolA * eurcPrice + btcVolB * liveBtcPrice).toFixed(2))
+        clientVolumeUsd = 0
+
+        const baseApr = 13.50
+        const feeTierPct = pool.feeTierPercent || 0.25
+        const dynamicFeeApr = tvlUsd > 0 && volume24hUsd > 0
+          ? ((volume24hUsd * (feeTierPct / 100) * 365) / tvlUsd) * 100
+          : 0
+        const totalApr = parseFloat((baseApr + dynamicFeeApr).toFixed(2))
+        apy = totalApr
+        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'EURC-BTC Incentive')
+
+      } else if (pool.id === 'cirbtc-weth-pool') {
+        const s = onchainPoolState?.[pool.contractAddress] || onchainPoolState?.[POOL_CONTRACTS.CIRBTC_WETH_POOL]
+        const resA = parseFloat(s?.reserveA || '0') || 0
+        const resB = parseFloat(s?.reserveB || '0') || 0
+        const btcPrice = liveBtcPrice || 68000
+        const wethPrice = liveWethPrice || 2600
+        exchangeRate = btcPrice / wethPrice
+        const reserveUsd = resA * btcPrice + resB * wethPrice
+        tvlUsd = reserveUsd < 1000 ? parseFloat(reserveUsd.toFixed(2)) : Math.floor(reserveUsd)
+        const ratioA = reserveUsd > 0 ? Math.round(((resA * btcPrice) / reserveUsd) * 100) : 50
+        const ratioB = reserveUsd > 0 ? Math.max(0, 100 - ratioA) : 50
+        reserves = { tokenA: resA, tokenB: resB, ratioA, ratioB }
+        totalLp = s?.totalLp || '0'
+        const btcVolA = parseFloat(s?.volume24hA || '0')
+        const wethVolB = parseFloat(s?.volume24hB || '0')
+        volume24hUsd = parseFloat((btcVolA * btcPrice + wethVolB * wethPrice).toFixed(2))
+        clientVolumeUsd = 0
+
+        const baseApr = 18.40
+        const feeTierPct = pool.feeTierPercent || 0.30
+        const dynamicFeeApr = tvlUsd > 0 && volume24hUsd > 0
+          ? ((volume24hUsd * (feeTierPct / 100) * 365) / tvlUsd) * 100
+          : 0
+        const totalApr = parseFloat((baseApr + dynamicFeeApr).toFixed(2))
+        apy = totalApr
+        apyBadge = formatPoolApyBadge(totalApr, baseApr, dynamicFeeApr, 'BTC-ETH Dual Bluechip')
+
       } else if (pool.id === 'usdc-yield-vault') {
         const s = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
         const assetsUsd = parseFloat(s?.totalAssets || '0') || 0
@@ -613,6 +666,8 @@ export function usePoolsData(
     let unwatchStable: (() => void) | undefined
     let unwatchCP: (() => void) | undefined
     let unwatchWeth: (() => void) | undefined
+    let unwatchEurcCirBtc: (() => void) | undefined
+    let unwatchCirBtcWeth: (() => void) | undefined
     let unwatchVault: (() => void) | undefined
 
     try {
@@ -640,6 +695,22 @@ export function usePoolsData(
         })
       }
 
+      if (isDeployed(POOL_CONTRACTS.EURC_CIRBTC_POOL)) {
+        unwatchEurcCirBtc = publicClient.watchContractEvent({
+          address: POOL_CONTRACTS.EURC_CIRBTC_POOL,
+          abi: CONSTANT_PRODUCT_ABI,
+          onLogs: () => debouncedInvalidatePoolCaches(),
+        })
+      }
+
+      if (isDeployed(POOL_CONTRACTS.CIRBTC_WETH_POOL)) {
+        unwatchCirBtcWeth = publicClient.watchContractEvent({
+          address: POOL_CONTRACTS.CIRBTC_WETH_POOL,
+          abi: CONSTANT_PRODUCT_ABI,
+          onLogs: () => debouncedInvalidatePoolCaches(),
+        })
+      }
+
       if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
         unwatchVault = publicClient.watchContractEvent({
           address: POOL_CONTRACTS.YIELD_VAULT,
@@ -658,6 +729,8 @@ export function usePoolsData(
       unwatchStable?.()
       unwatchCP?.()
       unwatchWeth?.()
+      unwatchEurcCirBtc?.()
+      unwatchCirBtcWeth?.()
       unwatchVault?.()
     }
   }, [publicClient, debouncedInvalidatePoolCaches])
