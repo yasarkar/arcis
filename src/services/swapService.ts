@@ -2,38 +2,40 @@ import { AppKit, getErrorCode, type ChainDefinition } from '@circle-fin/app-kit'
 import {
   createWalletClient,
   custom,
-  parseUnits,
-  formatUnits,
   encodeFunctionData,
+  formatUnits,
+  parseUnits,
   zeroAddress,
-  type Hex,
   type Address,
+  type Hex,
 } from 'viem'
 import { arcTestnet, IS_TESTNET } from '../config/arcChain'
+import { ARC_GAS_LIMITS, getDynamicArcGasOptions } from '../config/feeTiers'
+import { getNetwork } from '../config/networks/networkRegistry'
 import {
-  POOL_CONTRACTS,
-  STABLE_SWAP_ABI,
-  ERC20_ABI,
   ARCIS_SWAP_ROUTER_ABI,
+  CIRBTC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
+  CONSTANT_PRODUCT_LP_FEE_BPS,
+  ERC20_ABI,
+  EURC_CIRBTC_CONSTANT_PRODUCT_LP_FEE_BPS,
+  EURC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
+  POOL_CONTRACTS,
   POOL_DEFAULT_SLIPPAGE_BPS,
+  STABLE_SWAP_ABI,
   STABLE_SWAP_AMP,
   STABLE_SWAP_ANN_MULTIPLIER,
   STABLE_SWAP_LP_FEE_BPS,
-  CONSTANT_PRODUCT_LP_FEE_BPS,
   WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
-  EURC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
 } from '../config/poolsConfig'
-import { getNetwork } from '../config/networks/networkRegistry'
-import { sendModularUserOperation, getActiveSmartAccount, restoreSmartAccount } from './modularWalletService'
-import { getDynamicArcGasOptions, ARC_GAS_LIMITS } from '../config/feeTiers'
-import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
-import type { SwapExecuteParams, SwapQuoteResult, SwapExecutionStatus } from '../types/swap'
+import type { SwapExecuteParams, SwapExecutionStatus, SwapQuoteResult } from '../types/swap'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
 import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils'
+import { getActiveSmartAccount, restoreSmartAccount, sendModularUserOperation } from './modularWalletService'
+import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import { setSpendingCeiling } from './spendingCeilingService'
 
-import { validateSwapSlippageBps, swapFractionToBps, swapMinimumUnits, exactSwapOutputUnits } from '../utils/swapSlippage'
 import { exactApprovalAmount } from '../utils/approvalUtils'
+import { exactSwapOutputUnits, swapFractionToBps, swapMinimumUnits, validateSwapSlippageBps } from '../utils/swapSlippage'
 
 const kit = new AppKit()
 
@@ -190,6 +192,45 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
       decIn: isEurcIn ? 6 : 18,
       decOut: isEurcIn ? 18 : 6,
       feeBps: EURC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS, // 0.30%
+    }
+  }
+
+  if (
+    (tIn === 'EURC' && isCirBtcOut) ||
+    (isCirBtcIn && tOut === 'EURC')
+  ) {
+    const eurcCirBtcPoolAddress = POOL_CONTRACTS.EURC_CIRBTC_POOL
+    if (!eurcCirBtcPoolAddress || eurcCirBtcPoolAddress === '0x0000000000000000000000000000000000000000') {
+      return null
+    }
+    const isEurcIn = tIn === 'EURC'
+    return {
+      poolAddress: eurcCirBtcPoolAddress as Address,
+      isStable: false,
+      tokenInAddr: (isEurcIn ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.cirBTC) as Address,
+      tokenOutAddr: (isEurcIn ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.EURC) as Address,
+      decIn: isEurcIn ? 6 : 8,
+      decOut: isEurcIn ? 8 : 6,
+      feeBps: EURC_CIRBTC_CONSTANT_PRODUCT_LP_FEE_BPS, // 0.25%
+    }
+  }
+
+  if (
+    (isCirBtcIn && isWethOut) ||
+    (isWethIn && isCirBtcOut)
+  ) {
+    const cirBtcWethPoolAddress = POOL_CONTRACTS.CIRBTC_WETH_POOL
+    if (!cirBtcWethPoolAddress || cirBtcWethPoolAddress === '0x0000000000000000000000000000000000000000') {
+      return null
+    }
+    return {
+      poolAddress: cirBtcWethPoolAddress as Address,
+      isStable: false,
+      tokenInAddr: (isCirBtcIn ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.WETH) as Address,
+      tokenOutAddr: (isCirBtcIn ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC) as Address,
+      decIn: isCirBtcIn ? 8 : 18,
+      decOut: isCirBtcIn ? 18 : 8,
+      feeBps: CIRBTC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS, // 0.30%
     }
   }
 
@@ -772,8 +813,8 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         }
         const swapReceipt = await resilientWaitForReceipt(arcPublicClient, realTxHash as Hex, 'UCW Swap')
         if (swapReceipt.status === 'unknown') {
-            return { status: 'PENDING', sourceTxHash: realTxHash, errorMessage: 'Swap is awaiting on-chain confirmation.' }
-          }
+          return { status: 'PENDING', sourceTxHash: realTxHash, errorMessage: 'Swap is awaiting on-chain confirmation.' }
+        }
         if (swapReceipt.status === 'reverted') throw new Error('Swap transaction reverted on Arc Testnet.')
         if (!swapReceipt.receipt || swapReceipt.receipt.transactionHash.toLowerCase() !== realTxHash.toLowerCase()) {
           throw new Error('Swap receipt did not match the submitted transaction.')

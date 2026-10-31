@@ -15,7 +15,6 @@ import { flashLoanRadarManifest } from '../../config/x402/manifests/flashLoanRad
 import { gatewayRouteScoutManifest } from '../../config/x402/manifests/gatewayRouteScout'
 import { vaultAnalyticsManifest } from '../../config/x402/manifests/vaultAnalytics'
 import { portfolioRiskManifest } from '../../config/x402/manifests/portfolioRisk'
-import { portfolioAnalystManifest } from '../../config/x402/manifests/portfolioAnalyst'
 import { vaultYieldReportManifest } from '../../config/x402/manifests/vaultYieldReport'
 import { ARC_TESTNET_TOKENS } from '../../config/arcChain'
 import { POOL_CONTRACTS } from '../../config/poolsConfig'
@@ -303,7 +302,8 @@ describe('generateLiveServiceData — Cross-Chain Gateway Flow Indexer', () => {
       { chain: 'Ethereum Sepolia', domain: 0, inflowUsdc: 2_450, sharePct: 71.01 },
       { chain: 'Base Sepolia', domain: 6, inflowUsdc: 1_000, sharePct: 28.99 },
     ])
-    expect(actionablePayload?.badgeText).toContain('+$3,000 USDC')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.report.riskRegister.map((e: any) => e.id)).toContain('GATEWAY_NET_INFLOW')
 
     const serialized = JSON.stringify(withoutTimestamp(data))
     expect(serialized).not.toMatch(/142500|4820500|STRONG_BULLISH|FEED_ACTIVE/)
@@ -326,7 +326,8 @@ describe('generateLiveServiceData — Cross-Chain Gateway Flow Indexer', () => {
     expect(data.flowDirection).toBeNull()
     expect(data.window).toBeNull()
     expect(data.error).toContain('arc rpc unavailable')
-    expect(actionablePayload?.badgeText).toBe('Gateway flow data unavailable')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.report.riskRegister.map((e: any) => e.id)).toContain('GATEWAY_FLOW_READ_FAILED')
     expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/142500|4820500|STRONG_BULLISH|FEED_ACTIVE/)
   })
 
@@ -364,7 +365,8 @@ describe('generateLiveServiceData — arbitrage sentinel', () => {
     expect(data.bestRoute.buyPriceUsdc).toBe(1.1)
     expect(data.bestRoute.sellPriceUsdc).toBe(1.1111)
     expect(data.onChainReserves).toEqual({ pool: expect.any(String), reserveUSDC: 1_000_000, reserveEURC: 900_000 })
-    expect(actionablePayload?.badgeText).toContain('Net Profit')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('ARBITRAGE_OPPORTUNITY')
 
     expect(data.bestRoute).not.toHaveProperty('confidenceScore')
     expect(data.bestRoute).not.toHaveProperty('executionCalldataHex')
@@ -387,6 +389,7 @@ describe('generateLiveServiceData — arbitrage sentinel', () => {
     expect(data.status).toBe('UNAVAILABLE')
     expect(data.unavailable).toContain('active Arc L1 DEX pool for requested pair')
     expect(data.bestRoute).toBeUndefined()
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('ARBITRAGE_READ_UNAVAILABLE')
   })
 
   it('returns UNAVAILABLE with no spread when the reserves cannot be read', async () => {
@@ -402,7 +405,8 @@ describe('generateLiveServiceData — arbitrage sentinel', () => {
     expect(data.unavailable).toContain('on-chain StableSwap pool reserves')
     expect(data.onChainReserves).toBeNull()
     expect(data.bestRoute).toBeUndefined()
-    expect(actionablePayload?.badgeText).toContain('unavailable')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('ARBITRAGE_READ_UNAVAILABLE')
     expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/confidenceScore|netProfitUsdc|executionCalldataHex/)
   })
 
@@ -441,7 +445,8 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data).not.toHaveProperty('savedVsSinglePoolUsdc')
     expect(data).not.toHaveProperty('splitExecutionDistribution')
     expect(data).not.toHaveProperty('settlementTimeEstimateMs')
-    expect(actionablePayload?.badgeText).toContain('unavailable')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister?.[0]?.id).toBe('SLIPPAGE_QUOTE_UNAVAILABLE')
     expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/0\.924|0\.042|243_000|0\.0065/)
   })
 
@@ -572,8 +577,9 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.usdcValuationPrices).toEqual({ EURC: 1.1 })
     expect(data.tradeReserveExposurePct).toBe(10)
     expect(data.vulnerabilityLevel).toBe('HIGH_IF_UNPROTECTED')
-    expect(actionablePayload?.badgeText).toContain('EURC reserve')
-    expect(actionablePayload?.badgeText).toContain('valued in USDC')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister?.[0]?.id).toBe('MEV_SANDWICH_EXPOSURE')
+    expect(data.riskRegister?.[0]?.finding).toContain('EURC reserve')
 
     // 'pair-first' — what the form sends when the direction is left on Auto — is the same
     // direction as omitting the field, and neither is echo'ed back as a pseudo-token.
@@ -652,7 +658,8 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.vulnerabilityLevel).toBeNull()
     expect(data.unavailable).toContain('tokenIn WETH as a side of the USDC/EURC pool')
     expect(data.reason).toContain('expected USDC or EURC')
-    expect(actionablePayload?.badgeText).toContain('unavailable')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister?.[0]?.id).toBe('MEV_ANALYSIS_UNAVAILABLE')
   })
 
   it('refuses to value the sold side without its live price', async () => {
@@ -674,7 +681,8 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.unavailable).toContain('oracle price for WETH to value the pool in USDC')
     expect(data.reason).toContain('EURC/WETH')
     expect(data).not.toHaveProperty('usdcValuationPrices')
-    expect(actionablePayload?.badgeText).toContain('unavailable')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister?.[0]?.id).toBe('MEV_ANALYSIS_UNAVAILABLE')
     expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/3000|2500|550000|300000/)
   })
 
@@ -709,7 +717,8 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.poolReserveUsdc).toBeNull()
     expect(data.unavailable).toContain('active Arc L1 DEX pool for requested pair')
     expect(data.reason).toContain('EURC/cirBTC')
-    expect(actionablePayload?.badgeText).toContain('unavailable')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister?.[0]?.id).toBe('MEV_ANALYSIS_UNAVAILABLE')
   })
 
   it('returns no liquidation opportunity at all, and never a fabricated one', async () => {
@@ -746,7 +755,8 @@ describe('generateLiveServiceData — gateway fee & route scout', () => {
     expect(data.recommendedRail).toBe('gateway')
     expect(data.savingsUsdc).toBe(0.0574)
     expect(data.estimatedArrivalMs).toBeNull()
-    expect(actionablePayload?.badgeText).toContain('saves')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('ROUTE_RECOMMENDATION')
   })
 
   it('keeps the CCTP side null when Circle does not quote the route', async () => {
@@ -766,7 +776,8 @@ describe('generateLiveServiceData — gateway fee & route scout', () => {
     expect(data.recommendedRail).toBe('gateway')
     expect(data.savingsUsdc).toBeNull()
     expect(data.unavailable).toContain('CCTP protocol and forwarding fee')
-    expect(actionablePayload?.badgeText).toContain('partially quoted')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('ROUTE_RECOMMENDATION')
   })
 
   it('refuses to quote an unknown destination chain instead of guessing a route', async () => {
@@ -800,12 +811,14 @@ describe('generateLiveServiceData — vault analytics', () => {
     expect(data.sharePriceUsdc).toBe(1.234568)
     expect(data.totalSupplyShares).toBe('1000')
     expect(data.shareDecimals).toBe(9)
-    expect(actionablePayload?.badgeText).toContain('1 share =')
+    expect(actionablePayload).toBeUndefined()
 
     expect(data.report.kind).toBe('VAULT_ANALYTICS')
     expect(data.report.coverage.state).toBe('COMPLETE')
     expect(data.report.dataQuality.grade).toBe('A')
-    expect(data.report.riskRegister.map((entry: any) => entry.id)).toContain('NO_HISTORICAL_SERIES')
+    const registerIds = data.report.riskRegister.map((entry: any) => entry.id)
+    expect(registerIds).toContain('NO_HISTORICAL_SERIES')
+    expect(registerIds).toContain('VAULT_ACTIVE_RESERVES')
   })
 
   it('does not compute a share price when the vault has no shares', async () => {
@@ -877,7 +890,7 @@ describe('generateLiveServiceData — portfolio risk & exposure', () => {
 
     const { data } = await generateLiveServiceData(portfolioRiskManifest, {
       address: '0x0000000000000000000000000000000000000001',
-      includeGatewayBalance: false,
+      includeGatewayBalance: true,
     })
 
     expect(data.status).toBe('UNAVAILABLE')
@@ -946,65 +959,6 @@ describe('generateLiveServiceData — portfolio risk & exposure', () => {
     expect(chains).toContain('Arc_Testnet')
     expect(chains).toContain('Ethereum_Sepolia')
     expect(chains).toContain('Polygon_Amoy_Testnet')
-  })
-})
-
-describe('generateLiveServiceData — LLM portfolio analyst', () => {
-  const USDC = ARC_TESTNET_TOKENS.USDC.toLowerCase()
-  const EURC = ARC_TESTNET_TOKENS.EURC.toLowerCase()
-
-  it('narrates server-measured facts and never lets the model own a figure', async () => {
-    state.prices = { USDC: 1, EURC: 1.1 }
-    state.balances = { [USDC]: 500_000_000n, [EURC]: 100_000_000n }
-    state.gatewayBalances = {
-      token: 'USDC',
-      balances: [{ domain: 6, depositor: '0x0000000000000000000000000000000000000001', balance: '250' }],
-    }
-    const fetchMock = stubLlmNarrative()
-
-    const { data } = await generateLiveServiceData(portfolioAnalystManifest, {
-      address: '0x0000000000000000000000000000000000000001',
-      includeGatewayBalance: true,
-    })
-
-    expect(data.status).toBe('ANALYSIS_COMPLETE')
-    expect(data.measured.totalUsd).toBe(860)
-    expect(data.measured.concentrationPct).toBe(87.209302)
-    expect(data.narrative.headline).toContain('Stablecoin-heavy')
-    // The engine reports the model it actually asked for; the default applies when unset.
-    expect(data.usage).toEqual({ promptTokens: 140, completionTokens: 55 })
-
-    // The advisory envelope re-uses the exposure register verbatim and adds its own disclosure.
-    expect(data.report.kind).toBe('PORTFOLIO_ADVISORY')
-    expect(data.report.reportId).toMatch(/^ARX-PAN-/)
-    expect(data.report.riskRegister.map((entry: any) => entry.id)).toEqual(
-      expect.arrayContaining(['HIGH_CONCENTRATION', 'ADVISORY_NOT_A_MANDATE'])
-    )
-    // The top-level panel and the envelope must not disagree on what the report cannot claim.
-    expect(data.limitations).toEqual(data.report.limitations)
-
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    const body = JSON.parse(String(init.body))
-    expect(body.tools).toBeUndefined()
-    expect(body.messages[1].content).toContain('"totalUsd":860')
-  })
-
-  it('returns UNAVAILABLE instead of calling the provider without a server key', async () => {
-    state.prices = { USDC: 1 }
-    state.balances = { [USDC]: 500_000_000n }
-    vi.stubEnv('OPENROUTER_API_KEY', '')
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-
-    const { data } = await generateLiveServiceData(portfolioAnalystManifest, {
-      address: '0x0000000000000000000000000000000000000001',
-    })
-
-    expect(data.status).toBe('UNAVAILABLE')
-    expect(data.narrative).toBeNull()
-    expect(data.measured.totalUsd).toBe(500)
-    expect(data.unavailable.join(' ')).toMatch(/credential/i)
-    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

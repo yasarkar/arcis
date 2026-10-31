@@ -418,6 +418,26 @@ export function buildGatewayFlowServiceData(read: GatewayFlowRead): Record<strin
     )
   }
 
+  if (read.flowDirection === 'INFLOW' && (read.netInflowUsdc ?? 0) > 0) {
+    risks.push(
+      institutionalRisk({
+        id: 'GATEWAY_NET_INFLOW',
+        category: 'MARKET_STRUCTURE',
+        severity: 'INFO',
+        title: 'Positive Net Liquidity Inflow to Arc',
+        finding: `Mints exceeded burns by ${read.netInflowUsdc} USDC over the measured window, expanding on-chain Arc liquidity.`,
+        evidence: {
+          netUsdcInflowUsdc: read.netInflowUsdc,
+          grossInflowUsdc: read.grossInflowUsdc,
+          grossOutflowUsdc: read.grossOutflowUsdc,
+        },
+        threshold: 'Net flow (minted − burned) > 0.',
+        remediation:
+          'On-chain pool depth and DEX liquidity are expanding; inspect yield and swap routes.',
+      })
+    )
+  }
+
   const topShare = read.topSourceChains?.[0]
   if (topShare && typeof topShare.sharePct === 'number' && topShare.sharePct >= 80) {
     risks.push(

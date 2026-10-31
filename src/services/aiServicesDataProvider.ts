@@ -17,7 +17,6 @@ import { estimateArcGasCostUsdc } from './arcGasService'
 import { readVaultAnalytics } from './x402/vaultAnalytics'
 import { readPortfolioRisk } from './x402/portfolioRisk'
 import { scoutGatewayRoutes, type RouteScoutUrgency } from './x402/gatewayRouteScout'
-import { analyzePortfolioWithLlm } from './x402/agentAnalyst'
 import { readVaultYieldReport } from './x402/vaultYieldReport'
 import {
   buildGatewayFlowServiceData,
@@ -131,6 +130,38 @@ function resolveDexPoolMeta(tokenA: string, tokenB: string): ArbitragePoolMeta |
       decA: 6,
       decB: 18,
       symbolA: 'EURC',
+      symbolB: 'WETH',
+    }
+  }
+
+  if (
+    (normA === 'EURC' && normB === 'CIRBTC') ||
+    (normA === 'CIRBTC' && normB === 'EURC')
+  ) {
+    const eurcCirBtcPool = POOL_CONTRACTS.EURC_CIRBTC_POOL
+    if (!eurcCirBtcPool || eurcCirBtcPool === '0x0000000000000000000000000000000000000000') return null
+    return {
+      address: eurcCirBtcPool as Address,
+      dexName: 'Arcis EURC/cirBTC Pool',
+      decA: 6,
+      decB: 8,
+      symbolA: 'EURC',
+      symbolB: 'cirBTC',
+    }
+  }
+
+  if (
+    (normA === 'CIRBTC' && normB === 'WETH') ||
+    (normA === 'WETH' && normB === 'CIRBTC')
+  ) {
+    const cirBtcWethPool = POOL_CONTRACTS.CIRBTC_WETH_POOL
+    if (!cirBtcWethPool || cirBtcWethPool === '0x0000000000000000000000000000000000000000') return null
+    return {
+      address: cirBtcWethPool as Address,
+      dexName: 'Arcis cirBTC/WETH Pool',
+      decA: 8,
+      decB: 18,
+      symbolA: 'cirBTC',
       symbolB: 'WETH',
     }
   }
@@ -272,18 +303,18 @@ export async function generateLiveServiceData(
           reason: `Spread not computed: no active DEX liquidity pool exists on Arc Testnet for pair ${pair}.`,
           liveOraclePrices: {},
           onChainReserves: null,
-        },
-        actionablePayload: {
-          type: 'arbitrage',
-          title: `Execute ${pair} Arbitrage`,
-          badgeText: 'Pair unavailable on Arc L1 DEX',
-          details: {
-            pair,
-            tradeSizeUsdc: tradeSize,
-            fromToken: tokenA,
-            toToken: tokenB,
-            poolAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
-          },
+          riskRegister: [
+            {
+              id: 'ARBITRAGE_READ_UNAVAILABLE',
+              category: 'DATA_QUALITY',
+              severity: 'HIGH',
+              title: 'Pool Unavailable on Arc DEX',
+              finding: `No active DEX liquidity pool exists on Arc Testnet for pair ${pair}.`,
+              evidence: { pair },
+              threshold: 'A deployed pool contract is required.',
+              remediation: 'Select a pair with an active Arc L1 DEX pool.',
+            },
+          ],
         },
       }
     }
@@ -347,18 +378,18 @@ export async function generateLiveServiceData(
                     : { reserveWETH: Number(formatUnits(reserves.reserveB, poolMeta.decB)) }),
               }
             : null,
-        },
-        actionablePayload: {
-          type: 'arbitrage',
-          title: `Execute ${pair} Arbitrage`,
-          badgeText: 'Spread unavailable — required on-chain read failed',
-          details: {
-            pair,
-            tradeSizeUsdc: tradeSize,
-            fromToken: tokenA,
-            toToken: tokenB,
-            poolAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
-          },
+          riskRegister: [
+            {
+              id: 'ARBITRAGE_READ_UNAVAILABLE',
+              category: 'DATA_QUALITY',
+              severity: 'HIGH',
+              title: 'Arbitrage Read Unavailable',
+              finding: `Could not read ${unavailable.join(', ')}.`,
+              evidence: { pair, unavailable },
+              threshold: 'Reserves, oracle rates, and gas price must return.',
+              remediation: 'Retry the query once nodes and oracle feeds respond.',
+            },
+          ],
         },
       }
     }
@@ -375,6 +406,39 @@ export async function generateLiveServiceData(
 
     const buyPrice = Number(Math.min(poolRate, oracleMarketRate).toFixed(4))
     const sellPrice = Number(Math.max(poolRate, oracleMarketRate).toFixed(4))
+
+    const riskRegister = [
+      isProfitable
+        ? {
+            id: 'ARBITRAGE_OPPORTUNITY',
+            category: 'OPPORTUNITY',
+            severity: 'INFO',
+            title: `Cross-DEX Arbitrage Spread (${spreadPct}%)`,
+            finding: `Discovered a ${spreadPct}% price discrepancy on ${pair} generating est. $${netProfit} USDC net profit (${netProfitPct}%) after $${gasUsdc} USDC gas.`,
+            evidence: {
+              pair,
+              spreadPct,
+              netProfitUsdc: netProfit,
+              netProfitPct,
+              grossProfitUsdc: grossProfit,
+              gasUsdc,
+              buyPrice,
+              sellPrice,
+            },
+            threshold: `Net profit >= ${minNetProfitPct}% minimum hurdle rate.`,
+            remediation: 'Execute swap on Arc DEX to capture spread divergence.',
+          }
+        : {
+            id: 'SPREAD_BELOW_THRESHOLD',
+            category: 'MARKET_STRUCTURE',
+            severity: 'LOW',
+            title: 'Arbitrage Spread Below Hurdle Rate',
+            finding: `The measured ${spreadPct}% spread yields $${netProfit} USDC net profit (${netProfitPct}%), which is below the ${minNetProfitPct}% profit threshold.`,
+            evidence: { pair, spreadPct, netProfitUsdc: netProfit, minNetProfitPct },
+            threshold: `Net profit must exceed ${minNetProfitPct}%.`,
+            remediation: 'Monitor the pair until price divergence widens beyond transaction fee hurdles.',
+          },
+    ]
 
     const data = {
       status: isProfitable ? 'OPPORTUNITY_DETECTED' : 'SPREAD_BELOW_THRESHOLD',
@@ -409,26 +473,10 @@ export async function generateLiveServiceData(
         stableSwapPool: POOL_CONTRACTS.STABLE_SWAP_POOL,
         router: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
       },
+      riskRegister,
     }
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'arbitrage',
-      title: `Execute ${pair} Arbitrage`,
-      badgeText: `+$${netProfit} USDC (${netProfitPct}%) Net Profit`,
-      details: {
-        pair,
-        tradeSizeUsdc: tradeSize,
-        buyDex: poolMeta.dexName,
-        sellDex: 'External Oracle / Gateway Bridge',
-        spreadPct,
-        estimatedProfitUsdc: netProfit,
-        fromToken: tokenA,
-        toToken: tokenB,
-        poolAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
-      },
-    }
-
-    return { data, actionablePayload }
+    return { data }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -491,20 +539,49 @@ export async function generateLiveServiceData(
           reason: 'Route not optimised: the live quote or its oracle benchmark could not be read.',
           flashReserveDepthUsdc: totalReserveDepth,
           depthPool,
-        },
-        actionablePayload: {
-          type: 'swap',
-          title: `Execute Optimized ${fromToken} ➔ ${toToken} Swap`,
-          badgeText: 'Route quote unavailable — no fabricated estimate',
-          details: {
-            fromToken,
-            toToken,
-            amountIn: amount,
-            poolAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
-          },
+          riskRegister: [
+            {
+              id: 'SLIPPAGE_QUOTE_UNAVAILABLE',
+              category: 'DATA_QUALITY',
+              severity: 'HIGH',
+              title: 'Swap Slippage Route Unavailable',
+              finding: 'The live DEX quote or oracle benchmark could not be retrieved from the network.',
+              evidence: { fromToken, toToken, amount },
+              threshold: 'Live swap router and oracle benchmark required.',
+              remediation: 'Verify network connectivity and ensure pool liquidity is deployed.',
+            },
+          ],
         },
       }
     }
+
+    const isHighImpact = priceImpactPct >= 1.0
+    const riskRegister = [
+      {
+        id: isHighImpact ? 'HIGH_SLIPPAGE_RISK' : 'OPTIMAL_SLIPPAGE_ROUTE',
+        category: isHighImpact ? 'EXECUTION_RISK' : 'OPPORTUNITY',
+        severity: isHighImpact ? 'MEDIUM' : 'INFO',
+        title: isHighImpact
+          ? `Elevated Price Impact (${priceImpactPct}%)`
+          : `Optimized Swap Route (${priceImpactPct}% impact)`,
+        finding: isHighImpact
+          ? `Swapping ${amount.toLocaleString()} ${fromToken} causes ${priceImpactPct}% price impact against the benchmark rate.`
+          : `Optimal route identified for ${amount.toLocaleString()} ${fromToken} ➔ ${expectedOutputNum.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${toToken} with low ${priceImpactPct}% price impact.`,
+        evidence: {
+          fromToken,
+          toToken,
+          amount,
+          expectedOutputNum,
+          effectiveExecutionPrice,
+          priceImpactPct,
+          totalReserveDepth,
+        },
+        threshold: 'Price impact evaluated against 1.0% institutional threshold.',
+        remediation: isHighImpact
+          ? 'Consider splitting your trade into smaller batches to reduce market impact.'
+          : 'Execute swap through Arcis DEX Router at the verified rate.',
+      },
+    ]
 
     const data = {
       status: 'ROUTE_OPTIMIZED',
@@ -514,23 +591,10 @@ export async function generateLiveServiceData(
       overallPriceImpactPct: priceImpactPct,
       flashReserveDepthUsdc: totalReserveDepth,
       depthPool,
+      riskRegister,
     }
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'swap',
-      title: `Execute Optimized ${fromToken} ➔ ${toToken} Swap`,
-      badgeText: `Live route for ${amount.toLocaleString()} ${fromToken} at ${priceImpactPct}% price impact`,
-      details: {
-        fromToken,
-        toToken,
-        amountIn: amount,
-        estimatedOut: expectedOutputNum,
-        priceImpactPct,
-        poolAddress: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
-      },
-    }
-
-    return { data, actionablePayload }
+    return { data }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -553,18 +617,22 @@ export async function generateLiveServiceData(
       unavailable: ['liquidation opportunity feed'],
       reason:
         'No on-chain liquidation source is connected, so no liquidation opportunity or expected reward can be reported.',
+      riskRegister: [
+        {
+          id: 'FLASH_LOAN_UNAVAILABLE',
+          category: 'DATA_QUALITY',
+          severity: 'INFO',
+          title: 'No Liquidation Feed Connected',
+          finding:
+            'Arcis connects to verified on-chain accounting; no liquidation feed exists on Arc Testnet, so no liquidation opportunity is reported.',
+          evidence: { minReward },
+          threshold: 'Connected lending protocol liquidation engine required.',
+          remediation: 'Monitor Arc ecosystem deployment updates for lending integration.',
+        },
+      ],
     }
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'navigate',
-      title: 'Liquidation feed unavailable',
-      badgeText: 'No liquidation source connected',
-      details: {
-        navTab: 'ai-services',
-      },
-    }
-
-    return { data, actionablePayload }
+    return { data }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -652,6 +720,43 @@ export async function generateLiveServiceData(
               ? `Exposure not computed: the ${pair} pool holds no measurable ${tokenIn} reserve.`
               : null
 
+    const isMevHighRisk = reserveSharePct !== null && reserveSharePct > 5.0
+    const riskRegister = [
+      reserveSharePct === null
+        ? {
+            id: 'MEV_ANALYSIS_UNAVAILABLE',
+            category: 'DATA_QUALITY',
+            severity: 'HIGH',
+            title: 'MEV Exposure Analysis Unavailable',
+            finding: unmeasuredReason || 'Could not measure pool reserves or oracle valuation.',
+            evidence: { pair, tokenIn, unavailable },
+            threshold: 'Requires readable on-chain reserves and active oracle rates.',
+            remediation: 'Verify pair selection and retry query.',
+          }
+        : {
+            id: isMevHighRisk ? 'MEV_SANDWICH_EXPOSURE' : 'LOW_MEV_RISK',
+            category: 'EXECUTION_RISK',
+            severity: isMevHighRisk ? 'HIGH' : 'LOW',
+            title: isMevHighRisk
+              ? `Mempool Sandwich Attack Risk (${reserveSharePct}% Reserve)`
+              : `Minimal MEV Exposure (${reserveSharePct}%)`,
+            finding: isMevHighRisk
+              ? `Trade size represents ${reserveSharePct}% of the ${pair} pool's ${tokenIn} reserve. Orders exceeding 5% reserve depth face elevated sandwich attack vectors.`
+              : `Trade size is only ${reserveSharePct}% of pool reserve depth; low vulnerability to front-running on Arc.`,
+            evidence: {
+              pair,
+              tokenIn,
+              tradeReserveExposurePct: reserveSharePct,
+              suggestedSlippagePct,
+              arcGasUsdc,
+            },
+            threshold: 'Trade size > 5.0% of pool reserve depth triggers sandwich alert.',
+            remediation: isMevHighRisk
+              ? `Tighten max slippage to ${suggestedSlippagePct}% or utilize small batch execution.`
+              : 'Order can proceed safely under standard FIFO mempool parameters.',
+          },
+    ]
+
     const data = {
       status: reserveSharePct === null ? 'UNAVAILABLE' : 'ANALYSIS_COMPLETE',
       pair,
@@ -675,24 +780,10 @@ export async function generateLiveServiceData(
         ? { usdcValuationPrices: depth.prices }
         : {}),
       ...(unmeasuredReason ? { unavailable, reason: unmeasuredReason } : {}),
+      riskRegister,
     }
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'navigate',
-      title: 'Apply Shielded Slippage & FIFO Priority',
-      badgeText:
-        reserveSharePct === null
-          ? 'Exposure unavailable — no measurable pool reserve for this trade'
-          : depth?.basis === 'token-in-side'
-            ? `Trade is ${reserveSharePct}% of the ${pair} pool's ${tokenIn} reserve, valued in USDC`
-            : `Trade is ${reserveSharePct}% of the ${pair} pool's ${tokenIn} reserve`,
-      details: {
-        adjustedMaxSlippagePct: suggestedSlippagePct,
-        navTab: 'swap',
-      },
-    }
-
-    return { data, actionablePayload }
+    return { data }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -709,20 +800,7 @@ export async function generateLiveServiceData(
     const flow = await readGatewayFlow(timeWindow)
     const data = buildGatewayFlowServiceData(flow)
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'deposit',
-      title: 'Manage Unified Cross-Chain Balance',
-      badgeText:
-        flow.netInflowUsdc === null
-          ? `Gateway flow data ${flow.status === 'UNAVAILABLE' ? 'unavailable' : 'stale'}`
-          : `Gateway net flow ${formatUsdcOrUnavailable(flow.netInflowUsdc)}`,
-      details: {
-        navTab: 'unified',
-        targetChain: 'Arc Testnet',
-      },
-    }
-
-    return { data, actionablePayload }
+    return { data }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -737,26 +815,54 @@ export async function generateLiveServiceData(
     // `gatewayRouteScout` owns both quotes and leaves a rail null when its source fails.
     const quote = await scoutGatewayRoutes({ amountUsdc, destinationChain, urgency })
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'navigate',
-      title:
-        quote.recommendedRail === 'gateway'
-          ? 'Bridge via Circle Gateway'
-          : quote.recommendedRail === 'cctp'
-            ? 'Bridge via CCTP'
-            : 'Route quote unavailable',
-      badgeText:
-        quote.savingsUsdc === null
-          ? `Route ${quote.status === 'UNAVAILABLE' ? 'unavailable' : 'partially quoted'} — see unavailable reasons`
-          : `${quote.recommendedRail === 'gateway' ? 'Gateway' : 'CCTP'} saves ${quote.savingsUsdc} USDC`,
-      details: {
-        navTab: 'bridge',
-        targetChain: destinationChain,
-        recommendedRail: quote.recommendedRail ?? undefined,
-      },
+    const riskRegister: any[] = []
+    if (quote.status === 'UNAVAILABLE') {
+      riskRegister.push({
+        id: 'ROUTE_UNAVAILABLE',
+        category: 'DATA_QUALITY',
+        severity: 'HIGH',
+        title: 'Bridge Route Quote Unavailable',
+        finding: quote.reason || 'The requested destination chain cannot be quoted on live bridge rails.',
+        evidence: { destinationChain, amountUsdc, unavailable: quote.unavailable },
+        threshold: 'Valid destination domain and live pricing required.',
+        remediation: 'Select a supported Circle Gateway or CCTP chain on Arc Testnet.',
+      })
+    } else if (quote.recommendedRail) {
+      const railName = quote.recommendedRail === 'gateway' ? 'Circle Gateway' : 'CCTP'
+      riskRegister.push({
+        id: 'ROUTE_RECOMMENDATION',
+        category: 'MARKET_STRUCTURE',
+        severity: 'INFO',
+        title: `${railName} Optimal Route`,
+        finding:
+          quote.savingsUsdc !== null && quote.savingsUsdc > 0
+            ? `${railName} saves ${quote.savingsUsdc} USDC compared to alternative rails for transferring ${quote.amountUsdc} USDC to ${destinationChain}.`
+            : `${railName} is the verified route for transferring ${quote.amountUsdc} USDC to ${destinationChain}.`,
+        evidence: {
+          recommendedRail: quote.recommendedRail,
+          savingsUsdc: quote.savingsUsdc,
+          amountUsdc: quote.amountUsdc,
+          destinationChain,
+          gatewayFeeUsdc: quote.gateway.totalCostUsdc,
+          cctpFeeUsdc: quote.cctp.totalCostUsdc,
+        },
+        threshold: 'Direct comparison between Gateway 0.005% transfer fee and CCTP forwarder quote.',
+        remediation: `Bridge transfer via ${railName} directly to ${destinationChain}.`,
+      })
+    } else if (quote.status === 'PARTIAL') {
+      riskRegister.push({
+        id: 'ROUTE_PARTIAL',
+        category: 'DATA_QUALITY',
+        severity: 'MEDIUM',
+        title: 'Single Rail Quoted',
+        finding: 'Only one bridge rail returned pricing; cross-rail comparison is withheld to prevent false precision.',
+        evidence: { destinationChain, amountUsdc, gatewayAvailable: quote.gateway.available, cctpAvailable: quote.cctp.available },
+        threshold: 'Both rails must return before savings are claimed.',
+        remediation: 'Review individual rail fee before initiating bridge transfer.',
+      })
     }
 
-    return { data: quote, actionablePayload }
+    return { data: { ...quote, riskRegister } }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -765,20 +871,7 @@ export async function generateLiveServiceData(
   if (service.id === 'arc-yield-vault-analytics') {
     const analytics = await readVaultAnalytics({ windowDays: inputPayload.windowDays })
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'navigate',
-      title: analytics.status === 'VAULT_READ' ? 'Open USDC Yield Vault' : 'Vault analytics unavailable',
-      badgeText:
-        analytics.sharePriceUsdc === null
-          ? `Vault ${analytics.status === 'VAULT_EMPTY' ? 'has no shares outstanding' : 'read unavailable'}`
-          : `1 share = ${analytics.sharePriceUsdc} USDC`,
-      details: {
-        navTab: 'pools',
-        vaultAddress: analytics.vaultAddress,
-      },
-    }
-
-    return { data: analytics, actionablePayload }
+    return { data: analytics }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -794,64 +887,13 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 9. ON-CHAIN PORTFOLIO ANALYST (llm)
-  // ─────────────────────────────────────────────────────────────
-  if (service.id === 'arc-onchain-portfolio-analyst') {
-    const address = String(inputPayload.address || '').trim()
-    const analysis = await analyzePortfolioWithLlm({
-      address,
-      includeGatewayBalance: inputPayload.includeGatewayBalance === true,
-    })
-
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'navigate',
-      title:
-        analysis.status === 'UNAVAILABLE'
-          ? 'Portfolio narrative unavailable'
-          : 'Review the measured portfolio',
-      badgeText:
-        analysis.narrative === null
-          ? 'Narrative unavailable — measured facts are still shown when readable'
-          : analysis.status === 'PARTIAL'
-            ? 'Partially measured portfolio — gaps are stated in the narrative'
-            : 'Measured facts narrated without model-generated figures',
-      details: {
-        navTab: 'unified',
-        targetChain: 'Arc Testnet',
-      },
-    }
-
-    return { data: analysis, actionablePayload }
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // 10. VAULT YIELD REPORT (llm, Reporting & Tax)
+  // 9. VAULT YIELD REPORT (llm, Reporting & Tax)
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-vault-yield-tax-report') {
     const address = String(inputPayload.address || '').trim()
     const report = await readVaultYieldReport({ address })
 
-    const actionablePayload: ActionableSignalPayload = {
-      type: 'navigate',
-      title:
-        report.status === 'NO_POSITION'
-          ? 'No vault position to report'
-          : report.status === 'UNAVAILABLE'
-            ? 'Vault report unavailable'
-            : 'Open the USDC Yield Vault',
-      badgeText:
-        report.status === 'NO_POSITION'
-          ? 'This address holds no vault shares'
-          : report.status === 'UNAVAILABLE'
-            ? 'A required vault read failed; no narrative was generated'
-            : 'Principal, redeemable value and pending yield measured on-chain',
-      details: {
-        navTab: 'pools',
-        vaultAddress: report.vaultAddress,
-      },
-    }
-
-    return { data: report, actionablePayload }
+    return { data: report }
   }
 
   // ─────────────────────────────────────────────────────────────

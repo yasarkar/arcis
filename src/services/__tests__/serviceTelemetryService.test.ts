@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { serviceTelemetryService } from '../serviceTelemetryService'
 
-const SERVICE_ID = 'arc-onchain-portfolio-analyst-test'
+const SERVICE_ID = 'arc-portfolio-risk-exposure-test'
 
 afterEach(() => {
   // A success clears the stored reason, so tests start from the same state.
