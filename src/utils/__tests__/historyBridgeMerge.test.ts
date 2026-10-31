@@ -5,6 +5,8 @@ import {
   getHistory,
   historyDisplayTxHash,
   historyDisplayChain,
+  ARCIS_HISTORY_UPDATED_EVENT,
+  LEGACY_ARC_HISTORY_UPDATED_EVENT,
 } from '../history'
 
 // One Direct CCTP bridge must stay ONE history row: the pending burn row is
@@ -205,4 +207,86 @@ describe('history display helpers', () => {
     expect(historyDisplayTxHash(send)).toBe(mintHash)
     expect(historyDisplayChain(send)).toBe('Arc_Testnet')
   })
+
+  it('dispatches both canonical and legacy history updated events on addTransaction and completeBridgeTransaction', () => {
+    const wallet = `0x${'33'.repeat(20)}`
+    const receivedEvents: string[] = []
+
+    const listeners: Record<string, ((e: any) => void)[]> = {}
+    const mockWindow = {
+      dispatchEvent: vi.fn((event: any) => {
+        listeners[event.type]?.forEach((fn) => fn(event))
+        return true
+      }),
+      addEventListener: vi.fn((type: string, fn: any) => {
+        listeners[type] = listeners[type] || []
+        listeners[type].push(fn)
+      }),
+      removeEventListener: vi.fn((type: string, fn: any) => {
+        listeners[type] = (listeners[type] || []).filter((cb) => cb !== fn)
+      }),
+    }
+
+    vi.stubGlobal('window', mockWindow)
+    vi.stubGlobal(
+      'CustomEvent',
+      class CustomEvent {
+        type: string
+        detail: any
+        constructor(type: string, params: any = {}) {
+          this.type = type
+          this.detail = params.detail
+        }
+      }
+    )
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ success: true }) })))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const arcisListener = (e: any) => {
+      receivedEvents.push(e.type)
+    }
+    const legacyListener = (e: any) => {
+      receivedEvents.push(e.type)
+    }
+
+    mockWindow.addEventListener(ARCIS_HISTORY_UPDATED_EVENT, arcisListener)
+    mockWindow.addEventListener(LEGACY_ARC_HISTORY_UPDATED_EVENT, legacyListener)
+
+    try {
+      addTransaction({
+        type: 'send',
+        txHash: `0x${'ee'.repeat(32)}`,
+        amount: '10',
+        tokenSymbol: 'USDC',
+        sourceChain: 'Arc_Testnet',
+        recipient: wallet,
+        userAddress: wallet,
+        status: 'success',
+      })
+
+      expect(receivedEvents).toContain(ARCIS_HISTORY_UPDATED_EVENT)
+      expect(receivedEvents).toContain(LEGACY_ARC_HISTORY_UPDATED_EVENT)
+
+      receivedEvents.length = 0
+
+      completeBridgeTransaction({
+        sourceTxHash: burnHash,
+        destTxHash: `0x${'ff'.repeat(32)}`,
+        amount: '50',
+        tokenSymbol: 'USDC',
+        sourceChain: 'Base_Sepolia',
+        destChain: 'Arc_Testnet',
+        recipient: wallet,
+        userAddress: wallet,
+      })
+
+      expect(receivedEvents).toContain(ARCIS_HISTORY_UPDATED_EVENT)
+      expect(receivedEvents).toContain(LEGACY_ARC_HISTORY_UPDATED_EVENT)
+    } finally {
+      mockWindow.removeEventListener(ARCIS_HISTORY_UPDATED_EVENT, arcisListener)
+      mockWindow.removeEventListener(LEGACY_ARC_HISTORY_UPDATED_EVENT, legacyListener)
+    }
+  })
 })
+

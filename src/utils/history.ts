@@ -60,13 +60,71 @@ export interface HistoryItem {
   tokenB?: string
 }
 
+export const ARCIS_HISTORY_UPDATED_EVENT = 'arcis_history_updated'
+export const LEGACY_ARC_HISTORY_UPDATED_EVENT = 'arc_history_updated'
+
+/**
+ * Dispatches history update notifications to active browser listeners.
+ * Emits both canonical 'arcis_history_updated' and legacy 'arc_history_updated'
+ * to guarantee complete backwards compatibility and reactive UI updates.
+ */
+export const notifyHistoryUpdated = (userAddress?: string) => {
+  if (typeof window === 'undefined') return
+  const detail = { userAddress }
+  window.dispatchEvent(new CustomEvent(ARCIS_HISTORY_UPDATED_EVENT, { detail }))
+  window.dispatchEvent(new CustomEvent(LEGACY_ARC_HISTORY_UPDATED_EVENT, { detail }))
+}
+
 // In-memory runtime cache partitioned by wallet address for instant UI reactivity
 const inMemoryWalletHistory = new Map<string, HistoryItem[]>()
 // Track in-flight promises to deduplicate simultaneous requests for the same address
-const inFlightHistoryFetches = new Map<string, Promise<HistoryItem[]>>()
+const inFlightHistoryFetches = new Map<string, Promise<HistoryFetchResult>>()
 // Set of wallet addresses that have completed at least one successful fetch from the server
 const loadedWallets = new Set<string>()
 let hasCleanedLegacyStorage = false
+
+/**
+ * Server page size for `/api/history`. The per-user KV list is capped at 300 rows
+ * today, so one page normally covers a wallet; the cursor loop keeps a single
+ * fetch complete if that cap ever grows.
+ */
+const HISTORY_PAGE_LIMIT = 300
+/** Safety stop: at most 5 pages (1500 rows) per wallet fetch. */
+const HISTORY_MAX_PAGES = 5
+/** In-memory cap per wallet after merging every page. */
+const HISTORY_MAX_ITEMS = 1000
+
+export interface HistoryFetchResult {
+  /** Merged rows, newest first. On failure this is the last cached list, not an empty verdict. */
+  items: HistoryItem[]
+  /** False when the server could not be read (the cache was served instead). */
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Merges fetched pages into one newest-first list. The same row can arrive twice
+ * when a page boundary shifts between requests, so rows are keyed by transaction
+ * hash (falling back to id) and the newest copy wins.
+ */
+function mergeHistoryPages(pages: HistoryItem[][]): HistoryItem[] {
+  const byKey = new Map<string, HistoryItem>()
+
+  for (const page of pages) {
+    for (const item of page) {
+      const key = (item.txHash || item.id || '').toLowerCase()
+      if (!key) continue
+      const existing = byKey.get(key)
+      if (!existing || (item.timestamp || 0) >= (existing.timestamp || 0)) {
+        byKey.set(key, item)
+      }
+    }
+  }
+
+  return Array.from(byKey.values())
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .slice(0, HISTORY_MAX_ITEMS)
+}
 
 /**
  * Checks if transactions for a wallet have been loaded into memory from the server.
@@ -121,12 +179,21 @@ export const getHistory = (filterAddress?: string): HistoryItem[] => {
  * Asynchronously fetches transactions directly from the Vercel KV / Redis database.
  * Scoped strictly to the provided wallet address.
  * Automatically deduplicates simultaneous in-flight requests.
+ *
+ * Reads every page: the server pages by `cursor` and each page is capped, so a
+ * single request used to stop at the server default (100 rows) and silently drop
+ * every older transaction. Pages are merged, de-duplicated by tx hash and sorted
+ * newest-first before they replace the in-memory cache.
+ *
+ * Statuses are kept verbatim — `pending` is never rewritten as `success` here.
+ * The History tab renders settled rows only, but every other reader of this
+ * module must be able to tell an unsettled transaction from a final one.
  */
-export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[]> => {
+export async function fetchHistoryResult(filterAddress?: string): Promise<HistoryFetchResult> {
   cleanLegacyLocalStorage()
 
   if (!filterAddress || !filterAddress.trim()) {
-    return []
+    return { items: [], ok: false, error: 'No wallet address provided.' }
   }
 
   const norm = filterAddress.toLowerCase().trim()
@@ -137,48 +204,72 @@ export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[
     return existingFetch
   }
 
-  const fetchPromise = (async () => {
+  const fetchPromise = (async (): Promise<HistoryFetchResult> => {
     try {
-      const res = await fetch(`/api/history?address=${encodeURIComponent(norm)}`, {
-        headers: {
-          Accept: 'application/json',
-        },
-      })
+      const pages: HistoryItem[][] = []
+      let cursor: number | undefined
 
-      if (!res.ok) {
-        throw new Error(`Failed to fetch history from database (status ${res.status})`)
-      }
+      for (let page = 0; page < HISTORY_MAX_PAGES; page += 1) {
+        const params = new URLSearchParams({
+          address: norm,
+          limit: String(HISTORY_PAGE_LIMIT),
+        })
+        if (cursor !== undefined) params.set('cursor', String(cursor))
 
-      const data = await res.json()
-      if (data.success && Array.isArray(data.transactions)) {
-        const serverItems: HistoryItem[] = data.transactions
+        const res = await fetch(`/api/history?${params.toString()}`, {
+          headers: {
+            Accept: 'application/json',
+          },
+        })
+
+        if (!res.ok) {
+          throw new Error(`Failed to fetch history from database (status ${res.status})`)
+        }
+
+        const data = await res.json()
+        if (!data?.success || !Array.isArray(data.transactions)) {
+          throw new Error('History response was not readable.')
+        }
 
         // Strict address filter: records must involve this wallet address
-        const validItems = serverItems
-          .filter((item) => {
+        pages.push(
+          (data.transactions as HistoryItem[]).filter((item) => {
             const isSender = item.userAddress && item.userAddress.toLowerCase().trim() === norm
             const isRecipient = item.recipient && item.recipient.toLowerCase().trim() === norm
             return Boolean(isSender || isRecipient)
           })
-          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-          .slice(0, 300)
+        )
 
-        inMemoryWalletHistory.set(norm, validItems)
-        loadedWallets.add(norm)
-        return validItems
+        if (!data.hasMore || typeof data.nextCursor !== 'number') break
+        cursor = data.nextCursor
       }
+
+      const items = mergeHistoryPages(pages)
+      inMemoryWalletHistory.set(norm, items)
+      loadedWallets.add(norm)
+      return { items, ok: true }
     } catch (err) {
       console.warn('[history.ts] Vercel KV database fetch failed, serving in-memory state:', err)
+      return {
+        items: getHistory(norm),
+        ok: false,
+        error: err instanceof Error && err.message ? err.message : 'History could not be loaded.',
+      }
     } finally {
       inFlightHistoryFetches.delete(norm)
     }
-
-    return getHistory(norm)
   })()
 
   inFlightHistoryFetches.set(norm, fetchPromise)
   return fetchPromise
 }
+
+/**
+ * Array-only view of {@link fetchHistoryResult} for callers that only prefetch
+ * (the failure flag is consumed by the History tab's error state).
+ */
+export const fetchHistory = async (filterAddress?: string): Promise<HistoryItem[]> =>
+  (await fetchHistoryResult(filterAddress)).items
 
 /**
  * Prefetches history for a wallet address in the background without blocking the UI.
@@ -247,9 +338,7 @@ export const addTransaction = (item: Omit<HistoryItem, 'id' | 'timestamp'>) => {
   }
 
   // 2. Notify active components
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('arc_history_updated', { detail: { userAddress: normUser } }))
-  }
+  notifyHistoryUpdated(normUser)
 
   // 3. Persist transaction directly to KV database via API
   void persistTransactionToServer(newTx)
@@ -388,9 +477,7 @@ export const completeBridgeTransaction = (item: CompleteBridgeTransactionInput):
 
   if (normUser) loadedWallets.add(normUser)
 
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('arc_history_updated', { detail: { userAddress: normUser } }))
-  }
+  notifyHistoryUpdated(normUser)
 
   void persistTransactionToServer(completed)
   return true

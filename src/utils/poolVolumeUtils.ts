@@ -25,6 +25,8 @@ export const POOL_TESTNET_BASE_VOLUME: Record<string, number> = {
   'usdc-yield-vault': 0.00,
   'usdc-weth-pool': 0.00,
   'eurc-weth-pool': 0.00,
+  'eurc-cirbtc-pool': 0.00,
+  'cirbtc-weth-pool': 0.00,
 }
 
 export function clearSwapVolumeCache(): void {
@@ -150,6 +152,12 @@ export function poolIdForSwapPair(tokenIn: string, tokenOut: string): string {
   if ((inSymbol === 'EURC' && isWeth(outSymbol)) || (isWeth(inSymbol) && outSymbol === 'EURC')) {
     return 'eurc-weth-pool'
   }
+  if ((inSymbol === 'EURC' && isCirBtc(outSymbol)) || (isCirBtc(inSymbol) && outSymbol === 'EURC')) {
+    return 'eurc-cirbtc-pool'
+  }
+  if ((isCirBtc(inSymbol) && isWeth(outSymbol)) || (isWeth(inSymbol) && isCirBtc(outSymbol))) {
+    return 'cirbtc-weth-pool'
+  }
   if (isCirBtc(inSymbol) || isCirBtc(outSymbol)) return 'usdc-cirbtc-pool'
   if (isWeth(inSymbol) || isWeth(outSymbol)) return 'usdc-weth-pool'
   return 'usdc-eurc-stable-pool'
@@ -234,5 +242,5 @@ export const getRollingClientSwapVolume = (poolId: string): number => {
  */
 export function startLiveVolumeSimulation(): () => void {
   // Deliberately disabled: Only genuine on-chain & user swaps are recorded
-  return () => {}
+  return () => { }
 }

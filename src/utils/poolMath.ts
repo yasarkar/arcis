@@ -21,7 +21,7 @@ import {
  */
 export function getStableSwapD(x: bigint, y: bigint, amp: bigint = STABLE_SWAP_AMP): bigint {
   const s = x + y
-  if (s === 0n) return 0n
+  if (s === 0n || x === 0n || y === 0n) return 0n
 
   let prevD = 0n
   let d = s
@@ -49,6 +49,7 @@ export function getStableSwapD(x: bigint, y: bigint, amp: bigint = STABLE_SWAP_A
  * @param amp Amplification coefficient (default 100)
  */
 export function getStableSwapY(x: bigint, d: bigint, amp: bigint = STABLE_SWAP_AMP): bigint {
+  if (x === 0n || d === 0n || amp === 0n) return 0n
   const Ann = amp * STABLE_SWAP_ANN_MULTIPLIER
   let c = (d * d) / (x * 2n)
   c = (c * d) / (Ann * 2n)
@@ -305,6 +306,21 @@ export function estimateLpSharesForDeposit(params: {
         const rawB = parseUnits(amountB.toFixed(6), 18)
         const rawSqrt = sqrtBigInt(rawA * rawB)
         const initialLp = rawSqrt * 1_000_000n // scale 12-decimal product sqrt to 18-decimal LP tokens
+        if (initialLp <= MINIMUM_LIQUIDITY) return null
+        const userLp = initialLp - MINIMUM_LIQUIDITY
+        const shares = parseFloat(formatUnits(userLp, 18))
+        const totalLpAfter = parseFloat(formatUnits(initialLp, 18))
+        if (!(shares > 0)) return null
+        return { shares, totalLpAfter }
+      } catch {
+        return null
+      }
+    } else if (poolId === 'cirbtc-weth-pool') {
+      try {
+        const rawA = parseUnits(amountA.toFixed(8), 8)
+        const rawB = parseUnits(amountB.toFixed(6), 18)
+        const rawSqrt = sqrtBigInt(rawA * rawB)
+        const initialLp = rawSqrt * 100_000n // scale 13-decimal product sqrt to 18-decimal LP tokens (1e5 scalar)
         if (initialLp <= MINIMUM_LIQUIDITY) return null
         const userLp = initialLp - MINIMUM_LIQUIDITY
         const shares = parseFloat(formatUnits(userLp, 18))
