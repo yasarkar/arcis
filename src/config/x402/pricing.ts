@@ -1,7 +1,13 @@
 // src/config/x402/pricing.ts
 // Fee calculations, precision helpers, and protocol fee parameters
 
-export const DEFAULT_PROTOCOL_FEE_BPS = 100 // 1% fee diverted to YieldVault
+// Official services charge a protocol fee (`protocolFeeBps: 50` = 0.5%) and settle to the protocol
+// treasury, which then pays providers their net earnings on withdrawal. The helper's own default
+// stays 0 so a caller that does not pass a rate is never charged by accident.
+export const DEFAULT_PROTOCOL_FEE_BPS = 0
+
+/** Fee charged by every official service, in basis points. */
+export const OFFICIAL_PROTOCOL_FEE_BPS = 50
 
 export interface FeeSplitResult {
   grossAmountUsdc: number
@@ -30,6 +36,23 @@ export function calculateFeeSplit(
     providerEarnedUsdc,
     protocolFeeBps: safeBps,
   }
+}
+
+/**
+ * Splits a 6-decimal amount into the protocol fee and the provider's net earnings.
+ *
+ * Integer math, because a per-call fee at these prices is a handful of micro-USDC and float
+ * rounding must never decide who receives a unit.
+ */
+export function splitSettlementAmount(
+  amountMicros: number,
+  feeBps: number
+): { feeMicros: number; providerMicros: number } {
+  const micros = Math.max(0, Math.trunc(Number(amountMicros) || 0))
+  const rawBps = Number(feeBps)
+  const bps = Number.isFinite(rawBps) ? Math.max(0, Math.min(10_000, Math.trunc(rawBps))) : 0
+  const feeMicros = Math.floor((micros * bps) / 10_000)
+  return { feeMicros, providerMicros: micros - feeMicros }
 }
 
 /**

@@ -12,11 +12,11 @@ import {
 export const slippageOptimizerManifest: ServiceManifest = {
   id: 'arc-deep-liquidity-slippage-optimizer',
   version: '1.0.0',
-  name: 'Deep Liquidity Depth & Slippage Predictor',
+  name: 'Liquidity Depth & Slippage Scout',
   tagline: 'Lowest Slippage and Multi-Hop Routing for High-Volume Trades',
   category: 'Liquidity & Routing',
   engine: 'native',
-  description: 'Analyzes concentrated liquidity depth across all Arc L1 pools to calculate price impact with 0.01% precision and optimal split-order distribution for trades from $10K to $5M.',
+  description: 'Reads live Arc L1 pool depth and computes the price impact and execution price of one trade, so a high-volume order can be sized against liquidity that actually exists.',
   listing: {
     kind: 'official',
     ownerAddress: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
@@ -32,7 +32,7 @@ export const slippageOptimizerManifest: ServiceManifest = {
     model: 'per_call',
     priceUsdc: 0.002,
     maxAmountUsdc: 0.002,
-    protocolFeeBps: 0,
+    protocolFeeBps: 50,
   },
   accepts: [
     {
@@ -75,9 +75,9 @@ export const slippageOptimizerManifest: ServiceManifest = {
           { label: 'USDC', value: 'USDC' },
           { label: 'EURC', value: 'EURC' },
           { label: 'WETH', value: 'WETH' },
-          { label: 'af-USDC (Yield Vault)', value: 'af-USDC' },
+          { label: 'cirBTC', value: 'cirBTC' },
         ],
-        description: 'Source asset to swap.',
+        description: 'Source asset to swap. Only assets with a live Arc pool are offered.',
         required: true,
       },
       {
@@ -89,9 +89,9 @@ export const slippageOptimizerManifest: ServiceManifest = {
           { label: 'WETH', value: 'WETH' },
           { label: 'USDC', value: 'USDC' },
           { label: 'EURC', value: 'EURC' },
-          { label: 'WBTC', value: 'WBTC' },
+          { label: 'cirBTC', value: 'cirBTC' },
         ],
-        description: 'Target destination asset.',
+        description: 'Target destination asset. Arc has no WBTC; its Bitcoin asset is cirBTC.',
         required: true,
       },
       {
@@ -132,5 +132,5 @@ export const slippageOptimizerManifest: ServiceManifest = {
     'Find the optimal multi-hop route for 50,000 USDC to WETH',
     'Calculate slippage across Arc pools',
   ],
-  tags: ['Liquidity', 'Slippage', 'Multi-Hop', 'Smart Routing'],
+  tags: ['Liquidity', 'Slippage', 'Multi-Hop', 'Smart-Routing'],
 }

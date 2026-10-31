@@ -16,15 +16,16 @@ export const gatewayIndexerManifest: ServiceManifest = {
   tagline: 'Real-Time Institutional USDC Liquidity Migration Flowing into Arc L1 from 13 Chains',
   category: 'Cross-Chain Gateway',
   engine: 'native',
-  description: 'Tracks real-time net USDC inflows and outflows between Circle Gateway-supported chains (Ethereum, Base, Arbitrum, Solana) and Arc L1. Delivers early signals on institutional capital movements and whale migrations.',
+  description:
+    'Tracks real-time net USDC liquidity migration between Circle Gateway-supported chains and Arc L1 from the Gateway contracts themselves. Responses are issued as an institutional report with read coverage, freshness, a data-quality grade and a graded register of window-coverage, flow-direction and source-concentration findings.',
   listing: {
     kind: 'official',
-    ownerAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    ownerAddress: '0x5407d034bf3ed112646252AfA7A76c5E3d18CE4B',
     createdAt: 1760000000000,
   },
   provider: {
     name: 'Circle Gateway Analytics Collective',
-    address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    address: '0x5407d034bf3ed112646252AfA7A76c5E3d18CE4B',
     isVerified: true,
     reputationScore: 99,
   },
@@ -32,14 +33,14 @@ export const gatewayIndexerManifest: ServiceManifest = {
     model: 'per_call',
     priceUsdc: 0.003,
     maxAmountUsdc: 0.003,
-    protocolFeeBps: 0,
+    protocolFeeBps: 50,
   },
   accepts: [
     {
       scheme: X402_SCHEMES.EXACT,
       network: X402_NETWORKS.CAIP2_ARC_TESTNET,
       asset: ARC_TESTNET_TOKENS.USDC,
-      payTo: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+      payTo: '0x5407d034bf3ed112646252AfA7A76c5E3d18CE4B',
       amount: '3000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
       extra: {
@@ -128,5 +129,5 @@ export const gatewayIndexerManifest: ServiceManifest = {
     'Track institutional USDC flows into Arc over the last 24 hours',
     'Which chain is bridging the most liquidity to Arc right now?',
   ],
-  tags: ['Gateway', 'Cross-Chain', 'Whale Alert', 'Indexer'],
+  tags: ['Gateway', 'Cross-Chain', 'Whale-Alert', 'USDC-Flow'],
 }

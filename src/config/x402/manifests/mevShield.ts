@@ -12,19 +12,19 @@ import {
 export const mevShieldManifest: ServiceManifest = {
   id: 'arc-mempool-mev-shield',
   version: '1.0.0',
-  name: 'Arc Mempool & MEV Shield Simulator',
-  tagline: 'Pre-Simulates Sandwich Attacks and Frontrunning Risks for Pending Transactions',
+  name: 'Mempool MEV Shield Simulator',
+  tagline: 'Measures How Much of the Arc Pool a Pending Trade Would Move',
   category: 'MEV & Security',
   engine: 'native',
-  description: 'Simulates pending high-volume transactions against malicious mempool MEV bots. Provides 100% protection through Arc L1 priority gas optimizations and private RPC relayer routes.',
+  description: 'Measures a pending trade against the live reserve of the side it drains in the Arc pool it would trade through — USDC/EURC, USDC/WETH, USDC/cirBTC or EURC/WETH — and classifies its sandwich exposure. The sold token’s reserve is valued in USDC with live oracle prices. The result is advisory: this service neither submits a bundle nor provides private relay or transaction protection.',
   listing: {
     kind: 'official',
-    ownerAddress: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+    ownerAddress: '0x5407d034bf3ed112646252AfA7A76c5E3d18CE4B',
     createdAt: 1760000000000,
   },
   provider: {
     name: 'ArcGuard Security Labs',
-    address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+    address: '0x5407d034bf3ed112646252AfA7A76c5E3d18CE4B',
     isVerified: true,
     reputationScore: 98,
   },
@@ -32,14 +32,14 @@ export const mevShieldManifest: ServiceManifest = {
     model: 'per_call',
     priceUsdc: 0.004,
     maxAmountUsdc: 0.004,
-    protocolFeeBps: 0,
+    protocolFeeBps: 50,
   },
   accepts: [
     {
       scheme: X402_SCHEMES.EXACT,
       network: X402_NETWORKS.CAIP2_ARC_TESTNET,
       asset: ARC_TESTNET_TOKENS.USDC,
-      payTo: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+      payTo: '0x5407d034bf3ed112646252AfA7A76c5E3d18CE4B',
       amount: '4000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
       extra: {
@@ -59,6 +59,16 @@ export const mevShieldManifest: ServiceManifest = {
     additionalProperties: false,
     required: ['targetTxAmountUsdc', 'slippageTolerancePct'],
     properties: {
+      pair: {
+        type: 'string',
+        enum: ['USDC/EURC', 'USDC/WETH', 'USDC/cirBTC', 'EURC/WETH'],
+      },
+      tokenIn: {
+        type: 'string',
+        enum: ['pair-first', 'USDC', 'EURC', 'WETH', 'cirBTC'],
+        description:
+          'Token the trade sells into the pool. \'pair-first\' (default) sells the pair’s first token; anything else must be one of the pair’s two tokens.',
+      },
       targetTxAmountUsdc: { type: 'number', minimum: 1 },
       slippageTolerancePct: { type: 'number', minimum: 0.01 },
     },
@@ -66,11 +76,43 @@ export const mevShieldManifest: ServiceManifest = {
   ui: {
     form: [
       {
+        name: 'pair',
+        label: 'Trading Pair',
+        type: 'select',
+        defaultValue: 'USDC/EURC',
+        options: [
+          { label: 'USDC / EURC (StableSwap)', value: 'USDC/EURC' },
+          { label: 'USDC / WETH (Constant Product)', value: 'USDC/WETH' },
+          { label: 'USDC / cirBTC (Constant Product)', value: 'USDC/cirBTC' },
+          { label: 'EURC / WETH (Constant Product)', value: 'EURC/WETH' },
+        ],
+        description:
+          'Pool the pending trade would move; exposure is measured against the reserve of the side the trade drains.',
+        required: true,
+      },
+      {
+        name: 'tokenIn',
+        label: 'Token Sold (tokenIn)',
+        type: 'select',
+        defaultValue: 'pair-first',
+        options: [
+          { label: 'Auto — first token of the pair', value: 'pair-first' },
+          { label: 'USDC', value: 'USDC' },
+          { label: 'EURC', value: 'EURC' },
+          { label: 'WETH', value: 'WETH' },
+          { label: 'cirBTC', value: 'cirBTC' },
+        ],
+        description:
+          'Token the trade sells into the pool. Exposure is measured against that token’s reserve — its live USDC value when it is not USDC. \'Auto\' sells the pair’s first token; an explicit token must belong to the selected pair.',
+        required: false,
+      },
+      {
         name: 'targetTxAmountUsdc',
         label: 'Transaction Value (USDC)',
         type: 'number',
         defaultValue: 100000,
-        description: 'Transaction size to evaluate for MEV exposure.',
+        description:
+          'Transaction size to evaluate for MEV exposure, as a USDC notional (the size measure for every pair, including EURC/WETH).',
         required: true,
       },
       {
@@ -85,17 +127,24 @@ export const mevShieldManifest: ServiceManifest = {
   },
   examples: {
     request: {
+      pair: 'USDC/EURC',
+      tokenIn: 'USDC',
       targetTxAmountUsdc: 100000,
       slippageTolerancePct: 0.5,
     },
     response: {
       status: 'ANALYSIS_COMPLETE',
+      pair: 'USDC/EURC',
+      tokenIn: 'USDC',
+      tokenOut: 'EURC',
+      poolAddress: '0xC3EdDA15AdfaC31ADfC23aC86dC96d791f72bE8a',
+      poolReserveUsdc: 1400000,
       vulnerabilityLevel: 'HIGH_IF_UNPROTECTED',
       // Real ratio of the user's trade size to the on-chain USDC pool reserve; null with
       // status 'UNAVAILABLE' when that reserve read fails.
       tradeReserveExposurePct: 7.14,
       recommendedShieldAction: {
-        bundleType: 'Arc L1 Native Priority Shield (Instant Finality)',
+        bundleType: 'Advisory only — no bundle is submitted',
         adjustedMaxSlippagePct: 0.5,
         estimatedGasCostUsdc: 0.0084,
       },
@@ -111,5 +160,5 @@ export const mevShieldManifest: ServiceManifest = {
     'Simulate MEV risk for $100,000 swap on Arc',
     'Calculate sandwich attack exposure before executing large order',
   ],
-  tags: ['MEV', 'Security', 'Anti-Sandwich', 'Simulation'],
+  tags: ['MEV-Shield', 'Security', 'Frontrunning', 'Private-RPC'],
 }

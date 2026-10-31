@@ -7,6 +7,10 @@ import { slippageOptimizerManifest } from './slippageOptimizer'
 import { flashLoanRadarManifest } from './flashLoanRadar'
 import { mevShieldManifest } from './mevShield'
 import { gatewayIndexerManifest } from './gatewayIndexer'
+import { gatewayRouteScoutManifest } from './gatewayRouteScout'
+import { vaultAnalyticsManifest } from './vaultAnalytics'
+import { portfolioRiskManifest } from './portfolioRisk'
+import { vaultYieldReportManifest } from './vaultYieldReport'
 
 export {
   arbitrageSentinelManifest,
@@ -14,6 +18,10 @@ export {
   flashLoanRadarManifest,
   mevShieldManifest,
   gatewayIndexerManifest,
+  gatewayRouteScoutManifest,
+  vaultAnalyticsManifest,
+  portfolioRiskManifest,
+  vaultYieldReportManifest,
 }
 
 export const OFFICIAL_MANIFESTS: ServiceManifest[] = [
@@ -22,6 +30,10 @@ export const OFFICIAL_MANIFESTS: ServiceManifest[] = [
   flashLoanRadarManifest,
   mevShieldManifest,
   gatewayIndexerManifest,
+  gatewayRouteScoutManifest,
+  vaultAnalyticsManifest,
+  portfolioRiskManifest,
+  vaultYieldReportManifest,
 ]
 
 export function getOfficialManifestById(id: string): ServiceManifest | undefined {

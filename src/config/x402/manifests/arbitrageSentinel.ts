@@ -12,11 +12,11 @@ import {
 export const arbitrageSentinelManifest: ServiceManifest = {
   id: 'arc-cross-dex-arbitrage-sentinel',
   version: '1.0.0',
-  name: 'Arc Cross-DEX Arbitrage Sentinel',
-  tagline: 'Calculates Real-Time Price Spreads and Net Profit Across Arc L1 DEX Pools',
+  name: 'Cross-DEX Arbitrage Sentinel',
+  tagline: 'Prices an Arc L1 Pool Against an External Oracle and Reports the Net Spread',
   category: 'Arbitrage',
   engine: 'native',
-  description: 'Detects arbitrage cycles across Arc L1 Uniswap v3, Curve, and Aerodrome forks alongside external CEX/Gateway bridges in milliseconds. Returns estimated gross profit, gas costs (USDC), and net yield percentage.',
+  description: 'Reads one Arc L1 pool rate and compares it with the external oracle rate for the same pair, then reports the gross spread and the net result after the measured Arc gas cost.',
   listing: {
     kind: 'official',
     ownerAddress: '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A',
@@ -32,7 +32,7 @@ export const arbitrageSentinelManifest: ServiceManifest = {
     model: 'per_call',
     priceUsdc: 0.005,
     maxAmountUsdc: 0.005,
-    protocolFeeBps: 0,
+    protocolFeeBps: 50,
   },
   accepts: [
     {
@@ -61,7 +61,7 @@ export const arbitrageSentinelManifest: ServiceManifest = {
     properties: {
       pair: {
         type: 'string',
-        enum: ['USDC/WETH', 'USDC/WBTC', 'USDC/EURC', 'af-USDC/USDC'],
+        enum: ['USDC/EURC', 'USDC/WETH', 'USDC/cirBTC'],
       },
       tradeSizeUsdc: { type: 'number', minimum: 100 },
       minNetProfitPct: { type: 'number', minimum: 0 },
@@ -73,14 +73,13 @@ export const arbitrageSentinelManifest: ServiceManifest = {
         name: 'pair',
         label: 'Token Pair',
         type: 'select',
-        defaultValue: 'USDC/WETH',
+        defaultValue: 'USDC/EURC',
         options: [
-          { label: 'USDC / WETH', value: 'USDC/WETH' },
-          { label: 'USDC / WBTC', value: 'USDC/WBTC' },
-          { label: 'USDC / EURC', value: 'USDC/EURC' },
-          { label: 'af-USDC / USDC (Vault Peg)', value: 'af-USDC/USDC' },
+          { label: 'USDC / EURC (StableSwap)', value: 'USDC/EURC' },
+          { label: 'USDC / WETH (Volatile Pool)', value: 'USDC/WETH' },
+          { label: 'USDC / cirBTC (Constant Product)', value: 'USDC/cirBTC' },
         ],
-        description: 'Primary liquidity pair to scan.',
+        description: 'Primary liquidity pair to scan on Arc L1.',
         required: true,
       },
       {
@@ -103,7 +102,7 @@ export const arbitrageSentinelManifest: ServiceManifest = {
   },
   examples: {
     request: {
-      pair: 'USDC/WETH',
+      pair: 'USDC/EURC',
       tradeSizeUsdc: 25000,
       minNetProfitPct: 0.35,
       includeGasCostEstimate: true,
@@ -114,18 +113,18 @@ export const arbitrageSentinelManifest: ServiceManifest = {
     response: {
       status: 'OPPORTUNITY_DETECTED',
       timestamp: 1760000000000,
-      pair: 'USDC/WETH',
-      liveOraclePrices: { USDC: 1, WETH: 2842.1 },
+      pair: 'USDC/EURC',
+      liveOraclePrices: { USDC: 1, EURC: 1.082 },
       bestRoute: {
         buyDex: 'Arcis StableSwap V3 Pool',
-        buyPriceUsdc: 2842.1,
+        buyPriceUsdc: 1.082,
         sellDex: 'External Oracle / Gateway Bridge',
-        sellPriceUsdc: 2864.8,
-        grossSpreadPct: 0.798,
+        sellPriceUsdc: 1.091,
+        grossSpreadPct: 0.832,
         recommendedTradeSize: 25000,
         estimatedGasCostUsdc: 0.0084,
-        netProfitUsdc: 199.25,
-        netProfitPct: 0.797,
+        netProfitUsdc: 207.99,
+        netProfitPct: 0.832,
       },
     },
   },
@@ -136,8 +135,8 @@ export const arbitrageSentinelManifest: ServiceManifest = {
   },
   healthcheckUrl: '/api/x402/health/arc-cross-dex-arbitrage-sentinel',
   agentPrompts: [
-    'Scan DEX pools for USDC/WETH triangular arbitrage',
+    'Scan DEX pools for USDC/EURC stable arbitrage',
     'Calculate net profit after Arc gas fees for 25k USDC arb',
   ],
-  tags: ['Arbitrage', 'DEX Spreads', 'Flash-Exec', 'Alpha'],
+  tags: ['Arbitrage', 'DEX-Spreads', 'Alpha', 'Flash-Exec'],
 }

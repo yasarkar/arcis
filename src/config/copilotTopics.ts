@@ -4,12 +4,24 @@ export interface TopicQuestion {
   id: string
   title: string
   prompt: string
+  /** A paid call: only worth offering once a wallet is connected to pay for it. */
+  requiresWallet?: boolean
 }
 
 export interface TopicCategory {
   id: string
   label: string
   questions: TopicQuestion[]
+}
+
+/**
+ * The questions a topic shows. Paid flows are hidden until a wallet is connected, so a chip
+ * never walks the user into a call that can only answer "Connect a wallet first".
+ */
+export function exploreTopicQuestions(categoryId: string, walletConnected: boolean): TopicQuestion[] {
+  const category = EXPLORE_TOPIC_CATEGORIES.find((topic) => topic.id === categoryId)
+  if (!category) return []
+  return category.questions.filter((question) => !question.requiresWallet || walletConnected)
 }
 
 export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
@@ -144,11 +156,19 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
         id: 'arb-6',
         title: 'Run a paid portfolio risk analysis on my wallet.',
         prompt: 'Run a portfolio risk analysis on my wallet.',
+        requiresWallet: true,
       },
       {
         id: 'arb-7',
         title: 'Generate my vault yield report.',
         prompt: 'Generate my vault yield report.',
+        requiresWallet: true,
+      },
+      {
+        id: 'arb-8',
+        title: "What is the vault's current TVL and share price?",
+        prompt: "What is the vault's TVL and share price per share?",
+        requiresWallet: true,
       },
     ],
   },
@@ -306,8 +326,8 @@ export function isGatewayFlowReportQuery(query: string): boolean {
 }
 
 /**
- * Detects a portfolio analysis request that the paid analysis agents answer:
- * `arc-portfolio-risk-exposure` then `arc-onchain-portfolio-analyst`.
+ * Detects a portfolio analysis request that the paid analysis agent answers:
+ * `arc-portfolio-risk-exposure`.
  * Strategy/rebalance asks stay on the free conversational path: those discuss an action,
  * while this intent is a paid measurement of what the wallet actually holds.
  */
@@ -353,6 +373,34 @@ export function isVaultReportQuery(query: string): boolean {
 }
 
 /**
+ * Detects a question about the vault's own economics — TVL, total assets, share price or
+ * outstanding shares — which the vault analytics agent measures on-chain. Position reports stay
+ * on their own flow, and a conversational APY explanation never matches here.
+ */
+export function isVaultAnalyticsQuery(query: string): boolean {
+  if (!query) return false
+  if (isVaultReportQuery(query)) return false
+  const p = query.toLowerCase()
+  const mentionsVault = p.includes('vault') || p.includes('af-usdc')
+  if (!mentionsVault) return false
+  return [
+    'tvl',
+    'total assets',
+    'total value locked',
+    'share price',
+    'price per share',
+    'value of one share',
+    'one vault share',
+    'share worth',
+    'shares outstanding',
+    'toplam varlık',
+    'pay fiyatı',
+    'pay değeri',
+    'hisse fiyatı',
+  ].some((keyword) => p.includes(keyword))
+}
+
+/**
  * Detects if a user query is an action, transaction command, portfolio strategy request,
  * multi-turn correction, or parameterized input that must be handled by LLM / Local NLP
  * rather than being intercepted by static educational FAQ substring matches.
@@ -363,7 +411,7 @@ export function isActionOrStrategyIntent(query: string): boolean {
   // Analytics report queries are answered by the Gateway flow service, not an action intent.
   if (isGatewayFlowReportQuery(query)) return false
   // Paid analysis/reporting intents are measurements, not transaction actions.
-  if (isPortfolioAnalysisQuery(query) || isVaultReportQuery(query)) return false
+  if (isPortfolioAnalysisQuery(query) || isVaultReportQuery(query) || isVaultAnalyticsQuery(query)) return false
   const p = query.toLowerCase().trim()
 
   // 1. Slash commands always route to intent/action handling

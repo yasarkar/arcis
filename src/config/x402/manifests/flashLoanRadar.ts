@@ -12,11 +12,11 @@ import {
 export const flashLoanRadarManifest: ServiceManifest = {
   id: 'arc-flash-loan-yield-radar',
   version: '1.0.0',
-  name: 'Flash-Loan Yield & Liquidation Radar',
+  name: 'Flash-Loan & Liquidation Radar',
   tagline: 'Identifies Zero-Capital Flash-Loan Arbitrage and Liquidation Premiums',
   category: 'Yield & Flash-Loan',
   engine: 'native',
-  description: 'Monitors undercollateralized positions and flash-loan arbitrage opportunities across Arc lending protocols (Aave / Compound Arc L1 forks). Generates execution calldata to capture 5% - 12% liquidation bonuses with zero capital risk.',
+  description: 'Monitors undercollateralized positions and flash-loan opportunities across Arc lending protocols, generating execution data to capture 5%–12% liquidation bonuses.',
   listing: {
     kind: 'official',
     ownerAddress: '0x9482Ac02f0B0F3Ac9443Bf38e78fC3A360049f5E',
@@ -32,7 +32,7 @@ export const flashLoanRadarManifest: ServiceManifest = {
     model: 'per_call',
     priceUsdc: 0.008,
     maxAmountUsdc: 0.008,
-    protocolFeeBps: 0,
+    protocolFeeBps: 50,
   },
   accepts: [
     {
@@ -116,5 +116,5 @@ export const flashLoanRadarManifest: ServiceManifest = {
     'Check for liquidation opportunities on Arc lending pools',
     'Calculate flash loan profit for undercollateralized loans',
   ],
-  tags: ['Flash-Loan', 'Liquidations', 'Zero-Capital', 'Yield'],
+  tags: ['Flash-Loan', 'Liquidation', 'Yield', 'Zero-Capital'],
 }
