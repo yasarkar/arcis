@@ -288,8 +288,8 @@ export async function executeZapIn(
     )
   }
 
-  const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.tags?.includes('Constant Product')
-  const feeBps = pool.feeTierPercent ? BigInt(Math.round(pool.feeTierPercent * 100)) : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' ? 30n : pool.id === 'usdc-cirbtc-pool' ? 25n : 12n)
+  const isConstantProduct = pool.id === 'usdc-cirbtc-pool' || pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'eurc-cirbtc-pool' || pool.tags?.includes('Constant Product')
+  const feeBps = pool.feeTierPercent ? BigInt(Math.round(pool.feeTierPercent * 100)) : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' ? 30n : (pool.id === 'usdc-cirbtc-pool' || pool.id === 'eurc-cirbtc-pool') ? 25n : 12n)
   const inAfterFee = (halfUsdc * (10000n - feeBps)) / 10000n
   let expectedOut = 0n
   if (isConstantProduct) {
@@ -864,7 +864,11 @@ export async function executeDepositDual(
       ? POOL_CONTRACTS.WETH_POOL
       : poolId === 'eurc-weth-pool'
         ? POOL_CONTRACTS.EURC_WETH_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+        : poolId === 'eurc-cirbtc-pool'
+          ? POOL_CONTRACTS.EURC_CIRBTC_POOL
+          : poolId === 'cirbtc-weth-pool'
+            ? POOL_CONTRACTS.CIRBTC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
 
   requireDeployed(poolAddress, pool.name)
 
@@ -872,12 +876,13 @@ export async function executeDepositDual(
   if (!targetAccount) throw new Error('Wallet not connected')
 
   const tokenA = pool.tokens[0]
-  const tokenAAddress = (tokenA?.address || (poolId === 'eurc-weth-pool' ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.USDC)) as `0x${string}`
+  const tokenADecimals = tokenA?.decimals ?? (poolId === 'cirbtc-weth-pool' ? 8 : 6)
+  const tokenAAddress = (tokenA?.address || (poolId === 'cirbtc-weth-pool' ? POOL_CONTRACTS.cirBTC : (poolId === 'eurc-weth-pool' || poolId === 'eurc-cirbtc-pool' ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.USDC))) as `0x${string}`
   const counterToken = pool.tokens[1]
-  const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool') ? 18 : 6)
-  const amountA = parseUnits(amountAStr, 6)
+  const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' || pool.id === 'eurc-cirbtc-pool' ? 8 : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'cirbtc-weth-pool') ? 18 : 6)
+  const amountA = parseUnits(amountAStr, tokenADecimals)
   const amountB = parseUnits(amountBStr, counterDecimals)
-  const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
+  const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'cirbtc-weth-pool' ? POOL_CONTRACTS.WETH : (pool.id === 'usdc-cirbtc-pool' || pool.id === 'eurc-cirbtc-pool') ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.EURC)) as `0x${string}`
 
   let freshPoolState = onchainPoolState
   try {
@@ -932,9 +937,13 @@ export async function executeDepositDual(
   const addLiquidityArgs = [amountA, amountB, minLpShares] as const
 
   const { eurc: liveEurcPrice, btc: liveBtcPrice, weth: liveWethPrice } = livePrices
-  const tokenAUsdPrice = (poolId === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC') ? liveEurcPrice : 1.0
+  const tokenAUsdPrice = (poolId === 'cirbtc-weth-pool' || pool.tokens[0]?.symbol === 'cirBTC')
+    ? liveBtcPrice
+    : (poolId === 'eurc-weth-pool' || poolId === 'eurc-cirbtc-pool' || pool.tokens[0]?.symbol === 'EURC')
+      ? liveEurcPrice
+      : 1.0
   const counterUsdPrice = poolId === 'usdc-eurc-stable-pool' ? liveEurcPrice : liveBtcPrice
-  const effectiveCounterUsdPrice = (poolId === 'usdc-weth-pool' || poolId === 'eurc-weth-pool') ? liveWethPrice : counterUsdPrice
+  const effectiveCounterUsdPrice = (poolId === 'usdc-weth-pool' || poolId === 'eurc-weth-pool' || poolId === 'cirbtc-weth-pool') ? liveWethPrice : counterUsdPrice
   const totalUsdAdded = (parseFloat(amountAStr) || 0) * tokenAUsdPrice + (parseFloat(amountBStr) || 0) * effectiveCounterUsdPrice
 
   // 1. Modular Smart Account
@@ -1001,9 +1010,14 @@ export async function executeDepositDual(
 
     const decA = parseFloat(amountAStr) || 0
     if (totalUsdAdded > 0) {
-      const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC'
+      const isTokenACirBtc = pool.id === 'cirbtc-weth-pool' || pool.tokens[0]?.symbol === 'cirBTC'
+      const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.id === 'eurc-cirbtc-pool' || pool.tokens[0]?.symbol === 'EURC'
       queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
         if (!old) return old
+        if (isTokenACirBtc) {
+          const oldBtc = parseFloat(old.cirbtc || old.btc || '0')
+          return { ...old, cirbtc: Math.max(0, oldBtc - decA).toFixed(4) }
+        }
         if (isTokenAEurc) {
           const oldEurc = parseFloat(old.eurc || '0')
           return { ...old, eurc: Math.max(0, oldEurc - decA).toFixed(2) }
@@ -1099,9 +1113,14 @@ export async function executeDepositDual(
 
     const decA = parseFloat(amountAStr) || 0
     if (totalUsdAdded > 0) {
-      const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC'
+      const isTokenACirBtc = pool.id === 'cirbtc-weth-pool' || pool.tokens[0]?.symbol === 'cirBTC'
+      const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.id === 'eurc-cirbtc-pool' || pool.tokens[0]?.symbol === 'EURC'
       queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
         if (!old) return old
+        if (isTokenACirBtc) {
+          const oldBtc = parseFloat(old.cirbtc || old.btc || '0')
+          return { ...old, cirbtc: Math.max(0, oldBtc - decA).toFixed(4) }
+        }
         if (isTokenAEurc) {
           const oldEurc = parseFloat(old.eurc || '0')
           return { ...old, eurc: Math.max(0, oldEurc - decA).toFixed(2) }
@@ -1198,9 +1217,14 @@ export async function executeDepositDual(
 
   const decA = parseFloat(amountAStr) || 0
   if (totalUsdAdded > 0) {
-    const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.tokens[0]?.symbol === 'EURC'
+    const isTokenACirBtc = pool.id === 'cirbtc-weth-pool' || pool.tokens[0]?.symbol === 'cirBTC'
+    const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.id === 'eurc-cirbtc-pool' || pool.tokens[0]?.symbol === 'EURC'
     queryClient.setQueryData<any>(['onchainPoolBalances', targetAccount], (old: any) => {
       if (!old) return old
+      if (isTokenACirBtc) {
+        const oldBtc = parseFloat(old.cirbtc || old.btc || '0')
+        return { ...old, cirbtc: Math.max(0, oldBtc - decA).toFixed(4) }
+      }
       if (isTokenAEurc) {
         const oldEurc = parseFloat(old.eurc || '0')
         return { ...old, eurc: Math.max(0, oldEurc - decA).toFixed(2) }

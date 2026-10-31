@@ -10,6 +10,7 @@ import { getLiveTokenPrices, normalizeTokenSymbol, DEFAULT_TOKEN_PRICES } from '
 import type { CopilotActionPayload } from '../../types/marketplace'
 import type { InlineExecutionReceipt, ExecutionProgressState, SessionActionType } from '../../types/sessionKey'
 import { ERC20_ABI } from '../../config/poolsConfig'
+import type { UcwTypedDataChallenge } from '../x402/ucwPaymentSigner'
 
 export interface CopilotUcwHandlers {
   authSource?: 'passkey' | 'ucw' | 'evm' | null
@@ -29,6 +30,11 @@ export interface CopilotUcwHandlers {
     blockchain?: string
   }) => Promise<{ success: boolean; txHash?: string; error?: string }>
   pollChallengeTx?: (challengeId?: string, blockchain?: string) => Promise<string | undefined>
+  /**
+   * Circle typed-data challenge signer. Present only for a UCW EOA wallet, and required
+   * for the copilot's paid x402 calls when the active signer is not an injected EOA.
+   */
+  signTypedData?: UcwTypedDataChallenge
 }
 
 export interface CopilotActionContext {

@@ -280,7 +280,11 @@ export async function executeWithdrawFromPool(
       ? POOL_CONTRACTS.WETH_POOL
       : poolId === 'eurc-weth-pool'
         ? POOL_CONTRACTS.EURC_WETH_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+        : poolId === 'eurc-cirbtc-pool'
+          ? POOL_CONTRACTS.EURC_CIRBTC_POOL
+          : poolId === 'cirbtc-weth-pool'
+            ? POOL_CONTRACTS.CIRBTC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
   requireDeployed(poolAddress, pool.name)
 
   const userLpRaw = (await resilientReadContract(publicClient, {
@@ -333,15 +337,16 @@ export async function executeWithdrawFromPool(
   }
 
   const counterToken = pool.tokens[1]
-  const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
+  const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'cirbtc-weth-pool' ? POOL_CONTRACTS.WETH : (pool.id === 'usdc-cirbtc-pool' || pool.id === 'eurc-cirbtc-pool') ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.EURC)) as `0x${string}`
 
   const removeLiquidityArgs = (() => {
     if (!POOL_VERSION_V4) return [lpToWithdraw, 0n, 0n] as const
     const st = (onchainPoolState || {})[poolAddress] as any
     const total = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
     if (total <= 0n) return [lpToWithdraw, 0n, 0n] as const
-    const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
-    const reserveA = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
+    const tokenADecimals = pool.tokens[0]?.decimals ?? (poolId === 'cirbtc-weth-pool' ? 8 : 6)
+    const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' || pool.id === 'eurc-cirbtc-pool' ? 8 : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'cirbtc-weth-pool') ? 18 : 6)
+    const reserveA = st?.reserveA ? parseUnits(st.reserveA, tokenADecimals) : 0n
     const reserveB = st?.reserveB ? parseUnits(st.reserveB, counterDecimals) : 0n
     const slipBps = poolSlippageBps(_slippage)
     const minOutA = reserveA > 0n ? poolMinOut((reserveA * lpToWithdraw) / total, slipBps) : 0n
@@ -477,7 +482,7 @@ export async function executeWithdrawFromPool(
 
       const receivedCounter = counterBalAfter > counterBalBefore ? counterBalAfter - counterBalBefore : 0n
       if (receivedCounter > 0n) {
-        const counterDecimals = counterToken.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
+        const counterDecimals = counterToken.decimals ?? (pool.id === 'usdc-cirbtc-pool' || pool.id === 'eurc-cirbtc-pool' ? 8 : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'cirbtc-weth-pool') ? 18 : 6)
         const counterBalStr = formatUnits(receivedCounter, counterDecimals)
         autoSwapCounterSymbol = counterToken.symbol
         autoSwapCounterAmount = counterBalStr

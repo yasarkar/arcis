@@ -52,7 +52,11 @@ export async function executeSwapInPool(
       ? POOL_CONTRACTS.WETH_POOL
       : poolId === 'eurc-weth-pool'
         ? POOL_CONTRACTS.EURC_WETH_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
+        : poolId === 'eurc-cirbtc-pool'
+          ? POOL_CONTRACTS.EURC_CIRBTC_POOL
+          : poolId === 'cirbtc-weth-pool'
+            ? POOL_CONTRACTS.CIRBTC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)
 
   requireDeployed(poolAddress, pool.name)
 
@@ -60,16 +64,19 @@ export async function executeSwapInPool(
   if (!targetAccount) throw new Error('Wallet not connected')
 
   const counterToken = pool.tokens[1]
-  const counterTokenAddr = (counterToken?.address || (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
+  const counterTokenAddr = (counterToken?.address || (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'cirbtc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
 
   const isWeth = (s: string) => s === 'WETH' || s === 'ETH'
+  const isCirBtc = (s: string) => s === 'cirBTC' || s === 'BTC'
   const tokenInAddr = tokenIn === 'USDC'
     ? POOL_CONTRACTS.USDC
     : tokenIn === 'EURC'
       ? POOL_CONTRACTS.EURC
       : isWeth(tokenIn)
         ? POOL_CONTRACTS.WETH
-        : counterTokenAddr
+        : isCirBtc(tokenIn)
+          ? POOL_CONTRACTS.cirBTC
+          : counterTokenAddr
 
   const tokenOutAddr = tokenOut === 'USDC'
     ? POOL_CONTRACTS.USDC
@@ -77,10 +84,12 @@ export async function executeSwapInPool(
       ? POOL_CONTRACTS.EURC
       : isWeth(tokenOut)
         ? POOL_CONTRACTS.WETH
-        : counterTokenAddr
+        : isCirBtc(tokenOut)
+          ? POOL_CONTRACTS.cirBTC
+          : counterTokenAddr
 
-  const inDecimals = isWeth(tokenIn) ? 18 : (tokenIn === 'cirBTC' || (counterToken?.decimals === 8 && tokenIn !== 'USDC' && tokenIn !== 'EURC')) ? 8 : 6
-  const outDecimals = isWeth(tokenOut) ? 18 : (tokenOut === 'cirBTC' || (counterToken?.decimals === 8 && tokenOut !== 'USDC' && tokenOut !== 'EURC')) ? 8 : 6
+  const inDecimals = isWeth(tokenIn) ? 18 : (isCirBtc(tokenIn) || (counterToken?.decimals === 8 && tokenIn !== 'USDC' && tokenIn !== 'EURC')) ? 8 : 6
+  const outDecimals = isWeth(tokenOut) ? 18 : (isCirBtc(tokenOut) || (counterToken?.decimals === 8 && tokenOut !== 'USDC' && tokenOut !== 'EURC')) ? 8 : 6
   const amountIn = parseUnits(amountInStr, inDecimals)
   const minOut = minOutStr ? parseUnits(minOutStr, outDecimals) : 0n
   if (minOut <= 0n) {

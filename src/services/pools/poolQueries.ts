@@ -199,6 +199,72 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
     }
   }
 
+  // ConstantProductPool (EURC/cirBTC) via Multicall3
+  if (isDeployed(POOL_CONTRACTS.EURC_CIRBTC_POOL)) {
+    try {
+      const fnNames = AMM_POOL_STATE_READ_FNS
+
+      const calls = fnNames.map((fn) => ({
+        address: POOL_CONTRACTS.EURC_CIRBTC_POOL as Address,
+        abi: CONSTANT_PRODUCT_ABI,
+        functionName: fn,
+      }))
+
+      const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+      const val = (idx: number, fallback: bigint = 0n) =>
+        results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
+      state[POOL_CONTRACTS.EURC_CIRBTC_POOL] = {
+        reserveA: formatUnits(val(0), 6),
+        reserveB: formatUnits(val(1), 8),
+        totalLp: formatUnits(val(2), 18),
+        unclaimedFeeA: formatUnits(val(3), 6),
+        unclaimedFeeB: formatUnits(val(4), 8),
+        ...(POOL_VERSION_V4
+          ? { feeReserveA: formatUnits(val(5), 6), feeReserveB: formatUnits(val(6), 8) }
+          : { accumulatedFeeA: formatUnits(val(5), 6), accumulatedFeeB: formatUnits(val(6), 8) }),
+        swapFeeBps: Number(val(7, 25n)),
+        volume24hA: formatUnits(val(8), 6),
+        volume24hB: formatUnits(val(9), 8),
+      }
+    } catch (err) {
+      console.warn(`[usePoolsData] EURC/cirBTC ConstantProduct multicall state read failed:`, err)
+    }
+  }
+
+  // ConstantProductPool (cirBTC/WETH) via Multicall3
+  if (isDeployed(POOL_CONTRACTS.CIRBTC_WETH_POOL)) {
+    try {
+      const fnNames = AMM_POOL_STATE_READ_FNS
+
+      const calls = fnNames.map((fn) => ({
+        address: POOL_CONTRACTS.CIRBTC_WETH_POOL as Address,
+        abi: CONSTANT_PRODUCT_ABI,
+        functionName: fn,
+      }))
+
+      const results = await resilientMulticall(publicClient, calls, { allowFailure: true })
+      const val = (idx: number, fallback: bigint = 0n) =>
+        results[idx]?.status === 'success' ? (results[idx].result as bigint) : fallback
+
+      state[POOL_CONTRACTS.CIRBTC_WETH_POOL] = {
+        reserveA: formatUnits(val(0), 8),
+        reserveB: formatUnits(val(1), 18),
+        totalLp: formatUnits(val(2), 18),
+        unclaimedFeeA: formatUnits(val(3), 8),
+        unclaimedFeeB: formatUnits(val(4), 18),
+        ...(POOL_VERSION_V4
+          ? { feeReserveA: formatUnits(val(5), 8), feeReserveB: formatUnits(val(6), 18) }
+          : { accumulatedFeeA: formatUnits(val(5), 8), accumulatedFeeB: formatUnits(val(6), 18) }),
+        swapFeeBps: Number(val(7, 30n)),
+        volume24hA: formatUnits(val(8), 8),
+        volume24hB: formatUnits(val(9), 18),
+      }
+    } catch (err) {
+      console.warn(`[usePoolsData] cirBTC/WETH ConstantProduct multicall state read failed:`, err)
+    }
+  }
+
   // YieldVault (ERC-4626) via Multicall3
   if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
     try {

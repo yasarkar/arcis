@@ -55,7 +55,11 @@ export async function executeClaimPoolRewards(
       ? POOL_CONTRACTS.WETH_POOL
       : poolId === 'eurc-weth-pool'
         ? POOL_CONTRACTS.EURC_WETH_POOL
-        : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)) as `0x${string}`
+        : poolId === 'eurc-cirbtc-pool'
+          ? POOL_CONTRACTS.EURC_CIRBTC_POOL
+          : poolId === 'cirbtc-weth-pool'
+            ? POOL_CONTRACTS.CIRBTC_WETH_POOL
+            : POOL_CONTRACTS.CONSTANT_PRODUCT_POOL)) as `0x${string}`
 
   let harvestableA = 0n
   let harvestableB = 0n
@@ -167,7 +171,11 @@ export async function executeClaimPoolRewards(
     await waitForReceiptSafe(txHash as Hex, 'Harvest')
   }
 
-  const usdA = parseFloat(formatUnits(harvestableA, 6))
+  const isTokenACirBtc = pool.id === 'cirbtc-weth-pool' || pool.tokens[0]?.symbol === 'cirBTC'
+  const isTokenAEurc = pool.id === 'eurc-weth-pool' || pool.id === 'eurc-cirbtc-pool' || pool.tokens[0]?.symbol === 'EURC'
+  const decA = pool.tokens?.[0]?.decimals ?? 6
+  const tokenAPrice = isTokenACirBtc ? livePrices.btc : isTokenAEurc ? livePrices.eurc : 1.0
+  const usdA = parseFloat(formatUnits(harvestableA, decA)) * tokenAPrice
   const counterPrice = decB === 8 ? livePrices.btc : decB === 18 ? livePrices.weth : livePrices.eurc
   const usdB = harvestableB > 0n
     ? parseFloat(formatUnits(harvestableB, decB)) * counterPrice
