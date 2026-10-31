@@ -33,6 +33,13 @@ const circleMock = vi.hoisted(() => ({ settle: vi.fn() }))
 vi.mock('@circle-fin/x402-batching/server', () => ({
   BatchFacilitatorClient: vi.fn(function () { return { settle: circleMock.settle } }),
 }))
+// The treasury payout signs and broadcasts a real Arc Testnet transfer; these tests only assert
+// how the withdraw endpoint uses its result, so the broadcaster is stubbed (the signer gate is not).
+const payoutMock = vi.hoisted(() => ({ sendProviderPayout: vi.fn() }))
+vi.mock('../../../../api/_utils/x402Payout', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../api/_utils/x402Payout')>()),
+  sendProviderPayout: payoutMock.sendProviderPayout,
+}))
 vi.mock('../../aiServicesDataProvider', async () => {
   const actual = await vi.importActual<typeof import('../../aiServicesDataProvider')>('../../aiServicesDataProvider')
   return { ...actual, generateLiveServiceData: vi.fn() }
@@ -43,10 +50,19 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
   const payerAccount = privateKeyToAccount(payerPrivKey)
   const manifest = OFFICIAL_MANIFESTS[0] // arc-cross-dex-arbitrage-sentinel (0.005 USDC)
   const providerAddress = getAddress(manifest.provider.address.toLowerCase())
+  // Fee-bearing calls settle to this treasury, so every signed authorization names it.
+  const treasuryPrivateKey = generatePrivateKey()
+  const treasuryAccount = privateKeyToAccount(treasuryPrivateKey)
+  const treasuryAddress = treasuryAccount.address
 
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubEnv('ENABLE_GATEWAY_SETTLE', 'false')
+    vi.stubEnv('X402_TREASURY_ADDRESS', treasuryAddress)
+    vi.stubEnv('X402_TREASURY_PRIVATE_KEY', treasuryPrivateKey)
+    // The payout confirmation gate only applies while settlement is enabled; the mechanics tests
+    // below use an official manifest whose payout address passes the static audit.
+    vi.stubEnv('X402_PAYOUT_ADDRESSES_CONFIRMED', 'true')
     vi.stubEnv('X402_UPSTREAM_HOST_ALLOWLIST', 'api.example.com')
   })
 
@@ -62,8 +78,25 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.success).toBe(true)
-    expect(data.count).toBeGreaterThanOrEqual(5)
-    expect(data.services.length).toBeGreaterThanOrEqual(5)
+    expect(data.count).toBe(9)
+    expect(data.services.length).toBe(9)
+    expect(data.services.filter((service: any) => service.engine === 'llm')).toHaveLength(1)
+  })
+
+  it('rejects new-service payloads that violate their manifest schema before any payment', async () => {
+    const badAddress = await POST(new Request('http://localhost:3000/api/x402/arc-portfolio-risk-exposure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: 'not-an-address' }),
+    }))
+    expect(badAddress.status).toBe(400)
+
+    const badChain = await POST(new Request('http://localhost:3000/api/x402/arc-gateway-fee-route-scout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amountUsdc: 100, destinationChain: 'Solana_Devnet', urgency: 'standard' }),
+    }))
+    expect(badChain.status).toBe(400)
   })
 
   it('POST /api/x402/services rejects unsigned registration and registers a signed, safe community service', async () => {
@@ -164,6 +197,42 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(data.protocol).toBe('x402-Gateway-V1')
   })
 
+  it('GET /api/x402/health/:id reports the readiness of that service', async () => {
+    const res = await GET(
+      new Request(`http://localhost:3000/api/x402/health/${manifest.id}`, { method: 'GET' })
+    )
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.serviceId).toBe(manifest.id)
+    expect(data.engine).toBe(manifest.engine)
+    expect(['ready', 'degraded']).toContain(data.status)
+    expect(data.checks.map((check: any) => check.id)).toContain('payout')
+  })
+
+  it('marks a paid llm service degraded when no server credential is configured', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', '')
+    vi.stubEnv('OPENROUTER_API_KEY', '')
+    const llmManifest = OFFICIAL_MANIFESTS.find((entry) => entry.engine === 'llm')!
+
+    const res = await GET(
+      new Request(`http://localhost:3000/api/x402/health/${llmManifest.id}`, { method: 'GET' })
+    )
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe('degraded')
+    expect(data.checks.find((check: any) => check.id === 'llm-credential')?.ok).toBe(false)
+  })
+
+  it('returns 404 for a service health probe on an unknown id', async () => {
+    const res = await GET(
+      new Request('http://localhost:3000/api/x402/health/not-a-service', { method: 'GET' })
+    )
+
+    expect(res.status).toBe(404)
+  })
+
   it('GET /api/x402/:id returns HTTP 402 with structured requirements and challenge headers', async () => {
     const req = new Request(`http://localhost:3000/api/x402/${manifest.id}`, { method: 'GET' })
     const res = await GET(req)
@@ -171,7 +240,7 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(res.status).toBe(402)
     expect(res.headers.get('X-Payment-Required')).toBe('true')
     expect(res.headers.get('X-Payment-Amount')).toBe('0.005')
-    expect(res.headers.get('X-Payment-Recipient')?.toLowerCase()).toBe(providerAddress.toLowerCase())
+    expect(res.headers.get('X-Payment-Recipient')?.toLowerCase()).toBe(treasuryAddress.toLowerCase())
 
     const data = await res.json()
     expect(data.statusCode).toBe(402)
@@ -209,7 +278,7 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
 
     const message = {
       from: payerAccount.address,
-      to: providerAddress,
+      to: treasuryAddress,
       value: BigInt(requiredBaseUnits),
       validAfter,
       validBefore,
@@ -263,6 +332,57 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(afterLedger.services).toEqual(beforeLedger.services)
   })
 
+  it('explains a voided paid call with the reason the service reported, and charges nothing', async () => {
+    vi.stubEnv('ENABLE_GATEWAY_SETTLE', 'true')
+    vi.mocked(generateLiveServiceData).mockResolvedValue({
+      data: {
+        status: 'UNAVAILABLE',
+        unavailable: ['USDC balance', 'arc price feed'],
+        reason: 'A required on-chain read did not come back.',
+      },
+      actionablePayload: undefined,
+    } as any)
+
+    const nonce: Hex = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`
+    const amount = usdcToBaseUnits(manifest.pricing.priceUsdc)
+    const validBefore = BigInt(Math.floor(Date.now() / 1000) + CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS + 10)
+    const challengeRes = await GET(new Request(`http://localhost:3000/api/x402/${manifest.id}`))
+    const challenge = await challengeRes.json()
+    const authorization = { from: payerAccount.address, to: treasuryAddress, value: BigInt(amount), validAfter: 0n, validBefore, nonce }
+    const signature = await payerAccount.signTypedData({
+      domain: { ...GATEWAY_BATCHED_DOMAIN, verifyingContract: getAddress(GATEWAY_BATCHED_DOMAIN.verifyingContract) },
+      types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
+      primaryType: 'TransferWithAuthorization',
+      message: authorization,
+    })
+    const paymentSignature = Buffer.from(JSON.stringify({
+      x402Version: 2,
+      payload: { signature, authorization: { ...authorization, value: amount, validAfter: '0', validBefore: validBefore.toString() } },
+      accepted: challenge.requirements.accepts[0],
+      resource: challenge.resource,
+    })).toString('base64')
+
+    const res = await POST(new Request(`http://localhost:3000/api/x402/${manifest.id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Payment-Signature': paymentSignature },
+      body: JSON.stringify({ payload: { pair: 'USDC/EURC', tradeSizeUsdc: 25000 } }),
+    }))
+
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.status).toBe('voided')
+    expect(body.costUsdc).toBe(0)
+    expect(body.diagnostics).toMatchObject({
+      serviceId: manifest.id,
+      engine: manifest.engine,
+      resultStatus: 'UNAVAILABLE',
+      unavailable: ['USDC balance', 'arc price feed'],
+      reason: 'A required on-chain read did not come back.',
+      charged: false,
+    })
+    expect(circleMock.settle).not.toHaveBeenCalled()
+  })
+
   it('keeps accepted payments pending until Circle confirms the nonce-matched transfer, then credits once', async () => {
     vi.stubEnv('ENABLE_GATEWAY_SETTLE', 'true')
     vi.stubEnv('X402_RECONCILIATION_SECRET', 'unit-test-secret')
@@ -274,7 +394,7 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     const challenge = await challengeRes.json()
     const amount = usdcToBaseUnits(manifest.pricing.priceUsdc)
     const validBefore = BigInt(Math.floor(Date.now() / 1000) + CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS + 10)
-    const authorization = { from: payerAccount.address, to: providerAddress, value: BigInt(amount), validAfter: 0n, validBefore, nonce }
+    const authorization = { from: payerAccount.address, to: treasuryAddress, value: BigInt(amount), validAfter: 0n, validBefore, nonce }
     const signature = await payerAccount.signTypedData({
       domain: { ...GATEWAY_BATCHED_DOMAIN, verifyingContract: getAddress(GATEWAY_BATCHED_DOMAIN.verifyingContract) },
       types: EIP3009_TRANSFER_WITH_AUTHORIZATION_TYPES,
@@ -298,13 +418,16 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(accepted.payment.status).toBe('settlement_pending')
     expect(accepted.payment.settlementRef).toBe('circle-settlement-ref-1')
     expect(accepted.payment.settlementRef).not.toMatch(/^0x[0-9a-f]{64}$/i)
-    expect(accepted.providerEarnedUsdc).toBe(0)
+    // 50 bps of 0.005 USDC is 25 micro-USDC, so the provider's net is 0.004975.
+    expect(accepted.protocolFeeUsdc).toBe(0.000025)
+    expect(accepted.providerEarnedUsdc).toBe(0.004975)
     expect(accepted.data.status).toBe('LIVE')
     expect(circleMock.settle).toHaveBeenCalledTimes(1)
 
     const before = await GET(new Request(`http://localhost:3000/api/x402/provider/${providerAddress}`))
     const beforeLedger = (await before.json()).ledger
-    expect(beforeLedger.pendingUsdc).toBeGreaterThanOrEqual(manifest.pricing.priceUsdc)
+    // Pending is the provider's net (gross minus the 50 bps fee), not the payer's gross.
+    expect(beforeLedger.pendingUsdc).toBeGreaterThanOrEqual(0.004975)
     expect(beforeLedger.availableUsdc).toBe(0)
 
     const transfer = {
@@ -314,7 +437,7 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
       sendingNetwork: 'eip155:5042002',
       recipientNetwork: 'eip155:5042002',
       fromAddress: payerAccount.address,
-      toAddress: providerAddress,
+      toAddress: treasuryAddress,
       amount: '0.005',
       nonce,
       txHash: `0x${'a'.repeat(64)}`,
@@ -343,9 +466,10 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     const after = await GET(new Request(`http://localhost:3000/api/x402/provider/${providerAddress}`))
     const afterLedger = (await after.json()).ledger
     expect(afterLedger.pendingUsdc).toBe(0)
-    expect(afterLedger.availableUsdc).toBe(manifest.pricing.priceUsdc)
+    // The treasury keeps the 50 bps fee; only the provider's net is credited.
+    expect(afterLedger.availableUsdc).toBe(0.004975)
     const storedLedger = JSON.parse((await kvGet(`arcis:x402:provider:{${providerAddress.toLowerCase()}}`)) || '{}')
-    expect(storedLedger.totalUsdcEarned).toBe(manifest.pricing.priceUsdc)
+    expect(storedLedger.totalUsdcEarned).toBe(0.004975)
   })
 
   it('does not credit failed, pending, or mismatched Circle transfers', async () => {
@@ -395,7 +519,7 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
 
     const message = {
       from: payerAccount.address,
-      to: providerAddress,
+      to: treasuryAddress,
       value: BigInt(requiredBaseUnits),
       validAfter: 0n,
       validBefore: BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 + 100),
@@ -457,6 +581,8 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     it('withdraws earnings atomically via a signed, single-use provider authorization', async () => {
       const withdrawalAccount = privateKeyToAccount(generatePrivateKey())
       const withdrawalProvider = withdrawalAccount.address as Address
+      const payoutTxHash: Hex = `0x${'b'.repeat(64)}`
+      payoutMock.sendProviderPayout.mockResolvedValue({ status: 'paid', txHash: payoutTxHash, treasuryAddress })
       const ledgerKey = `arcis:x402:provider:{${withdrawalProvider.toLowerCase()}}`
       await kvUpdateProviderLedger(ledgerKey, { calls: 1, earnedMicros: 20_000 })
       const amountUsdc = 0.005
@@ -484,8 +610,10 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
       expect(withdrawData.success).toBe(true)
       expect(withdrawData.amountUsdc).toBe(amountUsdc)
       expect(withdrawData.remainingBalanceUsdc).toBe(0.015)
-      expect(withdrawData.txHash).toBeUndefined()
-      expect(withdrawData.settlementStatus).toBe('offchain_ledger_only')
+      expect(withdrawData.txHash).toBe(payoutTxHash)
+      expect(withdrawData.settlementStatus).toBe('treasury_payout')
+      // The payout is addressed to the requesting provider for exactly the reserved amount.
+      expect(payoutMock.sendProviderPayout).toHaveBeenCalledWith({ provider: withdrawalProvider, amountMicros: 5000 })
 
       const replayRes = await POST(new Request('http://localhost:3000/api/x402/withdraw', {
         method: 'POST',
@@ -493,6 +621,50 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
         body: JSON.stringify(body),
       }))
       expect(replayRes.status).toBe(409)
+    })
+
+    it('refunds the reserved balance and frees the nonce when no treasury payout could be sent', async () => {
+      const withdrawalAccount = privateKeyToAccount(generatePrivateKey())
+      const withdrawalProvider = withdrawalAccount.address as Address
+      payoutMock.sendProviderPayout.mockResolvedValue({
+        status: 'unconfigured',
+        reason: 'X402_TREASURY_PRIVATE_KEY is not set, so provider payouts cannot be signed.',
+      })
+      const ledgerKey = `arcis:x402:provider:{${withdrawalProvider.toLowerCase()}}`
+      await kvUpdateProviderLedger(ledgerKey, { calls: 1, earnedMicros: 20_000 })
+      const amountUsdc = 0.005
+      const nonce = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('')}` as Hex
+      const deadline = Math.floor(Date.now() / 1000) + 300
+      const signature = await withdrawalAccount.signTypedData({
+        domain: X402_AUTHORIZATION_DOMAIN,
+        types: PROVIDER_LEDGER_TYPES,
+        primaryType: 'ProviderLedgerAuthorization',
+        message: { providerAddress: withdrawalProvider, amountMicros: 5000n, nonce, deadline: BigInt(deadline) },
+      })
+      const body = { providerAddress: withdrawalProvider, amountUsdc, signature, nonce, deadline }
+      const post = () =>
+        POST(new Request('http://localhost:3000/api/x402/withdraw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }))
+
+      const failed = await post()
+      expect(failed.status).toBe(503)
+      const failedData = await failed.json()
+      expect(failedData.settlementStatus).toBe('treasury_payout_unconfigured')
+      expect(failedData.refunded).toBe(true)
+      expect(failedData.txHash).toBeUndefined()
+
+      const ledger = JSON.parse((await kvGet(ledgerKey)) || '{}')
+      expect(ledger.unclaimedEarningsUsdc).toBe(0.02)
+      expect(ledger.withdrawnUsdc).toBe(0)
+
+      // Nothing left the treasury, so the same authorization may be retried once payouts work.
+      payoutMock.sendProviderPayout.mockResolvedValue({ status: 'paid', txHash: `0x${'c'.repeat(64)}`, treasuryAddress })
+      const retried = await post()
+      expect(retried.status).toBe(200)
+      expect((await retried.json()).settlementStatus).toBe('treasury_payout')
     })
 
     it('rejects signed withdrawal if amount exceeds available balance', async () => {

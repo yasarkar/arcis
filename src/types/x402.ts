@@ -5,7 +5,7 @@ import type { ActionableSignalPayload, ServiceInputParameter } from './marketpla
 
 export type ServiceCategory =
   | 'All'
-  // Mevcut kategoriler (5 resmî servis bu kategorilerdedir)
+  // Mevcut kategoriler (10 resmî servis bu kategorilerdedir)
   | 'Arbitrage'
   | 'Liquidity & Routing'
   | 'Yield & Flash-Loan'
@@ -177,11 +177,47 @@ export interface PaymentReceipt {
 
 export interface ProviderLedger {
   providerAddress: `0x${string}`
-  services: Array<{ serviceId: string; callsServed: number; grossUsdc: number }>
+  // Per-service dimension, written atomically with the wallet-wide totals.
+  services: Array<{ serviceId: string; callsServed: number; grossUsdc: number; pendingUsdc: number }>
+  /** Wallet-wide totals. They are the provider's own figures, not a per-service breakdown. */
+  totalCallsServed: number
+  totalUsdcEarned: number
   pendingUsdc: number
   availableUsdc: number
   withdrawnUsdc: number
   lastWithdrawal?: { amountUsdc: number; txHash: `0x${string}`; at: number }
+}
+
+/**
+ * Protocol-wide paid-call totals served by `GET /api/x402/stats`.
+ * `source` is part of the contract: `unavailable` means the durable counter could not be read, so
+ * surfaces must render a dash rather than a zero.
+ */
+export interface PlatformStatsSnapshot {
+  source: 'ledger' | 'memory' | 'unavailable'
+  acceptedCalls: number
+  settledCalls: number
+  volumeUsdc: number
+  byService: PlatformStatsServiceRow[]
+  updatedAt: number | null
+}
+
+export interface PlatformStatsServiceRow {
+  serviceId: string
+  acceptedCalls: number
+  settledCalls: number
+}
+
+/**
+ * One shared latency reading for the AI Services hero card, served by `GET /api/x402/latency`.
+ * `ledger` is a reading from the shared store, `memory` a local development measurement, and
+ * `unavailable` means no shared value exists — surfaces render a dash rather than a local ping.
+ */
+export interface LatencySnapshot {
+  source: 'ledger' | 'memory' | 'unavailable'
+  avgLatencyMs: number | null
+  sampleCount: number
+  measuredAt: number | null
 }
 
 export interface ServiceHealth {
@@ -197,11 +233,25 @@ export interface ServiceHealth {
   history: Array<{ latencyMs: number; success: boolean; at: number }>
 }
 
+/**
+ * Why a paid call produced no result. The server sends it on a voided call so the UI can tell a
+ * model failure from an unreadable on-chain input; `charged: false` means nothing was settled.
+ */
+export interface X402FailureDiagnostics {
+  serviceId?: string
+  engine?: 'native' | 'llm' | 'proxy'
+  resultStatus?: string | null
+  unavailable: string[]
+  reason?: string | null
+  charged: boolean
+}
+
 export interface X402ExecutionReceipt {
   statusCode: number
   success: boolean
   data?: unknown
   error?: string
+  diagnostics?: X402FailureDiagnostics
   executionTimeMs: number
   costUsdc: number
   protocolFeeUsdc?: number

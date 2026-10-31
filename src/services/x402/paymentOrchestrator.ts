@@ -1,10 +1,15 @@
 // src/services/x402/paymentOrchestrator.ts
-// Circle Gateway x402 buyer flow. Requires an explicitly connected EOA because batched
-// EIP-3009 authorization uses ecrecover and does not support Circle MSCA/passkey signatures.
+// Circle Gateway x402 buyer flow. Batched EIP-3009 authorization is verified with
+// ecrecover, so the payer must be an EOA key holder. Two EOA routes exist:
+//   • an injected EIP-1193 wallet (signTypedData on the connected account), and
+//   • a Circle user-controlled wallet created as `accountType: EOA`, whose MPC
+//     share signs through a Circle challenge (PIN/biometrics via api/ucw).
+// Circle MSCA/passkey (ERC-4337 smart accounts) and session keys are still unsupported:
+// Circle Gateway nanopayments do not accept ERC-1271 signatures.
 
 import { BatchEvmScheme } from '@circle-fin/x402-batching/client'
 import { createWalletClient, custom, getAddress, isAddress, type Address, type Hex } from 'viem'
-import type { ServiceManifest, X402ExecutionReceipt, X402PaymentRequirements } from '../../types/x402'
+import type { ServiceManifest, X402ExecutionReceipt, X402FailureDiagnostics, X402PaymentRequirements } from '../../types/x402'
 import { arcTestnet, ARC_TESTNET_TOKENS } from '../../config/arcChain'
 import {
   CIRCLE_BATCHING_METADATA,
@@ -22,13 +27,31 @@ export function safeAddress(addr: string): Address {
   }
 }
 
+export type X402PayerKind = 'session_eoa' | 'external_eoa' | 'ucw_eoa'
+
+/** One EIP-712 payload signed by the payer (domain/types/primaryType/message). */
+export type X402TypedDataSigner = (typedData: {
+  domain: Record<string, unknown>
+  types: Record<string, unknown>
+  primaryType: string
+  message: Record<string, unknown>
+}) => Promise<Hex>
+
+export interface X402Payer {
+  kind: X402PayerKind
+  address: `0x${string}`
+  /**
+   * Required for `ucw_eoa`: runs Circle's typed-data challenge and returns the
+   * 65-byte ECDSA signature. A UCW wallet is created as an EOA, so `ecrecover`
+   * on the server resolves the same address the wallet reports.
+   */
+  signTypedData?: X402TypedDataSigner
+}
+
 export interface ExecutePaidCallInput {
   manifest: ServiceManifest
   payload: Record<string, unknown>
-  payer?: {
-    kind: 'session_eoa' | 'external_eoa'
-    address: `0x${string}`
-  }
+  payer?: X402Payer
   walletAddress?: string
   provider?: any
   idempotencyKey?: string
@@ -51,8 +74,53 @@ function parsePaymentRequiredHeader(header: string): any {
   }
 }
 
-function failure(statusCode: number, error: string, requirements?: X402PaymentRequirements): X402ExecutionReceipt {
-  return { statusCode, success: false, error, executionTimeMs: 0, costUsdc: 0, requirements }
+/**
+ * The server's reason for a voided call is untrusted input, so only known fields with primitive
+ * types are kept: the UI may render them, never execute or trust them.
+ */
+function sanitizeFailureDiagnostics(value: unknown): X402FailureDiagnostics | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const source = value as Record<string, unknown>
+  const unavailable = Array.isArray(source.unavailable)
+    ? source.unavailable.filter((item): item is string => typeof item === 'string').slice(0, 10)
+    : []
+  return {
+    serviceId: typeof source.serviceId === 'string' ? source.serviceId.slice(0, 80) : undefined,
+    engine:
+      source.engine === 'native' || source.engine === 'llm' || source.engine === 'proxy'
+        ? source.engine
+        : undefined,
+    resultStatus: typeof source.resultStatus === 'string' ? source.resultStatus.slice(0, 40) : null,
+    unavailable,
+    reason: typeof source.reason === 'string' ? source.reason.slice(0, 400) : null,
+    charged: source.charged === true,
+  }
+}
+
+function failure(
+  statusCode: number,
+  error: string,
+  requirements?: X402PaymentRequirements,
+  diagnostics?: X402FailureDiagnostics
+): X402ExecutionReceipt {
+  return { statusCode, success: false, error, executionTimeMs: 0, costUsdc: 0, requirements, diagnostics }
+}
+
+/**
+ * The treasury that receives fee-bearing calls, read from the server's public settlement config.
+ * Null means the buyer cannot verify who it would be paying, so the call is refused.
+ */
+async function readTreasuryAddress(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/x402/config', { headers: { Accept: 'application/json' } })
+    if (!res.ok) return null
+    const body = await res.json().catch(() => null)
+    const treasury = body?.protocolFee?.treasuryAddress
+    if (typeof treasury !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(treasury)) return null
+    return getAddress(treasury.toLowerCase())
+  } catch {
+    return null
+  }
 }
 
 /** Sign one explicit Circle Gateway payment using the connected EOA and call the paid service. */
@@ -67,24 +135,45 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
       domain: accept.domain ? { ...accept.domain, verifyingContract: accept.domain.verifyingContract as `0x${string}` } : undefined,
     })),
   }
-  const address = input.payer?.kind === 'session_eoa' ? '' : (input.payer?.address || input.walletAddress || '')
-  if (!provider || !isAddress(address)) {
-    return failure(503, 'Paid x402 calls require a connected external EOA. No authorization or charge was created; Circle passkey/MSCA and autonomous session signers are unsupported.', requirementsFallback)
+  const payerKind: X402PayerKind = input.payer?.kind || 'external_eoa'
+  const ucwSigner = payerKind === 'ucw_eoa' ? input.payer?.signTypedData : undefined
+  // A session key cannot sign, and a UCW payer without its challenge signer is not a payer.
+  const address =
+    payerKind === 'session_eoa' || (payerKind === 'ucw_eoa' && !ucwSigner)
+      ? ''
+      : input.payer?.address || input.walletAddress || ''
+  if (!isAddress(address)) {
+    return failure(503, 'Paid x402 calls require a connected external EOA or an active Circle Wallet signing session. No authorization or charge was created; Circle passkey/MSCA and autonomous session signers are unsupported.', requirementsFallback)
   }
 
   const payerAddress = getAddress(address)
   if (payerAddress.toLowerCase() === manifest.provider.address.toLowerCase()) {
     return failure(400, 'The paying EOA must differ from the service provider address.')
   }
-  let walletClient: ReturnType<typeof createWalletClient>
-  try {
-    walletClient = createWalletClient({ account: payerAddress, chain: arcTestnet, transport: custom(provider) })
-    const [chainId, accounts] = await Promise.all([walletClient.getChainId(), walletClient.getAddresses()])
-    if (chainId !== arcTestnet.id || !accounts.some((account) => account.toLowerCase() === payerAddress.toLowerCase())) {
-      return failure(400, 'Connect the paying EOA on Arc Testnet and confirm it is the active wallet.')
+  let signTypedData: X402TypedDataSigner
+  if (ucwSigner) {
+    // The Circle challenge route selects the ARC-TESTNET wallet itself. A signature made by a
+    // wallet in another EIP-712 domain recovers to a different address, so the server still
+    // fails closed on ecrecover; no client-side chain probe exists (and none is trusted).
+    signTypedData = ucwSigner
+  } else {
+    if (!provider) {
+      return failure(503, 'Paid x402 calls require a connected external EOA or an active Circle Wallet signing session. No authorization or charge was created; Circle passkey/MSCA and autonomous session signers are unsupported.', requirementsFallback)
     }
-  } catch {
-    return failure(503, 'The connected EOA could not be verified; no trusted payment settlement was attempted.', requirementsFallback)
+    let walletClient: ReturnType<typeof createWalletClient>
+    try {
+      walletClient = createWalletClient({ account: payerAddress, chain: arcTestnet, transport: custom(provider) })
+      const [chainId, accounts] = await Promise.all([walletClient.getChainId(), walletClient.getAddresses()])
+      if (chainId !== arcTestnet.id || !accounts.some((account) => account.toLowerCase() === payerAddress.toLowerCase())) {
+        return failure(400, 'Connect the paying EOA on Arc Testnet and confirm it is the active wallet.')
+      }
+    } catch {
+      return failure(503, 'The connected EOA could not be verified; no trusted payment settlement was attempted.', requirementsFallback)
+    }
+    signTypedData = async (typedData) => walletClient.signTypedData({
+      account: payerAddress,
+      ...typedData,
+    } as any) as Promise<Hex>
   }
 
   const endpoint = `/api/x402/${encodeURIComponent(manifest.id)}`
@@ -96,6 +185,15 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
 
     const paymentRequiredHeader = challengeResponse.headers.get('payment-required')
     const paymentRequired = paymentRequiredHeader ? parsePaymentRequiredHeader(paymentRequiredHeader) : null
+    // A fee-bearing service settles to the protocol treasury, so the expected payee is the
+    // treasury the server publishes for this deployment — never whatever the challenge names.
+    const feeBps = Math.max(0, Math.trunc(Number(manifest.pricing.protocolFeeBps) || 0))
+    const expectedPayee = feeBps > 0
+      ? await readTreasuryAddress()
+      : getAddress(manifest.provider.address.toLowerCase())
+    if (!expectedPayee) {
+      return failure(503, 'Settlement routing could not be verified because the protocol treasury address is unavailable. No authorization or charge was created.', requirementsFallback)
+    }
     const requirements = paymentRequired?.accepts?.find((option: any) =>
       option?.scheme === X402_SCHEMES.EXACT &&
       option?.network === X402_NETWORKS.CAIP2_ARC_TESTNET &&
@@ -104,7 +202,7 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
       option?.extra?.version === CIRCLE_BATCHING_METADATA.VERSION &&
       option?.extra?.verifyingContract?.toLowerCase() === GATEWAY_CONTRACTS.testnet.gatewayWallet.toLowerCase() &&
       option?.asset?.toLowerCase() === ARC_TESTNET_TOKENS.USDC.toLowerCase() &&
-      option?.payTo?.toLowerCase() === manifest.provider.address.toLowerCase() &&
+      option?.payTo?.toLowerCase() === expectedPayee.toLowerCase() &&
       option?.amount === usdcToBaseUnits(manifest.pricing.priceUsdc)
     )
     if (!paymentRequired || paymentRequired.x402Version !== 2 || !requirements || paymentRequired.resource?.url !== manifest.serve.path || paymentRequired.resource?.description !== manifest.description || paymentRequired.resource?.mimeType !== 'application/json') {
@@ -113,10 +211,7 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
 
     const scheme = new BatchEvmScheme({
       address: payerAddress,
-      signTypedData: async (typedData) => walletClient.signTypedData({
-        account: payerAddress,
-        ...typedData,
-      } as any) as Promise<Hex>,
+      signTypedData,
     })
     const paymentPayload = await scheme.createPaymentPayload(paymentRequired.x402Version, requirements)
     const paidResponse = await fetch(endpoint, {
@@ -134,7 +229,12 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
     })
     const responseBody = await paidResponse.json().catch(() => null)
     if (!paidResponse.ok || !responseBody || typeof responseBody !== 'object') {
-      return failure(paidResponse.status || 502, responseBody?.error || `Paid request failed (HTTP ${paidResponse.status}); check payment status before retrying.`)
+      return failure(
+        paidResponse.status || 502,
+        responseBody?.error || `Paid request failed (HTTP ${paidResponse.status}); check payment status before retrying.`,
+        undefined,
+        sanitizeFailureDiagnostics((responseBody as any)?.diagnostics)
+      )
     }
 
     const payment = responseBody.payment

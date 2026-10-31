@@ -9,8 +9,8 @@ import { ARC_TESTNET_TOKENS } from '../../config/arcChain'
 import { SERVICE_CATEGORIES, ALL_CATEGORY_LABELS } from '../../config/x402/categories'
 
 describe('x402 Architectural Contracts & Manifest Integrity', () => {
-  it('contains all 5 official manifests with valid v2 structure', () => {
-    expect(OFFICIAL_MANIFESTS.length).toBe(5)
+  it('contains all 9 official manifests with valid v2 structure', () => {
+    expect(OFFICIAL_MANIFESTS.length).toBe(9)
     
     for (const manifest of OFFICIAL_MANIFESTS) {
       // Identity & Version
@@ -20,9 +20,12 @@ describe('x402 Architectural Contracts & Manifest Integrity', () => {
       expect(manifest.tagline).toBeTruthy()
       expect(manifest.description).toBeTruthy()
 
-      // Engine transparency
+      // Engine transparency: 8 native services + 1 server-side LLM service.
       expect(['native', 'llm', 'proxy']).toContain(manifest.engine)
-      expect(manifest.engine).toBe('native') // All 5 official services are native deterministic algorithms
+      if (manifest.engine === 'llm') {
+        // A paid LLM call must at least cover its provider cost.
+        expect(manifest.pricing.priceUsdc).toBeGreaterThanOrEqual(0.01)
+      }
 
       // Listing & Provider
       expect(manifest.listing.kind).toBe('official')
@@ -73,7 +76,7 @@ describe('x402 Architectural Contracts & Manifest Integrity', () => {
     expect(SERVICE_CATEGORIES.length).toBeGreaterThanOrEqual(10)
     expect(ALL_CATEGORY_LABELS).toContain('All')
     
-    // Ensure all 5 official manifests belong to registered categories
+    // Ensure all 10 official manifests belong to registered categories
     const categoryIds = SERVICE_CATEGORIES.map((c) => c.id)
     for (const manifest of OFFICIAL_MANIFESTS) {
       expect(categoryIds).toContain(manifest.category)
@@ -81,18 +84,18 @@ describe('x402 Architectural Contracts & Manifest Integrity', () => {
   })
 
   describe('Invariant I1 & Pricing/Fee Integrity', () => {
-    it('splits exactly 1% to YieldVault and 99% to provider by default', () => {
+    it('deducts no protocol fee by default, matching the testnet settlement path', () => {
       const split = calculateFeeSplit(0.005) // 0.005 USDC call
       expect(split.grossAmountUsdc).toBe(0.005)
-      expect(split.protocolFeeUsdc).toBe(0.00005) // 1%
-      expect(split.providerEarnedUsdc).toBe(0.00495) // 99%
-      expect(split.protocolFeeBps).toBe(100)
+      expect(split.protocolFeeUsdc).toBe(0)
+      expect(split.providerEarnedUsdc).toBe(0.005)
+      expect(split.protocolFeeBps).toBe(0)
     })
 
-    it('supports custom protocolFeeBps', () => {
-      const splitZero = calculateFeeSplit(0.01, 0) // 0%
-      expect(splitZero.protocolFeeUsdc).toBe(0)
-      expect(splitZero.providerEarnedUsdc).toBe(0.01)
+    it('supports custom protocolFeeBps when a fee is explicitly modelled', () => {
+      const splitOnePct = calculateFeeSplit(0.005, 100) // 1%
+      expect(splitOnePct.protocolFeeUsdc).toBe(0.00005)
+      expect(splitOnePct.providerEarnedUsdc).toBe(0.00495)
 
       const splitTwoPct = calculateFeeSplit(0.01, 200) // 2%
       expect(splitTwoPct.protocolFeeUsdc).toBe(0.0002)

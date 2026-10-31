@@ -1,4 +1,5 @@
 // Data structures for x402 AI Services Marketplace & Arcis AI Copilot
+import type { Recommendation } from '../services/x402/nextActions'
 import type {
   ServiceCategory,
   ServiceManifest,
@@ -154,6 +155,11 @@ export interface CopilotMessage {
   content: string
   timestamp: number
   steps?: CopilotStepLog[]
+  /**
+   * Next steps derived from a report this message bought, through the shared engine. Type-only
+   * import: the type is erased at runtime, so the message contract carries no service dependency.
+   */
+  nextSteps?: Recommendation[]
   totalCostUsdc?: number
   actionPayload?: CopilotActionPayload
   receipt?: InlineExecutionReceipt
