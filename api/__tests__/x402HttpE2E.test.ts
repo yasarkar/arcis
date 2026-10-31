@@ -113,6 +113,25 @@ describe('production server + x402 over real HTTP', () => {
     expect(serverLogs).toMatch(/Arcis Production Server/)
   })
 
+  it('serves per-wallet report digests and refuses an unusable address', async () => {
+    // The shelf's memory of what a wallet bought. A mixed-case wallet address must be accepted
+    // (viem's strict EIP-55 check would reject a merely well-formed one), and the answer is never
+    // cached because it belongs to one address.
+    const wallet = '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A'
+    const res = await fetch(`${baseUrl}/api/x402/digests?address=${wallet}`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Cache-Control')).toContain('no-store')
+
+    const body = await res.json()
+    expect(body.success).toBe(true)
+    expect(body.schema).toBe('arcis.report-digests/v1')
+    expect(body.payer).toBe(wallet.toLowerCase())
+    expect(Array.isArray(body.digests)).toBe(true)
+
+    const rejected = await fetch(`${baseUrl}/api/x402/digests?address=nope`)
+    expect(rejected.status).toBe(400)
+  })
+
   it('answers a 402 challenge, then rejects authorization without confirmed settlement', async () => {
     const challengeRes = await fetch(`${baseUrl}/api/x402/${manifest.id}`)
     expect(challengeRes.status).toBe(402)

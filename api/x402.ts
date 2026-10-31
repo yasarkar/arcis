@@ -57,7 +57,9 @@ import {
   kvSetIfAbsent,
   kvUpdateProviderLedger,
 } from './_utils/redisStorage'
+import { digestFromServiceCall } from '../src/services/x402/reportDigest'
 import { readLatencySnapshot } from './_utils/x402Latency'
+import { readReportDigests, recordReportDigest } from './_utils/reportDigestStore'
 import { isX402PayoutConfigured, resolveX402TreasurySigner, sendProviderPayout } from './_utils/x402Payout'
 import { runReconcileSweep } from './_utils/x402Reconciler'
 import { reconcileSettlementByNonce } from './_utils/x402Settlement'
@@ -657,6 +659,20 @@ export async function GET(req: Request): Promise<Response> {
       },
     })
   }
+  // Per-wallet report memory. Private to the address that paid for the reports, so it is never
+  // cached: the caller is the shelf deciding what this wallet should be offered next.
+  if (/\/x402\/digests\/?$/.test(pathname)) {
+    const address = url.searchParams.get('address') || ''
+    // A wallet address is accepted in either case: a correctly checksummed mixed-case value and an
+    // all-lowercase one are the same account, and a caller that pasted a lowercase address must not
+    // be told its own wallet is invalid.
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      return new Response(JSON.stringify({ success: false, error: 'A valid wallet address is required', statusCode: 400 }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    }
+    const payer = safeChecksumAddress(address)
+    const store = await readReportDigests(payer)
+    return new Response(JSON.stringify({ success: true, address: payer, ...store }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' } })
+  }
   if (pathname.endsWith('/services') || pathname.endsWith('/manifests')) {
     let allManifests = [...OFFICIAL_MANIFESTS]
     try {
@@ -1150,6 +1166,16 @@ export async function POST(req: Request): Promise<Response> {
   serverNonceStore.add(nonceIdentity)
   serverUsedAuthorizationNonces.add(nonceIdentity)
   await kvSet(scopedReservationKey, `settlement_pending:${settlementRef}`, 30 * 24 * 60 * 60)
+  // Remember what this payer bought, so the catalogue can offer the next step from the report the
+  // call returned (including the parameters it was given). Only report services produce an
+  // envelope, and a digest failure never affects a call that already settled.
+  const reportDigest = digestFromServiceCall({
+    payer: payerAddress,
+    serviceId: manifest.id,
+    requestParams: requestPayload,
+    data: serviceData,
+  })
+  if (reportDigest) await recordReportDigest(reportDigest)
   const paymentReceipt: PaymentReceipt = { id: `rcpt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: settlementRecipient, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: manifest.pricing.priceUsdc, authorizedMaxUsdc: manifest.pricing.priceUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, settlementRef, protocolFeeUsdc, providerEarnedUsdc, latencyMs: Math.round(performance.now() - startTime), status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: Date.now() }
   const executionReceipt: X402ExecutionReceipt = { statusCode: 200, success: true, data: serviceData, executionTimeMs: Math.round(performance.now() - startTime), costUsdc: manifest.pricing.priceUsdc, protocolFeeUsdc, providerEarnedUsdc, payment: paymentReceipt, actionablePayload, authProof: { signature, payerAddress, timestamp: Date.now() }, engineMode: 'gateway_batched', gasSponsored: false }
   return new Response(JSON.stringify(executionReceipt), { status: 200, headers: { 'Content-Type': 'application/json', 'PAYMENT-RESPONSE': Buffer.from(JSON.stringify(paymentReceipt)).toString('base64') } })

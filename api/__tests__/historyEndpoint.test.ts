@@ -177,3 +177,54 @@ describe('/api/history pagination (P09)', () => {
     expect(json.code).toBe('INVALID_CURSOR')
   })
 })
+
+// P0-2: the API used to write `pending` rows as `success` and read them back the same
+// way, so an unsettled bridge was indistinguishable from a settled one on every load.
+describe('/api/history status fidelity', () => {
+  const statusWallet = '0x5555555555555555555555555555555555555555'
+  const pendingHash = `0x${'a1'.repeat(32)}`
+  const failedHash = `0x${'b2'.repeat(32)}`
+
+  async function saveTx(txHash: string, status: string, timestamp: number) {
+    const req = new Request('http://localhost/api/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'bridge',
+        txHash,
+        amount: '25',
+        tokenSymbol: 'USDC',
+        sourceChain: 'Base_Sepolia',
+        destChain: 'Arc_Testnet',
+        userAddress: statusWallet,
+        timestamp,
+        status,
+      }),
+    })
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+    return res.json()
+  }
+
+  it('keeps a pending transaction pending on write and on read', async () => {
+    const posted = await saveTx(pendingHash, 'pending', Date.now())
+    expect(posted.transaction.status).toBe('pending')
+
+    const getRes = await GET(new Request(`http://localhost/api/history?address=${statusWallet}`))
+    const body = await getRes.json()
+    const saved = body.transactions.find((tx: any) => tx.txHash === pendingHash)
+    expect(saved).toBeDefined()
+    expect(saved.status).toBe('pending')
+  })
+
+  it('preserves a failed transaction', async () => {
+    const posted = await saveTx(failedHash, 'failed', Date.now() + 1)
+    expect(posted.transaction.status).toBe('failed')
+
+    const getRes = await GET(new Request(`http://localhost/api/history?address=${statusWallet}`))
+    const body = await getRes.json()
+    const saved = body.transactions.find((tx: any) => tx.txHash === failedHash)
+    expect(saved).toBeDefined()
+    expect(saved.status).toBe('failed')
+  })
+})

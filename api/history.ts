@@ -169,6 +169,10 @@ export async function GET(req: Request) {
     const hasMore = afterCursor.length > page.length
     const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].timestamp : null
 
+    // Status is returned exactly as stored: a pending burn/mint or a failed call is
+    // never relabelled as success. The History tab renders settled rows only, so
+    // relabelling here would only make an unsettled row look final to every caller.
+    //
     // Security (SEC-04): Strip private memo content for public unauthenticated requests
     const sanitized = page.map((item) => {
       if (item.isPrivate) {
@@ -179,7 +183,7 @@ export async function GET(req: Request) {
           memoIndex: undefined,
         }
       }
-      return item
+      return { ...item }
     })
 
     return apiSuccess({
@@ -272,6 +276,9 @@ export async function POST(req: Request) {
       recipient: cleanRecipient,
       userAddress: cleanUser,
       timestamp: typeof body.timestamp === 'number' ? body.timestamp : Date.now(),
+      // Keep the status the client wrote. Normalising 'pending' to 'success' here made
+      // a still-unsettled bridge indistinguishable from a settled one on every read,
+      // and broke the pending-row merge that `completeBridgeTransaction` relies on.
       status: ['success', 'pending', 'failed'].includes(status) ? status : 'success',
       amountIn: amountIn ? String(amountIn) : undefined,
       amountOut: amountOut ? String(amountOut) : undefined,
