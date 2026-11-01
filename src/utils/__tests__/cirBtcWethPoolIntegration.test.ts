@@ -37,20 +37,22 @@ describe('cirBTC / WETH Pool (cirbtc-weth-pool) End-to-End Integration Tests', (
   })
 
   it('resolves direct single-hop native swap route when pool contract address is configured', () => {
-    // When pool contract is 0x00...00 (pre-audit unbroadcasted state), it safely returns null
-    const unbroadcastedRoute = resolveArcNativeRoute('cirBTC', 'WETH')
-    expect(unbroadcastedRoute).toBeNull()
-
-    // Test route resolution with a deployed address mock
     const originalAddr = POOL_CONTRACTS.CIRBTC_WETH_POOL
     try {
-      POOL_CONTRACTS.CIRBTC_WETH_POOL = '0x1234567890123456789012345678901234567890' as `0x${string}`
+      // When pool contract is zero address, it safely returns null
+      POOL_CONTRACTS.CIRBTC_WETH_POOL = '0x0000000000000000000000000000000000000000' as `0x${string}`
+      const unbroadcastedRoute = resolveArcNativeRoute('cirBTC', 'WETH')
+      expect(unbroadcastedRoute).toBeNull()
+
+      // When pool is deployed on-chain
+      POOL_CONTRACTS.CIRBTC_WETH_POOL = originalAddr
       const btcToWethRoute = resolveArcNativeRoute('cirBTC', 'WETH')
       expect(btcToWethRoute).not.toBeNull()
       expect(btcToWethRoute!.isStable).toBe(false)
       expect(btcToWethRoute!.decIn).toBe(8)
       expect(btcToWethRoute!.decOut).toBe(18)
       expect(btcToWethRoute!.feeBps).toBe(30n)
+      expect(btcToWethRoute!.poolAddress).toBe(originalAddr)
 
       const wethToBtcRoute = resolveArcNativeRoute('WETH', 'cirBTC')
       expect(wethToBtcRoute).not.toBeNull()
@@ -58,6 +60,7 @@ describe('cirBTC / WETH Pool (cirbtc-weth-pool) End-to-End Integration Tests', (
       expect(wethToBtcRoute!.decIn).toBe(18)
       expect(wethToBtcRoute!.decOut).toBe(8)
       expect(wethToBtcRoute!.feeBps).toBe(30n)
+      expect(wethToBtcRoute!.poolAddress).toBe(originalAddr)
     } finally {
       POOL_CONTRACTS.CIRBTC_WETH_POOL = originalAddr
     }
