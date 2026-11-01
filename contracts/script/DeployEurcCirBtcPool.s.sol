@@ -34,6 +34,9 @@ contract DeployEurcCirBtcPool is Script {
         address cirBtc = vm.envOr("CIRBTC_ADDRESS", CANONICAL_CIRBTC);
 
         require(eurc != address(0) && cirBtc != address(0), "EURC and cirBTC addresses required");
+        require(eurc.code.length > 0, "EURC must have deployed code");
+        require(cirBtc.code.length > 0, "cirBTC must have deployed code");
+        require(eurc != cirBtc, "EURC and cirBTC must be different addresses");
         require(IMinimalERC20(eurc).decimals() == 6,   "EURC must have 6 decimals");
         require(IMinimalERC20(cirBtc).decimals() == 8, "cirBTC must have 8 decimals");
 
@@ -45,6 +48,9 @@ contract DeployEurcCirBtcPool is Script {
         console2.log("  EURC       :", eurc);
         console2.log("  cirBTC     :", cirBtc);
         console2.log("  SwapFeeBps :", swapFeeBps);
+        console2.log(
+            "NOTE: Seed liquidity in the same script/transaction batch as deployment to avoid first-deposit price front-running."
+        );
 
         if (deployerKey != 0) {
             vm.startBroadcast(deployerKey);

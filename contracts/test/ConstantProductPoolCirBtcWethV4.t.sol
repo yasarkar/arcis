@@ -44,11 +44,12 @@ contract ConstantProductPoolCirBtcWethV4Test is Test {
         vm.stopPrank();
     }
 
-    /// @dev Seed pool with 10 cirBTC + 200 WETH (ratio: 1 BTC = 20 ETH).
+    /// @dev Seed pool with 10 cirBTC + 200 WETH (ratio: 1 BTC = 20 ETH), then advance one block.
     function _seedPool() internal {
         _approveAlice();
         vm.prank(alice);
         pool.addLiquidity(10 * DEC8, 200 * DEC18, 0, type(uint256).max);
+        vm.roll(block.number + 1); // F-07: alice's same-block liquidity lock expires next block
     }
 
     // ── Decimal & Constructor Tests ───────────────────────────────────────────
@@ -180,20 +181,27 @@ contract ConstantProductPoolCirBtcWethV4Test is Test {
         _approveBob();
 
         // Attempting to buy out > 50% of the WETH reserve (reserveB is 200 WETH, > 100 WETH output)
-        // With 10 cirBTC and 200 WETH, depositing 15 cirBTC would yield > 100 WETH
-        vm.expectRevert();
+        // With 10 cirBTC and 200 WETH, depositing 15 cirBTC would yield ~119.7 WETH (> 100 WETH cap)
+        uint256 net = 15 * DEC8 - ((15 * DEC8 * 30 + 9999) / 10000);
+        uint256 out = (pool.reserveB() * net) / (pool.reserveA() + net);
+        vm.expectRevert(
+            abi.encodeWithSelector(ConstantProductPoolCirBtcWethV4.OutputCapExceeded.selector, out, pool.reserveB() / 2)
+        );
         vm.prank(bob);
         pool.swap(address(cirBtc), address(weth), 15 * DEC8, 0, type(uint256).max);
     }
 
-    function test_Swap_RevertsDustSwap_ZeroFee() public {
+    function test_Swap_OneUnitInput_RevertsZeroAmount() public {
         _seedPool();
         _approveBob();
 
-        // 1 wei input has fee = (1 * 30) / 10000 = 0
-        vm.expectRevert(ConstantProductPoolCirBtcWethV4.DustSwapNotAllowed.selector);
-        vm.prank(bob);
+        // F-05: fee = ceilDiv(1 * 30, 10000) = 1, so the net input is 0 and the output is 0 (DustSwapNotAllowed removed)
+        vm.startPrank(bob);
+        vm.expectRevert(ConstantProductPoolCirBtcWethV4.ZeroAmount.selector);
         pool.swap(address(cirBtc), address(weth), 1, 0, type(uint256).max);
+        vm.expectRevert(ConstantProductPoolCirBtcWethV4.ZeroAmount.selector);
+        pool.swap(address(weth), address(cirBtc), 1, 0, type(uint256).max);
+        vm.stopPrank();
     }
 
     function test_Swap_RevertsOnExpiredDeadline() public {

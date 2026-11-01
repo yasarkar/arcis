@@ -10,7 +10,7 @@ interface IMinimalERC20 {
 }
 
 /// @notice Deployment script for Arcis cirBTC/WETH Pool V4 on Arc Testnet (Chain ID: 5042002).
-/// @dev Note: Contract will be audited in Arc Studio before live broadcasting.
+/// @dev Includes token preflight checks; does not seed liquidity or perform an ownership handoff.
 contract DeployCirBtcWethPool is Script {
     uint256 public constant ARC_TESTNET_CHAIN_ID = 5042002;
 
@@ -35,6 +35,9 @@ contract DeployCirBtcWethPool is Script {
         address weth = vm.envOr("WETH_ADDRESS", CANONICAL_WETH);
 
         require(cirBtc != address(0) && weth != address(0), "cirBTC and WETH addresses required");
+        require(cirBtc != weth, "cirBTC and WETH must differ");
+        require(cirBtc.code.length > 0, "cirBTC must have code");
+        require(weth.code.length > 0, "WETH must have code");
         require(IMinimalERC20(cirBtc).decimals() == 8,  "cirBTC must have 8 decimals");
         require(IMinimalERC20(weth).decimals() == 18,   "WETH must have 18 decimals");
 
@@ -46,6 +49,9 @@ contract DeployCirBtcWethPool is Script {
         console2.log("  cirBTC     :", cirBtc);
         console2.log("  WETH       :", weth);
         console2.log("  SwapFeeBps :", swapFeeBps);
+        console2.log("Recommendation: seed liquidity in the same batch as deployment; this script does not seed.");
+        console2.log("Recommendation: deploy with the deployer as owner, then transferOwnership (Ownable2Step)");
+        console2.log("to the final owner, who must call acceptOwnership.");
 
         if (deployerKey != 0) {
             vm.startBroadcast(deployerKey);

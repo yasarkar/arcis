@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 /// @notice Per-LP on-chain swap fee accounting and harvest engine for Arcis V4 pools.
-/// @dev Implements Synthetix/MasterChef style cumulative reward per share (O(1) gas cost).
+/// @dev Supports magnified corrections for opted-in pools and legacy reward debt for compatibility (O(1) gas cost).
 ///      Swap fees are isolated into `feeReserveA` and `feeReserveB` and paid out directly
 ///      upon calling `harvest()`, without touching LP principal or diluting AMM trading reserves.
 abstract contract LpFeeAccounting {
@@ -17,10 +17,16 @@ abstract contract LpFeeAccounting {
     uint256 internal remainderA;
     uint256 internal remainderB;
 
+    // Retained for other V4 pools whose harvest functions write these mappings directly.
     mapping(address => uint256) public userRewardDebtA;
     mapping(address => uint256) public userRewardDebtB;
     mapping(address => uint256) public userUnclaimedA;
     mapping(address => uint256) public userUnclaimedB;
+
+    mapping(address => int256) internal corrA;
+    mapping(address => int256) internal corrB;
+    mapping(address => uint256) internal claimedA;
+    mapping(address => uint256) internal claimedB;
 
     event FeesHarvested(address indexed lp, uint256 feeA, uint256 feeB);
 
@@ -32,6 +38,16 @@ abstract contract LpFeeAccounting {
 
     /// @notice Returns the LP token balance of an account.
     function _lpBalanceOf(address account) internal view virtual returns (uint256);
+
+    /// @dev Opt-in preserves accounting compatibility for unchanged V4 pools.
+    function _usesMagnifiedCorrections() internal view virtual returns (bool) {
+        return false;
+    }
+
+    /// @dev Opted-in pools identify their non-claimable LP addresses.
+    function _isFeeExcluded(address account) internal view virtual returns (bool) {
+        return false;
+    }
 
     /// @notice Distributes a swap fee to all LP token holders proportionally.
     ///         Fetches eligible supply internally -- use _distributeSwapFeeWithSupply when the
@@ -84,8 +100,20 @@ abstract contract LpFeeAccounting {
         userRewardDebtB[account] = (bal * accFeePerShareB) / PRECISION;
     }
 
+    /// @dev Floor once per LP after applying the magnified balance corrections.
+    function _accrued(uint256 bal, uint256 acc, int256 corr) private pure returns (uint256) {
+        return uint256(int256(bal * acc) + corr) / PRECISION;
+    }
+
     /// @notice View claimable swap fees accrued to a given LP address.
     function pendingFees(address lp) public view returns (uint256 feeA, uint256 feeB) {
+        if (_usesMagnifiedCorrections()) {
+            if (_isFeeExcluded(lp)) return (0, 0);
+            uint256 balance = _lpBalanceOf(lp);
+            feeA = _accrued(balance, accFeePerShareA, corrA[lp]) - claimedA[lp];
+            feeB = _accrued(balance, accFeePerShareB, corrB[lp]) - claimedB[lp];
+            return (feeA, feeB);
+        }
         feeA = userUnclaimedA[lp];
         feeB = userUnclaimedB[lp];
         uint256 bal = _lpBalanceOf(lp);
