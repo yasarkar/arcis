@@ -155,6 +155,36 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     isRetryable: false,
   },
 
+  // 12b. EURC/cirBTC V4 pool custom errors (decoded by name or 4-byte selector)
+  LIQUIDITY_LOCKED_THIS_BLOCK: {
+    category: 'CONTRACT_REVERT',
+    title: 'Liquidity Still Locked',
+    message: 'Liquidity added in this block cannot be withdrawn, transferred or harvested yet. Wait a moment and retry.',
+    isCanceled: false,
+    isRetryable: true,
+  },
+  DEADLINE_EXPIRED: {
+    category: 'CONTRACT_REVERT',
+    title: 'Transaction Expired',
+    message: 'The transaction deadline passed before it was confirmed. No funds were moved. Please retry.',
+    isCanceled: false,
+    isRetryable: true,
+  },
+  DEAD_ADDRESS_TRANSFER_BLOCKED: {
+    category: 'CONTRACT_REVERT',
+    title: 'Transfer Not Allowed',
+    message: 'LP tokens cannot be sent to the dead address. Choose a different recipient.',
+    isCanceled: false,
+    isRetryable: false,
+  },
+  RENOUNCE_DISABLED: {
+    category: 'CONTRACT_REVERT',
+    title: 'Action Disabled',
+    message: 'Renouncing ownership is disabled for this pool.',
+    isCanceled: false,
+    isRetryable: false,
+  },
+
   // 13. Passkey / WebAuthn Errors
   PASSKEY_CANCELED: {
     category: 'PASSKEY_AUTH',

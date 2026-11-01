@@ -16,6 +16,7 @@ import {
 import { getActiveSmartAccount, sendModularUserOperation } from '../modularWalletService'
 import { resilientWriteContract } from '../rpc'
 import { recordClientSwapVolume } from '../../utils/poolVolumeUtils'
+import { buildPoolSwapCall, buildPoolSwapUcwCall } from './poolDeadline'
 import { poolsLog, type PoolExecutionContext } from './poolTypes'
 import { estimateSafeGas, requireDeployed } from './poolUtils'
 
@@ -121,8 +122,7 @@ export async function executeSwapInPool(
       to: poolAddress as Hex,
       data: encodeFunctionData({
         abi: STABLE_SWAP_ABI,
-        functionName: 'swap',
-        args: [tokenInAddr, tokenOutAddr, amountIn, minOut],
+        ...buildPoolSwapCall(poolAddress, tokenInAddr, tokenOutAddr, amountIn, minOut),
       }),
     }
     const opRes = await sendModularUserOperation({
@@ -169,10 +169,10 @@ export async function executeSwapInPool(
     await approveToken(tokenInAddr as `0x${string}`, poolAddress, amountIn)
 
     console.log('[usePoolsData UCW] Requesting swap challenge on pool...')
+    // Built after the approval prompt so a deadline pool's expiry starts at signing time.
     const swapRes = await executeUcwContract({
       contractAddress: poolAddress,
-      abiFunctionSignature: 'swap(address,address,uint256,uint256)',
-      abiParameters: [tokenInAddr, tokenOutAddr, amountIn.toString(), minOut.toString()],
+      ...buildPoolSwapUcwCall(poolAddress, tokenInAddr, tokenOutAddr, amountIn, minOut),
       blockchain: 'ARC-TESTNET',
     })
     if (!swapRes.success) {
@@ -224,13 +224,15 @@ export async function executeSwapInPool(
 
   await approveToken(tokenInAddr as `0x${string}`, poolAddress, amountIn)
 
+  // One deadline for both the gas estimate and the write (built after the approval prompt).
+  const swapCall = buildPoolSwapCall(poolAddress, tokenInAddr, tokenOutAddr, amountIn, minOut)
+
   const gasLimit = await estimateSafeGas(
     publicClient,
     {
       address: poolAddress,
       abi: STABLE_SWAP_ABI,
-      functionName: 'swap',
-      args: [tokenInAddr, tokenOutAddr, amountIn, minOut],
+      ...swapCall,
       account: targetAccount,
     },
     350_000n
@@ -239,8 +241,7 @@ export async function executeSwapInPool(
   const txHash = await resilientWriteContract(walletClient, {
     address: poolAddress,
     abi: STABLE_SWAP_ABI,
-    functionName: 'swap',
-    args: [tokenInAddr, tokenOutAddr, amountIn, minOut],
+    ...swapCall,
     account: targetAccount,
     chain: arcTestnet,
     gas: gasLimit,

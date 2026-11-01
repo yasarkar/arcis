@@ -5,6 +5,7 @@ import {
   poolMinLpShares,
   STABLE_SWAP_AMP,
 } from '../../config/poolsConfig'
+import { detectPoolCustomError } from '../../utils/errorNormalizer'
 import { getStableSwapD } from '../../utils/poolMath'
 import { safeStorage, poolsLog } from './poolTypes'
 
@@ -163,6 +164,9 @@ export async function estimateSafeGas(
     const estimated = await publicClient.estimateContractGas(params)
     return (estimated * 120n) / 100n // 20% safety margin
   } catch (err) {
+    // A known pool custom revert (e.g. LiquidityLockedThisBlock on withdraw / harvest) means the
+    // transaction would fail on-chain: surface it instead of paying gas for a fallback-limit revert.
+    if (detectPoolCustomError(err)) throw err
     console.warn(`[usePoolsData] Gas estimation fallback for ${params.functionName}:`, err)
     return fallbackGas
   }

@@ -540,8 +540,12 @@ export const STABLE_SWAP_ABI = [
   // 1-arg removeLiquidity ABI entries were REMOVED together with the contract overloads —
   // callers must always pass explicit minLpShares / minOut values.
   { type: 'function', name: 'addLiquidity', stateMutability: 'nonpayable', inputs: [{ name: 'amountAIn', type: 'uint256' }, { name: 'amountBIn', type: 'uint256' }, { name: 'minLpShares', type: 'uint256' }], outputs: [{ name: 'lpShares', type: 'uint256' }] },
+  // EURC/cirBTC V4 pool only: explicit-deadline overload (absolute unix seconds; reverts DeadlineExpired). Older pools keep the 3-arg form above.
+  { type: 'function', name: 'addLiquidity', stateMutability: 'nonpayable', inputs: [{ name: 'amountAIn', type: 'uint256' }, { name: 'amountBIn', type: 'uint256' }, { name: 'minLpShares', type: 'uint256' }, { name: 'deadline', type: 'uint256' }], outputs: [{ name: 'lpShares', type: 'uint256' }] },
   { type: 'function', name: 'removeLiquidity', stateMutability: 'nonpayable', inputs: [{ name: 'lpAmount', type: 'uint256' }, { name: 'minOutA', type: 'uint256' }, { name: 'minOutB', type: 'uint256' }], outputs: [{ name: 'outA', type: 'uint256' }, { name: 'outB', type: 'uint256' }] },
   { type: 'function', name: 'swap', stateMutability: 'nonpayable', inputs: [{ name: 'tokenIn', type: 'address' }, { name: 'tokenOut', type: 'address' }, { name: 'amountIn', type: 'uint256' }, { name: 'minOut', type: 'uint256' }], outputs: [{ name: 'amountOut', type: 'uint256' }] },
+  // EURC/cirBTC V4 pool only: explicit-deadline overload. Older pools keep the 4-arg form above.
+  { type: 'function', name: 'swap', stateMutability: 'nonpayable', inputs: [{ name: 'tokenIn', type: 'address' }, { name: 'tokenOut', type: 'address' }, { name: 'amountIn', type: 'uint256' }, { name: 'minOut', type: 'uint256' }, { name: 'deadline', type: 'uint256' }], outputs: [{ name: 'amountOut', type: 'uint256' }] },
   { type: 'function', name: 'reserveA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'reserveB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'totalLp', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
@@ -550,6 +554,11 @@ export const STABLE_SWAP_ABI = [
   // V4 on-chain per-LP fee accounting — replaces every client-side checkpoint.
   { type: 'function', name: 'pendingFees', stateMutability: 'view', inputs: [{ name: 'lp', type: 'address' }], outputs: [{ name: 'feeA', type: 'uint256' }, { name: 'feeB', type: 'uint256' }] },
   { type: 'function', name: 'harvest', stateMutability: 'nonpayable', inputs: [], outputs: [{ name: 'feeA', type: 'uint256' }, { name: 'feeB', type: 'uint256' }] },
+  // Custom errors of the EURC/cirBTC V4 pool, so viem can decode them into readable names.
+  { type: 'error', name: 'LiquidityLockedThisBlock', inputs: [] },
+  { type: 'error', name: 'DeadlineExpired', inputs: [] },
+  { type: 'error', name: 'DeadAddressTransferBlocked', inputs: [] },
+  { type: 'error', name: 'RenounceDisabled', inputs: [] },
   { type: 'function', name: 'feeReserveA', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'feeReserveB', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
   {
@@ -680,6 +689,24 @@ export const ARCIS_SWAP_ROUTER_ABI = [
       { name: 'minOut', type: 'uint256' },
       { name: 'treasury', type: 'address' },
       { name: 'feeBps', type: 'uint256' },
+    ],
+    outputs: [{ name: 'amountOut', type: 'uint256' }],
+  },
+  {
+    // Deadline variant of swapWithFee, used only for pools that require an explicit deadline
+    // (the EURC/cirBTC V4 pool). Legacy swapWithFee above stays for every other pool.
+    type: 'function',
+    name: 'swapWithFeeAndDeadline',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'pool', type: 'address' },
+      { name: 'tokenIn', type: 'address' },
+      { name: 'tokenOut', type: 'address' },
+      { name: 'amountIn', type: 'uint256' },
+      { name: 'minOut', type: 'uint256' },
+      { name: 'treasury', type: 'address' },
+      { name: 'feeBps', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
     ],
     outputs: [{ name: 'amountOut', type: 'uint256' }],
   },

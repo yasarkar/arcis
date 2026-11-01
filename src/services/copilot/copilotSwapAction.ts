@@ -15,6 +15,7 @@ import { createViemAdapter } from '../sendService'
 import { getSwapEstimate, executeSwap, resolveArcNativeRoute } from '../swapService'
 import { copilotSlippageBps, approvedSwapMinimum } from '../../utils/swapSlippage'
 import { sendModularUserOperation } from '../modularWalletService'
+import { buildPoolSwapCall } from '../pools/poolDeadline'
 import {
   POOL_CONTRACTS,
   STABLE_SWAP_ABI,
@@ -255,8 +256,7 @@ export async function executeCopilotSwapAction(
         to: arcRoute.poolAddress as Hex,
         data: encodeFunctionData({
           abi: STABLE_SWAP_ABI,
-          functionName: 'swap',
-          args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, amountInUnits, minOutUnits],
+          ...buildPoolSwapCall(arcRoute.poolAddress, arcRoute.tokenInAddr, arcRoute.tokenOutAddr, amountInUnits, minOutUnits),
         }),
       }
       const userOpRes = await sendModularUserOperation({

@@ -31,6 +31,7 @@ import type { SwapExecuteParams, SwapExecutionStatus, SwapQuoteResult } from '..
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
 import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils'
 import { getActiveSmartAccount, restoreSmartAccount, sendModularUserOperation } from './modularWalletService'
+import { buildPoolSwapCall, buildRouterSwapCall, buildRouterSwapUcwCall } from './pools/poolDeadline'
 import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
 import { setSpendingCeiling } from './spendingCeilingService'
 
@@ -650,8 +651,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           to: arcRoute.poolAddress as Hex,
           data: encodeFunctionData({
             abi: STABLE_SWAP_ABI,
-            functionName: 'swap',
-            args: [arcRoute.tokenInAddr, arcRoute.tokenOutAddr, swapAmountInUnits, minOutUnits],
+            ...buildPoolSwapCall(arcRoute.poolAddress, arcRoute.tokenInAddr, arcRoute.tokenOutAddr, swapAmountInUnits, minOutUnits),
           }),
         }
         calls.push(swapCall)
@@ -784,16 +784,15 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         console.log('[swapService UCW] Requesting swapWithFee challenge on ARC-TESTNET...')
         const swapRes = await executeUcwContract({
           contractAddress: routerAddress,
-          abiFunctionSignature: 'swapWithFee(address,address,address,uint256,uint256,address,uint256)',
-          abiParameters: [
-            arcRoute.poolAddress,
-            arcRoute.tokenInAddr,
-            arcRoute.tokenOutAddr,
-            amountInUnits.toString(),
-            minOutUnits.toString(),
-            treasuryRecipient,
-            feeBps.toString(),
-          ],
+          ...buildRouterSwapUcwCall({
+            pool: arcRoute.poolAddress,
+            tokenIn: arcRoute.tokenInAddr,
+            tokenOut: arcRoute.tokenOutAddr,
+            amountIn: amountInUnits,
+            minOut: minOutUnits,
+            treasury: treasuryRecipient,
+            feeBps,
+          }),
           blockchain: 'ARC-TESTNET',
         })
 
@@ -922,24 +921,28 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         const treasuryRecipient = (params.customFee?.recipientAddress || zeroAddress) as Address
         const feeBps = BigInt(params.customFee?.percentageBps || 0)
 
-        const swapTx = await walletClient.writeContract({
+        // Deadline variant only for pools that require one (EURC/cirBTC V4); built after the approval.
+        const routerCall = buildRouterSwapCall({
+          pool: arcRoute.poolAddress,
+          tokenIn: arcRoute.tokenInAddr,
+          tokenOut: arcRoute.tokenOutAddr,
+          amountIn: amountInUnits,
+          minOut: minOutUnits,
+          treasury: treasuryRecipient,
+          feeBps,
+        })
+        const routerTxOptions = {
           address: routerAddress,
           abi: ARCIS_SWAP_ROUTER_ABI,
-          functionName: 'swapWithFee',
-          args: [
-            arcRoute.poolAddress,
-            arcRoute.tokenInAddr,
-            arcRoute.tokenOutAddr,
-            amountInUnits,
-            minOutUnits,
-            treasuryRecipient,
-            feeBps,
-          ],
           chain: arcTestnet,
           account,
           maxFeePerGas: gasOptions.maxFeePerGas,
           maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
-        })
+        } as const
+        const swapTx =
+          routerCall.functionName === 'swapWithFeeAndDeadline'
+            ? await walletClient.writeContract({ ...routerTxOptions, ...routerCall })
+            : await walletClient.writeContract({ ...routerTxOptions, ...routerCall })
         const swapRes = await resilientWaitForReceipt(arcPublicClient, swapTx, 'Swap')
         if (swapRes.status === 'reverted') {
           throw new Error('Swap transaction reverted on Arc Testnet. Liquidity may be insufficient or slippage tolerance was exceeded.')

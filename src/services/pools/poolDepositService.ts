@@ -28,6 +28,12 @@ import {
   DUAL_DEPOSIT_DONATION_BLOCK_PCT,
 } from '../../utils/poolMath'
 import { recordClientSwapVolume } from '../../utils/poolVolumeUtils'
+import {
+  buildPoolAddLiquidityCall,
+  buildPoolAddLiquidityUcwCall,
+  buildPoolSwapCall,
+  buildPoolSwapUcwCall,
+} from './poolDeadline'
 import { poolsLog, type PoolExecutionContext, type UserPoolPosition } from './poolTypes'
 import { computeMinLpShares, estimateSafeGas, requireDeployed } from './poolUtils'
 
@@ -325,8 +331,7 @@ export async function executeZapIn(
       to: poolAddress as Hex,
       data: encodeFunctionData({
         abi: STABLE_SWAP_ABI,
-        functionName: 'swap',
-        args: [POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut],
+        ...buildPoolSwapCall(poolAddress, POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut),
       }),
     }
     const swapRes = await sendModularUserOperation({
@@ -396,8 +401,7 @@ export async function executeZapIn(
       to: poolAddress as Hex,
       data: encodeFunctionData({
         abi: STABLE_SWAP_ABI,
-        functionName: 'addLiquidity',
-        args: [poolRemainingUsdc, actualCounter, minLpShares],
+        ...buildPoolAddLiquidityCall(poolAddress, poolRemainingUsdc, actualCounter, minLpShares),
       }),
     }
     const addRes = await sendModularUserOperation({
@@ -490,8 +494,7 @@ export async function executeZapIn(
     console.log('[usePoolsData UCW] Requesting swap challenge for Zap...')
     const swapRes = await executeUcwContract({
       contractAddress: poolAddress,
-      abiFunctionSignature: 'swap(address,address,uint256,uint256)',
-      abiParameters: [POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc.toString(), minOut.toString()],
+      ...buildPoolSwapUcwCall(poolAddress, POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut),
       blockchain: 'ARC-TESTNET',
     })
     if (!swapRes.success) {
@@ -561,8 +564,7 @@ export async function executeZapIn(
     console.log('[usePoolsData UCW] Requesting addLiquidity challenge for Zap...')
     const addRes = await executeUcwContract({
       contractAddress: poolAddress,
-      abiFunctionSignature: 'addLiquidity(uint256,uint256,uint256)',
-      abiParameters: [poolRemainingUsdc.toString(), actualCounterAmount.toString(), minLpShares.toString()],
+      ...buildPoolAddLiquidityUcwCall(poolAddress, poolRemainingUsdc, actualCounterAmount, minLpShares),
       blockchain: 'ARC-TESTNET',
     })
     if (!addRes.success) {
@@ -657,13 +659,14 @@ export async function executeZapIn(
     args: [targetAccount],
   })) as bigint
 
+  const zapSwapCall = buildPoolSwapCall(poolAddress, POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut)
+
   const swapGasLimit = await estimateSafeGas(
     publicClient,
     {
       address: poolAddress,
       abi: STABLE_SWAP_ABI,
-      functionName: 'swap',
-      args: [POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut],
+      ...zapSwapCall,
       account: targetAccount,
     },
     350_000n
@@ -672,8 +675,7 @@ export async function executeZapIn(
   const swapOut = await resilientWriteContract(walletClient, {
     address: poolAddress,
     abi: STABLE_SWAP_ABI,
-    functionName: 'swap',
-    args: [POOL_CONTRACTS.USDC, counterTokenAddress, halfUsdc, minOut],
+    ...zapSwapCall,
     account: targetAccount,
     chain: arcTestnet,
     gas: swapGasLimit,
@@ -732,13 +734,13 @@ export async function executeZapIn(
 
   let txHash: Hex
   try {
+    const zapAddLiquidityCall = buildPoolAddLiquidityCall(poolAddress, poolRemainingUsdc, actualCounterAmount, minLpShares)
     const addLiqGasLimit = await estimateSafeGas(
       publicClient,
       {
         address: poolAddress,
         abi: STABLE_SWAP_ABI,
-        functionName: 'addLiquidity',
-        args: [poolRemainingUsdc, actualCounterAmount, minLpShares],
+        ...zapAddLiquidityCall,
         account: targetAccount,
       },
       450_000n
@@ -747,8 +749,7 @@ export async function executeZapIn(
     txHash = await resilientWriteContract(walletClient, {
       address: poolAddress,
       abi: STABLE_SWAP_ABI,
-      functionName: 'addLiquidity',
-      args: [poolRemainingUsdc, actualCounterAmount, minLpShares],
+      ...zapAddLiquidityCall,
       account: targetAccount,
       chain: arcTestnet,
       gas: addLiqGasLimit,
@@ -934,7 +935,6 @@ export async function executeDepositDual(
       }
     }
   }
-  const addLiquidityArgs = [amountA, amountB, minLpShares] as const
 
   const { eurc: liveEurcPrice, btc: liveBtcPrice, weth: liveWethPrice } = livePrices
   const tokenAUsdPrice = (poolId === 'cirbtc-weth-pool' || pool.tokens[0]?.symbol === 'cirBTC')
@@ -969,8 +969,7 @@ export async function executeDepositDual(
       to: poolAddress as Hex,
       data: encodeFunctionData({
         abi: STABLE_SWAP_ABI,
-        functionName: 'addLiquidity',
-        args: addLiquidityArgs,
+        ...buildPoolAddLiquidityCall(poolAddress, amountA, amountB, minLpShares),
       }),
     }
     const opRes = await sendModularUserOperation({
@@ -1066,8 +1065,7 @@ export async function executeDepositDual(
     console.log('[usePoolsData UCW] Requesting addLiquidity challenge on ARC-TESTNET...')
     const addLiqRes = await executeUcwContract({
       contractAddress: poolAddress,
-      abiFunctionSignature: 'addLiquidity(uint256,uint256,uint256)',
-      abiParameters: [amountA.toString(), amountB.toString(), minLpShares.toString()],
+      ...buildPoolAddLiquidityUcwCall(poolAddress, amountA, amountB, minLpShares),
       blockchain: 'ARC-TESTNET',
     })
 
@@ -1166,13 +1164,15 @@ export async function executeDepositDual(
   await approveToken(tokenAAddress, poolAddress, amountA)
   await approveToken(counterTokenAddress, poolAddress, amountB)
 
+  // One deadline for both the gas estimate and the write (built after the approval prompts).
+  const addLiquidityCall = buildPoolAddLiquidityCall(poolAddress, amountA, amountB, minLpShares)
+
   const gasLimit = await estimateSafeGas(
     publicClient,
     {
       address: poolAddress,
       abi: STABLE_SWAP_ABI,
-      functionName: 'addLiquidity',
-      args: addLiquidityArgs,
+      ...addLiquidityCall,
       account: targetAccount,
     },
     450_000n
@@ -1181,8 +1181,7 @@ export async function executeDepositDual(
   const txHash = await resilientWriteContract(walletClient, {
     address: poolAddress,
     abi: STABLE_SWAP_ABI,
-    functionName: 'addLiquidity',
-    args: addLiquidityArgs,
+    ...addLiquidityCall,
     account: targetAccount,
     chain: arcTestnet,
     gas: gasLimit,
