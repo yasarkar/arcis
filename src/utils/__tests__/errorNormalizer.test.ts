@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeAppError } from '../errorNormalizer'
+import { detectPoolCustomError, normalizeAppError } from '../errorNormalizer'
 import { MIN_DIRECT_BRIDGE_AMOUNT } from '../../config/constants'
 
 describe('errorNormalizer', () => {
@@ -102,5 +102,38 @@ describe('errorNormalizer', () => {
     expect(normalized.title).toBe('Bridge Amount Below CCTP Fee')
     expect(normalized.message).toContain('must be greater than the CCTP forwarder fee')
     expect(normalized.actionHint).toContain(`at least ${MIN_DIRECT_BRIDGE_AMOUNT.toFixed(2)} USDC`)
+  })
+})
+
+describe('EURC/cirBTC V4 pool custom errors', () => {
+  it('translates LiquidityLockedThisBlock (viem-decoded name) into a wait-and-retry message', () => {
+    const err = new Error(
+      'The contract function "removeLiquidity" reverted with the following custom error:\n\nLiquidityLockedThisBlock()'
+    )
+    const normalized = normalizeAppError(err)
+    expect(normalized.code).toBe('LIQUIDITY_LOCKED_THIS_BLOCK')
+    expect(normalized.isRetryable).toBe(true)
+    expect(normalized.message).toMatch(/wait a moment and retry/i)
+    expect(normalized.message).not.toContain('Smart contract rejected')
+  })
+
+  it('matches by 4-byte selector, including through the cause chain and paymaster-flavoured bundler text', () => {
+    const bundlerErr = new Error('UserOperation reverted during simulation (paymaster ok): execution reverted, data 0x8a822af3')
+    expect(normalizeAppError(bundlerErr).code).toBe('LIQUIDITY_LOCKED_THIS_BLOCK')
+
+    const wrapped: any = new Error('Execution failed')
+    wrapped.cause = { data: { errorName: 'DeadlineExpired' } }
+    expect(detectPoolCustomError(wrapped)).toBe('DEADLINE_EXPIRED')
+    expect(normalizeAppError(wrapped).title).toBe('Transaction Expired')
+  })
+
+  it('translates DeadAddressTransferBlocked and RenounceDisabled', () => {
+    expect(normalizeAppError(new Error('reverted: DeadAddressTransferBlocked()')).code).toBe('DEAD_ADDRESS_TRANSFER_BLOCKED')
+    expect(normalizeAppError(new Error('execution reverted: 0x89051165')).code).toBe('RENOUNCE_DISABLED')
+  })
+
+  it('does not hijack unrelated reverts', () => {
+    expect(detectPoolCustomError(new Error('execution reverted: ERC4626: deposit more than max'))).toBeNull()
+    expect(normalizeAppError(new Error('execution reverted: ERC4626: deposit more than max')).code).toBe('CONTRACT_REVERT')
   })
 })

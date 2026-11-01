@@ -94,6 +94,55 @@ export function isUserCanceledError(err: any): boolean {
 }
 
 /**
+ * EURC/cirBTC V4 pool custom errors. Matched by name (viem decodes them from the pool ABI) and by
+ * 4-byte selector (bundler / Circle UCW errors often surface only the raw revert data).
+ */
+const POOL_CUSTOM_ERRORS = [
+  { name: 'LiquidityLockedThisBlock', selector: '0x8a822af3', code: 'LIQUIDITY_LOCKED_THIS_BLOCK' },
+  { name: 'DeadlineExpired', selector: '0x1ab7da6b', code: 'DEADLINE_EXPIRED' },
+  { name: 'DeadAddressTransferBlocked', selector: '0x5804d23a', code: 'DEAD_ADDRESS_TRANSFER_BLOCKED' },
+  { name: 'RenounceDisabled', selector: '0x89051165', code: 'RENOUNCE_DISABLED' },
+] as const
+
+export type PoolCustomErrorCode = (typeof POOL_CUSTOM_ERRORS)[number]['code']
+
+/**
+ * Detects a known pool custom revert anywhere in an error: viem decoded `data.errorName`, the
+ * message/shortMessage/details text (name or selector), and the `cause` chain.
+ */
+export function detectPoolCustomError(err: unknown): PoolCustomErrorCode | null {
+  if (!err) return null
+  const texts: string[] = []
+  const seen = new Set<unknown>()
+  let node: any = err
+  for (let depth = 0; node && depth < 8 && !seen.has(node); depth++) {
+    seen.add(node)
+    if (typeof node === 'string') {
+      texts.push(node)
+      break
+    }
+    texts.push(
+      node.data?.errorName,
+      typeof node.data === 'string' ? node.data : undefined,
+      node.errorName,
+      node.shortMessage,
+      node.message,
+      node.details,
+      node.reason,
+      node.errorMessage,
+      node.error?.message,
+    )
+    node = node.cause
+  }
+  const haystack = texts.filter((t): t is string => typeof t === 'string').join('\n').toLowerCase()
+  if (!haystack) return null
+  for (const e of POOL_CUSTOM_ERRORS) {
+    if (haystack.includes(e.name.toLowerCase()) || haystack.includes(e.selector)) return e.code
+  }
+  return null
+}
+
+/**
  * Extracts the explicit revert reason string from smart contract errors or Viem calldata dumps.
  */
 function extractRevertReason(err: any): string | null {
@@ -415,6 +464,22 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
 
   const lowMsg = rawMessage.toLowerCase()
   const errName = (err as any)?.name || ''
+
+  // 0. Known pool custom errors (e.g. LiquidityLockedThisBlock on withdraw / harvest) — specific, so
+  // checked before the broader passkey / paymaster heuristics that bundler errors can also trip
+  const poolErrorCode = detectPoolCustomError(err)
+  if (poolErrorCode) {
+    const def = ERROR_DEFINITIONS[poolErrorCode]
+    return {
+      category: def.category,
+      code: poolErrorCode,
+      title: def.title,
+      message: def.message,
+      isCanceled: false,
+      isRetryable: def.isRetryable,
+      rawMessage,
+    }
+  }
 
   // 1. Passkey / WebAuthn Detection (prioritize specific biometric handling)
   const isPasskey =
