@@ -976,6 +976,206 @@ export async function fetchUserPoolPositions(
     }
   }
 
+  // 6. ConstantProductPool (EURC/cirBTC) user balance read
+  const eurcCirBtcPoolAddress = POOL_CONTRACTS.EURC_CIRBTC_POOL
+  if (isDeployed(eurcCirBtcPoolAddress)) {
+    try {
+      const lpRaw = (await resilientReadContract(publicClient, {
+        address: eurcCirBtcPoolAddress as Address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [targetAddr],
+      })) as bigint
+
+      if (lpRaw > 0n) {
+        let reserveA = 0n
+        let reserveB = 0n
+        let totalLp = 0n
+        let unclaimedA = 0n
+        let unclaimedB = 0n
+
+        try {
+          const [rA, rB, tLp, uA, uB] = await Promise.all([
+            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
+            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
+            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
+            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
+            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
+          ])
+          reserveA = rA as bigint
+          reserveB = rB as bigint
+          totalLp = tLp as bigint
+          unclaimedA = (uA as bigint) || 0n
+          unclaimedB = (uB as bigint) || 0n
+        } catch (e) {
+          const poolState = onchainPoolState?.[eurcCirBtcPoolAddress]
+          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
+          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
+          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 8) : 0n
+          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
+          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 8) : 0n
+        }
+
+        let stakedUsd = 0
+        let userA = 0
+        let userB = 0
+        let poolSharePct = 0
+        let userEarnedUsd = 0
+        let rawFeeShareUsd = 0
+
+        if (totalLp > 0n) {
+          const userARaw = (reserveA * lpRaw) / totalLp
+          const userBRaw = (reserveB * lpRaw) / totalLp
+          userA = parseFloat(formatUnits(userARaw, 6))
+          userB = parseFloat(formatUnits(userBRaw, 8))
+          stakedUsd = userA * liveEurcPrice + userB * liveBtcPrice
+          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+
+          const ufA = parseFloat(formatUnits(unclaimedA, 6))
+          const ufB = parseFloat(formatUnits(unclaimedB, 8))
+          const totalPoolUnclaimedUsd = ufA * liveEurcPrice + ufB * liveBtcPrice
+          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+
+          if (POOL_VERSION_V4) {
+            try {
+              const pending = (await resilientReadContract(publicClient, {
+                address: eurcCirBtcPoolAddress as Address,
+                abi: CONSTANT_PRODUCT_ABI,
+                functionName: 'pendingFees',
+                args: [targetAddr],
+              })) as readonly [bigint, bigint]
+              const claimableUsd =
+                parseFloat(formatUnits(pending?.[0] || 0n, 6)) * liveEurcPrice +
+                parseFloat(formatUnits(pending?.[1] || 0n, 8)) * liveBtcPrice
+              rawFeeShareUsd = claimableUsd
+              userEarnedUsd = claimableUsd
+            } catch (e) {
+              console.warn('[usePoolsData] EURC/cirBTC ConstantProduct pendingFees read failed:', e)
+            }
+          }
+        }
+
+        positions['eurc-cirbtc-pool'] = {
+          poolId: 'eurc-cirbtc-pool',
+          stakedAmount: stakedUsd.toFixed(2),
+          stakedUsd,
+          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedUsd: userEarnedUsd,
+          lastUpdatedTimestamp: Date.now(),
+          isLpPosition: true,
+          lpTokenBalance: formatUnits(lpRaw, 18),
+          poolSharePct,
+          tokenAStaked: userA.toFixed(2),
+          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
+          earnedFeesUsd: rawFeeShareUsd,
+          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
+        }
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] EURC/cirBTC ConstantProduct user balance read failed:', err)
+    }
+  }
+
+  // 7. ConstantProductPool (cirBTC/WETH) user balance read
+  const cirBtcWethPoolAddress = POOL_CONTRACTS.CIRBTC_WETH_POOL
+  if (isDeployed(cirBtcWethPoolAddress)) {
+    try {
+      const lpRaw = (await resilientReadContract(publicClient, {
+        address: cirBtcWethPoolAddress as Address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [targetAddr],
+      })) as bigint
+
+      if (lpRaw > 0n) {
+        let reserveA = 0n
+        let reserveB = 0n
+        let totalLp = 0n
+        let unclaimedA = 0n
+        let unclaimedB = 0n
+
+        try {
+          const [rA, rB, tLp, uA, uB] = await Promise.all([
+            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
+            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
+            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
+            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
+            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
+          ])
+          reserveA = rA as bigint
+          reserveB = rB as bigint
+          totalLp = tLp as bigint
+          unclaimedA = (uA as bigint) || 0n
+          unclaimedB = (uB as bigint) || 0n
+        } catch (e) {
+          const poolState = onchainPoolState?.[cirBtcWethPoolAddress]
+          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
+          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 8) : 0n
+          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 18) : 0n
+          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 8) : 0n
+          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 18) : 0n
+        }
+
+        let stakedUsd = 0
+        let userA = 0
+        let userB = 0
+        let poolSharePct = 0
+        let userEarnedUsd = 0
+        let rawFeeShareUsd = 0
+
+        if (totalLp > 0n) {
+          const userARaw = (reserveA * lpRaw) / totalLp
+          const userBRaw = (reserveB * lpRaw) / totalLp
+          userA = parseFloat(formatUnits(userARaw, 8))
+          userB = parseFloat(formatUnits(userBRaw, 18))
+          stakedUsd = userA * liveBtcPrice + userB * liveEthPrice
+          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+
+          const ufA = parseFloat(formatUnits(unclaimedA, 8))
+          const ufB = parseFloat(formatUnits(unclaimedB, 18))
+          const totalPoolUnclaimedUsd = ufA * liveBtcPrice + ufB * liveEthPrice
+          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+
+          if (POOL_VERSION_V4) {
+            try {
+              const pending = (await resilientReadContract(publicClient, {
+                address: cirBtcWethPoolAddress as Address,
+                abi: CONSTANT_PRODUCT_ABI,
+                functionName: 'pendingFees',
+                args: [targetAddr],
+              })) as readonly [bigint, bigint]
+              const claimableUsd =
+                parseFloat(formatUnits(pending?.[0] || 0n, 8)) * liveBtcPrice +
+                parseFloat(formatUnits(pending?.[1] || 0n, 18)) * liveEthPrice
+              rawFeeShareUsd = claimableUsd
+              userEarnedUsd = claimableUsd
+            } catch (e) {
+              console.warn('[usePoolsData] cirBTC/WETH ConstantProduct pendingFees read failed:', e)
+            }
+          }
+        }
+
+        positions['cirbtc-weth-pool'] = {
+          poolId: 'cirbtc-weth-pool',
+          stakedAmount: stakedUsd.toFixed(2),
+          stakedUsd,
+          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedUsd: userEarnedUsd,
+          lastUpdatedTimestamp: Date.now(),
+          isLpPosition: true,
+          lpTokenBalance: formatUnits(lpRaw, 18),
+          poolSharePct,
+          tokenAStaked: userA < 0.001 ? userA.toFixed(6) : userA.toFixed(4),
+          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
+          earnedFeesUsd: rawFeeShareUsd,
+          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
+        }
+      }
+    } catch (err) {
+      console.warn('[usePoolsData] cirBTC/WETH ConstantProduct user balance read failed:', err)
+    }
+  }
+
   if (Object.keys(positions).length > 0) {
     await redisCache.set(cacheKey, positions, 20)
   }

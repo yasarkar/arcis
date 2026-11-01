@@ -67,34 +67,38 @@ export const PoolWithdrawTab: React.FC<PoolWithdrawTabProps> = ({
         ? CirBtcIcon
         : UsdcIcon
 
+  const hasUsdc = Boolean(pool?.tokens?.some((t: { symbol?: string }) => t.symbol === 'USDC'))
+
   return (
     <div>
       {/* LP Withdraw Payout Switcher */}
       {isLp && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-          <button
-            type="button"
-            onClick={() => setLpPayoutMode('usdc')}
-            style={{
-              flex: 1,
-              padding: '8px 12px',
-              borderRadius: 10,
-              background: lpPayoutMode === 'usdc' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-              border: lpPayoutMode === 'usdc' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
-              color: lpPayoutMode === 'usdc' ? '#fff' : 'var(--fp-3)',
-              fontSize: 12,
-              fontFamily: 'var(--font-app)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-            }}
-          >
-            <Plus size={13} style={{ color: 'var(--purple-1)' }} />
-            <span>Single Token</span>
-          </button>
+          {hasUsdc && (
+            <button
+              type="button"
+              onClick={() => setLpPayoutMode('usdc')}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: 10,
+                background: lpPayoutMode === 'usdc' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+                border: lpPayoutMode === 'usdc' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
+                color: lpPayoutMode === 'usdc' ? '#fff' : 'var(--fp-3)',
+                fontSize: 12,
+                fontFamily: 'var(--font-app)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}
+            >
+              <Plus size={13} style={{ color: 'var(--purple-1)' }} />
+              <span>Single Token</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -103,13 +107,13 @@ export const PoolWithdrawTab: React.FC<PoolWithdrawTabProps> = ({
               flex: 1,
               padding: '8px 12px',
               borderRadius: 10,
-              background: lpPayoutMode === 'dual' ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
-              border: lpPayoutMode === 'dual' ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
-              color: lpPayoutMode === 'dual' ? '#fff' : 'var(--fp-3)',
+              background: (!hasUsdc || lpPayoutMode === 'dual') ? 'rgba(152, 150, 255, 0.18)' : 'rgba(255, 255, 255, 0.03)',
+              border: (!hasUsdc || lpPayoutMode === 'dual') ? '1px solid rgba(152, 150, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
+              color: (!hasUsdc || lpPayoutMode === 'dual') ? '#fff' : 'var(--fp-3)',
               fontSize: 12,
               fontFamily: 'var(--font-app)',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: hasUsdc ? 'pointer' : 'default',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -117,7 +121,7 @@ export const PoolWithdrawTab: React.FC<PoolWithdrawTabProps> = ({
             }}
           >
             <Layers size={13} />
-            <span>Both Tokens</span>
+            <span>{hasUsdc ? 'Both Tokens' : `Dual Payout (${tokenASymbol} + ${counterTokenSymbol})`}</span>
           </button>
         </div>
       )}

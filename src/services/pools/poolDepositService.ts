@@ -270,6 +270,7 @@ export async function executeZapIn(
   const counterToken = pool.tokens[1]
   const counterTokenAddress = (counterToken?.address || (pool.id === 'usdc-weth-pool' ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC)) as `0x${string}`
   const counterDecimals = counterToken?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
+  const tokenADecimals = pool.tokens[0]?.decimals ?? 6
 
   const [resA, resB] = await Promise.all([
     publicClient
@@ -706,7 +707,7 @@ export async function executeZapIn(
         ...(onchainPoolState || {}),
         [poolAddress]: {
           ...(onchainPoolState?.[poolAddress] || {}),
-          reserveA: formatUnits(freshReserveA as bigint, 6),
+          reserveA: formatUnits(freshReserveA as bigint, tokenADecimals),
           reserveB: formatUnits(freshReserveB as bigint, counterDecimals),
           totalLp: formatUnits(freshTotalLp as bigint, 18),
         },
@@ -897,7 +898,7 @@ export async function executeDepositDual(
         ...(onchainPoolState || {}),
         [poolAddress]: {
           ...(onchainPoolState?.[poolAddress] || {}),
-          reserveA: formatUnits(freshReserveA as bigint, 6),
+          reserveA: formatUnits(freshReserveA as bigint, tokenADecimals),
           reserveB: formatUnits(freshReserveB as bigint, counterDecimals),
           totalLp: formatUnits(freshTotalLp as bigint, 18),
         },
@@ -1015,7 +1016,7 @@ export async function executeDepositDual(
         if (!old) return old
         if (isTokenACirBtc) {
           const oldBtc = parseFloat(old.cirbtc || old.btc || '0')
-          return { ...old, cirbtc: Math.max(0, oldBtc - decA).toFixed(4) }
+          return { ...old, cirbtc: Math.max(0, oldBtc - decA).toFixed(6) }
         }
         if (isTokenAEurc) {
           const oldEurc = parseFloat(old.eurc || '0')
@@ -1117,7 +1118,7 @@ export async function executeDepositDual(
         if (!old) return old
         if (isTokenACirBtc) {
           const oldBtc = parseFloat(old.cirbtc || old.btc || '0')
-          return { ...old, cirbtc: Math.max(0, oldBtc - decA).toFixed(4) }
+          return { ...old, cirbtc: Math.max(0, oldBtc - decA).toFixed(6) }
         }
         if (isTokenAEurc) {
           const oldEurc = parseFloat(old.eurc || '0')

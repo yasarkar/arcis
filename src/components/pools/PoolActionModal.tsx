@@ -2,58 +2,60 @@
 // Supports Standard Deposit/Redeem, Cross-Chain 1-Click Gateway Zap (<500ms sub-second teleportation),
 // 1-Click Single-Token Zap to LP, Dual-Asset (50/50) Deposit, Slippage tolerance controls,
 // LP Withdraw options, and on-chain Pool AMM Swapping (USDC ↔ cirBTC / EURC).
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
-import { createPortal } from 'react-dom'
-import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
-  X,
-  Plus,
-  Minus,
   AlertTriangle,
-  RefreshCw,
   ArrowRightLeft,
   Globe,
+  Minus,
+  Plus,
+  RefreshCw,
   SlidersHorizontal,
+  X,
 } from 'lucide-react'
-import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
-import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
-import type { PoolConfig } from '../../config/poolsConfig'
-import type { UserPoolPosition } from '../../hooks/usePoolsData'
-import { useGatewayBalance } from '../../hooks/useGatewayBalance'
-import { GATEWAY_CHAIN_NAMES } from '../../config/gatewayConfig'
-import { CHAIN_META, getChainDisplayName, getChainIconId } from '../../config/bridgeConfig'
-import { ChainSelectorModal } from '../fintech'
-import { isUserCanceled, formatWalletError } from '../../utils/errorUtils'
-import { parseUnits, formatUnits } from 'viem'
-import {
-  calculateStableSwapExpectedOut,
-  calculateConstantProductExpectedOut,
-  calculatePriceImpactPct,
-  estimateLpSharesForDeposit,
-  analyzeDualDepositBalance,
-  DUAL_DEPOSIT_DONATION_WARN_PCT,
-  DUAL_DEPOSIT_DONATION_BLOCK_PCT,
-} from '../../utils/poolMath'
-import { useLiveTokenPrices } from '../../hooks/useLiveTokenPrices'
-import { Tooltip } from '../common/Tooltip'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { formatUnits, parseUnits } from 'viem'
 import { useAccount } from 'wagmi'
+import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
+import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
+import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
+import { CHAIN_META, getChainIconId } from '../../config/bridgeConfig'
+import { GATEWAY_CHAIN_NAMES } from '../../config/gatewayConfig'
+import type { PoolConfig } from '../../config/poolsConfig'
 import {
-  POOLS_CHAIN_DEFS,
-  STABLE_SWAP_AMP,
-  STABLE_SWAP_LP_FEE_BPS,
   CONSTANT_PRODUCT_LP_FEE_BPS,
   POOL_MAX_SLIPPAGE_BPS,
   poolMinOut,
+  POOLS_CHAIN_DEFS,
   poolSlippageBps,
+  STABLE_SWAP_AMP,
+  STABLE_SWAP_LP_FEE_BPS,
 } from '../../config/poolsConfig'
-import { ensureNetwork } from '../../services/chainSwitchService'
+import { WethIcon } from '../../config/tokenIcons'
 import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
+import { useGatewayBalance } from '../../hooks/useGatewayBalance'
+import { useLiveTokenPrices } from '../../hooks/useLiveTokenPrices'
+import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import { useWalletSettings } from '../../hooks/useWalletSettings'
+import { ensureNetwork } from '../../services/chainSwitchService'
+import { formatWalletError, isUserCanceled } from '../../utils/errorUtils'
 import {
+  analyzeDualDepositBalance,
+  calculateConstantProductExpectedOut,
+  calculatePriceImpactPct,
+  calculateStableSwapExpectedOut,
+  DUAL_DEPOSIT_DONATION_BLOCK_PCT,
+  DUAL_DEPOSIT_DONATION_WARN_PCT,
+  estimateLpSharesForDeposit,
+} from '../../utils/poolMath'
+import { Tooltip } from '../common/Tooltip'
+import { ChainSelectorModal } from '../fintech'
+import {
+  PoolDepositTab,
   PoolSlippagePanel,
   PoolSwapTab,
   PoolWithdrawTab,
-  PoolDepositTab,
 } from './actions'
 
 export interface PoolActionModalProps {
@@ -126,7 +128,7 @@ export default function PoolActionModal({
     if (withBal.length > 0) {
       const highest = withBal.reduce((prev, curr) =>
         parseFloat(curr.balance) > parseFloat(prev.balance) ? curr : prev
-      , withBal[0])
+        , withBal[0])
       return highest.chainKey
     }
     return 'Base_Sepolia'
@@ -276,14 +278,15 @@ export default function PoolActionModal({
     setSwapAmountIn('')
     setPercentage(0)
     clearError()
+    const hasUsdc = Boolean(pool?.tokens?.some((t) => t.symbol === 'USDC'))
     const isModalPoolEmpty = Boolean(
       pool?.isLpPool && (
         pool?.tvlUsd === 0 ||
         (pool?.reserves && (pool.reserves.tokenA === 0 || pool.reserves.tokenB === 0))
       )
     )
-    setLpDepositMethod(isModalPoolEmpty ? 'dual' : 'zap')
-    setLpPayoutMode('usdc')
+    setLpDepositMethod(isModalPoolEmpty || !pool?.supportsZap ? 'dual' : 'zap')
+    setLpPayoutMode(hasUsdc ? 'usdc' : 'dual')
     setShowSettings(false)
     setSelectedSlippageType(walletSettings.poolSlippageType)
     setCustomSlippage(walletSettings.poolCustomSlippage || '')
@@ -318,10 +321,25 @@ export default function PoolActionModal({
 
   const tokenA = pool.tokens[0]
   const tokenASymbol = tokenA?.symbol || 'USDC'
+  const tokenADecimals = tokenA?.decimals ?? (tokenASymbol === 'cirBTC' || tokenASymbol === 'BTC' ? 8 : tokenASymbol === 'WETH' || tokenASymbol === 'ETH' ? 18 : 6)
   const isTokenAEurc = tokenASymbol === 'EURC'
-  const tokenAIcon = isTokenAEurc ? EurcIcon : UsdcIcon
-  const availableWalletTokenA = isTokenAEurc ? (availableWalletEurc || '0.00') : availableWalletUsdc
-  const walletBalTokenA = isTokenAEurc ? walletBalEurc : walletBalUsdc
+  const isTokenACirBtc = tokenASymbol === 'cirBTC' || tokenASymbol === 'BTC'
+  const isTokenAWeth = tokenASymbol === 'WETH' || tokenASymbol === 'ETH'
+  const tokenAIcon = isTokenAEurc ? EurcIcon : isTokenACirBtc ? CirBtcIcon : isTokenAWeth ? WethIcon : UsdcIcon
+  const availableWalletTokenA = isTokenAEurc
+    ? (availableWalletEurc || '0.00')
+    : isTokenACirBtc
+      ? (availableWalletCirBtc || '0.000000')
+      : isTokenAWeth
+        ? (availableWalletWeth || '0.0000')
+        : availableWalletUsdc
+  const walletBalTokenA = isTokenAEurc
+    ? walletBalEurc
+    : isTokenACirBtc
+      ? walletBalCirBtc
+      : isTokenAWeth
+        ? walletBalWeth
+        : walletBalUsdc
 
   const livePoolRate = pool?.reserves && pool.reserves.tokenB > 0 && pool.reserves.tokenA > 0
     ? pool.reserves.tokenA / pool.reserves.tokenB
@@ -329,6 +347,16 @@ export default function PoolActionModal({
 
   const fallbackExchangeRate = useMemo(() => {
     if (pool.exchangeRate && pool.exchangeRate > 0) return pool.exchangeRate
+    if (pool.id === 'cirbtc-weth-pool') {
+      const btcUsd = tokenPrices?.btc || tokenPrices?.cirbtc || 68000
+      const wethUsd = tokenPrices?.weth || 2600
+      return wethUsd > 0 ? btcUsd / wethUsd : 26.15
+    }
+    if (pool.id === 'eurc-cirbtc-pool') {
+      const btcUsd = tokenPrices?.btc || tokenPrices?.cirbtc || 68000
+      const eurcUsd = tokenPrices?.eurc || 1.08
+      return eurcUsd > 0 ? btcUsd / eurcUsd : 63000
+    }
     if (pool.id === 'eurc-weth-pool') {
       const wethUsd = tokenPrices?.weth || 2600
       const eurcUsd = tokenPrices?.eurc || 1.08
@@ -379,7 +407,7 @@ export default function PoolActionModal({
     : 'AMOUNT TO DEPOSIT'
 
   const numericBalanceStr = activeMode === 'deposit'
-    ? (depositSource === 'crosschain' ? crossChainBalStr : availableWalletUsdc)
+    ? (depositSource === 'crosschain' ? crossChainBalStr : (isLp && lpDepositMethod === 'zap' ? availableWalletUsdc : availableWalletTokenA))
     : userStaked.toFixed(2)
 
   // Swap wallet balance
@@ -449,7 +477,9 @@ export default function PoolActionModal({
       pool.reserves.tokenB > 0
     )
 
-    if (swapTokenIn === 'USDC') {
+    const isSwappingAtoB = swapTokenIn === tokenASymbol || (tokenASymbol === 'USDC' && swapTokenIn === 'USDC')
+
+    if (isSwappingAtoB) {
       if (hasReserves && pool.reserves) {
         if (pool.id === 'usdc-eurc-stable-pool') {
           try {
@@ -467,8 +497,8 @@ export default function PoolActionModal({
           }
         } else {
           try {
-            const rawInBig = parseUnits(swapAmountInNum.toFixed(6), 6)
-            const resABig = parseUnits(pool.reserves.tokenA.toFixed(6), 6)
+            const rawInBig = parseUnits(swapAmountInNum.toFixed(tokenADecimals), tokenADecimals)
+            const resABig = parseUnits(pool.reserves.tokenA.toFixed(tokenADecimals), tokenADecimals)
             const resBBig = parseUnits(pool.reserves.tokenB.toFixed(counterTokenDecimals), counterTokenDecimals)
             const outBig = calculateConstantProductExpectedOut(rawInBig, resABig, resBBig, CONSTANT_PRODUCT_LP_FEE_BPS)
             calculatedSwapOut = formatUnits(outBig, counterTokenDecimals)
@@ -476,14 +506,14 @@ export default function PoolActionModal({
             minSwapOutStr = formatUnits(minOutBig, counterTokenDecimals)
           } catch {
             const rawOut = (pool.reserves.tokenB * netIn) / (pool.reserves.tokenA + netIn)
-            calculatedSwapOut = rawOut.toFixed(counterTokenDecimals)
-            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(counterTokenDecimals)
+            calculatedSwapOut = rawOut.toFixed(counterTokenDecimals === 18 ? 4 : counterTokenDecimals === 8 ? 6 : 2)
+            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(counterTokenDecimals === 18 ? 4 : counterTokenDecimals === 8 ? 6 : 2)
           }
         }
       } else if (exchangeRate > 0) {
         const rawOut = (swapAmountInNum / exchangeRate) * feeMultiplier
-        calculatedSwapOut = rawOut.toFixed(counterTokenDecimals)
-        minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(counterTokenDecimals)
+        calculatedSwapOut = rawOut.toFixed(counterTokenDecimals === 18 ? 4 : counterTokenDecimals === 8 ? 6 : 2)
+        minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(counterTokenDecimals === 18 ? 4 : counterTokenDecimals === 8 ? 6 : 2)
       }
     } else {
       if (hasReserves && pool.reserves) {
@@ -505,21 +535,21 @@ export default function PoolActionModal({
           try {
             const rawInBig = parseUnits(swapAmountInNum.toFixed(counterTokenDecimals), counterTokenDecimals)
             const resBBig = parseUnits(pool.reserves.tokenB.toFixed(counterTokenDecimals), counterTokenDecimals)
-            const resABig = parseUnits(pool.reserves.tokenA.toFixed(6), 6)
+            const resABig = parseUnits(pool.reserves.tokenA.toFixed(tokenADecimals), tokenADecimals)
             const outBig = calculateConstantProductExpectedOut(rawInBig, resBBig, resABig, CONSTANT_PRODUCT_LP_FEE_BPS)
-            calculatedSwapOut = formatUnits(outBig, 6)
+            calculatedSwapOut = formatUnits(outBig, tokenADecimals)
             const minOutBig = poolMinOut(outBig, poolSlippageBps(slippage))
-            minSwapOutStr = formatUnits(minOutBig, 6)
+            minSwapOutStr = formatUnits(minOutBig, tokenADecimals)
           } catch {
             const rawOut = (pool.reserves.tokenA * netIn) / (pool.reserves.tokenB + netIn)
-            calculatedSwapOut = rawOut.toFixed(2)
-            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(2)
+            calculatedSwapOut = rawOut.toFixed(tokenADecimals === 8 ? 6 : tokenADecimals === 18 ? 4 : 2)
+            minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(tokenADecimals === 8 ? 6 : tokenADecimals === 18 ? 4 : 2)
           }
         }
       } else if (exchangeRate > 0) {
         const rawOut = (swapAmountInNum * exchangeRate) * feeMultiplier
-        calculatedSwapOut = rawOut.toFixed(2)
-        minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(2)
+        calculatedSwapOut = rawOut.toFixed(tokenADecimals === 8 ? 6 : tokenADecimals === 18 ? 4 : 2)
+        minSwapOutStr = (rawOut * ((100 - slippage) / 100)).toFixed(tokenADecimals === 8 ? 6 : tokenADecimals === 18 ? 4 : 2)
       }
     }
   }
@@ -527,12 +557,12 @@ export default function PoolActionModal({
   // Real price impact (derived from live reserves)
   const priceImpactPct = (swapAmountInNum > 0 && pool.reserves)
     ? calculatePriceImpactPct(
-        swapAmountInNum,
-        swapTokenIn === 'USDC' ? pool.reserves.tokenA : pool.reserves.tokenB,
-        swapTokenIn === 'USDC' ? pool.reserves.tokenB : pool.reserves.tokenA,
-        pool.id === 'usdc-eurc-stable-pool',
-        STABLE_SWAP_AMP
-      )
+      swapAmountInNum,
+      swapTokenIn === 'USDC' ? pool.reserves.tokenA : pool.reserves.tokenB,
+      swapTokenIn === 'USDC' ? pool.reserves.tokenB : pool.reserves.tokenA,
+      pool.id === 'usdc-eurc-stable-pool',
+      STABLE_SWAP_AMP
+    )
     : 0
 
   const handleFlipSwapDirection = () => {
@@ -707,13 +737,13 @@ export default function PoolActionModal({
 
   const estimatedPoolShare = isLp
     ? (lpPreview && lpPreview.shares > 0
-        ? (previewTotalLp === 0
-            ? '100.00'
-            : ((lpPreview.shares / lpPreview.totalLpAfter) * 100).toFixed(2))
-        : '')
+      ? (previewTotalLp === 0
+        ? '100.00'
+        : ((lpPreview.shares / lpPreview.totalLpAfter) * 100).toFixed(2))
+      : '')
     : (inputAmountNum > 0 && pool.tvlUsd + inputAmountNum > 0
-        ? ((inputAmountNum / (pool.tvlUsd + inputAmountNum)) * 100).toFixed(2)
-        : '')
+      ? ((inputAmountNum / (pool.tvlUsd + inputAmountNum)) * 100).toFixed(2)
+      : '')
 
   const withdrawAssetReturns = useMemo(() => {
     if (!isLp || activeMode !== 'withdraw' || inputAmountNum <= 0 || userStaked <= 0) return null

@@ -321,7 +321,7 @@ export function usePoolsData(
         const resB = parseFloat(s?.reserveB || '0') || 0
         const btcPrice = liveBtcPrice || 68000
         const wethPrice = liveWethPrice || 2600
-        exchangeRate = btcPrice / wethPrice
+        exchangeRate = btcPrice > 0 ? wethPrice / btcPrice : 0.0382
         const reserveUsd = resA * btcPrice + resB * wethPrice
         tvlUsd = reserveUsd < 1000 ? parseFloat(reserveUsd.toFixed(2)) : Math.floor(reserveUsd)
         const ratioA = reserveUsd > 0 ? Math.round(((resA * btcPrice) / reserveUsd) * 100) : 50

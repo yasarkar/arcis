@@ -707,7 +707,7 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     state.reserves = { reserveA: usdc(1_000_000), reserveB: usdc(900_000) }
 
     const { data, actionablePayload } = await generateLiveServiceData(mevShieldManifest, {
-      pair: 'EURC/cirBTC',
+      pair: 'EURC/DAI',
       targetTxAmountUsdc: 100_000,
       slippageTolerancePct: 0.5,
     })
@@ -716,7 +716,7 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.poolAddress).toBeNull()
     expect(data.poolReserveUsdc).toBeNull()
     expect(data.unavailable).toContain('active Arc L1 DEX pool for requested pair')
-    expect(data.reason).toContain('EURC/cirBTC')
+    expect(data.reason).toContain('EURC/DAI')
     expect(actionablePayload).toBeUndefined()
     expect(data.riskRegister?.[0]?.id).toBe('MEV_ANALYSIS_UNAVAILABLE')
   })

@@ -362,18 +362,21 @@ export const PoolDepositTab: React.FC<PoolDepositTabProps> = ({
             label={`AMOUNT OF ${tokenASymbol} TO DEPOSIT`}
             amount={amountA}
             onAmountChange={handleAmountAChange}
+            placeholder={tokenASymbol === 'cirBTC' || tokenASymbol.toLowerCase().includes('btc') ? '0.0000' : tokenASymbol === 'WETH' ? '0.0000' : '0.00'}
             tokenSymbol={tokenASymbol}
             tokenIcon={tokenAIcon}
             tokenListAvailable={false}
             balance={availableWalletTokenA}
             onMaxClick={() => {
-              const maxAWithGas = isTokenAEurc ? walletBalTokenA : Math.max(0, walletBalTokenA - ARC_GAS_RESERVE_USDC)
-              handleAmountAChange(maxAWithGas.toFixed(2))
+              const maxAWithGas = tokenASymbol === 'USDC' ? Math.max(0, walletBalTokenA - ARC_GAS_RESERVE_USDC) : walletBalTokenA
+              const decimals = tokenASymbol === 'cirBTC' || tokenASymbol.toLowerCase().includes('btc') ? 6 : (tokenASymbol === 'WETH' ? 4 : 2)
+              handleAmountAChange(maxAWithGas.toFixed(decimals))
             }}
             quickPercentages={[25, 50, 75, 100]}
             onSelectPercentage={(pct) => {
-              const maxAWithGas = isTokenAEurc ? walletBalTokenA : Math.max(0, walletBalTokenA - ARC_GAS_RESERVE_USDC)
-              handleAmountAChange(((maxAWithGas * pct) / 100).toFixed(2))
+              const maxAWithGas = tokenASymbol === 'USDC' ? Math.max(0, walletBalTokenA - ARC_GAS_RESERVE_USDC) : walletBalTokenA
+              const decimals = tokenASymbol === 'cirBTC' || tokenASymbol.toLowerCase().includes('btc') ? 6 : (tokenASymbol === 'WETH' ? 4 : 2)
+              handleAmountAChange(((maxAWithGas * pct) / 100).toFixed(decimals))
             }}
             fiatEstimate={formatFiatEstimate(amountA, tokenASymbol, tokenPrices)}
             disabled={isProcessing}

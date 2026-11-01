@@ -354,7 +354,10 @@ export async function executeWithdrawFromPool(
     return [lpToWithdraw, minOutA, minOutB] as const
   })() as readonly [lpAmount: bigint, minOutA: bigint, minOutB: bigint]
 
-  const counterBalBefore = payoutMode === 'usdc' && counterTokenAddress
+  const hasUsdc = Boolean(pool.tokens?.some((t) => t.symbol === 'USDC'))
+  const effectivePayoutMode = hasUsdc ? payoutMode : 'dual'
+
+  const counterBalBefore = effectivePayoutMode === 'usdc' && counterTokenAddress
     ? ((await resilientReadContract(publicClient, {
       address: counterTokenAddress,
       abi: erc20Abi,
@@ -468,7 +471,7 @@ export async function executeWithdrawFromPool(
   let autoSwapCounterSymbol = ''
   let autoSwapCounterAmount = ''
 
-  if (payoutMode === 'usdc' && counterToken?.address) {
+  if (effectivePayoutMode === 'usdc' && counterToken?.address) {
     try {
       if (txHash) {
         await waitForReceiptSafe(txHash as Hex, 'Remove liquidity')

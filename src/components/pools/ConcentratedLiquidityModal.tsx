@@ -52,21 +52,41 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 }) => {
   const { data: tokenPrices } = useLiveTokenPrices()
 
-  // Identify base token (Token A: USDC vs EURC)
+  // Identify base/quote token (Token A: tokens[0])
   const tokenA = pool?.tokens?.[0] || { symbol: 'USDC', name: 'USD Coin', decimals: 6, iconType: 'usdc' }
-  const isTokenAEurc = tokenA.symbol === 'EURC' || pool?.id === 'eurc-weth-pool'
-  const tokenASymbol = tokenA.symbol || (isTokenAEurc ? 'EURC' : 'USDC')
-  const tokenAIcon = isTokenAEurc ? EurcIcon : UsdcIcon
-  const availableTokenABalance = isTokenAEurc ? (availableWalletEurc || '0.00') : (availableWalletUsdc || '0.00')
+  const tokenASymbol = tokenA.symbol || 'USDC'
+  const isTokenAEurc = tokenASymbol === 'EURC'
+  const isTokenACirBtc = tokenASymbol === 'cirBTC' || tokenASymbol === 'BTC'
+  const isTokenAWeth = tokenASymbol === 'WETH' || tokenASymbol === 'ETH'
+  const tokenAIcon = isTokenAEurc ? EurcIcon : isTokenACirBtc ? CirBtcIcon : isTokenAWeth ? WethIcon : UsdcIcon
+  const availableTokenABalance = isTokenAEurc
+    ? (availableWalletEurc || '0.00')
+    : isTokenACirBtc
+      ? (availableWalletCirBtc || '0.000000')
+      : isTokenAWeth
+        ? (availableWalletWeth || '0.0000')
+        : (availableWalletUsdc || '0.00')
   const userTokenABal = parseFloat(availableTokenABalance) || 0
 
-  // Identify counter token (Token B: cirBTC vs WETH vs generic)
+  // Identify counter/asset token (Token B: tokens[1])
   const counterToken = pool?.tokens?.[1] || { symbol: 'cirBTC', name: 'Circle Wrapped Bitcoin', decimals: 8, iconType: 'btc' }
-  const isWeth = pool?.id === 'usdc-weth-pool' || pool?.id === 'eurc-weth-pool' || counterToken.symbol === 'WETH'
-  const counterSymbol = counterToken.symbol || (isWeth ? 'WETH' : 'cirBTC')
-  const counterIcon = isWeth ? WethIcon : CirBtcIcon
-  const availableCounterBalance = isWeth ? (availableWalletWeth || '0.0000') : (availableWalletCirBtc || '0.0000')
+  const counterSymbol = counterToken.symbol || 'cirBTC'
+  const isCounterEurc = counterSymbol === 'EURC'
+  const isCounterCirBtc = counterSymbol === 'cirBTC' || counterSymbol === 'BTC'
+  const isCounterWeth = counterSymbol === 'WETH' || counterSymbol === 'ETH'
+  const isWeth = isCounterWeth || isTokenAWeth
+  const counterIcon = isCounterEurc ? EurcIcon : isCounterWeth ? WethIcon : isCounterCirBtc ? CirBtcIcon : UsdcIcon
+  const availableCounterBalance = isCounterEurc
+    ? (availableWalletEurc || '0.00')
+    : isCounterWeth
+      ? (availableWalletWeth || '0.0000')
+      : isCounterCirBtc
+        ? (availableWalletCirBtc || '0.000000')
+        : (availableWalletUsdc || '0.00')
   const userCounterBal = parseFloat(availableCounterBalance) || 0
+
+  const tokenAPrecision = isTokenACirBtc ? 6 : isTokenAWeth ? 4 : 2
+  const counterPrecision = isCounterCirBtc ? 6 : isCounterWeth ? 4 : 2
 
   // UI Theme tokens
   const accentBorderColor = isWeth ? 'border-indigo-500/40' : 'border-orange-500/40'
@@ -86,29 +106,33 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
     ? { background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)', boxShadow: '0 6px 20px -4px rgba(99, 102, 241, 0.45)' }
     : { background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', boxShadow: '0 6px 20px -4px rgba(249, 115, 22, 0.45)' }
 
-  // Base price for counter token in Token A (prioritizes live on-chain pool ratio for exact AMM liquidity matching)
+  // USD Prices of individual tokens
+  const tokenAPriceUsd = useMemo(() => {
+    if (isTokenAEurc) return tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08
+    if (isTokenACirBtc) return tokenPrices?.['BTC'] || tokenPrices?.['cirBTC'] || 68000
+    if (isTokenAWeth) return tokenPrices?.['ETH'] || tokenPrices?.['WETH'] || 2600
+    return 1.0 // USDC
+  }, [isTokenAEurc, isTokenACirBtc, isTokenAWeth, tokenPrices])
+
+  const counterPriceUsd = useMemo(() => {
+    if (isCounterEurc) return tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08
+    if (isCounterCirBtc) return tokenPrices?.['BTC'] || tokenPrices?.['cirBTC'] || 68000
+    if (isCounterWeth) return tokenPrices?.['ETH'] || tokenPrices?.['WETH'] || 2600
+    return 1.0 // USDC
+  }, [isCounterEurc, isCounterCirBtc, isCounterWeth, tokenPrices])
+
+  // Base price for counter token in Token A (Token A per Counter Token, e.g. cirBTC per WETH or USDC per WETH)
   const liveCounterPrice = useMemo(() => {
     if (pool?.reserves && pool.reserves.tokenA > 0 && pool.reserves.tokenB > 0) {
       const poolRatio = pool.reserves.tokenA / pool.reserves.tokenB
       if (poolRatio > 0) return poolRatio
     }
-    if (isWeth) {
-      const rawPrice = tokenPrices?.['ETH'] || tokenPrices?.['WETH']
-      if (typeof rawPrice === 'number' && rawPrice > 0) {
-        if (isTokenAEurc) {
-          const eurRate = tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08
-          return Math.round((rawPrice / eurRate) * 100) / 100
-        }
-        return rawPrice
-      }
-      if (pool?.exchangeRate && pool.exchangeRate > 0) return pool.exchangeRate
-      return isTokenAEurc ? 2400.0 : 2600.0
+    if (tokenAPriceUsd > 0 && counterPriceUsd > 0) {
+      return counterPriceUsd / tokenAPriceUsd
     }
-    const rawPrice = tokenPrices?.['BTC'] || tokenPrices?.['cirBTC']
-    if (typeof rawPrice === 'number' && rawPrice > 0) return rawPrice
     if (pool?.exchangeRate && pool.exchangeRate > 0) return pool.exchangeRate
-    return 82739.9905
-  }, [tokenPrices, pool?.reserves, pool?.exchangeRate, isWeth, isTokenAEurc])
+    return 1.0
+  }, [pool?.reserves, pool?.exchangeRate, tokenAPriceUsd, counterPriceUsd])
 
   // Price orientation toggle: true = Token A per Counter, false = Counter per Token A
   const [isTokenAPerCounter, setIsTokenAPerCounter] = useState<boolean>(true)
@@ -119,9 +143,15 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   // Chart view mode: 'liquidity' | 'price'
   const [chartViewMode, setChartViewMode] = useState<'liquidity' | 'price'>('liquidity')
 
-  // Price bounds: default Min -18.83%, Max +22.80%
-  const pricePrecision = isWeth ? 2 : 4
-  const priceMultiplier = isWeth ? 100 : 10000
+  // Dynamic price precision: for small ratios like 0.033 cirBTC/WETH use 6 decimals, for 2600 USDC/WETH use 2 decimals
+  const pricePrecision = useMemo(() => {
+    if (liveCounterPrice >= 100) return 2
+    if (liveCounterPrice >= 1) return 4
+    if (liveCounterPrice >= 0.001) return 6
+    return 8
+  }, [liveCounterPrice])
+
+  const priceMultiplier = useMemo(() => Math.pow(10, pricePrecision), [pricePrecision])
 
   const defaultMinPrice = useMemo(
     () => Math.round(liveCounterPrice * (1 - 0.1883) * priceMultiplier) / priceMultiplier,
@@ -227,7 +257,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
       minPrice: parsedMinPrice,
       maxPrice: parsedMaxPrice,
     })
-    setTokenAAmount(amountB > 0 ? amountB.toFixed(2) : '0')
+    setTokenAAmount(amountB > 0 ? amountB.toFixed(tokenAPrecision) : '0')
   }
 
   // Handle Token A amount change -> auto-calculate required counter token amount
@@ -245,25 +275,24 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
       minPrice: parsedMinPrice,
       maxPrice: parsedMaxPrice,
     })
-    const precision = isWeth ? 5 : 6
-    setCounterAmount(amountA > 0 ? amountA.toFixed(precision) : '0')
+    setCounterAmount(amountA > 0 ? amountA.toFixed(counterPrecision) : '0')
   }
 
   // Quick percentage shortcuts
   const handleCounterPercent = (pct: number) => {
     const calculated = (userCounterBal * pct) / 100
-    const precision = isWeth ? 5 : 6
-    handleCounterChange(calculated > 0 ? calculated.toFixed(precision) : '0')
+    handleCounterChange(calculated > 0 ? calculated.toFixed(counterPrecision) : '0')
   }
 
   const handleTokenAPercent = (pct: number) => {
     const calculated = (userTokenABal * pct) / 100
-    handleTokenAChange(calculated > 0 ? calculated.toFixed(2) : '0')
+    handleTokenAChange(calculated > 0 ? calculated.toFixed(tokenAPrecision) : '0')
   }
 
   // Step adjustment handlers for Min/Max
   const adjustMinPrice = (deltaPct: number) => {
-    const updated = Math.max(isWeth ? 10 : 100, parsedMinPrice * (1 + deltaPct / 100))
+    const minFloor = liveCounterPrice * 0.0001
+    const updated = Math.max(minFloor, parsedMinPrice * (1 + deltaPct / 100))
     if (updated < parsedMaxPrice) {
       setMinPriceInput(updated.toFixed(pricePrecision))
     }
@@ -284,11 +313,10 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
   // Total deposit USD value
   const totalDepositUsd = useMemo(() => {
-    const tokenAPriceUsd = isTokenAEurc ? (tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08) : 1.0
-    const counterVal = (parseFloat(counterAmount) || 0) * (liveCounterPrice * tokenAPriceUsd)
+    const counterVal = (parseFloat(counterAmount) || 0) * counterPriceUsd
     const tokenAVal = (parseFloat(tokenAAmount) || 0) * tokenAPriceUsd
     return counterVal + tokenAVal
-  }, [counterAmount, tokenAAmount, liveCounterPrice, isTokenAEurc, tokenPrices])
+  }, [counterAmount, tokenAAmount, counterPriceUsd, tokenAPriceUsd])
 
   const formatDollar = (val: number): string => {
     return `$${val.toLocaleString('en-US', {
@@ -408,11 +436,11 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
             {/* Overlapping token avatars */}
             <div className="flex items-center">
-              <div className={`w-8 h-8 rounded-full bg-[#141727] border ${accentBorderColor} p-1 flex items-center justify-center shadow-md z-10`}>
-                <img src={counterIcon} alt={counterSymbol} className="w-full h-full object-contain" />
-              </div>
-              <div className={`w-8 h-8 rounded-full bg-[#141727] border ${isTokenAEurc ? 'border-blue-400/40' : 'border-sky-500/40'} p-1 flex items-center justify-center shadow-md -ml-2.5 z-0`}>
+              <div className={`w-8 h-8 rounded-full bg-[#141727] border ${isTokenACirBtc ? 'border-amber-500/40' : isTokenAWeth ? 'border-indigo-500/40' : isTokenAEurc ? 'border-blue-400/40' : 'border-sky-500/40'} p-1 flex items-center justify-center shadow-md z-10`}>
                 <img src={tokenAIcon} alt={tokenASymbol} className="w-full h-full object-contain" />
+              </div>
+              <div className={`w-8 h-8 rounded-full bg-[#141727] border ${accentBorderColor} p-1 flex items-center justify-center shadow-md -ml-2.5 z-0`}>
+                <img src={counterIcon} alt={counterSymbol} className="w-full h-full object-contain" />
               </div>
             </div>
 
@@ -505,8 +533,8 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     <span>Price:</span>
                     <strong className="text-white font-mono">
                       {isTokenAPerCounter
-                        ? liveCounterPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: pricePrecision })
-                        : (1 / liveCounterPrice).toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 8 })}
+                        ? liveCounterPrice.toLocaleString('en-US', { minimumFractionDigits: Math.min(2, pricePrecision), maximumFractionDigits: pricePrecision })
+                        : (liveCounterPrice > 0 ? 1 / liveCounterPrice : 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                     </strong>
                     <span>{isTokenAPerCounter ? `${tokenASymbol} per ${counterSymbol}` : `${counterSymbol} per ${tokenASymbol}`}</span>
                     <button
@@ -770,12 +798,12 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 </div>
               </div>
 
-              {/* ── Token A Deposit Input (counterToken: cirBTC or WETH) ── */}
+              {/* ── Token B / Counter Deposit Input (WETH or cirBTC) ── */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.15] transition-colors space-y-2">
                 <div className="flex items-center justify-between text-xs text-[var(--fp-4)]">
                   <div className="flex items-center gap-1.5">
                     <Wallet size={12} />
-                    <span className="font-mono">{userCounterBal.toFixed(isWeth ? 4 : 6)} {counterSymbol}</span>
+                    <span className="font-mono">{userCounterBal.toFixed(counterPrecision)} {counterSymbol}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
@@ -813,16 +841,16 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 </div>
 
                 <div className="text-right text-xs text-[var(--fp-4)]">
-                  ${((parseFloat(counterAmount) || 0) * (liveCounterPrice * (isTokenAEurc ? (tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08) : 1))).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${((parseFloat(counterAmount) || 0) * counterPriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
 
-              {/* ── Token A Deposit Input (USDC / EURC) ── */}
+              {/* ── Token A Deposit Input (cirBTC / EURC / USDC) ── */}
               <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.15] transition-colors space-y-2">
                 <div className="flex items-center justify-between text-xs text-[var(--fp-4)]">
                   <div className="flex items-center gap-1.5">
                     <Wallet size={12} />
-                    <span className="font-mono">{userTokenABal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {tokenASymbol}</span>
+                    <span className="font-mono">{userTokenABal.toFixed(tokenAPrecision)} {tokenASymbol}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
@@ -844,7 +872,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className={`w-7 h-7 rounded-full bg-[#141727] border ${isTokenAEurc ? 'border-blue-400/30' : 'border-sky-500/30'} p-1 flex items-center justify-center shadow-sm`}>
+                    <div className={`w-7 h-7 rounded-full bg-[#141727] border ${isTokenACirBtc ? 'border-amber-500/40' : isTokenAWeth ? 'border-indigo-500/40' : isTokenAEurc ? 'border-blue-400/30' : 'border-sky-500/30'} p-1 flex items-center justify-center shadow-sm`}>
                       <img src={tokenAIcon} alt={tokenASymbol} className="w-full h-full object-contain" />
                     </div>
                     <span className="font-bold text-white text-base">{tokenASymbol}</span>
@@ -860,7 +888,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 </div>
 
                 <div className="text-right text-xs text-[var(--fp-4)]">
-                  ${((parseFloat(tokenAAmount) || 0) * (isTokenAEurc ? (tokenPrices?.['EURC'] || tokenPrices?.['EUR'] || 1.08) : 1)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ${((parseFloat(tokenAAmount) || 0) * tokenAPriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
 
@@ -875,7 +903,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     />
                     <span className="tabular-nums">{ratioResult.percentA}% {counterSymbol}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-sky-400">
+                  <div className={`flex items-center gap-1.5 ${isTokenACirBtc ? 'text-amber-400' : 'text-sky-400'}`}>
                     <span className="tabular-nums">{ratioResult.percentB}% {tokenASymbol}</span>
                     <img
                       src={tokenAIcon}
@@ -898,7 +926,9 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                     className="h-full transition-all duration-300"
                     style={{
                       width: `${ratioResult.percentB}%`,
-                      background: 'linear-gradient(90deg, #0284c7 0%, #38bdf8 100%)',
+                      background: isTokenACirBtc
+                        ? 'linear-gradient(90deg, #c2410c 0%, #f59e0b 100%)'
+                        : 'linear-gradient(90deg, #0284c7 0%, #38bdf8 100%)',
                     }}
                   />
                 </div>
