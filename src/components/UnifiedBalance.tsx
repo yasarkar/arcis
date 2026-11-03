@@ -182,19 +182,48 @@ export default function UnifiedBalance({
         animation: 'arc-reveal 0.35s var(--ease-out-smooth)',
       }}
     >
-      {/* Hero card: unified total, live indicator and deposit / sync quick actions. */}
+      {/* Hero card: unified total, live pulse backdrop and deposit / sync quick actions. */}
       <div className="ub-hero-card" style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span className="arc-eyebrow" style={{ fontSize: 18, color: 'var(--base-colors--white)', fontWeight: 600 }}>
-              UNIFIED BALANCE
-            </span>
-            <span className="ub-live-badge" aria-hidden="true">
-              <svg className="ub-ecg-svg" viewBox="0 0 35 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-bg" />
-                <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-pulse" />
-              </svg>
-            </span>
+        {/* Living purple ECG heartbeat pulse across the entire hero card background */}
+        <div className="ub-hero-ecg-backdrop" aria-hidden="true">
+          <div className="ub-hero-ecg-glow" />
+          <svg
+            className="ub-hero-ecg-svg"
+            viewBox="0 0 1000 130"
+            preserveAspectRatio="none"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <defs>
+              <pattern id="ub-hero-ecg-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+                <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(152, 150, 255, 0.045)" strokeWidth="0.75" />
+              </pattern>
+              <linearGradient id="ub-hero-ecg-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.2" />
+                <stop offset="25%" stopColor="#9896ff" stopOpacity="0.95" />
+                <stop offset="50%" stopColor="#c084fc" stopOpacity="1" />
+                <stop offset="75%" stopColor="#9896ff" stopOpacity="0.95" />
+                <stop offset="100%" stopColor="#a855f7" stopOpacity="0.2" />
+              </linearGradient>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#ub-hero-ecg-grid)" />
+            <path
+              d="M 0 72 L 80 72 C 92 63, 106 63, 118 72 L 140 72 L 146 78 L 155 14 L 164 96 L 171 72 L 192 72 C 215 53, 238 51, 252 53 C 266 55, 280 72, 295 72 L 400 72 C 412 63, 426 63, 438 72 L 460 72 L 466 78 L 475 14 L 484 96 L 491 72 L 512 72 C 535 53, 558 51, 572 53 C 586 55, 600 72, 615 72 L 720 72 C 732 63, 746 63, 758 72 L 780 72 L 786 78 L 795 14 L 804 96 L 811 72 L 832 72 C 855 53, 878 51, 892 53 C 906 55, 920 72, 935 72 L 1000 72"
+              className="ub-hero-ecg-path-bg"
+            />
+            <path
+              d="M 0 72 L 80 72 C 92 63, 106 63, 118 72 L 140 72 L 146 78 L 155 14 L 164 96 L 171 72 L 192 72 C 215 53, 238 51, 252 53 C 266 55, 280 72, 295 72 L 400 72 C 412 63, 426 63, 438 72 L 460 72 L 466 78 L 475 14 L 484 96 L 491 72 L 512 72 C 535 53, 558 51, 572 53 C 586 55, 600 72, 615 72 L 720 72 C 732 63, 746 63, 758 72 L 780 72 L 786 78 L 795 14 L 804 96 L 811 72 L 832 72 C 855 53, 878 51, 892 53 C 906 55, 920 72, 935 72 L 1000 72"
+              className="ub-hero-ecg-path-pulse"
+            />
+          </svg>
+        </div>
+
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="arc-eyebrow" style={{ fontSize: 18, color: 'var(--base-colors--white)', fontWeight: 600 }}>
+                UNIFIED BALANCE
+              </span>
             {/* Honest pending disclosure: Circle's indexer needs 20–30s to surface a fresh
                 Gateway deposit, so the total is optimistic and says so instead of silently
                 lagging behind the user's own transaction. */}
@@ -294,6 +323,7 @@ export default function UnifiedBalance({
           <p style={{ margin: 0, fontSize: 14, color: 'var(--fp-3)', fontFamily: 'var(--font-app)', fontWeight: 400 }}>
             Unified cross-chain USDC balance instantly spendable across {GATEWAY_SUPPORTED_CHAINS.length} networks via Circle Gateway.
           </p>
+        </div>
         </div>
       </div>
 

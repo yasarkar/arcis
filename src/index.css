@@ -553,7 +553,7 @@
     0 2px 8px rgba(0, 0, 0, 0.2);
   border-radius: 28px;
   padding: 36px 40px 32px;
-  overflow: visible;
+  overflow: hidden;
   transition: transform 0.3s var(--ease-out-smooth), border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
@@ -583,6 +583,110 @@
     0 24px 56px -12px rgba(0, 0, 0, 0.55),
     0 4px 16px rgba(152, 150, 255, 0.08);
 }
+
+/* ── Hero Card Living Purple ECG Pulse Backdrop ── */
+.ub-hero-ecg-backdrop {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ub-hero-ecg-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse 75% 55% at 50% 50%,
+    rgba(152, 150, 255, 0.09) 0%,
+    rgba(168, 85, 247, 0.04) 45%,
+    transparent 75%
+  );
+  pointer-events: none;
+  animation: ub-hero-pulse-breath 3.2s ease-in-out infinite;
+}
+
+.ub-hero-ecg-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.ub-hero-ecg-path-bg {
+  stroke: rgba(152, 150, 255, 0.12);
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ub-hero-ecg-path-pulse {
+  stroke: #9896ff;
+  stroke: url(#ub-hero-ecg-gradient);
+  stroke-width: 2.25;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 320 2000;
+  stroke-dashoffset: 320;
+  animation: ub-hero-ecg-sweep 3.2s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+  filter: drop-shadow(0 0 6px rgba(152, 150, 255, 0.85)) drop-shadow(0 0 16px rgba(168, 85, 247, 0.5));
+}
+
+@keyframes ub-hero-ecg-sweep {
+  0% {
+    stroke-dashoffset: 320;
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.95;
+  }
+  78% {
+    stroke-dashoffset: -1620;
+    opacity: 0.95;
+  }
+  88% {
+    stroke-dashoffset: -1940;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: -1940;
+    opacity: 0;
+  }
+}
+
+@keyframes ub-hero-pulse-breath {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.97);
+  }
+  45%, 55% {
+    opacity: 0.85;
+    transform: scale(1.02);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ub-hero-ecg-path-pulse {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    opacity: 0.55;
+  }
+  .ub-hero-ecg-glow {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 
 /* ── Live Indicator Badge ── */
 .ub-live-badge {

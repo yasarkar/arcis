@@ -161,7 +161,7 @@ function Header({
     >
       {/* ── FLOATING GLASS CAPSULE ISLAND (AAVE LUXURY NAV - EXPANDED WIDTH) ── */}
       <div
-        className="w-full flex items-center justify-between px-4 py-2.5 md:px-8 md:py-3.5 rounded-full transition-all duration-300"
+        className="relative w-full flex items-center justify-between px-4 py-2.5 md:px-8 md:py-3.5 rounded-full transition-all duration-300"
         style={{
           background: 'rgba(16, 18, 30, 0.82)',
           backdropFilter: 'blur(28px)',
@@ -171,7 +171,7 @@ function Header({
         }}
       >
         {/* Brand Logo — Far Left */}
-        <div className="flex items-center justify-start flex-1 min-w-0">
+        <div className="flex items-center justify-start shrink-0 min-w-0 z-10">
           <button
             type="button"
             onClick={() => setActiveTab('home')}
@@ -185,16 +185,16 @@ function Header({
           </button>
         </div>
 
-        {/* Aave Segmented Capsule Navigation — Center */}
+        {/* Aave Segmented Capsule Navigation — Exact Center */}
         <nav
-          className="hidden lg:flex items-center justify-center flex-shrink-0 p-1 rounded-full backdrop-blur-xl mx-2"
+          className="hidden xl:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 items-center justify-center p-1 rounded-full backdrop-blur-xl z-0 pointer-events-auto"
           style={{
             background: 'rgba(255, 255, 255, 0.035)',
             border: '1px solid rgba(255, 255, 255, 0.06)',
             boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.2)'
           }}
         >
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 2xl:gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -202,7 +202,7 @@ function Header({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className="relative flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs transition-all duration-200 cursor-pointer group"
+                  className="relative flex items-center gap-1.5 2xl:gap-2 px-2.5 2xl:px-3.5 py-1.5 rounded-full text-xs transition-all duration-200 cursor-pointer group whitespace-nowrap"
                   style={{
                     fontFamily: 'var(--font-app)',
                     fontWeight: isActive ? 600 : 500,
@@ -254,53 +254,57 @@ function Header({
         </nav>
 
         {/* Right Utility Actions & Wallet Controls — Far Right */}
-        <div className="flex items-center gap-2 md:gap-3 justify-end flex-1 min-w-0">
+        <div className="flex items-center gap-2 md:gap-3 justify-end shrink-0 min-w-0 ml-auto z-10">
 
           {/* Quick Links */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={onOpenFaucet}
-              className="ub-action-btn flex items-center gap-1.5 cursor-pointer hover:border-indigo-400/50 hover:text-indigo-200 transition-all"
-              style={{ padding: '6px 12px', fontSize: 11 }}
+              className="ub-action-btn flex items-center justify-center gap-1.5 cursor-pointer hover:border-indigo-400/50 hover:text-indigo-200 transition-all shrink-0 px-2.5 2xl:px-3 py-1.5"
+              style={{ fontSize: 11 }}
+              title="Arc Testnet Faucet"
+              aria-label="Arc Testnet Faucet"
             >
-              <span>Faucet</span>
-              <Droplets size={14} style={{ opacity: 0.6 }} />
+              <span className="hidden 2xl:inline">Faucet</span>
+              <Droplets size={14} style={{ opacity: 0.8 }} />
             </button>
 
             <a
               href={arcTestnet.blockExplorers?.default?.url || 'https://testnet.arcscan.app'}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden md:flex ub-action-btn"
-              style={{ padding: '6px 12px', fontSize: 11 }}
+              className="hidden md:flex ub-action-btn shrink-0 items-center justify-center gap-1.5 px-2.5 2xl:px-3 py-1.5"
+              style={{ fontSize: 11 }}
+              title="ArcScan Explorer"
+              aria-label="ArcScan Explorer"
             >
-              <span>Explorer</span>
-              <ExternalLink size={14} style={{ opacity: 0.6 }} />
+              <span className="hidden 2xl:inline">Explorer</span>
+              <ExternalLink size={14} style={{ opacity: 0.8 }} />
             </a>
           </div>
 
           {/* 1. Circle Modular Passkey MSCA Connected State */}
           {isPasskeyConnected && mscaAddress && (
-            <div className={`relative ${isPasskeyMenuOpen ? 'z-[10005]' : ''}`} ref={passkeyMenuRef}>
+            <div className={`relative shrink-0 ${isPasskeyMenuOpen ? 'z-[10005]' : ''}`} ref={passkeyMenuRef}>
               <button
                 type="button"
                 onClick={() => {
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('passkey')
                   setIsPasskeyMenuOpen((prev) => !prev)
                 }}
-                className={`flex items-center gap-2 rounded-full px-3 py-1.5 transition-all duration-200 cursor-pointer select-none ${isPasskeyMenuOpen || activeAuthSource === 'passkey'
+                className={`flex items-center gap-2 rounded-full px-3 py-1.5 transition-all duration-200 cursor-pointer select-none shrink-0 ${isPasskeyMenuOpen || activeAuthSource === 'passkey'
                     ? 'bg-cyan-500/20 border-2 border-cyan-400 text-white shadow-[0_0_16px_rgba(6,182,212,0.4)]'
                     : 'bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 text-cyan-200'
                   }`}
               >
                 <Fingerprint className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <span className="text-xs font-bold text-cyan-200">
+                <span className="text-xs font-bold text-cyan-200 font-mono">
                   {mscaAddress.slice(0, 6)}...{mscaAddress.slice(-4)}
                 </span>
                 <ChevronDown
                   size={12}
-                  className={`text-cyan-300 transition-transform duration-200 ${isPasskeyMenuOpen ? 'rotate-180 text-cyan-100' : 'opacity-70'
+                  className={`text-cyan-300 transition-transform duration-200 shrink-0 ${isPasskeyMenuOpen ? 'rotate-180 text-cyan-100' : 'opacity-70'
                     }`}
                 />
               </button>
@@ -308,7 +312,7 @@ function Header({
               {/* Passkey Dropdown Menu */}
               {isPasskeyMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in max-h-[calc(100vh-90px)] overflow-y-auto no-scrollbar"
                   style={{
                     background: 'rgba(13, 17, 28, 0.96)',
                     border: '1px solid rgba(6, 182, 212, 0.25)',
@@ -403,24 +407,24 @@ function Header({
 
           {/* 2. Circle UCW Connected State */}
           {isUcwConnected && ucwAddress && (
-            <div className={`relative ${isCircleMenuOpen ? 'z-[10005]' : ''}`} ref={circleMenuRef}>
+            <div className={`relative shrink-0 ${isCircleMenuOpen ? 'z-[10005]' : ''}`} ref={circleMenuRef}>
               <button
                 type="button"
                 onClick={() => {
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('ucw')
                   setIsCircleMenuOpen((prev) => !prev)
                 }}
-                className="ub-action-btn primary w-40"
+                className="ub-action-btn primary w-auto max-w-[160px] shrink-0"
               >
                 <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
                   <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
                 </div>
-                <span className="text-xs font-semibold tracking-wide text-white">
+                <span className="text-xs font-semibold tracking-wide text-white font-mono truncate">
                   {ucwAddress.slice(0, 6)}...{ucwAddress.slice(-4)}
                 </span>
                 <ChevronDown
                   size={12}
-                  className={`text-white transition-transform duration-200 ${isCircleMenuOpen ? 'rotate-180 text-blue-100' : 'opacity-70'
+                  className={`text-white transition-transform duration-200 shrink-0 ${isCircleMenuOpen ? 'rotate-180 text-blue-100' : 'opacity-70'
                     }`}
                 />
               </button>
@@ -428,7 +432,7 @@ function Header({
               {/* Circle UCW Dropdown Menu */}
               {isCircleMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                  className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in max-h-[calc(100vh-90px)] overflow-y-auto no-scrollbar"
                   style={{
                     background: 'rgba(13, 17, 28, 0.96)',
                     border: '1px solid rgba(59, 130, 246, 0.25)',
@@ -506,7 +510,7 @@ function Header({
           {!isPasskeyConnected && !isUcwConnected && (
             isRestoring ? (
               <div
-                className="flex items-center justify-center gap-1.5 rounded-full transition-all duration-200"
+                className="flex items-center justify-center gap-1.5 rounded-full transition-all duration-200 shrink-0"
                 style={{
                   padding: isEvmWalletConnected ? '6px 10px' : '6px 12px',
                   background: 'rgba(255, 255, 255, 0.04)',
@@ -520,11 +524,11 @@ function Header({
               <button
                 onClick={onOpenCircleAuth}
                 type="button"
-                className="ub-action-btn flex items-center justify-center gap-1.5 transition-all duration-200"
+                className="ub-action-btn flex items-center justify-center gap-1.5 transition-all duration-200 shrink-0"
                 style={{ padding: isEvmWalletConnected ? '6px 10px' : '6px 13px' }}
                 aria-label="Circle & Passkey"
               >
-                <img src={circleTokenIcon} alt="Circle & Passkey" className="w-4 h-4 object-contain transition-transform hover:scale-110" />
+                <img src={circleTokenIcon} alt="Circle & Passkey" className="w-4 h-4 object-contain transition-transform hover:scale-110 shrink-0" />
                 {!isEvmWalletConnected && <span className="hidden sm:inline font-semibold">Circle & Passkey</span>}
               </button>
             )
@@ -533,7 +537,7 @@ function Header({
           {/* 4. Solana Connected State Badge */}
           {solana.isConnected && solana.address && (
             <div
-              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all animate-fade-in"
+              className="flex items-center gap-1.5 rounded-full px-2.5 sm:px-3 py-1.5 transition-all animate-fade-in shrink-0"
               style={{
                 background: 'rgba(168, 85, 247, 0.15)',
                 border: '1px solid rgba(168, 85, 247, 0.45)',
@@ -561,15 +565,18 @@ function Header({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-purple-300 p-0.5 transition"
+                title="Solana Explorer"
               >
                 <ExternalLink size={11} />
               </a>
 
               <button
                 onClick={disconnectSolana}
-                className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
+                className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-1.5 sm:px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
+                title="Disconnect Solana"
               >
-                Disconnect
+                <span className="hidden sm:inline">Disconnect</span>
+                <span className="sm:hidden font-mono text-[10px]">✕</span>
               </button>
             </div>
           )}
@@ -577,7 +584,7 @@ function Header({
           {/* 5. Injective Connected State Badge */}
           {injective.isConnected && injective.address && (
             <div
-              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all animate-fade-in"
+              className="flex items-center gap-1.5 rounded-full px-2.5 sm:px-3 py-1.5 transition-all animate-fade-in shrink-0"
               style={{
                 background: 'rgba(59, 130, 246, 0.15)',
                 border: '1px solid rgba(59, 130, 246, 0.45)',
@@ -592,7 +599,7 @@ function Header({
                 }}
                 className="flex items-center gap-1 text-xs font-bold text-blue-200 hover:text-white transition cursor-pointer"
               >
-                <span>Inj: {injective.address.slice(0, 6)}...{injective.address.slice(-4)}</span>
+                <span>Inj: {injective.address.slice(0, 4)}...{injective.address.slice(-4)}</span>
                 {copiedInj ? (
                   <span className="text-[10px] text-emerald-400 font-bold ml-0.5">✓</span>
                 ) : (
@@ -605,15 +612,18 @@ function Header({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-slate-400 hover:text-blue-300 p-0.5 transition"
+                title="Injective Explorer"
               >
                 <ExternalLink size={11} />
               </a>
 
               <button
                 onClick={disconnectInjective}
-                className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
+                className="text-[11px] text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-700 px-1.5 sm:px-2 py-0.5 rounded-full transition ml-0.5 cursor-pointer"
+                title="Disconnect Injective"
               >
-                Disconnect
+                <span className="hidden sm:inline">Disconnect</span>
+                <span className="sm:hidden font-mono text-[10px]">✕</span>
               </button>
             </div>
           )}
@@ -658,7 +668,7 @@ function Header({
                             void requestFullWalletConnect()
                           }}
                           type="button"
-                          className="ub-action-btn"
+                          className="ub-action-btn shrink-0"
                           style={{
                             padding: isUcwConnected || isPasskeyConnected ? '6px 10px' : '6px 16px',
                           }}
@@ -675,7 +685,7 @@ function Header({
                         <button
                           onClick={openChainModal}
                           type="button"
-                          className="ub-action-btn"
+                          className="ub-action-btn shrink-0"
                           style={{
                             background: 'rgba(239, 68, 68, 0.15)',
                             borderColor: 'rgba(239, 68, 68, 0.4)',
@@ -690,21 +700,21 @@ function Header({
                     }
 
                     return (
-                      <div className={`relative ${isEvmMenuOpen ? 'z-[10005]' : ''}`} ref={evmMenuRef}>
+                      <div className={`relative shrink-0 ${isEvmMenuOpen ? 'z-[10005]' : ''}`} ref={evmMenuRef}>
                         <button
                           type="button"
                           onClick={() => {
                             if (onSelectActiveAuthSource) onSelectActiveAuthSource('evm')
                             setIsEvmMenuOpen((prev) => !prev)
                           }}
-                          className={`ub-action-btn ${isUcwConnected ? '' : 'gap-2'} transition-all duration-200 cursor-pointer select-none`}>
-                          <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain" />
+                          className={`ub-action-btn ${isUcwConnected ? '' : 'gap-2'} transition-all duration-200 cursor-pointer select-none shrink-0`}>
+                          <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain shrink-0" />
                           {!isUcwConnected && (
-                            <span style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>{account.displayName}</span>
+                            <span className="max-w-[110px] truncate" style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>{account.displayName}</span>
                           )}
                           <ChevronDown
                             size={12}
-                            className={`transition-transform duration-200 ${
+                            className={`transition-transform duration-200 shrink-0 ${
                               isEvmMenuOpen ? 'rotate-180 text-white' : 'opacity-70 text-slate-400'
                             }`}
                           />
@@ -713,7 +723,7 @@ function Header({
                         {/* EVM Custom Dropdown Menu */}
                         {isEvmMenuOpen && (
                           <div
-                            className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in"
+                            className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in max-h-[calc(100vh-90px)] overflow-y-auto no-scrollbar"
                             style={{
                               background: 'rgba(13, 17, 28, 0.96)',
                               border: '1px solid rgba(99, 102, 241, 0.25)',
@@ -814,50 +824,54 @@ function Header({
         </div>
       </div>
 
-      {/* Mobile Navigation Bar (below header on small screens) */}
-      <div className="flex lg:hidden items-center justify-start mt-2.5 overflow-x-auto py-1 px-1 w-full no-scrollbar">
-        <nav
-          className="flex shrink-0 w-max items-center gap-1 p-1 rounded-full backdrop-blur-xl"
-          style={{
-            background: 'rgba(16, 18, 30, 0.85)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)'
-          }}
-        >
-          {tabs.map((tab) => {
-            const Icon = tab.icon
-            const isActive = activeTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                onTouchStart={() => {
-                  if (tab.id === 'history' && walletAddress) {
-                    prefetchHistory(walletAddress)
-                  }
-                }}
-                onMouseEnter={() => {
-                  if (tab.id === 'history' && walletAddress) {
-                    prefetchHistory(walletAddress)
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all whitespace-nowrap"
-                style={{
-                  fontFamily: 'var(--font-app)',
-                  fontWeight: isActive ? 600 : 500,
-                  color: isActive ? '#ffffff' : 'var(--fp-3)',
-                  background: isActive
-                    ? 'linear-gradient(135deg, rgba(152, 150, 255, 0.25) 0%, rgba(99, 102, 241, 0.3) 100%)'
-                    : 'transparent',
-                  border: isActive ? '1px solid rgba(152, 150, 255, 0.35)' : '1px solid transparent',
-                }}
-              >
-                <Icon className="w-3.5 h-3.5" style={{ color: isActive ? 'var(--purple-1)' : 'var(--fp-4)' }} />
-                <span>{tab.label}</span>
-              </button>
-            )
-          })}
-        </nav>
+      {/* Mobile & Zoom Navigation Bar (below header on screens < xl or high zoom) */}
+      <div className="relative flex xl:hidden items-center justify-center mt-2.5 w-full">
+        <div className="overflow-x-auto py-1 px-1 w-full no-scrollbar flex justify-start sm:justify-center">
+          <nav
+            className="flex shrink-0 w-max items-center gap-1 p-1 rounded-full backdrop-blur-xl"
+            style={{
+              background: 'rgba(16, 18, 30, 0.85)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)'
+            }}
+          >
+            {tabs.map((tab) => {
+              const Icon = tab.icon
+              const isActive = activeTab === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  onTouchStart={() => {
+                    if (tab.id === 'history' && walletAddress) {
+                      prefetchHistory(walletAddress)
+                    }
+                  }}
+                  onMouseEnter={() => {
+                    if (tab.id === 'history' && walletAddress) {
+                      prefetchHistory(walletAddress)
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all whitespace-nowrap cursor-pointer"
+                  style={{
+                    fontFamily: 'var(--font-app)',
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? '#ffffff' : 'var(--fp-3)',
+                    background: isActive
+                      ? 'linear-gradient(135deg, rgba(152, 150, 255, 0.25) 0%, rgba(99, 102, 241, 0.3) 100%)'
+                      : 'transparent',
+                    border: isActive ? '1px solid rgba(152, 150, 255, 0.35)' : '1px solid transparent',
+                  }}
+                >
+                  <Icon className="w-3.5 h-3.5" style={{ color: isActive ? 'var(--purple-1)' : 'var(--fp-4)' }} />
+                  <span>{tab.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+        </div>
+        {/* Subtle edge fade indicator for horizontal scroll */}
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#0d111c] to-transparent rounded-r-full" />
       </div>
     </header>
   )
