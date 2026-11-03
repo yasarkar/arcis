@@ -25,7 +25,7 @@ import {
   USDC_ADDRESSES,
 } from '../../config/gatewayConfig'
 import { CHAIN_META, CHAIN_DEFS, getChainDisplayName, isSolanaChain } from '../../config/chainMeta'
-import { ensureNetwork } from '../../services/chainSwitchService'
+import { ensureNetwork, ensureHealthyWalletRpc } from '../../services/chainSwitchService'
 import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
 import { mapChainKeyToCircleBlockchain } from '../../services/gatewayUcwService'
 import { IS_TESTNET } from '../../config/arcChain'
@@ -296,6 +296,26 @@ export default function DepositPanel({
     if (activeAuthSource === 'evm' && isWrongDepositChain) {
       const switched = await handleSwitchDepositNetwork()
       if (!switched) return
+    }
+
+    // Step 1b: Pre-flight check: ensure the wallet's configured RPC is alive and responsive.
+    // If the wallet's RPC is down (e.g. rate-limit, circuit breaker), prompt to repair with verified RPCs.
+    if (activeAuthSource === 'evm' && targetChainDef) {
+      try {
+        const provider = await connector?.getProvider()
+        const rpcCheck = await ensureHealthyWalletRpc(targetChainDef, provider)
+        if (!rpcCheck.success) {
+          if (rpcCheck.isCanceled) {
+            setIsCanceledError(true)
+            setDepositError(`RPC update for ${targetChainDef.name} was canceled. Your deposit was not submitted.`)
+          } else {
+            setDepositError(rpcCheck.error || `Wallet RPC for ${targetChainDef.name} is not responding.`)
+          }
+          return
+        }
+      } catch {
+        // Fall through to deposit flow if provider probe encounters an unexpected non-RPC error
+      }
     }
 
     // Create pending broadcast notification

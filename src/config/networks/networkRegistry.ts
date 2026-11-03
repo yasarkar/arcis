@@ -7,21 +7,21 @@
 // - UI Visual Metadata (Web3 Icons, Brand Colors, Gradients)
 import { defineChain, type Chain } from 'viem'
 import {
-  sepolia,
-  baseSepolia,
-  arbitrumSepolia,
-  optimismSepolia,
-  polygonAmoy,
-  avalancheFuji,
-  mainnet,
-  base,
   arbitrum,
-  optimism,
-  polygon,
+  arbitrumSepolia,
   avalanche,
+  avalancheFuji,
+  base,
+  baseSepolia,
+  mainnet,
+  optimism,
+  optimismSepolia,
+  polygon,
+  polygonAmoy,
+  sepolia,
 } from 'viem/chains'
-import type { NetworkConfig, NetworkUiConfig, NetworkCapabilities, NetworkAdapters } from './types'
-export type { NetworkConfig, NetworkUiConfig, NetworkCapabilities, NetworkAdapters }
+import type { NetworkAdapters, NetworkCapabilities, NetworkConfig, NetworkUiConfig } from './types'
+export type { NetworkAdapters, NetworkCapabilities, NetworkConfig, NetworkUiConfig }
 
 // ─────────────────────────────────────────────────────────────
 // 1. ENVIRONMENT & NETWORK SELECTION
@@ -129,13 +129,11 @@ export const hyperEVMTestnet = defineChain({
     default: {
       http: [
         'https://rpc.hyperliquid-testnet.xyz/evm',
-        'https://api.hyperliquid-testnet.xyz/evm',
       ],
     },
     public: {
       http: [
         'https://rpc.hyperliquid-testnet.xyz/evm',
-        'https://api.hyperliquid-testnet.xyz/evm',
       ],
     },
   },
@@ -157,15 +155,13 @@ export const seiTestnet = defineChain({
     default: {
       http: [
         'https://evm-rpc-testnet.sei-apis.com',
-        'https://testnet-rpc.sei-apis.com',
-        'https://sei-testnet.drpc.org',
+        'https://1328.rpc.thirdweb.com',
       ],
     },
     public: {
       http: [
         'https://evm-rpc-testnet.sei-apis.com',
-        'https://testnet-rpc.sei-apis.com',
-        'https://sei-testnet.drpc.org',
+        'https://1328.rpc.thirdweb.com',
       ],
     },
   },
@@ -184,15 +180,11 @@ export const sonicTestnet = defineChain({
     default: {
       http: [
         'https://rpc.testnet.soniclabs.com',
-        'https://sonic-testnet.drpc.org',
-        'https://rpc-testnet.soniclabs.com',
       ],
     },
     public: {
       http: [
         'https://rpc.testnet.soniclabs.com',
-        'https://sonic-testnet.drpc.org',
-        'https://rpc-testnet.soniclabs.com',
       ],
     },
   },
@@ -229,19 +221,20 @@ export const worldChainSepolia = defineChain({
   rpcUrls: {
     default: {
       http: [
-        'https://worldchain-sepolia.drpc.org',
         'https://worldchain-sepolia.g.alchemy.com/public',
+        'https://4801.rpc.thirdweb.com',
       ],
     },
     public: {
       http: [
-        'https://worldchain-sepolia.drpc.org',
         'https://worldchain-sepolia.g.alchemy.com/public',
+        'https://4801.rpc.thirdweb.com',
       ],
     },
   },
   blockExplorers: {
     default: { name: 'Worldscan', url: 'https://sepolia.worldscan.org' },
+    alchemy: { name: 'Alchemy Explorer', url: 'https://worldchain-sepolia.explorer.alchemy.com' },
   },
   contracts: MULTICALL3_CONTRACTS,
   testnet: true,
@@ -256,6 +249,7 @@ export const ethereumSepolia = defineChain({
         'https://ethereum-sepolia.publicnode.com',
         'https://1rpc.io/sepolia',
         'https://gateway.tenderly.co/public/sepolia',
+        'https://11155111.rpc.thirdweb.com',
       ],
     },
     public: {
@@ -263,6 +257,7 @@ export const ethereumSepolia = defineChain({
         'https://ethereum-sepolia.publicnode.com',
         'https://1rpc.io/sepolia',
         'https://gateway.tenderly.co/public/sepolia',
+        'https://11155111.rpc.thirdweb.com',
       ],
     },
   },
@@ -331,10 +326,10 @@ export const plumeTestnet = defineChain({
   nativeCurrency: { name: 'Plume ETH', symbol: 'ETH', decimals: 18 },
   rpcUrls: {
     default: {
-      http: ['https://testnet-rpc.plumenetwork.xyz', 'https://plume-testnet.drpc.org'],
+      http: ['https://testnet-rpc.plume.org', 'https://plume-testnet.drpc.org'],
     },
     public: {
-      http: ['https://testnet-rpc.plumenetwork.xyz', 'https://plume-testnet.drpc.org'],
+      http: ['https://testnet-rpc.plume.org', 'https://plume-testnet.drpc.org'],
     },
   },
   blockExplorers: {
@@ -350,10 +345,10 @@ export const injectiveTestnet = defineChain({
   nativeCurrency: { name: 'Injective', symbol: 'INJ', decimals: 18 },
   rpcUrls: {
     default: {
-      http: ['https://testnet.inevm.com/http', 'https://k8s.testnet.json-rpc.injective.network'],
+      http: ['https://k8s.testnet.json-rpc.injective.network'],
     },
     public: {
-      http: ['https://testnet.inevm.com/http', 'https://k8s.testnet.json-rpc.injective.network'],
+      http: ['https://k8s.testnet.json-rpc.injective.network'],
     },
   },
   blockExplorers: {
@@ -402,8 +397,8 @@ export const cronosTestnet = defineChain({
   name: 'Cronos Testnet',
   nativeCurrency: { name: 'Cronos', symbol: 'tCRO', decimals: 18 },
   rpcUrls: {
-    default: { http: ['https://evm-t3.cronos.org'] },
-    public: { http: ['https://evm-t3.cronos.org'] },
+    default: { http: ['https://evm-t3.cronos.org', 'https://cronos-testnet.drpc.org', 'https://338.rpc.thirdweb.com'] },
+    public: { http: ['https://evm-t3.cronos.org', 'https://cronos-testnet.drpc.org', 'https://338.rpc.thirdweb.com'] },
   },
   blockExplorers: {
     default: { name: 'Cronos Explorer', url: 'https://explorer.cronos.org/testnet' },
@@ -477,8 +472,8 @@ export const xLayerTestnet = defineChain({
   name: 'X Layer Testnet',
   nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
   rpcUrls: {
-    default: { http: ['https://testrpc.xlayer.tech'] },
-    public: { http: ['https://testrpc.xlayer.tech'] },
+    default: { http: ['https://testrpc.xlayer.tech', 'https://xlayertestrpc.okx.com'] },
+    public: { http: ['https://testrpc.xlayer.tech', 'https://xlayertestrpc.okx.com'] },
   },
   blockExplorers: {
     default: { name: 'OKX Explorer', url: 'https://web3.okx.com/explorer/x-layer-testnet' },
@@ -607,7 +602,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       fallbacks: [
         'https://1rpc.io/sepolia',
         'https://gateway.tenderly.co/public/sepolia',
-        'https://rpc.sepolia.org',
+        'https://11155111.rpc.thirdweb.com',
       ],
     },
     blockExplorers: { name: 'Etherscan', url: 'https://sepolia.etherscan.io' },
@@ -656,8 +651,9 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       primary: 'https://sepolia.base.org',
       fallbacks: [
         'https://base-sepolia-rpc.publicnode.com',
-        'https://1rpc.io/base-sepolia',
         'https://base-sepolia.gateway.tenderly.co',
+        'https://base-sepolia.drpc.org',
+        'https://84532.rpc.thirdweb.com',
       ],
     },
     blockExplorers: { name: 'BaseScan', url: 'https://sepolia.basescan.org' },
@@ -705,7 +701,8 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       primary: 'https://sepolia-rollup.arbitrum.io/rpc',
       fallbacks: [
         'https://arbitrum-sepolia.publicnode.com',
-        'https://endpoints.omniatech.io/v1/arbitrum/sepolia/public',
+        'https://arbitrum-sepolia.drpc.org',
+        'https://421614.rpc.thirdweb.com',
       ],
     },
     blockExplorers: { name: 'Arbiscan', url: 'https://sepolia.arbiscan.io' },
@@ -753,7 +750,8 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       primary: 'https://sepolia.optimism.io',
       fallbacks: [
         'https://optimism-sepolia.publicnode.com',
-        'https://endpoints.omniatech.io/v1/op/sepolia/public',
+        'https://optimism-sepolia.drpc.org',
+        'https://11155420.rpc.thirdweb.com',
       ],
     },
     blockExplorers: { name: 'Optimism Explorer', url: 'https://sepolia-optimism.etherscan.io' },
@@ -847,7 +845,8 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       primary: 'https://api.avax-test.network/ext/bc/C/rpc',
       fallbacks: [
         'https://avalanche-fuji-c-chain-rpc.publicnode.com',
-        'https://endpoints.omniatech.io/v1/avax/fuji/public',
+        'https://avalanche-fuji.drpc.org',
+        'https://43113.rpc.thirdweb.com',
       ],
     },
     blockExplorers: { name: 'SnowTrace', url: 'https://testnet.snowtrace.io' },
@@ -892,7 +891,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     nativeCurrency: { name: 'HIP', symbol: 'HIP', decimals: 18 },
     rpcUrls: {
       primary: 'https://rpc.hyperliquid-testnet.xyz/evm',
-      fallbacks: ['https://api.hyperliquid-testnet.xyz/evm'],
+      fallbacks: [],
     },
     blockExplorers: { name: 'HyperEVM Explorer', url: 'https://testnet-explorer.hyperliquid.xyz' },
     tokens: {
@@ -936,8 +935,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     rpcUrls: {
       primary: 'https://evm-rpc-testnet.sei-apis.com',
       fallbacks: [
-        'https://testnet-rpc.sei-apis.com',
-        'https://sei-testnet.drpc.org',
+        'https://1328.rpc.thirdweb.com',
       ],
     },
     blockExplorers: { name: 'SeiTrace', url: 'https://seitrace.com/?chain=atlantic-2' },
@@ -981,10 +979,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     nativeCurrency: { name: 'S', symbol: 'S', decimals: 18 },
     rpcUrls: {
       primary: 'https://rpc.testnet.soniclabs.com',
-      fallbacks: [
-        'https://sonic-testnet.drpc.org',
-        'https://rpc-testnet.soniclabs.com',
-      ],
+      fallbacks: [],
     },
     blockExplorers: { name: 'SonicScan', url: 'https://testnet.sonicscan.org' },
     tokens: {
@@ -1069,8 +1064,8 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
-      primary: 'https://worldchain-sepolia.drpc.org',
-      fallbacks: ['https://worldchain-sepolia.g.alchemy.com/public'],
+      primary: 'https://worldchain-sepolia.g.alchemy.com/public',
+      fallbacks: ['https://4801.rpc.thirdweb.com'],
     },
     blockExplorers: { name: 'Worldscan', url: 'https://sepolia.worldscan.org' },
     tokens: {
@@ -1281,7 +1276,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     nativeCurrency: { name: 'Plume ETH', symbol: 'ETH', decimals: 18 },
     rpcUrls: {
-      primary: 'https://testnet-rpc.plumenetwork.xyz',
+      primary: 'https://testnet-rpc.plume.org',
       fallbacks: ['https://plume-testnet.drpc.org'],
     },
     blockExplorers: { name: 'Plume Explorer', url: 'https://testnet-explorer.plumenetwork.xyz' },
@@ -1323,8 +1318,8 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     nativeCurrency: { name: 'Injective', symbol: 'INJ', decimals: 18 },
     rpcUrls: {
-      primary: 'https://testnet.inevm.com/http',
-      fallbacks: ['https://k8s.testnet.json-rpc.injective.network'],
+      primary: 'https://k8s.testnet.json-rpc.injective.network',
+      fallbacks: [],
     },
     blockExplorers: { name: 'Injective Explorer', url: 'https://testnet.explorer.injective.network' },
     tokens: {
@@ -1452,7 +1447,10 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     nativeCurrency: { name: 'Cronos', symbol: 'tCRO', decimals: 18 },
     rpcUrls: {
       primary: 'https://evm-t3.cronos.org',
-      fallbacks: [],
+      fallbacks: [
+        'https://cronos-testnet.drpc.org',
+        'https://338.rpc.thirdweb.com',
+      ],
     },
     blockExplorers: { name: 'Cronos Explorer', url: 'https://explorer.cronos.org/testnet' },
     tokens: {
@@ -1669,7 +1667,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
     rpcUrls: {
       primary: 'https://testrpc.xlayer.tech',
-      fallbacks: [],
+      fallbacks: ['https://xlayertestrpc.okx.com'],
     },
     blockExplorers: { name: 'OKX Explorer', url: 'https://web3.okx.com/explorer/x-layer-testnet' },
     tokens: {
@@ -2156,8 +2154,8 @@ export function getNetworksByCapability(
   const pool = testnetOnly === undefined
     ? Object.values(ACTIVE_NETWORKS)
     : testnetOnly
-    ? Object.values(TESTNET_NETWORKS)
-    : Object.values(MAINNET_NETWORKS)
+      ? Object.values(TESTNET_NETWORKS)
+      : Object.values(MAINNET_NETWORKS)
 
   return pool.filter((net) => {
     if (capability === 'unifiedBalance') {
@@ -2176,8 +2174,8 @@ export function supportsCapability(
   const net = typeof target === 'number'
     ? getNetworkByChainId(target)
     : typeof target === 'string'
-    ? getNetwork(target)
-    : getNetworkByChainId((target as Chain)?.id)
+      ? getNetwork(target)
+      : getNetworkByChainId((target as Chain)?.id)
 
   if (!net?.capabilities) return false
   if (capability === 'unifiedBalance') {
@@ -2199,8 +2197,8 @@ export function getNetworksByAdapter(
   const pool = testnetOnly === undefined
     ? Object.values(ACTIVE_NETWORKS)
     : testnetOnly
-    ? Object.values(TESTNET_NETWORKS)
-    : Object.values(MAINNET_NETWORKS)
+      ? Object.values(TESTNET_NETWORKS)
+      : Object.values(MAINNET_NETWORKS)
 
   return pool.filter((net) => Boolean(net.adapters?.[adapter]))
 }
@@ -2214,8 +2212,8 @@ export function supportsAdapter(
   const net = typeof target === 'number'
     ? getNetworkByChainId(target)
     : typeof target === 'string'
-    ? getNetwork(target)
-    : getNetworkByChainId((target as Chain)?.id)
+      ? getNetwork(target)
+      : getNetworkByChainId((target as Chain)?.id)
 
   return Boolean(net?.adapters?.[adapter])
 }

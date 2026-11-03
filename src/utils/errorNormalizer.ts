@@ -162,35 +162,40 @@ function extractRevertReason(err: any): string | null {
     const p1 = text.match(/reverted with the following reason:\s*([^\n\r]+)/i)
     if (p1 && p1[1]?.trim()) {
       const r = p1[1].trim()
-      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      const isRpcNoise = /rate limit|limit exceeded|too many requests|too many errors|rpc endpoint/i.test(r)
+      if (isRpcNoise) return null
       return r
     }
 
     const p2 = text.match(/execution reverted:\s*([^\n\r]+)/i)
     if (p2 && p2[1]?.trim()) {
       const r = p2[1].trim()
-      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      const isRpcNoise = /rate limit|limit exceeded|too many requests|too many errors|rpc endpoint/i.test(r)
+      if (isRpcNoise) return null
       return r
     }
 
     const p3 = text.match(/reason:\s*([^\n\r]+)/i)
     if (p3 && p3[1]?.trim()) {
       const r = p3[1].trim()
-      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      const isRpcNoise = /rate limit|limit exceeded|too many requests|too many errors|rpc endpoint/i.test(r)
+      if (isRpcNoise) return null
       return r
     }
 
     const p4 = text.match(/revert:\s*([^\n\r]+)/i)
     if (p4 && p4[1]?.trim()) {
       const r = p4[1].trim()
-      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      const isRpcNoise = /rate limit|limit exceeded|too many requests|too many errors|rpc endpoint/i.test(r)
+      if (isRpcNoise) return null
       return r
     }
 
     const p5 = text.match(/simulation failed on [^:]+:\s*([^\n\r]+)/i)
     if (p5 && p5[1]?.trim()) {
       const r = p5[1].trim()
-      if (/rate limit|limit exceeded|too many requests/i.test(r)) return null
+      const isRpcNoise = /rate limit|limit exceeded|too many requests|too many errors|rpc endpoint/i.test(r)
+      if (isRpcNoise) return null
       return r
     }
   }
@@ -734,7 +739,9 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
     lowMsg.includes('-32005') ||
     lowMsg.includes('rate limit') ||
     lowMsg.includes('rate-limited') ||
-    lowMsg.includes('too many requests')
+    lowMsg.includes('too many requests') ||
+      lowMsg.includes('too many errors') ||
+      lowMsg.includes('different rpc endpoint')
   ) {
     const def = ERROR_DEFINITIONS.RPC_LIMIT_EXCEEDED
     return {

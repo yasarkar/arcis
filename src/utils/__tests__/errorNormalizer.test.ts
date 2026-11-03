@@ -15,6 +15,18 @@ describe('errorNormalizer', () => {
     expect(normalized.message).not.toContain('Smart contract rejected')
   })
 
+  it('correctly maps MetaMask RPC endpoint circuit breaker error to RPC_LIMIT_EXCEEDED instead of CONTRACT_REVERT', () => {
+    const mmRpcErr = new Error(
+      'The contract function "deposit" reverted with the following reason:\nRPC endpoint returned too many errors, retrying in 0,46 minutes. Consider using a different RPC endpoint.'
+    )
+
+    const normalized = normalizeAppError(mmRpcErr)
+    expect(normalized.code).toBe('RPC_LIMIT_EXCEEDED')
+    expect(normalized.category).toBe('RPC_NETWORK')
+    expect(normalized.isRetryable).toBe(true)
+    expect(normalized.message).not.toContain('Smart contract rejected')
+  })
+
   it('correctly maps genuine contract revert errors to CONTRACT_REVERT', () => {
     const realRevertErr = new Error(
       'The contract function "deposit" reverted with the following reason:\nERC4626: deposit more than max'

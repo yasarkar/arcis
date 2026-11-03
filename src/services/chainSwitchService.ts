@@ -44,6 +44,14 @@ export interface ChainSwitchResult {
   isCanceled?: boolean
 }
 
+export interface WalletRpcHealthResult {
+  success: boolean
+  healthy: boolean
+  repaired?: boolean
+  error?: string
+  isCanceled?: boolean
+}
+
 /**
  * Resolves an EIP-1193 compatible provider from parameter or window.ethereum.
  */
@@ -388,3 +396,85 @@ export async function ensureArcNetwork(customProvider?: any): Promise<ChainSwitc
 export async function ensureChain(provider: any, chain: Chain): Promise<void> {
   await assertNetwork(chain, provider)
 }
+
+/**
+ * Proactively verifies whether the connected wallet's active RPC for the target network
+ * is alive and responsive. If the wallet's configured RPC fails (e.g. rate-limit, 503,
+ * or circuit-breaker timeout), it transparently prompts the wallet via EIP-3085
+ * (wallet_addEthereumChain) with Arcis's verified primary and fallback RPC endpoints.
+ */
+export async function ensureHealthyWalletRpc(
+  target: string | number | Chain,
+  customProvider?: any,
+  timeoutMs: number = 2000
+): Promise<WalletRpcHealthResult> {
+  const provider = resolveProvider(customProvider)
+  if (!provider) {
+    return { success: false, healthy: false, error: 'No active Ethereum wallet provider found.' }
+  }
+
+  const chain = resolveChain(target)
+  if (!chain) {
+    return { success: false, healthy: false, error: `Unrecognized network: "${String(target)}".` }
+  }
+
+  // 1. Pre-flight probe: send a lightweight eth_blockNumber call with a strict timeout
+  let isAlive = false
+  try {
+    const probePromise = provider.request({ method: 'eth_blockNumber' })
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('RPC_PROBE_TIMEOUT')), timeoutMs)
+    )
+    const result = await Promise.race([probePromise, timeoutPromise])
+    if (result) isAlive = true
+  } catch (probeErr: any) {
+    log.warn(`Wallet RPC probe failed on ${chain.name}; prompting wallet to update with verified RPCs...`, probeErr)
+    isAlive = false
+  }
+
+  // If the wallet's RPC is responsive, return immediately without any user friction
+  if (isAlive) {
+    return { success: true, healthy: true }
+  }
+
+  // 2. RPC failed or timed out: prompt wallet via wallet_addEthereumChain with verified RPC list
+  try {
+    const addParams = buildAddEthereumChainParameter(chain)
+    await provider.request({
+      method: 'wallet_addEthereumChain',
+      params: [addParams],
+    })
+
+    // Brief settling pause for wallet extension to bind new endpoint
+    await new Promise((r) => setTimeout(r, 200))
+    return { success: true, healthy: true, repaired: true }
+  } catch (err: any) {
+    const code = err?.code ?? err?.cause?.code
+    const msg = String(err?.message || '')
+
+    if (code === 4001 || msg.includes('rejected') || msg.includes('canceled') || msg.includes('User rejected')) {
+      return {
+        success: false,
+        healthy: false,
+        isCanceled: true,
+        error: `RPC update for ${chain.name} was canceled in your wallet.`,
+      }
+    }
+
+    if (code === -32002 || msg.includes('already pending')) {
+      return {
+        success: false,
+        healthy: false,
+        error: 'A network update request is already pending in your wallet. Please check MetaMask.',
+      }
+    }
+
+    const normalized = normalizeAppError(err)
+    return {
+      success: false,
+      healthy: false,
+      error: normalized.message || `Failed to update RPC for ${chain.name}.`,
+    }
+  }
+}
+
