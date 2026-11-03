@@ -389,14 +389,31 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
   const showSourceFeeRow = Boolean(networkFee) || (sourceFeeGasless && type === 'bridge')
   const sourceFeeLabel = type === 'bridge' ? 'Source Network Fee:' : 'Network Fee:'
 
-  // Cap Network Fee to at most 5 decimal places (UX precision requirement)
+  // Cap Network Fee to at most 5 decimal places (UX precision requirement),
+  // and represent tiny sub-precision amounts as <0.00001 instead of rounding to 0.
   const formattedNetworkFee = useMemo(() => {
     if (!networkFee) return networkFee
     return networkFee.replace(/(\d+)\.(\d{6,})/g, (_m, intPart, decPart) => {
-      const rounded = (Math.round(parseFloat(`${intPart}.${decPart}`) * 1e5) / 1e5).toFixed(5)
+      const val = parseFloat(`${intPart}.${decPart}`)
+      if (val > 0 && val < 0.00001) {
+        return '<0.00001'
+      }
+      const rounded = (Math.round(val * 1e5) / 1e5).toFixed(5)
       return parseFloat(rounded).toString()
     })
   }, [networkFee])
+
+  const formattedApprovalFee = useMemo(() => {
+    if (!approvalFee) return approvalFee
+    return approvalFee.replace(/(\d+)\.(\d{6,})/g, (_m, intPart, decPart) => {
+      const val = parseFloat(`${intPart}.${decPart}`)
+      if (val > 0 && val < 0.00001) {
+        return '<0.00001'
+      }
+      const rounded = (Math.round(val * 1e5) / 1e5).toFixed(5)
+      return parseFloat(rounded).toString()
+    })
+  }, [approvalFee])
 
   const sourceFeeValue = (type === 'bridge' ? networkFee : formattedNetworkFee) ?? '0.00 USDC'
   const sourceFeeTooltip = networkFee
@@ -842,7 +859,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               title="Exact fee charged by the network for the token approval transaction, read from its mined receipt."
             >
               <span>Approval Fee:</span>
-              <span className="text-slate-200 font-mono text-[11px]">{approvalFee}</span>
+              <span className="text-slate-200 font-mono text-[11px]">{formattedApprovalFee}</span>
             </div>
           )}
 

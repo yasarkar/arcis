@@ -174,7 +174,7 @@ export interface DepositFee {
 }
 
 /**
- * Renders a verified fee as "0.000793 USDC" for the receipt. Non-positive, malformed or
+ * Renders a verified fee as "0.000793 USDC" or "<0.00001 ETH" for the receipt. Non-positive, malformed or
  * missing amounts return null so the caller omits the row instead of showing a fake zero.
  */
 export function formatDepositFee(fee?: DepositFee | null): string | null {
@@ -182,6 +182,9 @@ export function formatDepositFee(fee?: DepositFee | null): string | null {
   const numeric = Number.parseFloat(fee.amount)
   if (!Number.isFinite(numeric) || numeric <= 0) return null
   const symbol = (fee.symbol || '').trim()
+  if (numeric < 0.00001) {
+    return symbol ? `<0.00001 ${symbol}` : '<0.00001'
+  }
   return symbol ? `${fee.amount} ${symbol}` : fee.amount
 }
 

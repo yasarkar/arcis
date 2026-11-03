@@ -55,4 +55,21 @@ describe('Swap Receipt Network Fee Precision (Max 5 Decimals)', () => {
     expect(markup).toContain('Network Fee:')
     expect(markup).toContain('0.00 USDC')
   })
+
+  it('renders sub-precision network fee (< 0.00001) as <0.00001', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(UnifiedSuccessReceipt, {
+        type: 'swap',
+        amountIn: '100',
+        amountOut: '99.88',
+        tokenIn: 'USDC',
+        tokenOut: 'EURC',
+        networkFee: '0.00000412 USDC',
+        onActionAgain: () => {},
+      })
+    )
+
+    expect(markup).toContain('Network Fee:')
+    expect(markup).toContain('&lt;0.00001 USDC')
+  })
 })

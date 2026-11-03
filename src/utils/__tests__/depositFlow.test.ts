@@ -119,6 +119,13 @@ describe('depositFlow verified fee formatting', () => {
     expect(formatDepositFee({ amount: '0.00012', symbol: 'ETH' })).toBe('0.00012 ETH')
   })
 
+  it('formats very small fees (< 0.00001) as <0.00001 with token symbol', () => {
+    expect(formatDepositFee({ amount: '0.000004', symbol: 'ETH' })).toBe('<0.00001 ETH')
+    expect(formatDepositFee({ amount: '0.00000012', symbol: 'USDC' })).toBe('<0.00001 USDC')
+    expect(formatDepositFee({ amount: '0.0000099', symbol: 'ETH' })).toBe('<0.00001 ETH')
+    expect(formatDepositFee({ amount: '0.00001', symbol: 'ETH' })).toBe('0.00001 ETH')
+  })
+
   it('returns null for missing, malformed or zero fees so the row is omitted', () => {
     expect(formatDepositFee(undefined)).toBeNull()
     expect(formatDepositFee(null)).toBeNull()

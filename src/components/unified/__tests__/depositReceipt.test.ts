@@ -70,6 +70,33 @@ describe('Gateway deposit success receipt', () => {
     expect(markup).not.toContain('Sponsored')
   })
 
+  it('renders very small fees (< 0.00001) as <0.00001 instead of rounding to zero', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(UnifiedSuccessReceipt, {
+        type: 'deposit',
+        subtitle: 'USDC deposited into your Gateway unified balance via Circle Gateway',
+        method: 'Circle Gateway Deposit',
+        amount: '125.5',
+        tokenSymbol: 'USDC',
+        network: 'Base_Sepolia',
+        networkIconId: getChainIconId('Base_Sepolia'),
+        txHash: TX_HASH,
+        explorerUrl: getExplorerTxUrl('Base_Sepolia', TX_HASH),
+        networkFee: '0.00000312 ETH',
+        approvalFee: '0.0000014 ETH',
+        isInline: true,
+        onActionAgain: () => {},
+      })
+    )
+
+    expect(markup).toContain('Deposit Finalized!')
+    expect(markup).toContain('Network Fee:')
+    expect(markup).toContain('&lt;0.00001 ETH')
+    expect(markup).not.toContain('0 ETH')
+    expect(markup).toContain('Approval Fee:')
+    expect(markup).toContain('&lt;0.00001 ETH')
+  })
+
   it('reports a sponsored deposit instead of a fake zero fee when nothing was charged', () => {
     const markup = renderToStaticMarkup(
       React.createElement(UnifiedSuccessReceipt, {
