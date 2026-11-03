@@ -148,4 +148,23 @@ describe('EURC/cirBTC V4 pool custom errors', () => {
     expect(detectPoolCustomError(new Error('execution reverted: ERC4626: deposit more than max'))).toBeNull()
     expect(normalizeAppError(new Error('execution reverted: ERC4626: deposit more than max')).code).toBe('CONTRACT_REVERT')
   })
+
+  it('correctly normalizes Viem UnknownRpcError and custom eth_gasPrice failure to WALLET_RPC_ERROR', () => {
+    const viemErr: any = new Error('An unknown RPC error occurred.')
+    viemErr.name = 'ContractFunctionExecutionError'
+    viemErr.shortMessage = 'An unknown RPC error occurred.'
+    viemErr.details = 'RPC 0x12c1 Custom eth_gasPrice: RPC endpoint returned HTTP client error.'
+    viemErr.cause = {
+      name: 'UnknownRpcError',
+      message: 'An unknown RPC error occurred.',
+      details: 'RPC 0x12c1 Custom eth_gasPrice: RPC endpoint returned HTTP client error.',
+    }
+
+    const normalized = normalizeAppError(viemErr)
+    expect(normalized.code).toBe('WALLET_RPC_ERROR')
+    expect(normalized.category).toBe('RPC_NETWORK')
+    expect(normalized.title).toBe('Wallet RPC Communication Error')
+    expect(normalized.message).toContain('eth_gasPrice')
+    expect(normalized.isRetryable).toBe(true)
+  })
 })

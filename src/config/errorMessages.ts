@@ -128,6 +128,15 @@ export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
     isRetryable: true,
   },
 
+  // 10b. Wallet RPC Connection / Gas Estimation Failure (UnknownRpcError / eth_gasPrice HTTP Error)
+  WALLET_RPC_ERROR: {
+    category: 'RPC_NETWORK',
+    title: 'Wallet RPC Communication Error',
+    message: 'Your wallet configured RPC failed during gas estimation (eth_gasPrice). Please update your wallet RPC or switch networks.',
+    isCanceled: false,
+    isRetryable: true,
+  },
+
   // 11. Network Timeout
   NETWORK_TIMEOUT: {
     category: 'RPC_NETWORK',

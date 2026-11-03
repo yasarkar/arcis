@@ -6,6 +6,7 @@ describe('ensureHealthyWalletRpc pre-flight health & repair', () => {
   it('returns healthy: true immediately without calling wallet_addEthereumChain when RPC responds', async () => {
     const mockRequest = vi.fn().mockImplementation(async ({ method }) => {
       if (method === 'eth_blockNumber') return '0x12345'
+      if (method === 'eth_gasPrice') return '0x1000'
       return null
     })
     const provider = { request: mockRequest }
@@ -15,9 +16,44 @@ describe('ensureHealthyWalletRpc pre-flight health & repair', () => {
     expect(result.success).toBe(true)
     expect(result.healthy).toBe(true)
     expect(result.repaired).toBeFalsy()
-    expect(mockRequest).toHaveBeenCalledTimes(1)
     expect(mockRequest).toHaveBeenCalledWith({ method: 'eth_blockNumber' })
+    expect(mockRequest).toHaveBeenCalledWith({ method: 'eth_gasPrice' })
     expect(mockRequest).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'wallet_addEthereumChain' }))
+  })
+
+  it('triggers wallet_addEthereumChain when eth_blockNumber succeeds but eth_gasPrice fails (broken custom RPC)', async () => {
+    const mockRequest = vi.fn().mockImplementation(async ({ method }) => {
+      if (method === 'eth_blockNumber') return '0x12345'
+      if (method === 'eth_gasPrice') {
+        throw new Error('RPC endpoint returned HTTP client error.')
+      }
+      if (method === 'wallet_addEthereumChain') {
+        return null // user approved
+      }
+      return null
+    })
+    const provider = { request: mockRequest }
+
+    const result = await ensureHealthyWalletRpc(worldChainSepolia, provider)
+
+    expect(result.success).toBe(true)
+    expect(result.healthy).toBe(true)
+    expect(result.repaired).toBe(true)
+    expect(mockRequest).toHaveBeenCalledWith({ method: 'eth_gasPrice' })
+    expect(mockRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'wallet_addEthereumChain',
+        params: [
+          expect.objectContaining({
+            chainId: '0x12c1',
+            rpcUrls: expect.arrayContaining([
+              'https://worldchain-sepolia.g.alchemy.com/public',
+              'https://4801.rpc.thirdweb.com',
+            ]),
+          }),
+        ],
+      })
+    )
   })
 
   it('triggers wallet_addEthereumChain with verified RPCs when RPC probe fails, and succeeds on user approval', async () => {

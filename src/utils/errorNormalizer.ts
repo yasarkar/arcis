@@ -755,6 +755,39 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
     }
   }
 
+  // 7c. Wallet RPC Endpoint / Gas Estimation Failure (eth_gasPrice HTTP error / UnknownRpcError)
+  const nestedDetails = [
+    (err as any)?.details,
+    (err as any)?.cause?.details,
+    (err as any)?.cause?.message,
+    (err as any)?.cause?.cause?.details,
+    (err as any)?.cause?.cause?.message,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  if (
+    lowMsg.includes('custom eth_gasprice') ||
+    lowMsg.includes('eth_gasprice') ||
+    nestedDetails.includes('custom eth_gasprice') ||
+    nestedDetails.includes('eth_gasprice') ||
+    nestedDetails.includes('rpc endpoint returned http client error') ||
+    lowMsg.includes('an unknown rpc error occurred') ||
+    lowMsg.includes('unknownrpcerror')
+  ) {
+    const def = ERROR_DEFINITIONS.WALLET_RPC_ERROR
+    return {
+      category: def.category,
+      code: 'WALLET_RPC_ERROR',
+      title: def.title,
+      message: def.message,
+      isCanceled: false,
+      isRetryable: true,
+      rawMessage,
+    }
+  }
+
   // 8. Smart Contract Revert
   if (
     lowMsg.includes('execution reverted') ||

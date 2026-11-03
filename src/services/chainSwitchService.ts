@@ -418,15 +418,21 @@ export async function ensureHealthyWalletRpc(
     return { success: false, healthy: false, error: `Unrecognized network: "${String(target)}".` }
   }
 
-  // 1. Pre-flight probe: send a lightweight eth_blockNumber call with a strict timeout
+  // 1. Pre-flight probe: test both block number and gas pricing, as broken wallet RPCs
+  // often return block numbers but fail on eth_gasPrice with HTTP client errors.
   let isAlive = false
   try {
-    const probePromise = provider.request({ method: 'eth_blockNumber' })
+    const probePromise = Promise.all([
+      provider.request({ method: 'eth_blockNumber' }),
+      provider.request({ method: 'eth_gasPrice' }),
+    ])
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('RPC_PROBE_TIMEOUT')), timeoutMs)
     )
     const result = await Promise.race([probePromise, timeoutPromise])
-    if (result) isAlive = true
+    if (result && Array.isArray(result) && result[0] !== undefined && result[1] !== undefined) {
+      isAlive = true
+    }
   } catch (probeErr: any) {
     log.warn(`Wallet RPC probe failed on ${chain.name}; prompting wallet to update with verified RPCs...`, probeErr)
     isAlive = false
