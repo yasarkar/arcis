@@ -1,76 +1,76 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { createPortal } from 'react-dom'
-import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
-import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import { useWalletSettings } from '../hooks/useWalletSettings'
 import {
-  X,
-  ArrowUpRight,
   AlertTriangle,
+  ArrowUpRight,
+  Ban,
+  ChevronDown,
+  FileText,
+  Save,
   Settings,
   Wallet,
+  X,
   Zap,
-  FileText,
-  ChevronDown,
-  Ban,
-  Save,
 } from 'lucide-react'
-import { ChainIcon } from './common/ChainIcon'
-import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { erc20Abi, formatUnits, isAddress } from 'viem'
 import EurcIcon from '../assets/Token-Icon/EURC Token.svg'
+import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
 import CirBtcIcon from '../assets/Token-Icon/cirBTC Token.svg'
-import { formatUnits, erc20Abi, isAddress } from 'viem'
-import { getResilientPublicClient, getArcPublicClient, resilientGetBalance, resilientReadContract } from '../services/rpc'
-import { getDisplayTokenSymbol, CHAIN_NATIVE_MAP, getCleanNativeTokenName } from '../utils/tokenUtils'
-import { useGatewayBalance } from '../hooks/useGatewayBalance'
-import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
-import { estimateGas, sendToken, resolveNativeActualFee } from '../services/sendService'
-import { ensureNetwork } from '../services/chainSwitchService'
-import { sendUsdcWithMemo } from '../services/memoService'
-import { MEMO_PRESETS, type MemoPreset } from '../config/memoConfig'
-import { transferFromGateway } from '../services/gatewayService'
-import { GATEWAY_DOMAINS, USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES } from '../config/gatewayConfig'
+import { getNetwork } from '../config/chainMeta'
 import {
-  SUPPORTED_SEND_CHAINS,
+  ARC_GAS_LIMITS,
+  SPEED_TIERS,
+  arcTransferFeeFallbackUsdc,
+  getDynamicArcGasOptions,
+  resolveArcActualFeeUsdc,
+  type SpeedTier,
+} from '../config/feeTiers'
+import { CIRBTC_ADDRESSES, EURC_ADDRESSES, GATEWAY_DOMAINS, USDC_ADDRESSES, WETH_ADDRESSES } from '../config/gatewayConfig'
+import { MEMO_PRESETS, type MemoPreset } from '../config/memoConfig'
+import {
   CHAIN_DEFS,
+  SUPPORTED_SEND_CHAINS,
   getChainIconId,
   getExplorerTxUrl,
 } from '../config/sendConfig'
-import { getNetwork } from '../config/chainMeta'
-import { WethIcon, TOKEN_ICON_MAP, SonicIcon, PhrsIcon, XplIcon, OkbIcon } from '../config/tokenIcons'
-import { addTransaction } from '../utils/history'
-import { normalizeCircleBlockchain, isCircleUcwChain } from '../utils/circleBlockchain'
+import { OkbIcon, PhrsIcon, SonicIcon, TOKEN_ICON_MAP, WethIcon, XplIcon } from '../config/tokenIcons'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
+import { useGatewayBalance } from '../hooks/useGatewayBalance'
+import { formatFiatEstimate, useLiveTokenPrices } from '../hooks/useLiveTokenPrices'
+import { useWalletSettings } from '../hooks/useWalletSettings'
+import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
+import { ensureNetwork } from '../services/chainSwitchService'
+import { transferFromGateway } from '../services/gatewayService'
+import { sendUsdcWithMemo } from '../services/memoService'
+import { getResilientPublicClient, resilientGetBalance, resilientReadContract } from '../services/rpc'
+import { estimateGas, resolveNativeActualFee, sendToken } from '../services/sendService'
 import { gatewayMaxFeeUsdc } from '../utils/bridgeAmountUtils'
+import { isCircleUcwChain, normalizeCircleBlockchain } from '../utils/circleBlockchain'
 import { normalizeAppError } from '../utils/errorNormalizer'
-import { PrivacyLockButton } from './privacy/PrivacyLockButton'
+import { addTransaction } from '../utils/history'
+import { logger } from '../utils/logger'
+import { saveRecipient } from '../utils/recentRecipients'
+import { CHAIN_NATIVE_MAP, getCleanNativeTokenName, getDisplayTokenSymbol } from '../utils/tokenUtils'
 import { useBroadcast } from './BroadcastNotification'
+import { ChainIcon } from './common/ChainIcon'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
 import { Tooltip } from './common/Tooltip'
 import {
-  SPEED_TIERS,
-  getDynamicArcGasOptions,
-  arcTransferFeeFallbackUsdc,
-  resolveArcActualFeeUsdc,
-  ARC_GAS_LIMITS,
-  type SpeedTier,
-} from '../config/feeTiers'
-import {
-  FintechCard,
   AssetInputPanel,
+  ChainSelectorModal,
+  FintechActionButton,
+  FintechCard,
   RecipientAddressField,
   SegmentedModeSwitch,
   SendSuccessReceipt,
   TokenSelectorModal,
-  ChainSelectorModal,
   TransactionBreakdown,
-  FintechActionButton,
-  type TokenItem,
   type BreakdownItem,
   type ModeOption,
+  type TokenItem,
 } from './fintech'
-import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPrices'
-import { saveRecipient } from '../utils/recentRecipients'
-import { logger } from '../utils/logger'
+import { PrivacyLockButton } from './privacy/PrivacyLockButton'
 
 /** Scoped logger: skipped best-effort work must be traceable without raw console noise. */
 const log = logger.createScope('SendModal')
@@ -387,8 +387,8 @@ export default function SendModal({
     ? isChainSolana
       ? isValidSolanaAddress(recipient)
       : isChainInjective
-      ? isValidInjectiveAddress(recipient)
-      : isValidEvmAddress(recipient)
+        ? isValidInjectiveAddress(recipient)
+        : isValidEvmAddress(recipient)
     : false
 
   // Dynamic Token selector
@@ -531,39 +531,39 @@ export default function SendModal({
     sendMode === 'gateway'
       ? gatewayTotalBalance || '0.00'
       : isCustom
-      ? customTokenResult?.balance || '0.00'
-      : token === 'USDC'
-      ? usdcWalletBalance
-      : token === 'EURC'
-      ? eurcWalletBalance
-      : token === 'cirBTC'
-      ? cirbtcWalletBalance
-      : token === 'WETH'
-      ? wethWalletBalance
-      : isNative
-      ? nativeBalance
-      : '0.00'
+        ? customTokenResult?.balance || '0.00'
+        : token === 'USDC'
+          ? usdcWalletBalance
+          : token === 'EURC'
+            ? eurcWalletBalance
+            : token === 'cirBTC'
+              ? cirbtcWalletBalance
+              : token === 'WETH'
+                ? wethWalletBalance
+                : isNative
+                  ? nativeBalance
+                  : '0.00'
 
   const activeToken = sendMode === 'gateway' ? 'USDC' : isCustom ? customTokenAddress : token
   const tokenSymbol =
     sendMode === 'gateway'
       ? 'USDC'
       : isCustom
-      ? customTokenResult?.symbol || 'Custom Token'
-      : isNative && nativeSymbol
-      ? nativeSymbol
-      : getDisplayTokenSymbol(selectedChain, token)
+        ? customTokenResult?.symbol || 'Custom Token'
+        : isNative && nativeSymbol
+          ? nativeSymbol
+          : getDisplayTokenSymbol(selectedChain, token)
 
   // Amount precision rules per token (custom tokens expose their own decimals).
   const amountDecimals = isCustom
     ? customTokenResult?.decimals ?? 18
     : isNative
-    ? CHAIN_NATIVE_MAP[selectedChain]?.decimals ?? 18
-    : token === 'cirBTC'
-    ? 8
-    : token === 'WETH'
-    ? 18
-    : 6
+      ? CHAIN_NATIVE_MAP[selectedChain]?.decimals ?? 18
+      : token === 'cirBTC'
+        ? 8
+        : token === 'WETH'
+          ? 18
+          : 6
 
   // Gas is debited from the transferred asset itself when the native currency is
   // being sent (NATIVE anywhere, native USDC on Arc) — reserve it in the checks.
@@ -579,9 +579,9 @@ export default function SendModal({
 
   const feeReserve = feeInSentAsset
     ? parseFloat(
-        (estimatedFee || '').replace('<', '') ||
-          (selectedChain === 'Arc_Testnet' ? arcTransferFeeFallbackUsdc(token, false, speedTier) : '0')
-      ) || 0
+      (estimatedFee || '').replace('<', '') ||
+      (selectedChain === 'Arc_Testnet' ? arcTransferFeeFallbackUsdc(token, false, speedTier) : '0')
+    ) || 0
     : gatewayFeeReserve
 
   // Balance sufficiency check (Direct transfer has 0 platform fee; gas is reserved
@@ -656,11 +656,11 @@ export default function SendModal({
           }),
           connectedAddress
             ? resilientReadContract(client, {
-                address: trimmedAddress as `0x${string}`,
-                abi: erc20Abi,
-                functionName: 'balanceOf',
-                args: [connectedAddress as `0x${string}`],
-              })
+              address: trimmedAddress as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [connectedAddress as `0x${string}`],
+            })
             : BigInt(0),
         ])
 
@@ -1512,8 +1512,8 @@ export default function SendModal({
           const gasCost = estimatedFee
             ? parseFloat(estimatedFee.replace('<', ''))
             : selectedChain === 'Arc_Testnet'
-            ? parseFloat(arcTransferFeeFallbackUsdc(token, false, speedTier))
-            : 0.0005
+              ? parseFloat(arcTransferFeeFallbackUsdc(token, false, speedTier))
+              : 0.0005
           if (tokenSymbol === 'USDC' && (selectedChain === 'Arc_Testnet' || !CHAIN_NATIVE_MAP[selectedChain] || CHAIN_NATIVE_MAP[selectedChain]?.symbol === 'USDC')) {
             return `${(amtNum + gasCost).toFixed(selectedChain === 'Arc_Testnet' ? 6 : 4)} USDC`
           }
@@ -1625,11 +1625,10 @@ export default function SendModal({
         <button
           type="button"
           onClick={() => setShowSettings(!showSettings)}
-          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-            showSettings
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${showSettings
               ? 'text-white bg-indigo-500/25 border border-indigo-500/40 shadow-sm'
               : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]'
-          }`}
+            }`}
         >
           <Settings className="w-4 h-4" />
         </button>
@@ -1711,11 +1710,10 @@ export default function SendModal({
           {/* Error / Rejection Alert */}
           {error && (
             <div
-              className={`p-3 rounded-2xl border text-xs flex items-center gap-2.5 animate-fade-in ${
-                isCanceledError
+              className={`p-3 rounded-2xl border text-xs flex items-center gap-2.5 animate-fade-in ${isCanceledError
                   ? 'bg-amber-500/10 border-amber-500/25 text-amber-300/90'
                   : 'bg-rose-500/10 border-rose-500/25 text-rose-400'
-              }`}
+                }`}
             >
               {isCanceledError ? (
                 <Ban className="w-4 h-4 shrink-0 text-amber-400" />
@@ -1756,8 +1754,8 @@ export default function SendModal({
               isChainSolana
                 ? 'sol...'
                 : isChainInjective
-                ? 'inj...'
-                : '0x....'
+                  ? 'inj...'
+                  : '0x....'
             }
             isValid={recipientIsValid}
             onBlur={handleRecipientBlur}
@@ -1774,7 +1772,7 @@ export default function SendModal({
                 <div className="flex items-center gap-2 text-slate-300">
                   <FileText className="w-3.5 h-3.5 text-indigo-400" />
                   <span className="text-[12px] font-medium">
-                    {memoText ? `Memo: "${memoText}"` : 'Add Transaction Memo'}
+                    {memoText ? `Memo: "${memoText}"` : 'Add Memo'}
                   </span>
                 </div>
                 <button
@@ -1798,11 +1796,10 @@ export default function SendModal({
                           type="button"
                           onClick={() => handleSelectMemoPreset(preset)}
                           title={preset.text}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                            isSelected
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${isSelected
                               ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/10'
                               : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/[0.06]'
-                          }`}
+                            }`}
                         >
                           <span className="text-[12px]">{preset.icon}</span>
                           <span>{preset.label}</span>
@@ -1944,68 +1941,68 @@ export default function SendModal({
   const settingsModalWindow =
     showSettings && typeof document !== 'undefined'
       ? createPortal(
+        <div
+          className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in overscroll-contain touch-none"
+          onClick={() => setShowSettings(false)}
+        >
           <div
-            className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in overscroll-contain touch-none"
-            onClick={() => setShowSettings(false)}
+            className="w-full max-w-[480px] rounded-3xl p-6 sm:p-7 shadow-2xl relative border space-y-5 animate-scale-in"
+            style={{
+              background: 'linear-gradient(180deg, rgba(16, 20, 36, 0.98) 0%, rgba(10, 12, 22, 0.99) 100%)',
+              borderColor: 'rgba(255, 255, 255, 0.1)',
+              boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(99, 102, 241, 0.15)',
+              fontFamily: 'var(--font-app)',
+            }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className="w-full max-w-[480px] rounded-3xl p-6 sm:p-7 shadow-2xl relative border space-y-5 animate-scale-in"
-              style={{
-                background: 'linear-gradient(180deg, rgba(16, 20, 36, 0.98) 0%, rgba(10, 12, 22, 0.99) 100%)',
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-                boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(99, 102, 241, 0.15)',
-                fontFamily: 'var(--font-app)',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between pb-3.5 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                    <Settings className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-white tracking-wide">
-                      Transaction Settings
-                    </h3>
-                    <p className="text-[11px] text-slate-400">Execution speed and priority tiers</p>
-                  </div>
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3.5 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                  <Settings className="w-4 h-4" />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowSettings(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] transition-all cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div>
+                  <h3 className="text-base font-semibold text-white tracking-wide">
+                    Transaction Settings
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Execution speed and priority tiers</p>
+                </div>
               </div>
-
-              {/* Speed & Execution Priority Section */}
-              <div className="space-y-2 pt-1">
-                <SpeedFeeSelector
-                  selectedTier={speedTier}
-                  onSelectTier={handleSpeedTierChange}
-                  context="send"
-                  disabled={isSending}
-                />
-              </div>
-
-              {/* Save button */}
               <button
                 type="button"
-                onClick={() => {
-                  updateWalletSettings({ sendSpeedTier: speedTier })
-                  setShowSettings(false)
-                }}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+                onClick={() => setShowSettings(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06] transition-all cursor-pointer"
               >
-                <Save className="w-4 h-4" />
-                <span>Save Settings</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
-          </div>,
-          document.body
-        )
+
+            {/* Speed & Execution Priority Section */}
+            <div className="space-y-2 pt-1">
+              <SpeedFeeSelector
+                selectedTier={speedTier}
+                onSelectTier={handleSpeedTierChange}
+                context="send"
+                disabled={isSending}
+              />
+            </div>
+
+            {/* Save button */}
+            <button
+              type="button"
+              onClick={() => {
+                updateWalletSettings({ sendSpeedTier: speedTier })
+                setShowSettings(false)
+              }}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+            >
+              <Save className="w-4 h-4" />
+              <span>Save Settings</span>
+            </button>
+          </div>
+        </div>,
+        document.body
+      )
       : null
 
   if (isInline) {
