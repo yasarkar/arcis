@@ -236,9 +236,9 @@ export default function AssetDistributionList({
                         <span
                           className="ub-pending-badge"
                           style={{ marginTop: 4 }}
-                          title="Circle Gateway is still indexing this deposit."
+                          title={`Circle Gateway is still indexing this ${formatUsdcAmount(pending)} USDC deposit.`}
                         >
-                          +{formatUsdcAmount(pending)} PENDING
+                          +{formatUsdcAmount(pending)} USDC PENDING
                         </span>
                       ) : null}
                     </div>

@@ -25,7 +25,7 @@ describe('AssetDistributionList pending transparency', () => {
       })
     )
 
-    expect(markup).toContain('25.00 PENDING')
+    expect(markup).toContain('25.00 USDC PENDING')
     expect(markup).toContain('125.00')
     expect(markup.match(/PENDING/g)).toHaveLength(1)
   })

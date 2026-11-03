@@ -203,7 +203,7 @@ export default function UnifiedBalance({
                 className="ub-pending-badge"
                 title={`Circle Gateway is still indexing ${formatUsdcAmount(pendingDelta)} USDC. This usually takes 20–30 seconds.`}
               >
-                +{formatUsdcAmount(pendingDelta)} PENDING
+                +{formatUsdcAmount(pendingDelta)} USDC PENDING
               </span>
             )}
           </div>

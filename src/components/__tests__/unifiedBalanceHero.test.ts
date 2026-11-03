@@ -98,6 +98,7 @@ describe('Unified Balance hero states', () => {
     expect(markup).not.toContain('ub-freshness')
     expect(markup).not.toContain('Stale')
     expect(markup).toContain('still indexing 25.00 USDC')
+    expect(markup).toContain('25.00 USDC PENDING')
   })
 
   it('falls back to an em dash without a connected wallet', () => {
