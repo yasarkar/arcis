@@ -1437,13 +1437,11 @@ export default function SendModal({
       id: 'direct',
       label: 'DIRECT WALLET',
       icon: <Wallet className="w-3.5 h-3.5" />,
-      tooltip: 'Send directly from connected wallet balance',
     },
     {
       id: 'gateway',
       label: 'GATEWAY FAST',
       icon: <Zap className="w-3.5 h-3.5 text-indigo-400" />,
-      tooltip: 'Instant send from Circle Gateway Unified Balance',
     },
   ]
 
