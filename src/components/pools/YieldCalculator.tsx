@@ -207,9 +207,10 @@ export default function YieldCalculator({
                 type="button"
                 onClick={() => setPrincipal(parseFloat(walletBalanceUsdc).toFixed(2))}
                 style={{
-                  display: "flex",
+                  display: "inline-flex",
                   alignItems: "center",
-                  gap: "4px",
+                  gap: "6px",
+                  lineHeight: 1,
                   background:
                     principal === parseFloat(walletBalanceUsdc).toFixed(2)
                       ? 'rgba(152, 150, 255, 0.25)'
@@ -219,7 +220,7 @@ export default function YieldCalculator({
                       ? '1px solid rgba(152, 150, 255, 0.45)'
                       : '1px solid rgba(255, 255, 255, 0.08)',
                   color: principal === parseFloat(walletBalanceUsdc).toFixed(2) ? '#fff' : 'var(--fp-3)',
-                  padding: '4px 10px',
+                  padding: '5px 10px',
                   borderRadius: 99,
                   fontSize: 11,
                   fontFamily: 'var(--font-app)',
@@ -228,9 +229,15 @@ export default function YieldCalculator({
                   transition: 'all 0.15s ease',
                 }}
               >
-                <Wallet size={12} style={{ flexShrink: 0 }} />
-                <img src={UsdcIcon} alt="USDC" style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0 }} />
-                <span>{parseFloat(walletBalanceUsdc).toFixed(2)} USDC</span>
+                <Wallet size={12} style={{ flexShrink: 0, display: 'block' }} />
+                <img
+                  src={UsdcIcon}
+                  alt="USDC"
+                  style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+                />
+                <span style={{ lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>
+                  {parseFloat(walletBalanceUsdc).toFixed(2)} USDC
+                </span>
               </button>
             )}
             {quickAmounts.map((amt) => (
@@ -241,7 +248,8 @@ export default function YieldCalculator({
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '5px',
+                  gap: '6px',
+                  lineHeight: 1,
                   background:
                     principal === amt
                       ? 'rgba(152, 150, 255, 0.25)'
@@ -251,7 +259,7 @@ export default function YieldCalculator({
                       ? '1px solid rgba(152, 150, 255, 0.45)'
                       : '1px solid rgba(255, 255, 255, 0.08)',
                   color: principal === amt ? '#fff' : 'var(--fp-3)',
-                  padding: '4px 12px',
+                  padding: '5px 12px',
                   borderRadius: 99,
                   fontSize: 11,
                   fontFamily: 'var(--font-app)',
@@ -260,8 +268,14 @@ export default function YieldCalculator({
                   transition: 'all 0.15s ease',
                 }}
               >
-                <img src={UsdcIcon} alt="USDC" style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0 }} />
-                <span>{parseInt(amt).toLocaleString()} USDC</span>
+                <img
+                  src={UsdcIcon}
+                  alt="USDC"
+                  style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+                />
+                <span style={{ lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>
+                  {parseInt(amt).toLocaleString()} USDC
+                </span>
               </button>
             ))}
           </div>
@@ -372,17 +386,21 @@ export default function YieldCalculator({
                   <span style={{ fontSize: 12, color: 'var(--fp-3)', fontFamily: 'var(--font-app)' }}>
                     {period.label}
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', lineHeight: 1 }}>
                     <img
                       src={UsdcIcon}
                       alt="USDC"
-                      style={{ width: 15, height: 15, objectFit: 'contain', flexShrink: 0 }}
+                      style={{ width: 14, height: 14, objectFit: 'contain', flexShrink: 0, display: 'block' }}
                     />
                     <span
                       style={{
                         fontSize: 14,
                         fontWeight: 700,
                         fontFamily: 'var(--fonts--space-grotesk)',
+                        lineHeight: 1,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        fontVariantNumeric: 'tabular-nums',
                       }}
                     >
                       {res.yieldEarned.toFixed(2)} USDC
