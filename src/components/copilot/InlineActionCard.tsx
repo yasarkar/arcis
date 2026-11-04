@@ -13,7 +13,6 @@ import {
   Settings,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import ArcLogo from '../../assets/Arc-Icon.svg'
 import { getExplorerName, getExplorerTxUrl } from '../../config/sendConfig'
 import { formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
 import { arcTransferFeeFallbackUsdc } from '../../services/arcGasService'
@@ -605,7 +604,7 @@ export default function InlineActionCard({
                     <span className="text-white font-bold">{fromTok}</span>
                   </div>
                   {fromFiat && (
-                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
+                    <span className="text-[11px] font-mono text-slate-400 block mt-0.5">
                       {fromFiat}
                     </span>
                   )}
@@ -629,7 +628,7 @@ export default function InlineActionCard({
                     <span className="text-white font-bold">{toTok}</span>
                   </div>
                   {toFiat && (
-                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
+                    <span className="text-[11px] font-mono text-slate-400 block mt-0.5">
                       {toFiat}
                     </span>
                   )}
@@ -720,7 +719,7 @@ export default function InlineActionCard({
                     <CopilotTokenIcon symbol={depositToken} className="w-5 h-5 shrink-0" />
                   </div>
                   {fiat && (
-                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
+                    <span className="text-[11px] font-mono text-slate-400 block mt-0.5">
                       {fiat}
                     </span>
                   )}
@@ -814,14 +813,14 @@ export default function InlineActionCard({
                 </div>
                 <div className="text-right select-text cursor-text">
                   <div className="flex items-center justify-end gap-1.5 select-text">
-                    <span className="font-bold text-white text-base tracking-tight select-text">
+                    <CopilotTokenIcon symbol={bridgeToken} className="w-4 h-4 shrink-0" />
+                    <span className="font-bold text-white text-[12px] tracking-tight select-text">
                       {hasValidBridgeAmount ? formatSubscriptZero(data.amount) : 'Amount unavailable'}
                     </span>
-                    <span className="text-xs font-semibold text-slate-300 select-text">{bridgeToken}</span>
-                    <CopilotTokenIcon symbol={bridgeToken} className="w-5 h-5 shrink-0" />
+                    <span className="text-[12px] font-bold text-white select-text">{bridgeToken}</span>
                   </div>
                   {fiat && (
-                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5 select-text">
+                    <span className="text-[11px] font-mono text-slate-400 block mt-0.5 select-text">
                       {fiat}
                     </span>
                   )}
@@ -835,42 +834,21 @@ export default function InlineActionCard({
                   value={
                     <span className="inline-flex items-center gap-1.5 select-text font-sans">
                       <span className="inline-flex items-center gap-1 select-text">
-                        {fromChain.toLowerCase().includes('arc') ? (
-                          <img
-                            src={ArcLogo}
-                            alt={fromChain}
-                            className="w-3.5 h-3.5 object-contain shrink-0"
-                          />
-                        ) : (
-                          <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                            <ChainIcon chainKeyOrIconId={fromChain} size={14} className="w-3.5 h-3.5" />
-                          </span>
-                        )}
+                        <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                          <ChainIcon chainKeyOrIconId={fromChain} size={14} className="w-3.5 h-3.5" />
+                        </span>
                         <span>{fromChain}</span>
                       </span>
                       <span className="text-indigo-400 select-none">➔</span>
                       <span className="inline-flex items-center gap-1 select-text">
-                        {toChain.toLowerCase().includes('arc') ? (
-                          <img
-                            src={ArcLogo}
-                            alt={toChain}
-                            className="w-3.5 h-3.5 object-contain shrink-0"
-                          />
-                        ) : (
-                          <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                            <ChainIcon chainKeyOrIconId={toChain} size={14} className="w-3.5 h-3.5" />
-                          </span>
-                        )}
+                        <span className="w-3.5 h-3.5 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                          <ChainIcon chainKeyOrIconId={toChain} size={14} className="w-3.5 h-3.5" />
+                        </span>
                         <span>{toChain}</span>
                       </span>
                     </span>
                   }
                   valueClassName="text-slate-200"
-                />
-                <DetailRow
-                  label="Protocol"
-                  value="Circle Gateway"
-                  valueClassName="text-slate-300"
                 />
                 <DetailRow
                   label="Transfer Speed"
@@ -1014,17 +992,9 @@ export default function InlineActionCard({
                   label="Network"
                   value={
                     <span className="inline-flex items-center gap-1.5 select-text">
-                      {isArc ? (
-                        <img
-                          src={ArcLogo}
-                          alt={networkName}
-                          className="w-4 h-4 object-contain shrink-0"
-                        />
-                      ) : (
-                        <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                          <ChainIcon chainKeyOrIconId={networkName} size={16} className="w-4 h-4" />
-                        </span>
-                      )}
+                      <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                        <ChainIcon chainKeyOrIconId={networkName} size={16} className="w-4 h-4" />
+                      </span>
                       <span className='font-bold text-slate-300 text-[12px]'>{networkName}</span>
                     </span>
                   }
