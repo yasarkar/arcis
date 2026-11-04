@@ -58,6 +58,33 @@ export async function reconcileCopilotReservation(wallet: string, id: string): P
   const record = readSessionSpendLedger(wallet).reservations[id]
   if (!record || ['committed', 'released'].includes(record.state)) return record?.receipt
   const hash = record.txHash
+  if (!isTransactionHash(hash) && !isTransactionHash(record.userOpHash)) {
+    const isFailedOrCanceled =
+      record.receipt?.status === 'FAILED' ||
+      record.receipt?.status === 'CANCELED' ||
+      /slippage|price moved|revert|insufficient|approved minimum|not submitted|no transaction/i.test(
+        record.receipt?.errorMessage || ''
+      )
+    if (isFailedOrCanceled) {
+      const receipt: InlineExecutionReceipt = {
+        ...record.receipt,
+        id: record.receipt?.id || `rcpt_${id}`,
+        actionType: record.actionType,
+        status: 'FAILED',
+        title: record.receipt?.title || 'Transaction Not Submitted',
+        errorMessage: record.receipt?.errorMessage || 'No on-chain transaction hash was broadcast.',
+        txHash: '',
+        reservationId: id,
+        reservationWallet: wallet,
+        gasUsdc: 0,
+        timestamp: Date.now(),
+        settlementLatencyMs: 0,
+      }
+      const settled = await updateSessionSpend(wallet, id, { state: 'released', receipt })
+      return settled.receipt
+    }
+    return record.receipt
+  }
   if (!isTransactionHash(hash)) return record.receipt
   const data = record.action.data || {}
   let confirmed = false
@@ -169,8 +196,8 @@ export async function executeDirectCopilotAction(
       evidence => { signerEntered = true; phase = evidence.phase; txHash = evidence.txHash || txHash; userOpHash = evidence.userOpHash || userOpHash })
     let result: InlineExecutionReceipt = { ...receipt, reservationId: id, reservationWallet: wallet }
     const canceled = !txHash && !userOpHash && (isUserCanceled({ message: result.errorMessage || '' }) || result.status === 'CANCELED')
-    const reverted = /confirmed.*reverted|swap reverted on arc|confirmed.*receipt.*revert/i.test(result.errorMessage || '')
-    const safePreflight = !signerEntered || (phase === 'approval' && /no swap|not submitted|no transaction|approved minimum/i.test(result.errorMessage || ''))
+    const reverted = /confirmed.*reverted|swap reverted on arc|confirmed.*receipt.*revert|price moved beyond slippage|slippage tolerance|liquidity may be insufficient|approved minimum|execution reverted/i.test(result.errorMessage || '')
+    const safePreflight = !signerEntered || (!txHash && !userOpHash && /slippage|price moved|insufficient|approved minimum|not submitted|no transaction|quote moved/i.test(result.errorMessage || '')) || (phase === 'approval' && /no swap|not submitted|no transaction|approved minimum/i.test(result.errorMessage || ''))
     if ((result.status === 'FAILED' || result.status === 'CANCELED') && !canceled && !reverted && !safePreflight) {
       result = { ...result, status: 'PENDING', title: 'Transaction Outcome Unknown — Budget Reserved', txHash: result.txHash || txHash || '', userOpHash, errorMessage: result.errorMessage || 'Signer outcome requires reconciliation; retry will not submit again.' }
     }

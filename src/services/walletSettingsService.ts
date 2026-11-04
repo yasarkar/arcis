@@ -96,6 +96,26 @@ export function sanitizeWalletSettings(raw: any): WalletTransactionSettings {
     poolSlippage = Math.min(maxPct, Math.max(minPct, raw.poolSlippage))
   }
 
+  const copilotSpeedTier: SpeedTier = VALID_SPEED_TIERS.has(raw.copilotSpeedTier)
+    ? raw.copilotSpeedTier
+    : DEFAULT_WALLET_TRANSACTION_SETTINGS.copilotSpeedTier || 'fast'
+
+  const copilotSlippageType: SlippagePreset = VALID_SLIPPAGE_PRESETS.has(raw.copilotSlippageType)
+    ? raw.copilotSlippageType
+    : DEFAULT_WALLET_TRANSACTION_SETTINGS.copilotSlippageType || '1.0'
+
+  const copilotCustomSlippage =
+    typeof raw.copilotCustomSlippage === 'string'
+      ? raw.copilotCustomSlippage.trim()
+      : DEFAULT_WALLET_TRANSACTION_SETTINGS.copilotCustomSlippage || ''
+
+  let copilotSlippage: number = DEFAULT_WALLET_TRANSACTION_SETTINGS.copilotSlippage || 1.0
+  if (typeof raw.copilotSlippage === 'number' && Number.isFinite(raw.copilotSlippage) && raw.copilotSlippage > 0) {
+    const minPct = POOL_MIN_SLIPPAGE_BPS / 100
+    const maxPct = POOL_MAX_SLIPPAGE_BPS / 100
+    copilotSlippage = Math.min(maxPct, Math.max(minPct, raw.copilotSlippage))
+  }
+
   return {
     sendSpeedTier,
     swapSpeedTier,
@@ -105,6 +125,10 @@ export function sanitizeWalletSettings(raw: any): WalletTransactionSettings {
     poolSlippageType,
     poolCustomSlippage,
     poolSlippage,
+    copilotSpeedTier,
+    copilotSlippageType,
+    copilotCustomSlippage,
+    copilotSlippage,
   }
 }
 
@@ -158,6 +182,22 @@ export const walletSettingsService = {
     }
 
     return updated
+  },
+
+  /**
+   * Quick getter for Ask Arco Copilot's configured slippage tolerance (as a percentage, e.g. 1.0 = 1%).
+   */
+  getCopilotSlippage(walletAddress?: string | null): number {
+    const settings = this.getWalletSettings(walletAddress)
+    return settings.copilotSlippage ?? 1.0
+  },
+
+  /**
+   * Quick getter for Ask Arco Copilot's execution speed tier ('standard' | 'fast' | 'turbo').
+   */
+  getCopilotSpeedTier(walletAddress?: string | null): SpeedTier {
+    const settings = this.getWalletSettings(walletAddress)
+    return settings.copilotSpeedTier ?? 'fast'
   },
 
   /**

@@ -13,6 +13,7 @@ import {
 } from '../sessionKeyService'
 import { createViemAdapter } from '../sendService'
 import { getSwapEstimate, executeSwap, resolveArcNativeRoute } from '../swapService'
+import { walletSettingsService } from '../walletSettingsService'
 import { copilotSlippageBps, approvedSwapMinimum } from '../../utils/swapSlippage'
 import { sendModularUserOperation } from '../modularWalletService'
 import { buildPoolSwapCall } from '../pools/poolDeadline'
@@ -114,6 +115,29 @@ export async function executeCopilotSwapAction(
     }
     try {
       if (onProgress) onProgress('routing')
+      const resilientClient = getResilientPublicClient('Arc_Testnet')
+      try {
+        const balanceUnits = await resilientClient.readContract({
+          address: swapRoute.tokenInAddr as Hex,
+          abi: ERC20_ABI,
+          functionName: 'balanceOf',
+          args: [activeWallet as Hex],
+        })
+        const requiredUnits = parseUnits(numberToExactDecimal(amountIn)!, swapInputDecimals)
+        if (balanceUnits < requiredUnits) {
+          if (onProgress) onProgress('failed')
+          return failedActionReceipt(
+            'swap',
+            'Insufficient Balance',
+            `Your Arc Testnet balance is insufficient for ${amountIn} ${fromTok} (available: ${(Number(balanceUnits) / 10 ** swapInputDecimals).toFixed(6)} ${fromTok}).`,
+            startTime
+          )
+        }
+      } catch (e: any) {
+        if (e.message?.includes('insufficient') || e.message?.includes('Insufficient')) throw e
+        console.warn('[copilotSwapAction] UCW balance read warning:', e)
+      }
+
       const quote = await getSwapEstimate({
         fromChain: 'Arc_Testnet', tokenIn: fromTok, tokenOut: toTok, amountIn: numberToExactDecimal(amountIn)!,
         slippageBps, authSource: 'ucw', senderAddress: activeWallet, recipientAddress: activeWallet,
@@ -358,6 +382,29 @@ export async function executeCopilotSwapAction(
     // Step 1: Real On-Chain Estimate & Routing
     if (onProgress) onProgress('routing')
 
+    const resilientClient = getResilientPublicClient('Arc_Testnet')
+    try {
+      const balanceUnits = await resilientClient.readContract({
+        address: swapRoute.tokenInAddr as Hex,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [activeWallet as Hex],
+      })
+      const requiredUnits = parseUnits(numberToExactDecimal(amountIn)!, swapInputDecimals)
+      if (balanceUnits < requiredUnits) {
+        if (onProgress) onProgress('failed')
+        return failedActionReceipt(
+          'swap',
+          'Insufficient Balance',
+          `Your Arc Testnet balance is insufficient for ${amountIn} ${fromTok} (available: ${(Number(balanceUnits) / 10 ** swapInputDecimals).toFixed(6)} ${fromTok}).`,
+          startTime
+        )
+      }
+    } catch (e: any) {
+      if (e.message?.includes('insufficient') || e.message?.includes('Insufficient')) throw e
+      console.warn('[copilotSwapAction] EOA balance read warning:', e)
+    }
+
     const quote = await getSwapEstimate({
       fromChain: 'Arc_Testnet',
       tokenIn: fromTok,
@@ -379,6 +426,7 @@ export async function executeCopilotSwapAction(
 
     // Step 3: Broadcast transaction to Arc L1
     if (onProgress) onProgress('broadcasting')
+    const speedTier = walletSettingsService.getCopilotSpeedTier(activeWallet)
     const finalStatus = await executeSwap({
       minimumOutput: data.minReceived !== undefined ? String(data.minReceived) : undefined,
       fromChain: 'Arc_Testnet',
@@ -387,6 +435,7 @@ export async function executeCopilotSwapAction(
       amountIn: numberToExactDecimal(amountIn)!,
       sourceAdapter,
       slippageBps,
+      speedTier,
       allowanceStrategy: 'approve',
       // Explicit 'evm' routing: a warm passkey MSCA cache must never sign this EOA swap.
       authSource: 'evm',

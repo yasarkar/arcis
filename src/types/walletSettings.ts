@@ -18,6 +18,12 @@ export interface WalletTransactionSettings {
   poolSlippageType: SlippagePreset
   poolCustomSlippage: string
   poolSlippage: number
+
+  // Ask Arco (Copilot) Settings
+  copilotSpeedTier?: SpeedTier
+  copilotSlippageType?: SlippagePreset
+  copilotCustomSlippage?: string
+  copilotSlippage?: number
 }
 
 export const DEFAULT_WALLET_TRANSACTION_SETTINGS: WalletTransactionSettings = {
@@ -29,4 +35,8 @@ export const DEFAULT_WALLET_TRANSACTION_SETTINGS: WalletTransactionSettings = {
   poolSlippageType: '0.5',
   poolCustomSlippage: '',
   poolSlippage: 0.5,
+  copilotSpeedTier: 'fast',
+  copilotSlippageType: '1.0',
+  copilotCustomSlippage: '',
+  copilotSlippage: 1.0,
 }

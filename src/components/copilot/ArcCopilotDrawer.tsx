@@ -20,6 +20,7 @@ import {
   Volume2,
   VolumeX,
   Settings,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { EXPLORE_TOPIC_CATEGORIES, exploreTopicQuestions } from '../../hooks/useArcCopilot'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload } from '../../types/marketplace'
@@ -31,10 +32,14 @@ import { sanitizeCopilotHtml, stripCopilotHtml } from '../../utils/sanitizeCopil
 import { classifyCopilotIntent } from '../../utils/copilotIntent'
 import CopilotMessageContent from './CopilotMessageContent'
 import SessionKeyModal from './SessionKeyModal'
+import CopilotSettingsModal from './CopilotSettingsModal'
 import InlineActionCard from './InlineActionCard'
 import NextStepRail from '../marketplace/NextStepRail'
 import { CopilotSlashMenu } from './CopilotSlashMenu'
 import { COPILOT_SLASH_COMMANDS, type SlashCommandItem } from '../../config/copilotSlashCommands'
+import { walletSettingsService, WALLET_SETTINGS_CHANGED_EVENT } from '../../services/walletSettingsService'
+import type { SlippagePreset } from '../../types/walletSettings'
+import type { SpeedTier } from '../../config/feeTiers'
 import { logger } from '../../utils/logger'
 
 /** Scoped logger: swallowed UI-state failures must still be visible in diagnostics. */
@@ -100,6 +105,35 @@ export default function ArcCopilotDrawer({
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null)
   const [expandedStepsMap, setExpandedStepsMap] = useState<Record<string, boolean>>({})
   const [isSessionKeyModalOpen, setIsSessionKeyModalOpen] = useState<boolean>(false)
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false)
+  const [copilotSlippage, setCopilotSlippage] = useState<number>(() =>
+    walletSettingsService.getCopilotSlippage(walletAddress)
+  )
+  const [copilotSlippageType, setCopilotSlippageType] = useState<SlippagePreset>(() => {
+    const s = walletSettingsService.getWalletSettings(walletAddress)
+    return s.copilotSlippageType || '1.0'
+  })
+  const [copilotCustomSlippage, setCopilotCustomSlippage] = useState<string>(() => {
+    const s = walletSettingsService.getWalletSettings(walletAddress)
+    return s.copilotCustomSlippage || ''
+  })
+  const [copilotSpeedTier, setCopilotSpeedTier] = useState<SpeedTier>(() =>
+    walletSettingsService.getCopilotSpeedTier(walletAddress)
+  )
+
+  // Listen for wallet settings changes across windows/tabs/modals
+  useEffect(() => {
+    const handleSettingsChanged = () => {
+      const s = walletSettingsService.getWalletSettings(walletAddress)
+      setCopilotSlippage(s.copilotSlippage ?? 1.0)
+      setCopilotSlippageType(s.copilotSlippageType || '1.0')
+      setCopilotCustomSlippage(s.copilotCustomSlippage || '')
+      setCopilotSpeedTier(s.copilotSpeedTier || 'fast')
+    }
+    window.addEventListener(WALLET_SETTINGS_CHANGED_EVENT, handleSettingsChanged)
+    return () => window.removeEventListener(WALLET_SETTINGS_CHANGED_EVENT, handleSettingsChanged)
+  }, [walletAddress])
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -309,7 +343,7 @@ export default function ArcCopilotDrawer({
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isSessionKeyModalOpen) return
+        if (isSessionKeyModalOpen || isSettingsModalOpen) return
         if (editingMsgId) {
           handleCancelEdit()
           return
@@ -323,7 +357,7 @@ export default function ArcCopilotDrawer({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isSessionKeyModalOpen, editingMsgId, isSlashMenuOpen, onClose])
+  }, [isOpen, isSessionKeyModalOpen, isSettingsModalOpen, editingMsgId, isSlashMenuOpen, onClose])
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -417,6 +451,16 @@ export default function ArcCopilotDrawer({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Ask Arco Execution Settings (Slippage & Gas Fee) */}
+          <button
+            type="button"
+            onClick={() => setIsSettingsModalOpen(true)}
+            aria-label="Ask Arco transaction settings"
+            className="px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40 hover:shadow-indigo-500/10"
+          >
+            <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
+          </button>
+
           {/* Session Settings */}
           <button
             onClick={() => setIsSessionKeyModalOpen(true)}
@@ -659,6 +703,7 @@ export default function ArcCopilotDrawer({
                       onExecuteInline={onExecuteInline}
                       onNavigateToTab={onNavigateToTab}
                       onOpenSessionSettings={() => setIsSessionKeyModalOpen(true)}
+                      onOpenExecutionSettings={() => setIsSettingsModalOpen(true)}
                       onCloseDrawer={onClose}
                       onSendMessage={onSendMessage}
                     />
@@ -860,6 +905,28 @@ export default function ArcCopilotDrawer({
           </button>
         </form>
       </div>
+
+      {/* ── ASK ARCO EXECUTION (SLIPPAGE & GAS FEE) SETTINGS MODAL ── */}
+      <CopilotSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        slippage={copilotSlippage}
+        slippageType={copilotSlippageType}
+        customSlippage={copilotCustomSlippage}
+        speedTier={copilotSpeedTier}
+        onSave={(newSettings) => {
+          walletSettingsService.setWalletSettings(walletAddress, {
+            copilotSlippage: newSettings.slippage,
+            copilotSlippageType: newSettings.slippageType,
+            copilotCustomSlippage: newSettings.customSlippage,
+            copilotSpeedTier: newSettings.speedTier,
+          })
+          setCopilotSlippage(newSettings.slippage)
+          setCopilotSlippageType(newSettings.slippageType)
+          setCopilotCustomSlippage(newSettings.customSlippage)
+          setCopilotSpeedTier(newSettings.speedTier)
+        }}
+      />
 
       {/* ── AUTONOMOUS SESSION KEY SETTINGS MODAL ── */}
       <SessionKeyModal

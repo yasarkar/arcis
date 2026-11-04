@@ -594,7 +594,9 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
     lowMsg.includes('insufficient_gas') ||
     lowMsg.includes('exceeds balance') ||
     lowMsg.includes('insufficient balance') ||
-    lowMsg.includes('transfer amount exceeds balance')
+    lowMsg.includes('transfer amount exceeds balance') ||
+    lowMsg.includes('transferfailed') ||
+    lowMsg.includes('0x90b8ec18')
   ) {
     const isGasRelated = lowMsg.includes('gas') || lowMsg.includes('fee') || lowMsg.includes('insufficient funds')
     const def = isGasRelated ? ERROR_DEFINITIONS.INSUFFICIENT_USDC_FOR_GAS : ERROR_DEFINITIONS.INSUFFICIENT_BALANCE

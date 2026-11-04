@@ -33,6 +33,7 @@ import type { SwapQuoteResult } from '../types/swap'
 import { parseCopilotPromptAmount, numberToExactDecimal } from '../utils/copilotAmount'
 import { classifyCopilotIntent, copilotInstructionText, extractCopilotMemo, latestEditableCopilotDraft } from '../utils/copilotIntent'
 import { copilotSlippageBps, swapPercentToBps } from '../utils/swapSlippage'
+import { walletSettingsService } from './walletSettingsService'
 export { DEFAULT_COPILOT_SLIPPAGE }
 
 export interface LLMResult {
@@ -327,6 +328,16 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
   if (isSwap && (!isKnownCopilotToken(fromTokenRaw) || !isKnownCopilotToken(toTokenRaw) || fromToken === toToken)) {
     return { ...result, message: '<strong>Valid swap pair required.</strong><br/><br/>Please select two different supported tokens.', actionPayload: undefined }
   }
+  if (isSwap) {
+    const available = availableTokenBalance(portfolio, fromToken)
+    if (available !== null && amount > available) {
+      return {
+        ...result,
+        message: `<strong>Insufficient ${fromToken} balance.</strong><br/><br/>You have ${available} ${fromToken} available on Arc Testnet, but requested to swap ${amount} ${fromToken}.`,
+        actionPayload: undefined,
+      }
+    }
+  }
   const sendTokenRaw = String(data.tokenSymbol || data.token || 'USDC')
   const sendToken = canonicalCopilotTokenSymbol(sendTokenRaw)
   if (isSend) {
@@ -349,9 +360,12 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
     }
   }
 
+  const defaultSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
+  const defaultSpeedTier = walletSettingsService.getCopilotSpeedTier(walletAddress)
+
   let slippageBps: number | undefined
   try {
-    if (isSwap) slippageBps = copilotSlippageBps(data, DEFAULT_COPILOT_SLIPPAGE)
+    if (isSwap) slippageBps = copilotSlippageBps(data, defaultSlippage)
   } catch (error) {
     return { ...result, message: String((error as Error).message), actionPayload: undefined }
   }
@@ -386,7 +400,7 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
   let estimatedFeeUsdc: string | undefined
   let feeEstimateSource: string | undefined
   try {
-    const gas = await getDynamicArcGasOptions(undefined, 'fast', gasLimit)
+    const gas = await getDynamicArcGasOptions(undefined, defaultSpeedTier, gasLimit)
     estimatedFeeUsdc = calculateArcGasCostFromFee(gasLimit, gas.maxFeePerGas)
     feeEstimateSource = gas.source
   } catch (error) {
@@ -490,7 +504,8 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       if (!isKnownCopilotToken(args.fromToken) || !isKnownCopilotToken(args.toToken) || !fromTok || !toTok || fromTok === toTok) {
         return { message: '<strong>Swap pair required.</strong>\\n\\nPlease specify both tokens, for example: "swap 25 USDC to EURC".' }
       }
-      const slippage = extractSlippageFromPrompt(userPrompt, DEFAULT_COPILOT_SLIPPAGE)
+      const defaultSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
+      const slippage = extractSlippageFromPrompt(userPrompt, defaultSlippage)
       return {
         message: `I have prepared your instant token swap on Arc Testnet. Review the details and confirm the trade below to execute on-chain.`,
         actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${amount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount, slippageBps: swapPercentToBps(slippage) } },
@@ -599,8 +614,9 @@ function parseLocalIntent(
 ): { message: string; actionPayload?: CopilotActionPayload } {
   const intent = classifyCopilotIntent(prompt)
   const p = copilotInstructionText(prompt).toLowerCase().trim()
+  const defaultSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
   const extractedPromptSlippage = intent.kind === 'command' && intent.action === 'swap'
-    ? extractSlippageFromPrompt(prompt, DEFAULT_COPILOT_SLIPPAGE) : DEFAULT_COPILOT_SLIPPAGE
+    ? extractSlippageFromPrompt(prompt, defaultSlippage) : defaultSlippage
   const promptAmount = parseCopilotPromptAmount(prompt)
   if (promptAmount.status === 'ambiguous' || promptAmount.status === 'invalid') return { message: promptAmount.message }
   const amountMatch = promptAmount.status === 'valid' ? promptAmount.decimal : null
@@ -622,7 +638,7 @@ function parseLocalIntent(
       else if (/\b(?:weth|eth|ethereum)\b/i.test(p)) toTok = 'WETH'
       else if (p.includes('eurc')) toTok = 'EURC'
       else if (p.includes('usdc')) fromTok = 'USDC'
-      const slippage = extractSlippageFromPrompt(prompt, copilotSlippageBps(prevData, DEFAULT_COPILOT_SLIPPAGE) / 100)
+      const slippage = extractSlippageFromPrompt(prompt, copilotSlippageBps(prevData, defaultSlippage) / 100)
       return {
         message: `I have updated your instant swap on Arc Testnet. Confirm below to execute this updated trade on Arc Testnet.`,
         actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${newAmount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount: newAmount, slippageBps: swapPercentToBps(slippage) } },

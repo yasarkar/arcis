@@ -132,6 +132,7 @@ interface InlineActionCardProps {
   onExecuteInline: (messageId: string, actionPayload: CopilotActionPayload) => Promise<void>
   onNavigateToTab?: (tab: string) => void
   onOpenSessionSettings?: () => void
+  onOpenExecutionSettings?: () => void
   onCloseDrawer: () => void
   onSendMessage?: (content: string) => Promise<void> | void
   /** Connected wallet whose liquid balances back the "large share of balance" warning. */
@@ -143,6 +144,7 @@ export default function InlineActionCard({
   onExecuteInline,
   onNavigateToTab,
   onOpenSessionSettings,
+  onOpenExecutionSettings,
   onCloseDrawer,
   onSendMessage,
   walletAddress,
@@ -651,7 +653,11 @@ export default function InlineActionCard({
                 )}
                 <DetailRow
                   label="Slippage Tolerance"
-                  value={slippageBps === undefined ? 'Invalid — new quote required' : `${slippageBps / 100}%`}
+                  value={
+                    <span className="inline-flex items-center gap-1.5 select-text">
+                      <span>{slippageBps === undefined ? 'Invalid — new quote required' : `${slippageBps / 100}%`}</span>
+                    </span>
+                  }
                 />
                 <DetailRow
                   label="Network Fee"
@@ -921,6 +927,7 @@ export default function InlineActionCard({
           : fullRecipient
         const hasMemo = Boolean(data.memo && String(data.memo).trim().length > 0)
         const networkName = String(data.network || data.chain || 'Arc Testnet')
+        const isArc = !data.network || /arc/i.test(networkName)
 
         const feeString = data.estimatedFeeUsdc
           ? String(data.estimatedFeeUsdc).startsWith('~')
@@ -1019,9 +1026,17 @@ export default function InlineActionCard({
                   label="Network"
                   value={
                     <span className="inline-flex items-center gap-1.5 select-text">
-                      <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                        <ChainIcon chainKeyOrIconId={networkName} size={16} className="w-4 h-4" />
-                      </span>
+                      {isArc ? (
+                        <img
+                          src={ArcLogo}
+                          alt={networkName}
+                          className="w-4 h-4 object-contain shrink-0"
+                        />
+                      ) : (
+                        <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                          <ChainIcon chainKeyOrIconId={networkName} size={16} className="w-4 h-4" />
+                        </span>
+                      )}
                       <span className='font-bold text-slate-300 text-[12px]'>{networkName}</span>
                     </span>
                   }
