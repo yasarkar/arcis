@@ -18,7 +18,6 @@ import PoolsOverviewCard from './PoolsOverviewCard'
 import PoolsTvlChartCard from './PoolsTvlChartCard'
 import PoolsToolbar from './PoolsToolbar'
 import PoolsTable from './PoolsTable'
-import CreatePoolModal from './CreatePoolModal'
 import MyPositionsSection from './MyPositionsSection'
 import { usePoolsData } from '../../hooks/usePoolsData'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
@@ -1086,8 +1085,6 @@ export default function PoolsTab({
 
   // Chart timeframe state
   const [chartTimeframe, setChartTimeframe] = useState<'24H' | '7D' | '30D'>('30D')
-  // Create pool modal state
-  const [isCreatePoolOpen, setIsCreatePoolOpen] = useState<boolean>(false)
 
   return (
     <div className="arc-animate-reveal w-full max-w-[1400px] mx-auto pt-1 pb-12">
@@ -1126,7 +1123,6 @@ export default function PoolsTab({
         onSearchChange={handleSearchChange}
         activeCategory={activeCategory}
         onCategoryChange={setActiveCategory}
-        onCreatePool={() => setIsCreatePoolOpen(true)}
         onOpenCalculator={() => setIsCalculatorOpen(true)}
         onRefresh={async () => {
           if (isManualRefreshing) return
@@ -1220,15 +1216,6 @@ export default function PoolsTab({
           onSelectPoolToDeposit={(pool) => handleOpenDeposit(pool)}
           walletBalanceUsdc={onchainBalances.usdc}
           pools={pools}
-        />
-      )}
-
-      {isCreatePoolOpen && (
-        <CreatePoolModal
-          isOpen={isCreatePoolOpen}
-          onClose={() => setIsCreatePoolOpen(false)}
-          walletAddress={walletAddress}
-          availableWalletUsdc={onchainBalances.usdc}
         />
       )}
     </div>

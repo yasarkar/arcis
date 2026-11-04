@@ -1,16 +1,16 @@
 // Interactive Yield & ROI Simulator for Arcis.
 // Allows users to simulate compounding interest across Real-Yield and LP pools.
-import { useState, useCallback } from 'react'
-import { createPortal } from 'react-dom'
-import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import {
-  X,
   Plus,
-  Wallet,
   TrendingUp,
+  Wallet,
+  X,
 } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { createPortal } from 'react-dom'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { ARCIS_POOLS, type PoolConfig } from '../../config/poolsConfig'
+import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 
 interface YieldCalculatorProps {
   isOpen: boolean
@@ -228,7 +228,8 @@ export default function YieldCalculator({
                   transition: 'all 0.15s ease',
                 }}
               >
-                <Wallet size={12} />
+                <Wallet size={12} style={{ flexShrink: 0 }} />
+                <img src={UsdcIcon} alt="USDC" style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0 }} />
                 <span>{parseFloat(walletBalanceUsdc).toFixed(2)} USDC</span>
               </button>
             )}
@@ -238,6 +239,9 @@ export default function YieldCalculator({
                 type="button"
                 onClick={() => setPrincipal(amt)}
                 style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
                   background:
                     principal === amt
                       ? 'rgba(152, 150, 255, 0.25)'
@@ -256,7 +260,8 @@ export default function YieldCalculator({
                   transition: 'all 0.15s ease',
                 }}
               >
-                {parseInt(amt).toLocaleString()} USDC
+                <img src={UsdcIcon} alt="USDC" style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0 }} />
+                <span>{parseInt(amt).toLocaleString()} USDC</span>
               </button>
             ))}
           </div>
@@ -314,7 +319,7 @@ export default function YieldCalculator({
                     style={{
                       fontSize: 12,
                       fontWeight: 600,
-                      color: isSelected ? '#fff' : 'var(--fp-3)',
+                      color: 'var(--fp-3)',
                       marginBottom: 2,
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
@@ -323,7 +328,7 @@ export default function YieldCalculator({
                   >
                     {shortName}
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--earned-green)', fontFamily: 'var(--fonts--space-grotesk)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--fonts--space-grotesk)' }}>
                     {p.apy.toFixed(2)}% {p.apyType}
                   </div>
                 </button>
@@ -367,17 +372,20 @@ export default function YieldCalculator({
                   <span style={{ fontSize: 12, color: 'var(--fp-3)', fontFamily: 'var(--font-app)' }}>
                     {period.label}
                   </span>
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                    <img
+                      src={UsdcIcon}
+                      alt="USDC"
+                      style={{ width: 15, height: 15, objectFit: 'contain', flexShrink: 0 }}
+                    />
                     <span
                       style={{
                         fontSize: 14,
                         fontWeight: 700,
-                        color: 'var(--earned-green)',
                         fontFamily: 'var(--fonts--space-grotesk)',
-                        display: 'block',
                       }}
                     >
-                      +{res.yieldEarned.toFixed(2)} USDC
+                      {res.yieldEarned.toFixed(2)} USDC
                     </span>
                   </div>
                 </div>

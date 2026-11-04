@@ -1,5 +1,5 @@
 import React from 'react'
-import { Search, Plus, Calculator, RefreshCw } from 'lucide-react'
+import { Search, Calculator, RefreshCw } from 'lucide-react'
 import type { PoolCategory } from '../../config/poolsConfig'
 import { Tooltip } from '../common/Tooltip'
 
@@ -8,7 +8,6 @@ interface PoolsToolbarProps {
   onSearchChange: (q: string) => void
   activeCategory: PoolCategory | 'all'
   onCategoryChange: (cat: PoolCategory | 'all') => void
-  onCreatePool: () => void
   onOpenCalculator?: () => void
   onRefresh?: () => void
   isRefreshing?: boolean
@@ -19,7 +18,6 @@ export const PoolsToolbar: React.FC<PoolsToolbarProps> = ({
   onSearchChange,
   activeCategory,
   onCategoryChange,
-  onCreatePool,
   onOpenCalculator,
   onRefresh,
   isRefreshing = false,
@@ -115,29 +113,6 @@ export const PoolsToolbar: React.FC<PoolsToolbarProps> = ({
             </button>
           </Tooltip>
         )}
-
-        {/* ── Main "+ CREATE POOL" Button (Matching Screenshot) ── */}
-        <button
-          type="button"
-          onClick={onCreatePool}
-          className="group relative flex items-center gap-2 px-5 py-3 sm:py-3.5 rounded-2xl font-bold text-xs tracking-wider uppercase text-white transition-all duration-300 cursor-pointer select-none active:scale-95 shadow-lg"
-          style={{
-            background: 'linear-gradient(135deg, #181d33 0%, #121526 100%)',
-            border: '1px solid rgba(255, 255, 255, 0.16)',
-            boxShadow: '0 8px 24px -6px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(152, 150, 255, 0.5)'
-            e.currentTarget.style.boxShadow = '0 10px 28px -4px rgba(152, 150, 255, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.16)'
-            e.currentTarget.style.boxShadow = '0 8px 24px -6px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-          }}
-        >
-          <Plus size={15} className="text-[var(--purple-1)] transition-transform duration-300 group-hover:rotate-90" />
-          <span>Create Pool</span>
-        </button>
       </div>
     </div>
   )
