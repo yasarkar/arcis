@@ -177,7 +177,7 @@ export const PoolTableRow: React.FC<PoolTableRowProps> = ({
       {/* ── 5. APR Column (Bold text matching screenshot) ── */}
       <td className="py-4 sm:py-5 px-4 text-right">
         <span
-          className="text-sm sm:text-base font-bold text-white tabular-nums tracking-tight group-hover:text-[var(--earned-green)] transition-colors"
+          className="text-sm sm:text-base font-bold text-white tabular-nums tracking-tight transition-colors"
           style={{ fontFamily: 'var(--fonts--space-grotesk, var(--font-app))' }}
         >
           {pool.apy.toFixed(2)}%
