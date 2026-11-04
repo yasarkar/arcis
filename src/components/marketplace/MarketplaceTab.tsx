@@ -373,14 +373,6 @@ export default function MarketplaceTab({
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-x-6 gap-y-6 items-center">
           {/* Left Wing: Narrative & Protocol Entry Points */}
           <div className="space-y-4 flex flex-col justify-center lg:col-span-6">
-            {/* Section Eyebrow (Space Mono with wide tracking) */}
-            <div className="flex items-center gap-2">
-              <span className="arc-eyebrow text-xs flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[var(--earned-green)] animate-pulse shadow-[0_0_8px_var(--earned-green)]" />
-                Arcis Protocol // Autonomous AI Services
-              </span>
-            </div>
-
             {/* Headline in Outfit */}
             <h1
               className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight leading-snug"
