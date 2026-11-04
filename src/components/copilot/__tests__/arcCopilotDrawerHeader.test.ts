@@ -93,6 +93,6 @@ describe('ArcCopilotDrawer Header & Dynamic Rotate-CCW Layer', () => {
     expect(html).toContain('Sohbet geçmişini sıfırla')
     expect(html).toContain('lucide-rotate-ccw')
     // Verify dynamic visual layer styling (cyber rounded-xl, gradient aura)
-    expect(html).toContain('from-cyan-500/25')
+    expect(html).toContain('from-indigo-500/25')
   })
 })

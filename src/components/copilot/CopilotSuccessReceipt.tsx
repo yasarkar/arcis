@@ -143,8 +143,8 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
       // shrink-to-fit chat bubble around the card nor on any ancestor CSS `zoom`/transform.
       const width = measurerRef.current?.offsetWidth ?? 0
       if (width > 0) {
-        // Clamp to a balanced compact range for the Copilot drawer (between 290px and 330px)
-        setHeadingWidth(Math.max(290, Math.min(width + 24, 330)))
+        // Clamp to a balanced compact range matching the Confirm card (max-w-[390px])
+        setHeadingWidth(Math.max(320, Math.min(width + 48, 390)))
       }
     }
 
@@ -168,16 +168,18 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
       className="w-fit max-w-full mx-auto"
       style={headingWidth != null ? { width: `${headingWidth}px` } : undefined}
     >
-      {/* Hidden one-line copy of the heading that drives the card width (see the effect above). */}
-      <span
-        ref={measurerRef}
-        aria-hidden="true"
-        className="pointer-events-none absolute invisible whitespace-nowrap text-base font-bold tracking-wide"
-        style={{ top: 0, left: 0, fontFamily: 'var(--font-app)' }}
-      >
-        {receipt.title}
-      </span>
-      <ReceiptTemplate receipt={receipt} feeProps={feeProps} onActionAgain={onActionAgain} />
+      <div className="w-full max-w-[390px] mx-auto p-3.5 rounded-2xl bg-[#0f111a]/95 border border-emerald-500/35 space-y-3 shadow-xl shadow-emerald-500/5 select-text">
+        {/* Hidden one-line copy of the heading that drives the card width (see the effect above). */}
+        <span
+          ref={measurerRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute invisible whitespace-nowrap text-xs font-bold tracking-wide"
+          style={{ top: 0, left: 0, fontFamily: 'var(--font-app)' }}
+        >
+          {receipt.title}
+        </span>
+        <ReceiptTemplate receipt={receipt} feeProps={feeProps} onActionAgain={onActionAgain} />
+      </div>
     </div>
   )
 }

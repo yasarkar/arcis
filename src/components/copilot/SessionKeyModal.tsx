@@ -171,24 +171,24 @@ export default function SessionKeyModal({
   const isExpired = Date.now() > sessionConfig.expiresAt
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in select-text selection:bg-cyan-500/30 selection:text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in select-text selection:bg-indigo-500/30 selection:text-white">
       <div
-        className="w-full max-w-lg rounded-3xl border border-cyan-500/40 bg-slate-900/95 p-6 space-y-5 shadow-2xl overflow-hidden relative select-text"
+        className="w-full max-w-lg rounded-3xl border border-white/[0.08] bg-[#0f111a]/95 p-6 space-y-5 shadow-2xl overflow-hidden relative select-text"
         style={{
-          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 35px rgba(6, 182, 212, 0.2)',
+          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 35px rgba(99, 102, 241, 0.15)',
         }}
       >
         {/* Glow ambient background element */}
-        <div className="absolute -top-24 -left-24 w-60 h-60 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-24 -left-24 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center shadow-inner">
-              <Zap className="w-5 h-5 text-cyan-400" />
+            <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center shadow-inner">
+              <Zap className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+              <h3 className="text-base font-display font-bold text-white flex items-center gap-2">
                 <span>Session Settings</span>
               </h3>
               <p className="text-xs text-slate-400">Browser-held key and client-side execution limits only</p>
@@ -203,16 +203,16 @@ export default function SessionKeyModal({
         </div>
 
         {/* Active Status Badge & Budget Progress Bar */}
-        <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/90 space-y-3.5 text-xs">
+        <div className="p-4 rounded-2xl bg-[#090a0f]/80 border border-white/[0.06] space-y-3.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="text-slate-400 flex items-center gap-1.5 font-medium">
-              <Key className="w-3.5 h-3.5 text-cyan-400" />
+              <Key className="w-3.5 h-3.5 text-indigo-400" />
               <span>Session Key Status:</span>
             </span>
             <div className="flex items-center gap-2">
               {sessionConfig.isActive && !isExpired && (
-                <span className="text-[11px] font-mono text-cyan-400 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-cyan-400" />
+                <span className="text-[11px] font-mono text-indigo-400 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-indigo-400" />
                   {timeRemainingText}
                 </span>
               )}
@@ -235,12 +235,12 @@ export default function SessionKeyModal({
               <div className="flex items-center justify-between text-[12px]">
                 <span className="text-slate-400 font-sans">Spend Cap Usage:</span>
                 <span className="font-mono text-slate-300">
-                  <span className="text-emerald-400 font-bold">{remainingBudget.toFixed(2)}</span> / {sessionConfig.maxSpendUsdc.toFixed(2)} USDC
+                  <span className="text-emerald-400 font-bold tabular-nums">{remainingBudget.toFixed(2)}</span> / {sessionConfig.maxSpendUsdc.toFixed(2)} USDC
                 </span>
               </div>
               <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
                 <div
-                  className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400"
+                  className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400"
                   style={{ width: `${100 - spentPercent}%` }}
                 />
               </div>
@@ -258,11 +258,11 @@ export default function SessionKeyModal({
                 <button
                   type="button"
                   onClick={() => setIsCustomBudget(!isCustomBudget)}
-                  className="text-[10px] text-cyan-400 hover:text-cyan-300 transition underline cursor-pointer"
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 transition underline cursor-pointer"
                 >
                   {isCustomBudget ? 'Choose Preset' : 'Custom'}
                 </button>
-                <span className="text-cyan-400 font-mono font-bold">{budgetUsdc} USDC</span>
+                <span className="text-indigo-300 font-mono font-bold tabular-nums">{budgetUsdc} USDC</span>
               </div>
             </div>
 
@@ -279,7 +279,7 @@ export default function SessionKeyModal({
                     setBudgetUsdc(val)
                     if (maxPerTx > val) setMaxPerTx(val)
                   }}
-                  className="flex-1 bg-slate-950 border border-cyan-500/40 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-400"
+                  className="flex-1 bg-[#090a0f] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-400"
                   placeholder="Enter custom budget in USDC"
                 />
                 <span className="text-xs text-slate-400 font-mono">USDC</span>
@@ -296,8 +296,8 @@ export default function SessionKeyModal({
                     }}
                     className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
                       budgetUsdc === amt
-                        ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20'
-                        : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:border-slate-500'
+                        ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-indigo-400/50 shadow-md shadow-indigo-500/20'
+                        : 'bg-[#161926]/80 text-slate-300 border-white/[0.08] hover:border-slate-600'
                     }`}
                   >
                     {amt} USDC
@@ -311,7 +311,7 @@ export default function SessionKeyModal({
           <div className="space-y-2">
             <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
               <span>Session Duration:</span>
-              <span className="text-cyan-400 font-mono font-bold">
+              <span className="text-indigo-300 font-mono font-bold tabular-nums">
                 {durationHours === 1 ? '1 Hour' : `${durationHours} Hours`}
               </span>
             </label>
@@ -323,8 +323,8 @@ export default function SessionKeyModal({
                   onClick={() => setDurationHours(hrs)}
                   className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
                     durationHours === hrs
-                      ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20'
-                      : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:border-slate-500'
+                      ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-indigo-400/50 shadow-md shadow-indigo-500/20'
+                      : 'bg-[#161926]/80 text-slate-300 border-white/[0.08] hover:border-slate-600'
                   }`}
                 >
                   {hrs}h
@@ -335,8 +335,9 @@ export default function SessionKeyModal({
 
           {/* 3. Single-Tx Cap */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">                <span>Per Transaction Cap:</span>
-              <span className="text-cyan-400 font-mono">{maxPerTx} USDC</span>
+            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+              <span>Per Transaction Cap:</span>
+              <span className="text-indigo-300 font-mono tabular-nums">{maxPerTx} USDC</span>
             </label>
             <input
               type="range"
@@ -345,7 +346,7 @@ export default function SessionKeyModal({
               step={5}
               value={maxPerTx}
               onChange={(e) => setMaxPerTx(Number(e.target.value))}
-              className="w-full accent-cyan-400 cursor-pointer"
+              className="w-full accent-indigo-500 cursor-pointer"
             />
           </div>
 
@@ -365,13 +366,13 @@ export default function SessionKeyModal({
                     title={act.description}
                     className={`px-2.5 py-1.5 rounded-xl text-[11px] font-medium transition cursor-pointer flex items-center gap-1.5 border ${
                       isChecked
-                        ? 'bg-cyan-950/70 border-cyan-500/50 text-cyan-200'
-                        : 'bg-slate-950/50 border-slate-800 text-slate-500 hover:border-slate-700'
+                        ? 'bg-indigo-950/70 border-indigo-500/50 text-indigo-200'
+                        : 'bg-[#090a0f]/50 border-white/[0.06] text-slate-400 hover:border-white/[0.12]'
                     }`}
                   >
                     <div
                       className={`w-3.5 h-3.5 rounded flex items-center justify-center ${
-                        isChecked ? 'bg-cyan-500 text-slate-950' : 'border border-slate-600'
+                        isChecked ? 'bg-indigo-600 text-white' : 'border border-slate-600'
                       }`}
                     >
                       {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
@@ -385,7 +386,7 @@ export default function SessionKeyModal({
         </div>
 
         {/* Modal Actions */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+        <div className="flex items-center justify-between pt-2 border-t border-white/[0.08]">
           <button
             type="button"
             onClick={onRevokeSession}
@@ -400,7 +401,7 @@ export default function SessionKeyModal({
               type="button"
               onClick={handleSaveClick}
               disabled={isSaving}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:brightness-110 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+              className="px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:brightness-110 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-500/25 disabled:opacity-50"
             >
               {savedSuccess ? (
                 <>

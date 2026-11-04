@@ -1,37 +1,37 @@
-import { useState, useEffect, useRef } from 'react'
 import {
-  Coins,
-  Globe,
+  AlertCircle,
   ArrowRight,
   ArrowRightLeft,
-  Loader2,
-  AlertCircle,
-  RotateCw,
   ArrowUpRight,
-  Settings,
-  Copy,
-  Check,
   ArrowUpRightFromSquare,
+  Check,
+  Coins,
+  Copy,
+  Globe,
+  Loader2,
+  RotateCw,
+  Settings,
 } from 'lucide-react'
-import type { CopilotMessage, CopilotActionPayload } from '../../types/marketplace'
-import { arcTransferFeeFallbackUsdc } from '../../services/arcGasService'
-import { CopilotTokenIcon} from './CopilotTokenIcon'
-import { ChainIcon } from '../common/ChainIcon'
+import { useEffect, useRef, useState } from 'react'
 import ArcLogo from '../../assets/Arc-Icon.svg'
-import { isCanceledReceipt } from '../../utils/errorUtils'
+import { getExplorerName, getExplorerTxUrl } from '../../config/sendConfig'
+import { formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
+import { arcTransferFeeFallbackUsdc } from '../../services/arcGasService'
+import { reconcileCopilotReservation } from '../../services/copilotExecutionService'
 import { playSound } from '../../services/soundService'
 import { getLiveTokenPrices, type TokenPriceMap } from '../../services/tokenPriceService'
-import { formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
-import { getExplorerTxUrl, getExplorerName } from '../../config/sendConfig'
-import CopilotSuccessReceipt from './CopilotSuccessReceipt'
+import type { CopilotActionPayload, CopilotMessage } from '../../types/marketplace'
 import type { InlineExecutionReceipt } from '../../types/sessionKey'
-import { addTransaction } from '../../utils/history'
-import { formatSubscriptZero } from '../../utils/formatNumber'
 import { numberToExactDecimal } from '../../utils/copilotAmount'
-import { copilotSlippageBps } from '../../utils/swapSlippage'
-import { reconcileCopilotReservation } from '../../services/copilotExecutionService'
+import { isCanceledReceipt } from '../../utils/errorUtils'
+import { formatSubscriptZero } from '../../utils/formatNumber'
+import { addTransaction } from '../../utils/history'
 import { logger } from '../../utils/logger'
 import { getSavedRecipients } from '../../utils/recentRecipients'
+import { copilotSlippageBps } from '../../utils/swapSlippage'
+import { ChainIcon } from '../common/ChainIcon'
+import CopilotSuccessReceipt from './CopilotSuccessReceipt'
+import { CopilotTokenIcon } from './CopilotTokenIcon'
 // ARC-025: pre-confirmation risk warnings (new recipient, large share of balance, wide slippage).
 import {
   depositActionWarnings,
@@ -376,10 +376,10 @@ export default function InlineActionCard({
   // ── 1. ACTIVE INLINE EXECUTION PROGRESS BANNER ──
   if (isExecutingInline || (executionState && executionState !== 'confirmed' && executionState !== 'idle' && !receipt)) {
     return (
-      <div className="mt-3 p-3.5 rounded-2xl bg-slate-950/95 border border-cyan-500/50 space-y-2.5 shadow-xl shadow-cyan-500/10 animate-fade-in select-text selection:bg-cyan-500/30 selection:text-white">
+      <div className="mt-3 p-3.5 rounded-2xl bg-[#0f111a]/95 border border-indigo-500/40 space-y-2.5 shadow-xl shadow-indigo-500/10 animate-fade-in select-text selection:bg-indigo-500/30 selection:text-white">
         <div className="flex items-center justify-between select-text">
-          <div className="flex items-center gap-2 text-xs font-bold text-cyan-300 select-text cursor-text">
-            <Loader2 className="w-4 h-4 text-cyan-400 animate-spin select-none" />
+          <div className="flex items-center gap-2 text-xs font-bold text-indigo-300 select-text cursor-text">
+            <Loader2 className="w-4 h-4 text-indigo-400 animate-spin select-none" />
             <span className="select-text">
               {executionState === 'routing' && 'Analysing liquidity and price impact...'}
               {executionState === 'signing' && 'Signing with Session Key...'}
@@ -392,7 +392,7 @@ export default function InlineActionCard({
         {/* Dynamic Smooth Progress Bar */}
         <div className="w-full h-1.5 rounded-full bg-slate-900 overflow-hidden relative select-none">
           <div
-            className="h-full bg-gradient-to-r from-cyan-400 via-teal-400 to-indigo-500 rounded-full transition-all duration-300 ease-out"
+            className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400 rounded-full transition-all duration-300 ease-out"
             style={{
               width: `${Math.max(10, Math.min(98, execProgress))}%`,
             }}
@@ -447,17 +447,15 @@ export default function InlineActionCard({
             <div className="flex items-center gap-2">
               <span className="relative flex h-2 w-2 items-center justify-center shrink-0">
                 <span
-                  className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${
-                    isPollingDestination ? 'bg-amber-400' : 'bg-emerald-400'
-                  }`}
+                  className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${isPollingDestination ? 'bg-amber-400' : 'bg-emerald-400'
+                    }`}
                   style={{ animationDuration: '2s' }}
                 />
                 <span
-                  className={`relative inline-flex h-2 w-2 rounded-full animate-pulse ${
-                    isPollingDestination
-                      ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
-                      : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
-                  }`}
+                  className={`relative inline-flex h-2 w-2 rounded-full animate-pulse ${isPollingDestination
+                    ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
+                    : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
+                    }`}
                 />
               </span>
               <span className="text-slate-300 font-medium">
@@ -544,7 +542,7 @@ export default function InlineActionCard({
   const data = actionPayload.data
 
   return (
-    <div className="mt-3 pt-2 border-t border-slate-800 space-y-2.5 select-text selection:bg-cyan-500/30 selection:text-white">
+    <div className="mt-3 pt-2 border-t border-slate-800 space-y-2.5 select-text selection:bg-indigo-500/30 selection:text-white">
       {/* 4.1 SWAP ACTION CARD */}
       {(actionPayload.type === 'interactive_swap' || actionPayload.type === 'trade') && (() => {
         const amount = Number(data.amount)
@@ -584,10 +582,10 @@ export default function InlineActionCard({
 
         return (
           <ActionCardShell
-            accentColor="cyan"
+            accentColor="indigo"
             warnings={warnings}
             header={{
-              icon: <ArrowRightLeft className="w-4 h-4 text-cyan-400" />,
+              icon: <ArrowRightLeft className="w-4 h-4 text-indigo-400" />,
               title: 'Token Swap',
               subtitle: 'Arc Testnet AMM • Instant On-Chain Liquidity',
             }}
@@ -599,11 +597,11 @@ export default function InlineActionCard({
                     You Pay
                   </span>
                   <div className="font-bold text-white text-sm flex items-center gap-1.5 select-text">
+                    <CopilotTokenIcon symbol={fromTok} className="w-5 h-5 shrink-0" />
                     <span className="truncate" title={hasValidAmount ? String(data.amount) : undefined}>
                       {hasValidAmount ? formatSubscriptZero(data.amount) : '—'}
                     </span>
-                    <span className="text-slate-300 font-normal">{fromTok}</span>
-                    <CopilotTokenIcon symbol={fromTok} className="w-5 h-5 shrink-0" />
+                    <span className="text-white font-bold">{fromTok}</span>
                   </div>
                   {fromFiat && (
                     <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
@@ -613,7 +611,7 @@ export default function InlineActionCard({
                 </div>
 
                 {/* Center Conversion Icon */}
-                <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-cyan-400 select-none shadow-sm">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-indigo-400 select-none shadow-sm">
                   <ArrowRight className="w-3.5 h-3.5" />
                 </div>
 
@@ -623,11 +621,11 @@ export default function InlineActionCard({
                     You Receive
                   </span>
                   <div className="font-bold text-slate-200 text-sm flex items-center justify-end gap-1.5 select-text">
+                    <CopilotTokenIcon symbol={toTok} className="w-5 h-5 shrink-0" />
                     <span className="truncate" title={hasLiveQuote ? String(estimatedOut) : undefined}>
                       {hasLiveQuote ? `~${formatSubscriptZero(estimatedOut)}` : 'Quote required'}
                     </span>
-                    <span className="text-slate-300/80 font-normal">{toTok}</span>
-                    <CopilotTokenIcon symbol={toTok} className="w-5 h-5 shrink-0" />
+                    <span className="text-white font-bold">{toTok}</span>
                   </div>
                   {toFiat && (
                     <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
@@ -676,7 +674,7 @@ export default function InlineActionCard({
                 : !hasLiveQuote || !hasMinimum || slippageBps === undefined
                   ? 'A live quote with exact minimum output and valid slippage is required before confirming this swap.'
                   : undefined,
-              gradient: 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:brightness-110 text-white shadow-emerald-500/20',
+              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
             }}
             secondaryAction={{
               label: 'Swap Page',
@@ -779,7 +777,7 @@ export default function InlineActionCard({
               title: !hasValidDepositAmount
                 ? 'A valid explicit amount is required before confirming this deposit.'
                 : undefined,
-              gradient: 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:brightness-110 text-white shadow-emerald-500/20',
+              gradient: 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:brightness-110 text-white shadow-emerald-500/20',
             }}
             secondaryAction={{
               label: 'Pool Page',
@@ -898,7 +896,7 @@ export default function InlineActionCard({
               title: !hasValidBridgeAmount
                 ? 'A valid explicit amount is required before confirming this bridge.'
                 : undefined,
-              gradient: 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:brightness-110 text-white shadow-emerald-500/20',
+              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
             }}
             secondaryAction={{
               label: 'Bridge Page',
@@ -923,7 +921,6 @@ export default function InlineActionCard({
           : fullRecipient
         const hasMemo = Boolean(data.memo && String(data.memo).trim().length > 0)
         const networkName = String(data.network || data.chain || 'Arc Testnet')
-        const isArc = networkName.toLowerCase().includes('arc')
 
         const feeString = data.estimatedFeeUsdc
           ? String(data.estimatedFeeUsdc).startsWith('~')
@@ -959,19 +956,16 @@ export default function InlineActionCard({
                 </div>
                 <div className="text-right select-text cursor-text">
                   <div className="flex items-center justify-end gap-1.5 select-text">
-                    <span
-                      className="font-bold text-white text-base tracking-tight select-text"
-                      title={hasValidSendAmount ? String(data.amount) : undefined}
-                    >
+                    <CopilotTokenIcon symbol={tokenSymbol} className="w-4 h-4 shrink-0" />
+                    <span className="font-bold text-white text-[12px] tracking-tight select-text">
                       {hasValidSendAmount ? formatSubscriptZero(data.amount) : 'Amount unavailable'}
                     </span>
-                    <span className="text-[14px] font-semibold text-slate-300 select-text">
+                    <span className="text-[12px] font-bold text-white select-text">
                       {tokenSymbol}
                     </span>
-                    <CopilotTokenIcon symbol={tokenSymbol} className="w-5 h-5 shrink-0" />
                   </div>
                   {fiat && (
-                    <span className="text-[12px] font-mono text-slate-400 block mt-0.5 select-text">
+                    <span className="text-[11px] font-mono text-slate-400 block mt-0.5 select-text">
                       {fiat}
                     </span>
                   )}
@@ -1000,7 +994,7 @@ export default function InlineActionCard({
                         }}
                         title={copyError || (copiedRecipient ? 'Kopyalandı!' : 'Adresi Kopyala')}
                         aria-label={copyError || (copiedRecipient ? 'Adres panoya kopyalandı' : 'Alıcı adresini kopyala')}
-                        className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 transition cursor-pointer flex items-center justify-center"
+                        className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition cursor-pointer flex items-center justify-center"
                       >
                         {copiedRecipient ? (
                           <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -1025,17 +1019,9 @@ export default function InlineActionCard({
                   label="Network"
                   value={
                     <span className="inline-flex items-center gap-1.5 select-text">
-                      {isArc ? (
-                        <img
-                          src={ArcLogo}
-                          alt={networkName}
-                          className="w-4 h-4 object-contain shrink-0"
-                        />
-                      ) : (
-                        <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
-                          <ChainIcon chainKeyOrIconId={networkName} size={16} className="w-4 h-4" />
-                        </span>
-                      )}
+                      <span className="w-4 h-4 rounded-full overflow-hidden inline-flex items-center justify-center bg-slate-900 shrink-0">
+                        <ChainIcon chainKeyOrIconId={networkName} size={16} className="w-4 h-4" />
+                      </span>
                       <span className='font-bold text-slate-300 text-[12px]'>{networkName}</span>
                     </span>
                   }
@@ -1058,7 +1044,7 @@ export default function InlineActionCard({
               icon: <ArrowUpRight className="w-4 h-4" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: isExecutingInline || !hasValidSendAmount,
-              gradient: 'bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-600 hover:brightness-110 text-white shadow-cyan-500/20',
+              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
             }}
             secondaryAction={{
               label: 'Send Page',
@@ -1154,7 +1140,7 @@ function ActionCardShell({
   secondaryAction,
 }: ActionCardShellProps) {
   const borderStyles = {
-    cyan: 'border-cyan-500/40 shadow-cyan-500/10',
+    cyan: 'border-indigo-500/40 shadow-indigo-500/10',
     sky: 'border-sky-500/40 shadow-sky-500/10',
     indigo: 'border-indigo-500/40 shadow-indigo-500/10',
     emerald: 'border-emerald-500/40 shadow-emerald-500/10',
@@ -1162,7 +1148,7 @@ function ActionCardShell({
   }
 
   const badgeStyles = {
-    cyan: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+    cyan: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
     sky: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
     indigo: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
     emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -1170,7 +1156,7 @@ function ActionCardShell({
   }
 
   const iconBgStyles = {
-    cyan: 'bg-cyan-500/10 border-cyan-500/25 text-cyan-300',
+    cyan: 'bg-indigo-500/10 border-indigo-500/25 text-indigo-300',
     sky: 'bg-sky-500/10 border-sky-500/25 text-sky-300',
     indigo: 'bg-indigo-500/10 border-indigo-500/25 text-indigo-300',
     emerald: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
@@ -1179,7 +1165,7 @@ function ActionCardShell({
 
   return (
     <div
-      className={`w-full max-w-[390px] mx-auto p-3.5 rounded-2xl bg-slate-950/95 border space-y-3 shadow-xl animate-fade-in select-text selection:bg-cyan-500/30 selection:text-white ${borderStyles[accentColor]}`}
+      className={`w-full max-w-[390px] mx-auto p-3.5 rounded-2xl bg-[#0f111a]/95 border space-y-3 shadow-xl animate-fade-in select-text selection:bg-indigo-500/30 selection:text-white ${borderStyles[accentColor]}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-white/[0.06]">

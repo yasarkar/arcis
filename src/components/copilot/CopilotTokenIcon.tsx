@@ -45,7 +45,7 @@ export function CopilotTokenIcon({ symbol = 'USDC', className = 'w-4 h-4' }: Tok
 
   // Fallback circle with symbol initial
   return (
-    <div className={`${className} rounded-full bg-slate-800 border border-slate-700 inline-flex items-center justify-center text-[9px] font-bold text-cyan-300 select-none`}>
+    <div className={`${className} rounded-full bg-[#161926] border border-white/[0.08] inline-flex items-center justify-center text-[9px] font-bold text-indigo-200 select-none`}>
       {sym.slice(0, 1)}
     </div>
   )

@@ -361,7 +361,7 @@ export default function ArcCopilotDrawer({
       aria-label="Arco AI Copilot"
       aria-modal="false"
       tabIndex={-1}
-      className="fixed select-text flex flex-col rounded-3xl overflow-hidden border border-cyan-500/30 shadow-2xl transition-shadow selection:bg-cyan-500/30 selection:text-white"
+      className="fixed select-text flex flex-col rounded-3xl overflow-hidden border border-white/[0.08] shadow-2xl transition-shadow selection:bg-indigo-500/30 selection:text-white"
       style={{
         position: 'fixed',
         bottom: '84px',
@@ -370,10 +370,10 @@ export default function ArcCopilotDrawer({
         height: `${windowSize.height}px`,
         maxHeight: 'calc(100vh - 100px)',
         maxWidth: 'calc(100vw - 32px)',
-        background: 'linear-gradient(180deg, rgba(14, 18, 33, 0.98) 0%, rgba(9, 11, 22, 0.99) 100%)',
+        background: 'linear-gradient(180deg, rgba(15, 17, 26, 0.98) 0%, rgba(9, 10, 15, 0.99) 100%)',
         backdropFilter: 'blur(28px)',
         WebkitBackdropFilter: 'blur(28px)',
-        boxShadow: '0 20px 60px -10px rgba(0, 0, 0, 0.85), 0 0 35px rgba(6, 182, 212, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+        boxShadow: '0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 32px rgba(99, 102, 241, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
         zIndex: 9990,
       }}
     >
@@ -383,34 +383,34 @@ export default function ArcCopilotDrawer({
         aria-label="Resize copilot window"
         role="separator"
         aria-orientation="vertical"
-        className="absolute top-0 left-0 w-8 h-8 z-40 flex items-center justify-center cursor-nwse-resize text-slate-500 hover:text-cyan-300 transition group select-none touch-none"
+        className="absolute top-0 left-0 w-8 h-8 z-40 flex items-center justify-center cursor-nwse-resize text-slate-500 hover:text-indigo-300 transition group select-none touch-none"
       >
-        <div className="p-1 rounded-br-lg bg-slate-900/80 group-hover:bg-cyan-950/60 border-r border-b border-slate-700/60 group-hover:border-cyan-500/40 select-none">
+        <div className="p-1 rounded-br-lg bg-[#0f111a]/80 group-hover:bg-indigo-950/60 border-r border-b border-white/[0.08] group-hover:border-indigo-500/40 select-none">
           <MoveDiagonal2 className="w-3 h-3 rotate-90 transform" />
         </div>
       </div>
 
       {/* ── HEADER (STABILIZER STYLE LUXURY TOP BAR) ── */}
       <div
-        className="flex items-center justify-between px-5 py-3.5 border-b border-cyan-500/20"
+        className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.08]"
         style={{
-          background: 'linear-gradient(90deg, rgba(22, 34, 56, 0.95) 0%, rgba(17, 24, 46, 0.95) 100%)',
+          background: 'linear-gradient(90deg, rgba(22, 25, 42, 0.95) 0%, rgba(15, 17, 26, 0.95) 100%)',
         }}
       >
         <div className="flex items-center gap-3 pl-4">
           <div className="relative">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400 to-indigo-600 p-0.5 shadow-md shadow-cyan-500/20">
-              <div className="w-full h-full bg-slate-950 rounded-full flex items-center justify-center">
-                <Bot className="w-6 h-6 text-cyan-300" />
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 p-0.5 shadow-md shadow-indigo-500/20">
+              <div className="w-full h-full bg-[#0f111a] rounded-full flex items-center justify-center">
+                <Bot className="w-6 h-6 text-indigo-300" />
               </div>
             </div>
           </div>
 
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-[14px] font-extrabold text-white tracking-wide">Ask Arco</h3>
+              <h3 className="text-[14px] font-display font-bold text-white tracking-wide">Ask Arco</h3>
             </div>
-            <p className="text-[12px] text-slate-400 flex items-center gap-1.5">
+            <p className="text-[11px] font-mono tracking-wider text-slate-400 uppercase flex items-center gap-1.5">
               <span>Arcis Autonomous Intelligence</span>
             </p>
           </div>
@@ -423,11 +423,11 @@ export default function ArcCopilotDrawer({
             aria-label="Session settings"
             className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
               sessionConfig.isActive
-                ? 'bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 border-cyan-500/40 shadow-cyan-500/10'
-                : 'bg-slate-850 hover:bg-slate-800 text-slate-400 border-slate-700'
+                ? 'bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border-indigo-500/40 shadow-indigo-500/10'
+                : 'bg-[#161926]/80 hover:bg-[#1e2235] text-slate-400 border-white/[0.08]'
             }`}
           >
-            <Settings className={`w-4 h-4 ${sessionConfig.isActive ? 'text-cyan-300' : 'text-slate-400'}`} />
+            <Settings className={`w-4 h-4 ${sessionConfig.isActive ? 'text-indigo-300' : 'text-slate-400'}`} />
           </button>
 
           {/* Sound FX Mute/Unmute Toggle */}
@@ -435,8 +435,8 @@ export default function ArcCopilotDrawer({
             onClick={handleToggleSound}
             aria-label={isSoundEnabled ? 'Disable sound effects' : 'Enable sound effects'}
             className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${isSoundEnabled
-                ? 'bg-cyan-950/80 hover:bg-cyan-900/90 text-cyan-300 border-cyan-500/40 shadow-cyan-500/10'
-                : 'bg-slate-850 hover:bg-slate-800 text-slate-400 border-slate-700'
+                ? 'bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border-indigo-500/40 shadow-indigo-500/10'
+                : 'bg-[#161926]/80 hover:bg-[#1e2235] text-slate-400 border-white/[0.08]'
               }`}
           >
             {isSoundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
@@ -448,20 +448,20 @@ export default function ArcCopilotDrawer({
             onClick={handleResetChat}
             disabled={isResetting}
             aria-label={isResetting ? 'Sohbet sıfırlanıyor' : 'Sohbet geçmişini sıfırla'}
-            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
+            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm group relative ${
               isResetting
-                ? 'bg-cyan-950/90 border-cyan-400/80 text-cyan-300 shadow-[0_0_18px_rgba(6,182,212,0.45)] ring-2 ring-cyan-400/40'
-                : 'bg-slate-900/85 hover:bg-slate-850 border-slate-700/80 hover:border-cyan-400/60 text-slate-300 hover:text-cyan-300 shadow-sm hover:shadow-[0_0_14px_rgba(6,182,212,0.3)]'
+                ? 'bg-indigo-950/90 border-indigo-400/80 text-indigo-300 shadow-[0_0_18px_rgba(99,102,241,0.45)] ring-2 ring-indigo-400/40'
+                : 'bg-[#161926]/85 hover:bg-[#1e2235] border-white/[0.08] hover:border-indigo-400/60 text-slate-300 hover:text-indigo-200 shadow-sm hover:shadow-[0_0_14px_rgba(99,102,241,0.25)]'
             }`}
           >
             {/* Dynamic visual aura layer */}
-            <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-500/25 via-indigo-500/20 to-teal-500/25 opacity-0 group-hover:opacity-100 blur-xs transition-opacity duration-300 pointer-events-none" />
+            <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-500/25 via-purple-500/20 to-indigo-500/25 opacity-0 group-hover:opacity-100 blur-xs transition-opacity duration-300 pointer-events-none" />
             {isResetting && (
-              <span className="absolute inset-0 rounded-xl bg-cyan-400/20 animate-pulse pointer-events-none" />
+              <span className="absolute inset-0 rounded-xl bg-indigo-400/20 animate-pulse pointer-events-none" />
             )}
             <RotateCcw
               className={`w-4 h-4 relative z-10 transition-transform duration-300 ${
-                isResetting ? 'animate-spin-ccw text-cyan-300' : 'group-hover:-rotate-45'
+                isResetting ? 'animate-spin-ccw text-indigo-300' : 'group-hover:-rotate-45'
               }`}
             />
           </button>
@@ -470,7 +470,7 @@ export default function ArcCopilotDrawer({
           <button
             onClick={onClose}
             aria-label="Close copilot"
-            className="px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-white border-slate-700 hover:border-slate-600"
+            className="px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-400 hover:text-white border-white/[0.08] hover:border-white/[0.15]"
           >
             <X className="w-4 h-4" />
           </button>
@@ -479,13 +479,13 @@ export default function ArcCopilotDrawer({
 
       {/* ── SESSION BUDGET BAR (Only shown when an active session is configured) ── */}
       {sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt && (
-        <div className="px-5 py-2 bg-slate-950/85 border-b border-cyan-500/20 flex items-center justify-between text-xs">
+        <div className="px-5 py-2 bg-[#090a0f]/90 border-b border-white/[0.06] flex items-center justify-between text-xs">
           <div className="flex items-center gap-2 text-slate-300">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-medium flex items-center gap-1.5">
               <span>Session Budget:</span>
             </span>
-            <span className="font-mono text-cyan-300 font-bold">
+            <span className="font-mono text-indigo-300 font-bold tabular-nums">
               {Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc).toFixed(2)} USDC
             </span>
             <span className="text-[12px] text-slate-400 font-mono hidden sm:inline">
@@ -496,24 +496,24 @@ export default function ArcCopilotDrawer({
       )}
 
       {/* ── CHAT MESSAGES STREAM ── */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 font-sans text-xs select-text selection:bg-cyan-500/30 selection:text-white">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 font-sans text-xs select-text selection:bg-indigo-500/30 selection:text-white">
         {/* Message List */}
         {messages.map((msg, index) => (
-          <div key={msg.id} className="space-y-1.5 select-text group">
+          <div key={msg.id} className="space-y-1.5 select-text">
             <div
               className={`flex items-start gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${index === 0 ? 'mt-1' : ''}`}
             >
               {/* Assistant Avatar on left */}
               {msg.role === 'assistant' && (
-                <div className="w-7 h-7 rounded-full bg-slate-900 border border-cyan-400/50 flex-shrink-0 flex items-center justify-center mt-1 shadow-sm shadow-cyan-500/10 select-none">
-                  <Bot className="w-4 h-4 text-cyan-300" />
+                <div className="w-7 h-7 rounded-full bg-[#161926] border border-indigo-400/40 flex-shrink-0 flex items-center justify-center mt-1 shadow-sm shadow-indigo-500/10 select-none">
+                  <Bot className="w-4 h-4 text-indigo-300" />
                 </div>
               )}
 
               {/* Message Bubble & Controls */}
               {msg.role === 'user' ? (
                 editingMsgId === msg.id ? (
-                  <div className="w-full max-w-[85%] p-3 rounded-2xl bg-slate-900 border border-cyan-500/60 shadow-xl space-y-2 animate-fade-in">
+                  <div className="w-full max-w-[85%] p-3 rounded-2xl bg-[#0f111a] border border-indigo-500/50 shadow-xl space-y-2 animate-fade-in">
                     <textarea
                       value={editingText}
                       onChange={(e) => setEditingText(e.target.value)}
@@ -527,14 +527,14 @@ export default function ArcCopilotDrawer({
                       }}
                       autoFocus
                       rows={Math.min(5, Math.max(2, editingText.split('\n').length))}
-                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-sans resize-none"
+                      className="w-full p-2.5 rounded-xl bg-[#090a0f] border border-white/[0.08] text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-400 font-sans resize-none"
                       placeholder="Edit your message..."
                     />
                     <div className="flex items-center justify-end gap-2">
                       <button
                         type="button"
                         onClick={handleCancelEdit}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold transition cursor-pointer"
+                        className="px-2.5 py-1 rounded-lg bg-[#161926] hover:bg-[#1e2235] text-slate-300 border border-white/[0.06] text-[11px] font-semibold transition cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -542,7 +542,7 @@ export default function ArcCopilotDrawer({
                         type="button"
                         onClick={handleSubmitEdit}
                         disabled={!editingText.trim() || isAnalyzing}
-                        className="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-md"
+                        className="px-3 py-1 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-md shadow-indigo-500/20"
                       >
                         <Send className="w-3 h-3" />
                         <span>Send</span>
@@ -550,10 +550,10 @@ export default function ArcCopilotDrawer({
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-end max-w-[85%] space-y-1">
-                    <div className="rounded-2xl p-3.5 leading-relaxed bg-gradient-to-r from-teal-700 to-cyan-700 text-white rounded-br-none shadow-md select-text cursor-text">
+                  <div className="flex flex-col items-end max-w-[85%] space-y-1 group">
+                    <div className="rounded-2xl p-3.5 leading-relaxed bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none shadow-md shadow-indigo-500/10 select-text cursor-text">
                       <div
-                        className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-cyan-400/30 selection:text-white"
+                        className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-indigo-400/30 selection:text-white"
                         dangerouslySetInnerHTML={{ __html: sanitizeCopilotHtml(msg.content) }}
                       />
                     </div>
@@ -565,7 +565,7 @@ export default function ArcCopilotDrawer({
                         type="button"
                         onClick={() => handleCopyMessage(msg.id, msg.content)}
                         aria-label={copiedMsgId === msg.id ? 'Message copied to clipboard' : 'Copy message'}
-                        className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 transition cursor-pointer"
+                        className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-[#161926] transition cursor-pointer"
                       >
                         {copiedMsgId === msg.id ? (
                           <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -579,7 +579,7 @@ export default function ArcCopilotDrawer({
                         type="button"
                         onClick={() => handleStartEdit(msg.id, msg.content)}
                         aria-label="Edit message"
-                        className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 transition cursor-pointer"
+                        className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-[#161926] transition cursor-pointer"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
@@ -588,28 +588,28 @@ export default function ArcCopilotDrawer({
                 )
               ) : (
                 /* Assistant Bubble */
-                <div className={`rounded-2xl leading-relaxed ${msg.receipt || msg.actionPayload ? 'max-w-[425px]' : 'max-w-[60%]'} shadow-md select-text cursor-text bg-slate-900/90 text-slate-200 border border-slate-800 rounded-tl-none ${msg.receipt ? 'p-2 sm:p-2.5' : 'p-3.5'}`}>
+                <div className={`rounded-2xl leading-relaxed ${msg.receipt || msg.actionPayload ? 'max-w-[425px]' : 'max-w-[60%]'} shadow-md select-text cursor-text bg-[#0f111a]/95 text-slate-200 border border-white/[0.08] rounded-tl-none ${msg.receipt ? 'p-2 sm:p-2.5' : 'p-3.5'}`}>
                   {/* Fişlerin üstündeki hazırlık mesajı işlem sonuçlandığında (başarılı/başarısız fiş durumunda) gösterilmez */}
                   {!msg.receipt && (
                     <div className="relative">
                       <CopilotMessageContent
                         content={msg.content}
-                        className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-cyan-400/30 selection:text-white"
+                        className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-indigo-400/30 selection:text-white"
                       />
                       {msg.isStreaming && (
-                        <span className="inline-block w-2 h-3.5 ml-1 bg-cyan-400 animate-pulse align-middle rounded-sm shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+                        <span className="inline-block w-2 h-3.5 ml-1 bg-indigo-400 animate-pulse align-middle rounded-sm shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                       )}
                     </div>
                   )}
 
                   {/* Step Logs Accordion */}
                   {msg.steps && msg.steps.length > 0 && (
-                    <div className="mt-3 pt-2.5 border-t border-slate-800 select-text">
+                    <div className="mt-3 pt-2.5 border-t border-white/[0.06] select-text">
                       <button
                         onClick={() => toggleSteps(msg.id)}
                         aria-expanded={expandedStepsMap[msg.id] ?? false}
                         aria-label={`Toggle execution steps (${msg.steps.length} steps)`}
-                        className="flex items-center justify-between w-full text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 cursor-pointer"
+                        className="flex items-center justify-between w-full text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer"
                       >
                         <span className="flex items-center gap-1.5">
                           <Activity className="w-3.5 h-3.5" />
@@ -627,11 +627,11 @@ export default function ArcCopilotDrawer({
                           {msg.steps.map((step) => (
                             <div
                               key={step.stepNumber}
-                              className="p-2 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[10px] space-y-0.5 select-text cursor-text"
+                              className="p-2 rounded-lg bg-[#090a0f]/80 border border-white/[0.06] text-[10px] space-y-0.5 select-text cursor-text"
                             >
                               <div className="flex items-center justify-between font-mono select-text">
                                 <span className="text-slate-300 font-semibold select-text">{step.serviceName}</span>
-                                <span className="text-emerald-400 select-text">${step.costUsdc} USDC • {step.durationMs}ms</span>
+                                <span className="text-emerald-400 select-text tabular-nums">${step.costUsdc} USDC • {step.durationMs}ms</span>
                               </div>
                               {step.resultSummary && (
                                 <p className="text-slate-400 select-text">{step.resultSummary}</p>
@@ -647,7 +647,7 @@ export default function ArcCopilotDrawer({
                   {msg.totalCostUsdc && (
                     <div className="mt-2 text-[10px] font-mono text-emerald-400/90 flex items-center justify-between select-text cursor-text">
                       <span className="select-text">⚡ Nanopayment Ücreti:</span>
-                      <span className="select-text">${msg.totalCostUsdc.toFixed(4)} USDC</span>
+                      <span className="select-text tabular-nums">${msg.totalCostUsdc.toFixed(4)} USDC</span>
                     </div>
                   )}
 
@@ -697,7 +697,7 @@ export default function ArcCopilotDrawer({
             {/* Explore Topics Chips placed directly below the welcome bubble */}
             {index === 0 && msg.role === 'assistant' && (
               <div className="pl-9.5 space-y-3 select-text w-full max-w-[96%]">
-                <div className="flex items-center gap-3 text-[10px] uppercase font-bold tracking-wider text-slate-400 select-text">
+                <div className="arc-eyebrow text-[10px] text-slate-400 tracking-wider select-text ml-3 mt-3">
                   <span>EXPLORE TOPICS</span>
                 </div>
 
@@ -711,9 +711,9 @@ export default function ArcCopilotDrawer({
                         onClick={() =>
                           setSelectedTopicId((prev) => (prev === topic.id ? null : topic.id))
                         }
-                        className={`px-3.5 py-1.5 rounded-full text-[11px] font-medium transition cursor-pointer shadow-sm active:scale-95 border ${isSelected
-                            ? 'bg-teal-300 text-slate-950 font-bold border-teal-300 shadow-teal-300/20'
-                            : 'bg-slate-900/90 text-slate-300 hover:text-white border-slate-700/80 hover:border-slate-500'
+                        className={`px-3.5 py-1 rounded-full text-[11px] font-medium transition cursor-pointer shadow-sm active:scale-95 border ${isSelected
+                            ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold border-indigo-400/50 shadow-md shadow-indigo-500/25'
+                            : 'bg-[#161926]/90 text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40'
                           }`}
                       >
                         {topic.label}
@@ -731,10 +731,10 @@ export default function ArcCopilotDrawer({
                           key={q.id}
                           onClick={() => handleQuickPromptClick(q.prompt)}
                           disabled={isAnalyzing}
-                          className="w-full text-left px-4 py-2.5 rounded-2xl bg-slate-900/70 hover:bg-slate-800/90 border border-slate-800 hover:border-cyan-500/40 text-slate-200 hover:text-cyan-200 text-xs font-normal transition flex items-center justify-between group cursor-pointer active:scale-[0.99] disabled:opacity-50"
+                          className="w-full text-left px-4 py-2.5 rounded-2xl bg-[#0f111a]/80 hover:bg-[#161926] border border-white/[0.06] hover:border-indigo-500/40 text-slate-200 hover:text-white text-xs font-normal transition flex items-center justify-between group cursor-pointer active:scale-[0.99] disabled:opacity-50"
                         >
                           <span className="truncate pr-2">{q.title}</span>
-                          <span className="text-slate-500 group-hover:text-cyan-400 text-xs transition">
+                          <span className="text-slate-500 group-hover:text-indigo-300 text-xs transition">
                             ›
                           </span>
                         </button>
@@ -751,35 +751,35 @@ export default function ArcCopilotDrawer({
         {isAnalyzing && (
           <div className="flex items-start gap-2.5 justify-start animate-fade-in">
             {/* Assistant Avatar with glowing pulse */}
-            <div className="w-7 h-7 rounded-full bg-slate-900 border border-cyan-400/70 flex-shrink-0 flex items-center justify-center mt-1 shadow-sm shadow-cyan-500/20 relative">
-              <Bot className="w-4 h-4 text-cyan-300 animate-pulse" />
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            <div className="w-7 h-7 rounded-full bg-[#161926] border border-indigo-400/60 flex-shrink-0 flex items-center justify-center mt-1 shadow-sm shadow-indigo-500/20 relative">
+              <Bot className="w-4 h-4 text-indigo-300 animate-pulse" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-indigo-400 animate-ping" />
             </div>
 
             {/* Speech Bubble with 4 Glowing Bouncing Wave Dots & Progress */}
-            <div className="rounded-2xl p-3.5 bg-slate-900/95 text-slate-200 border border-cyan-500/40 rounded-tl-none shadow-lg shadow-cyan-500/10 max-w-[85%] space-y-2">
+            <div className="rounded-2xl p-3.5 bg-[#0f111a]/95 text-slate-200 border border-indigo-500/30 rounded-tl-none shadow-lg shadow-indigo-500/10 max-w-[85%] space-y-2">
               <div className="flex items-center gap-2.5">
-                <div className="flex items-center gap-1.5 py-1 px-2 bg-slate-950/80 rounded-full border border-cyan-500/30 shadow-inner shadow-cyan-500/10">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 typing-dot-1" />
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 typing-dot-2" />
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 typing-dot-3" />
-                  <span className="w-2 h-2 rounded-full bg-indigo-400 typing-dot-4" />
+                <div className="flex items-center gap-1.5 py-1 px-2 bg-[#090a0f]/90 rounded-full border border-indigo-500/30 shadow-inner shadow-indigo-500/10">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 typing-dot-1" />
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 typing-dot-2" />
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 typing-dot-3" />
+                  <span className="w-2 h-2 rounded-full bg-purple-400 typing-dot-4" />
                 </div>
-                <span className="text-cyan-200 text-xs font-semibold tracking-wide">
+                <span className="text-indigo-200 text-xs font-semibold tracking-wide">
                   Arcis is preparing the answer...
                 </span>
               </div>
 
               {/* Realtime step progress logs */}
               {currentSteps.length > 0 && (
-                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                <div className="pt-2 border-t border-white/[0.06] space-y-1.5">
                   {currentSteps.map((step) => (
                     <div
                       key={step.stepNumber}
-                      className="p-1.5 px-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[10px] flex items-center justify-between font-mono"
+                      className="p-1.5 px-2.5 rounded-xl bg-[#090a0f]/80 border border-white/[0.06] text-[10px] flex items-center justify-between font-mono"
                     >
                       <span className="text-slate-300 truncate max-w-[65%]">{step.serviceName}</span>
-                      <span className="text-cyan-400 flex-shrink-0">
+                      <span className="text-indigo-300 flex-shrink-0">
                         {step.status === 'completed' ? `✓ ${step.durationMs}ms` : '⚡ Yürütülüyor...'}
                       </span>
                     </div>
@@ -794,7 +794,7 @@ export default function ArcCopilotDrawer({
       </div>
 
       {/* ── INPUT BOX (STABILIZER STYLE FOOTER) ── */}
-      <div className="relative p-3 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-xl">
+      <div className="relative p-3 border-t border-white/[0.08] bg-[#090a0f]/90 backdrop-blur-xl">
         {/* Slash Commands Dropdown Menu */}
         <CopilotSlashMenu
           isOpen={isSlashMenuOpen}
@@ -806,7 +806,7 @@ export default function ArcCopilotDrawer({
 
         <form onSubmit={handleSend} className="relative flex items-center gap-2">
           <div className="relative flex-1 flex items-center">
-            <Sparkles className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+            <Sparkles className="w-4 h-4 text-indigo-400/70 absolute left-3.5 pointer-events-none" />
             <input
               ref={inputRef}
               type="text"
@@ -846,7 +846,7 @@ export default function ArcCopilotDrawer({
                 }
               }}
               placeholder="Type a command or open the quick menu with /"
-              className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-500 transition disabled:opacity-50"
+              className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-[#0f111a]/90 border border-white/[0.08] text-xs text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition disabled:opacity-50"
             />
           </div>
 
@@ -854,7 +854,7 @@ export default function ArcCopilotDrawer({
             type="submit"
             aria-label="Send message"
             disabled={!canSendInput}
-            className="w-9 h-9 rounded-2xl bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-600 text-white flex items-center justify-center transition cursor-pointer disabled:cursor-not-allowed shadow-md shadow-cyan-600/30 flex-shrink-0"
+            className="w-9 h-9 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:bg-[#161926] disabled:text-slate-600 text-white flex items-center justify-center transition cursor-pointer disabled:cursor-not-allowed shadow-md shadow-indigo-500/25 flex-shrink-0"
           >
             <Send className="w-3.5 h-3.5" />
           </button>

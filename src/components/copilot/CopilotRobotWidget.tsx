@@ -1,9 +1,9 @@
 // src/components/copilot/CopilotRobotWidget.tsx
-// Floating Cybernetic "Ask Arcis" Pill Widget in Bottom-Right Corner
+// Floating Obsidian "Ask Arco" Pill Widget in Bottom-Right Corner (Aligned with DESIGN.md)
 
 import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, Sparkles, Zap } from 'lucide-react'
+import { Bot } from 'lucide-react'
 
 interface CopilotRobotWidgetProps {
   isOpen: boolean
@@ -37,8 +37,7 @@ export default function CopilotRobotWidget({
             ? 'opacity-100 translate-y-0 scale-100'
             : 'opacity-0 translate-y-2 scale-95'
         }`}
-      >    
-      </div>
+      />
 
       {/* "Ask Arco" Capsule Pill Button */}
       <button
@@ -49,29 +48,30 @@ export default function CopilotRobotWidget({
           isOpen ? 'scale-95' : 'hover:scale-105 active:scale-95'
         }`}
       >
-        {/* Animated Outer Glow Ring */}
+        {/* Animated Outer Glow Ring — Luxury Indigo / Purple Aura */}
         <div
-          className="absolute -inset-1 rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-600 blur-md opacity-75 group-hover:opacity-100 transition-opacity animate-pulse-slow pointer-events-none"
+          className="absolute -inset-1 rounded-full bg-gradient-to-r from-indigo-500 via-purple-600 to-indigo-500 blur-md opacity-70 group-hover:opacity-100 transition-opacity animate-pulse-slow pointer-events-none"
         />
 
-        {/* Capsule Pill Body */}
+        {/* Capsule Pill Body — Dark Obsidian Glass Surface */}
         <div
-          className="relative pl-1.5 pr-4 py-1.5 rounded-full flex items-center gap-2.5 border border-cyan-400/50 shadow-2xl transition-all"
+          className="relative pl-1.5 pr-4 py-1.5 rounded-full flex items-center gap-2.5 border border-white/[0.12] group-hover:border-indigo-400/50 shadow-2xl transition-all"
           style={{
-            background: 'linear-gradient(135deg, rgba(13, 19, 38, 0.95) 0%, rgba(23, 29, 61, 0.95) 50%, rgba(9, 12, 23, 0.98) 100%)',
+            background: 'linear-gradient(135deg, rgba(22, 25, 42, 0.95) 0%, rgba(15, 17, 26, 0.98) 100%)',
             backdropFilter: 'blur(20px)',
-            boxShadow: '0 8px 32px rgba(6, 182, 212, 0.35), inset 0 1px 2px rgba(255, 255, 255, 0.25)',
+            WebkitBackdropFilter: 'blur(20px)',
+            boxShadow: '0 12px 32px rgba(0, 0, 0, 0.75), 0 0 24px rgba(99, 102, 241, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.15)',
           }}
         >
           {/* Left: Cybernetic Robot Avatar Circle */}
           <div
-            className="relative w-9 h-9 rounded-full flex items-center justify-center border border-cyan-400/60 shadow-md"
+            className="relative w-9 h-9 rounded-full flex items-center justify-center border border-indigo-400/40 shadow-sm"
             style={{
-              background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)',
+              background: 'linear-gradient(135deg, #161926 0%, #1e1b4b 100%)',
             }}
           >
             <Bot
-              className={`w-5 h-5 text-cyan-300 transition-transform duration-300 ${
+              className={`w-5 h-5 text-indigo-300 transition-transform duration-300 ${
                 isAnalyzing ? 'animate-bounce' : 'group-hover:scale-110'
               }`}
             />
@@ -79,7 +79,7 @@ export default function CopilotRobotWidget({
 
           {/* Right: "Ask Arco" Text & AI Badge */}
           <div className="flex items-center gap-2">
-            <span className="text-xs md:text-sm font-extrabold text-white tracking-wide group-hover:text-cyan-200 transition font-sans">
+            <span className="text-xs md:text-sm font-bold text-white tracking-wide group-hover:text-indigo-200 transition font-display">
               Ask Arco
             </span>
           </div>
