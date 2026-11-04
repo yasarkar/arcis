@@ -1,22 +1,22 @@
-import React, { useState, useMemo } from 'react'
 import {
-  CheckCircle2,
-  Clock3,
   ArrowRightLeft,
   ArrowUpRight,
-  Globe,
   ArrowUpRightFromSquare,
-  Copy,
   Check,
-  Loader2,
+  CheckCircle2,
+  Clock3,
   Coins,
+  Copy,
+  Globe,
+  Loader2,
   Sparkles,
 } from 'lucide-react'
-import { ChainIcon } from '../common/ChainIcon'
-import { getChainIconId, getChainDisplayName } from '../../config/chainMeta'
-import { getExplorerTxUrl, getExplorerName } from '../../config/sendConfig'
-import { formatSubscriptZero } from '../../utils/formatNumber'
+import React, { useMemo, useState } from 'react'
+import { getChainDisplayName, getChainIconId } from '../../config/chainMeta'
+import { getExplorerName, getExplorerTxUrl } from '../../config/sendConfig'
 import { TOKEN_ICON_MAP } from '../../config/tokenIcons'
+import { formatSubscriptZero } from '../../utils/formatNumber'
+import { ChainIcon } from '../common/ChainIcon'
 
 export function resolveReceiptTokenIcon(symbol?: string, explicitIcon?: string): string | undefined {
   const clean = symbol?.trim()
@@ -317,31 +317,6 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               ? 'Testnet funds successfully credited to your wallet'
               : 'AI service executed and settled onchain')
 
-  // Method string & visibility rule
-  // Omitted for send, swap, and bridge transfers (where displaying the transfer method is redundant)
-  // unless explicitly requested via showMethod prop.
-  const effectiveMethod =
-    method ||
-    (type === 'swap'
-      ? isCrossChain
-        ? 'Cross-Chain CCTP Swap'
-        : 'Arc L1 Direct Swap'
-      : type === 'bridge'
-        ? mode === 'direct'
-          ? 'Direct CCTP Bridge'
-          : 'Circle Gateway Fast Transfer'
-        : type === 'deposit'
-          ? 'Arc Yield Vault Deposit'
-          : type === 'faucet'
-            ? 'Arc Testnet Faucet Mint'
-            : type === 'ai_service'
-              ? 'x402 AI Service Settlement'
-              : 'Arc L1 Direct Transfer')
-
-  const shouldShowMethod =
-    (showMethod ?? (type !== 'send' && type !== 'swap' && type !== 'bridge')) &&
-    Boolean(effectiveMethod)
-
   // Icons resolution
   const resolvedTokenIcon = resolveReceiptTokenIcon(tokenSymbol, tokenIcon)
   const resolvedTokenInIcon = resolveReceiptTokenIcon(tokenIn, tokenInIcon)
@@ -472,16 +447,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <>
               {/* Swap: You Paid */}
               <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-                <div className="text-xs text-slate-400">You Paid</div>
+                <div className="text-xs sm:text-sm text-slate-400">You Paid</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenInIcon && (
                     <img
                       src={resolvedTokenInIcon}
                       alt={tokenIn}
-                      className="w-5 h-5 object-contain rounded-full"
+                      className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                     />
                   )}
-                  <span className="font-semibold text-sm text-white tabular-nums" title={amountIn ? String(amountIn) : undefined}>
+                  <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amountIn ? String(amountIn) : undefined}>
                     {formatSubscriptZero(amountIn)} {tokenIn}
                   </span>
                 </div>
@@ -489,16 +464,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
               {/* Swap: You Received */}
               <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-400">You Received</div>
+                <div className="text-xs sm:text-sm text-slate-400">You Received</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenOutIcon && (
                     <img
                       src={resolvedTokenOutIcon}
                       alt={tokenOut}
-                      className="w-5 h-5 object-contain rounded-full"
+                      className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                     />
                   )}
-                  <span className="font-semibold text-sm text-white tabular-nums" title={amountOut ? String(amountOut) : undefined}>
+                  <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amountOut ? String(amountOut) : undefined}>
                     {formatSubscriptZero(amountOut)} {tokenOut}
                   </span>
                 </div>
@@ -508,16 +483,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <>
               {/* Bridge: Bridged Amount */}
               <div className={`flex items-center justify-between ${netReceived ? 'pb-3 border-b border-white/[0.06]' : ''}`}>
-                <div className="text-xs text-slate-400">Bridged Amount</div>
+                <div className="text-xs sm:text-sm text-slate-400">Bridged Amount</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenIcon && (
                     <img
                       src={resolvedTokenIcon}
                       alt={tokenSymbol}
-                      className="w-5 h-5 object-contain rounded-full"
+                      className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                     />
                   )}
-                  <span className="font-semibold text-base text-white tabular-nums" title={amount ? String(amount) : undefined}>
+                  <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
                     {formatSubscriptZero(amount)} {tokenSymbol}
                   </span>
                 </div>
@@ -526,16 +501,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               {/* Bridge: Net Received */}
               {netReceived && (
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-400">Net Received</div>
+                  <div className="text-xs sm:text-sm text-slate-400">Net Received</div>
                   <div className="flex items-center gap-1.5">
                     {resolvedTokenIcon && (
                       <img
                         src={resolvedTokenIcon}
                         alt={tokenSymbol}
-                        className="w-5 h-5 object-contain rounded-full"
+                        className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                       />
                     )}
-                    <span className="font-semibold text-base text-white tabular-nums" title={netReceived ? String(netReceived) : undefined}>
+                    <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-white tabular-nums`} title={netReceived ? String(netReceived) : undefined}>
                       {formatSubscriptZero(netReceived)} {tokenSymbol}
                     </span>
                   </div>
@@ -546,16 +521,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <>
               {/* Deposit: Deposited Amount */}
               <div className={`flex items-center justify-between ${apy ? 'pb-3 border-b border-white/[0.06]' : ''}`}>
-                <div className="text-xs text-slate-400">Deposited Amount</div>
+                <div className="text-xs sm:text-sm text-slate-400">Deposited Amount</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenIcon && (
                     <img
                       src={resolvedTokenIcon}
                       alt={tokenSymbol}
-                      className="w-5 h-5 object-contain rounded-full"
+                      className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                     />
                   )}
-                  <span className="font-semibold text-base text-white tabular-nums" title={amount ? String(amount) : undefined}>
+                  <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
                     {formatSubscriptZero(amount)} {tokenSymbol}
                   </span>
                 </div>
@@ -564,8 +539,8 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               {/* Deposit: Vault APY */}
               {apy && (
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-400">Yield Vault APY</div>
-                  <span className="font-semibold text-sm text-emerald-400 tabular-nums">{apy}</span>
+                  <div className="text-xs sm:text-sm text-slate-400">Yield Vault APY</div>
+                  <span className="font-semibold text-xs sm:text-sm text-emerald-400 tabular-nums">{apy}</span>
                 </div>
               )}
             </>
@@ -573,16 +548,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <>
               {/* AI Service: Amount Paid */}
               <div className={`flex items-center justify-between ${serviceSummary ? 'pb-3 border-b border-white/[0.06]' : ''}`}>
-                <div className="text-xs text-slate-400">Amount Paid</div>
+                <div className="text-xs sm:text-sm text-slate-400">Amount Paid</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenIcon && (
                     <img
                       src={resolvedTokenIcon}
                       alt={tokenSymbol}
-                      className="w-5 h-5 object-contain rounded-full"
+                      className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                     />
                   )}
-                  <span className="font-semibold text-base text-white tabular-nums" title={amount ? String(amount) : undefined}>
+                  <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
                     {formatSubscriptZero(amount)} {tokenSymbol}
                   </span>
                 </div>
@@ -591,9 +566,9 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               {/* AI Service: Executed service summary */}
               {serviceSummary && (
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-400">Service</div>
+                  <div className="text-xs sm:text-sm text-slate-400">Service</div>
                   <span
-                    className="text-xs font-medium text-indigo-300 truncate max-w-[220px] text-right"
+                    className="text-xs sm:text-sm font-medium text-indigo-300 truncate max-w-[220px] text-right"
                     title={serviceSummary}
                   >
                     {serviceSummary}
@@ -605,16 +580,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <>
               {/* Faucet: Claimed Amount */}
               <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-400">Claimed Amount</div>
+                <div className="text-xs sm:text-sm text-slate-400">Claimed Amount</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenIcon && (
                     <img
                       src={resolvedTokenIcon}
                       alt={tokenSymbol}
-                      className="w-5 h-5 object-contain rounded-full"
+                      className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                     />
                   )}
-                  <span className="font-semibold text-base text-emerald-400 tabular-nums" title={amount ? String(amount) : undefined}>
+                  <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-emerald-400 tabular-nums`} title={amount ? String(amount) : undefined}>
                     +{amount ? String(amount) : '0'} {tokenSymbol}
                   </span>
                 </div>
@@ -624,16 +599,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <>
               {/* Send: Sent Amount */}
               <div className={`flex items-center justify-between ${isExternalRecipient ? (isInline ? 'pb-2 border-b border-white/[0.06]' : 'pb-3 border-b border-white/[0.06]') : ''}`}>
-                <div className="text-xs text-slate-400">Sent Amount</div>
+                <div className="text-xs sm:text-sm text-slate-400">Sent Amount</div>
                 <div className="flex items-center gap-1.5">
                   {resolvedTokenIcon && (
                     <img
                       src={resolvedTokenIcon}
                       alt={tokenSymbol}
-                      className="w-5 h-5 object-contain rounded-full"
+                      className="w-5 h-5 sm:w-6 sm:h-6 object-contain rounded-full"
                     />
                   )}
-                  <span className={`font-semibold ${isInline ? 'text-sm' : 'text-base'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
+                  <span className={`font-semibold ${isInline ? 'text-sm sm:text-base' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
                     {formatSubscriptZero(amount)} {tokenSymbol}
                   </span>
                 </div>
@@ -642,9 +617,9 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               {/* Send: Recipient (shown only when sending to an external wallet) */}
               {isExternalRecipient && recipient && (
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-400">Recipient</div>
+                  <div className="text-xs sm:text-sm text-slate-400">Recipient</div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-xs text-slate-200">
+                    <span className="font-mono text-xs sm:text-sm text-slate-200">
                       {recipient.length > 16
                         ? `${recipient.slice(0, 8)}...${recipient.slice(-6)}`
                         : recipient}
@@ -668,12 +643,12 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
         </div>
 
         {/* ── CARD 2: TRANSACTION METADATA & DETAILS ── */}
-        <div className={`bg-[#101323]/60 border border-white/[0.05] rounded-xl ${isInline ? 'p-2.5 space-y-1.5' : 'p-3 space-y-2'} text-xs text-left`}>
+        <div className={`bg-[#101323]/60 border border-white/[0.05] rounded-xl ${isInline ? 'p-2.5 space-y-2' : 'p-3 space-y-2.5'} text-xs text-left`}>
           {/* Network / Route */}
-          <div className="flex items-center justify-between text-slate-400 text-[11px]">
+          <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px]">
             <span>{isMultiChain ? 'Route:' : 'Network:'}</span>
             {isMultiChain && toChainDisplayName ? (
-              <div className="flex items-center gap-1.5 text-xs text-slate-200 font-medium">
+              <div className="flex items-center gap-1.5 text-xs sm:text-[13px] text-slate-200 font-medium">
                 <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center shrink-0">
                   <ChainIcon
                     chainKeyOrIconId={effectiveSourceChain || fromChainIcon}
@@ -704,26 +679,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                     className="rounded-full"
                   />
                 </div>
-                <span className="text-slate-200 font-medium">{fromChainDisplayName}</span>
+                <span className="text-slate-200 font-medium text-xs sm:text-[13px]">{fromChainDisplayName}</span>
               </div>
             )}
           </div>
 
-          {/* Execution Method — the mechanism the receipt actually settled through
-              (e.g. "Circle Gateway Deposit", "x402 AI Service Settlement").
-              Omitted for direct Send transfers. */}
-          {shouldShowMethod && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
-              <span>Method:</span>
-              <span className="text-slate-200 font-medium">{effectiveMethod}</span>
-            </div>
-          )}
-
           {/* Recipient in Card 2 (shown only when sending/bridging/swapping to an external wallet) */}
           {type !== 'send' && isExternalRecipient && recipient && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Recipient:</span>
-              <div className="flex items-center gap-1.5 font-mono text-slate-200">
+              <div className="flex items-center gap-1.5 font-mono text-slate-200 text-xs sm:text-[13px]">
                 <span>
                   {recipient.length > 16
                     ? `${recipient.slice(0, 8)}...${recipient.slice(-6)}`
@@ -746,17 +711,17 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
           {/* Exchange Rate (Swap) — was declared as a prop but never rendered (fix #8) */}
           {type === 'swap' && rate && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Exchange Rate:</span>
-              <span className="text-slate-200 font-mono text-[11px]">{rate}</span>
+              <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{rate}</span>
             </div>
           )}
 
           {/* Slippage Tolerance (Swap) */}
           {slippage && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Slippage Tolerance:</span>
-              <span className="text-slate-200 font-mono text-[11px]">{slippage}</span>
+              <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{slippage}</span>
             </div>
           )}
 
@@ -767,16 +732,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               Destination Network Fee read from the destination mint. */}
           {/* Protocol Fee (non-bridge receipts only) */}
           {type !== 'bridge' && feeDisplay && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Protocol Fee:</span>
-              <span className="text-slate-200 font-mono text-[11px]">
+              <span className="text-slate-200 font-mono text-xs sm:text-[13px]">
                 {(() => {
                   const match = feeDisplay.match(/^(.*?)\s*(\([^)]+%\))$/)
                   if (match) {
                     return (
                       <>
                         <span>{match[1]}</span>{' '}
-                        <span className="text-slate-200 font-mono text-[11px]">{match[2]}</span>
+                        <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{match[2]}</span>
                       </>
                     )
                   }
@@ -788,17 +753,17 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
           {/* Fallback displayGasFee if showSourceFeeRow is not active */}
           {!showSourceFeeRow && displayGasFee && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Network Fee:</span>
-              <span className="text-slate-200 font-medium">{displayGasFee}</span>
+              <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{displayGasFee}</span>
             </div>
           )}
 
           {/* Priority Tier (Swap) — the speed tier the user paid for. */}
           {speedTier && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Priority Tier:</span>
-              <span className="text-slate-200 capitalize font-medium">{speedTier}</span>
+              <span className="text-slate-200 capitalize font-medium text-xs sm:text-[13px]">{speedTier}</span>
             </div>
           )}
 
@@ -807,21 +772,21 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               provide end to end, so the row is suppressed here no matter which
               caller renders the receipt. */}
           {platformFee && !isGatewayBridge && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Platform Fee:</span>
-              <span className="text-slate-200 font-mono text-[11px]">{platformFee}</span>
+              <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{platformFee}</span>
             </div>
           )}
 
           {/* Actual on-chain network fee (Copilot receipts) */}
           {actualGasUsdc != null && (
             <div
-              className="text-slate-400 text-[11px] pt-1 border-t border-white/[0.04] space-y-1"
+              className="text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04] space-y-1"
               title="Exact fee paid on-chain, read from the transaction receipt (gasUsed × effectiveGasPrice) — matches ArcScan. Sponsored transactions may not deduct this from your wallet."
             >
               <div className="flex items-center justify-between">
                 <span>Network Fee:</span>
-                <span className="text-slate-200 font-mono text-[11px]">{formattedActualGasUsdc} USDC</span>
+                <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{formattedActualGasUsdc} USDC</span>
               </div>
             </div>
           )}
@@ -831,21 +796,21 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               mined receipt), never an estimate. */}
           {showSourceFeeRow ? (
             <div
-              className="text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              className="text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]"
               title={sourceFeeTooltip}
             >
               <div className="flex items-center justify-between">
                 <span>{sourceFeeLabel}</span>
-                <span className="text-slate-200 font-mono text-[11px]">{sourceFeeValue}</span>
+                <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{sourceFeeValue}</span>
               </div>
             </div>
           ) : feeSponsored ? (
             <div
-              className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]"
               title="Gas for this deposit was paid by the sponsorer (Circle Gas Station paymaster), so nothing was deducted from your wallet."
             >
               <span>Network Fee:</span>
-              <span className="text-emerald-300 font-medium">Sponsored</span>
+              <span className="text-emerald-300 font-medium text-xs sm:text-[13px]">Sponsored</span>
             </div>
           ) : null}
 
@@ -855,31 +820,31 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               once the mint is verified; never an estimate. */}
           {destinationFee && (
             <div
-              className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]"
               title="Actual gas the destination chain charged for the mint transaction, read from its mined receipt (gasUsed × effectiveGasPrice). Forwarded transfers have this mint submitted and paid by Circle's Forwarding Service."
             >
               <span>Destination Network Fee:</span>
-              <span className="text-slate-200 font-mono text-[11px]">{destinationFee}</span>
+              <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{destinationFee}</span>
             </div>
           )}
 
           {/* Real network fee paid by the separate ERC-20 approval transaction */}
           {approvalFee && (
             <div
-              className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]"
+              className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]"
               title="Exact fee charged by the network for the token approval transaction, read from its mined receipt."
             >
               <span>Approval Fee:</span>
-              <span className="text-slate-200 font-mono text-[11px]">{formattedApprovalFee}</span>
+              <span className="text-slate-200 font-mono text-xs sm:text-[13px]">{formattedApprovalFee}</span>
             </div>
           )}
 
           {/* Memo (Send) */}
           {memoText && (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Memo:</span>
               <span
-                className="text-indigo-300 font-medium truncate max-w-[220px]"
+                className="text-indigo-300 font-medium truncate max-w-[220px] text-xs sm:text-[13px]"
                 title={memoText}
               >
                 {memoText}
@@ -888,9 +853,8 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           )}
 
           {/* Gateway Bridge: Single Destination Mint Transaction */}
-          {/* Gateway Bridge: Single Destination Mint Transaction */}
           {isGatewayBridge ? (
-            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+            <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
               <span>Transaction:</span>
               {primaryTxHash && primaryTxHash.startsWith('0x') ? (
                 <div className="flex items-center gap-1.5">
@@ -900,16 +864,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                     rel="noreferrer"
                     className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
                   >
-                    <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-400 transition-colors">
+                    <span className="font-medium text-xs sm:text-[13px] text-slate-200 group-hover:text-indigo-400 transition-colors">
                       {destExplorerName}
                     </span>
-                    <ArrowUpRightFromSquare className="w-3 h-3 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                    <ArrowUpRightFromSquare className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                   </a>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
-                    <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                  <span className="inline-flex items-center gap-1.5 text-xs text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
                     Pending...
                   </span>
                 </div>
@@ -919,7 +883,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <>
               {/* Primary Transaction Hash Link (Source / Single Chain) */}
               {primaryTxHash && primaryTxHash.startsWith('0x') ? (
-                <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+                <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
                   <span>{isMultiChain ? (type === 'bridge' ? 'Source Burn Tx:' : 'Source Transaction:') : 'Transaction:'}</span>
                   <div className="flex items-center gap-1.5">
                     <a
@@ -928,19 +892,19 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                       rel="noreferrer"
                       className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
                     >
-                      <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-400 transition-colors">
+                      <span className="font-medium text-xs sm:text-[13px] text-slate-200 group-hover:text-indigo-400 transition-colors">
                         {sourceExplorerName}
                       </span>
-                      <ArrowUpRightFromSquare className="w-3 h-3 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                      <ArrowUpRightFromSquare className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                     </a>
                   </div>
                 </div>
               ) : type === 'bridge' ? (
-                <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+                <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
                   <span>Source Burn Tx:</span>
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
-                      <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                    <span className="inline-flex items-center gap-1.5 text-xs text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
                       Pending...
                     </span>
                   </div>
@@ -949,7 +913,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
               {/* Secondary / Destination Transaction Hash Link */}
               {isMultiChain && destExplorerName && (
-                <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+                <div className="flex items-center justify-between text-slate-400 text-xs sm:text-[13px] pt-1.5 border-t border-white/[0.04]">
                   <span>{type === 'bridge' ? 'Destination Mint Tx:' : 'Destination Transaction:'}</span>
                   {secondaryTxHash && secondaryTxHash.startsWith('0x') ? (
                     <div className="flex items-center gap-1.5">
@@ -959,16 +923,16 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
                         rel="noreferrer"
                         className="group flex items-center gap-1 text-slate-200 hover:text-white transition-colors cursor-pointer ml-0.5"
                       >
-                        <span className="font-medium text-[11px] text-slate-200 group-hover:text-indigo-400 transition-colors">
+                        <span className="font-medium text-xs sm:text-[13px] text-slate-200 group-hover:text-indigo-400 transition-colors">
                           {destExplorerName}
                         </span>
-                        <ArrowUpRightFromSquare className="w-3 h-3 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                        <ArrowUpRightFromSquare className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                       </a>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
-                        <Loader2 className="w-3 h-3 animate-spin text-indigo-400" />
+                      <span className="inline-flex items-center gap-1.5 text-xs text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
                         Pending...
                       </span>
                     </div>
