@@ -197,12 +197,11 @@ export default function ArcCopilotDrawer({
       return
     }
 
-    if (cmd.command === '/swap' || cmd.command === '/vault' || cmd.command === '/bridge' || cmd.command === '/send') {
-      if (inputText.trim() === cmd.command || inputText.trim() === '/') {
-        setInputText(cmd.command + ' ')
-        inputRef.current?.focus()
-        return
-      }
+    const expectsParameters = ['/swap', '/vault', '/bridge', '/send'].includes(cmd.command) || cmd.syntax.includes('[')
+    if (expectsParameters && !inputText.trim().includes(' ')) {
+      setInputText(cmd.command + ' ')
+      inputRef.current?.focus()
+      return
     }
 
     const promptToExecute = cmd.templatePrompt || cmd.command
@@ -873,16 +872,19 @@ export default function ArcCopilotDrawer({
                   if (e.key === 'Tab') {
                     e.preventDefault()
                     const selected = filteredSlashCommands[slashSelectedIdx]
-                    if (selected) handleSelectSlashCommand(selected)
+                    if (selected) {
+                      setInputText(selected.command + ' ')
+                      inputRef.current?.focus()
+                    }
                     return
                   }
                   if (e.key === 'Enter') {
+                    e.preventDefault()
                     const selected = filteredSlashCommands[slashSelectedIdx]
-                    if (selected && (inputText.trim() === selected.command || inputText.trim() === '/')) {
-                      e.preventDefault()
+                    if (selected) {
                       handleSelectSlashCommand(selected)
-                      return
                     }
+                    return
                   }
                   if (e.key === 'Escape') {
                     e.preventDefault()
