@@ -59,6 +59,22 @@ describe('Receipt Recipient Visibility Rules', () => {
       expect(html).toContain('Sent Amount')
       expect(html).not.toContain('Recipient')
     })
+
+    it('omits Method row for send receipts by default', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(SendSuccessReceipt, {
+          amount: '10',
+          tokenSymbol: 'USDC',
+          recipient: OTHER_WALLET,
+          connectedAddress: OWN_WALLET,
+          network: 'Arc_Testnet',
+          onSendAgain: () => {},
+        })
+      )
+
+      expect(html).not.toContain('Method:')
+      expect(html).not.toContain('Arc L1 Direct Transfer')
+    })
   })
 
   describe('BridgeSuccessReceipt', () => {
@@ -104,6 +120,27 @@ describe('Receipt Recipient Visibility Rules', () => {
       expect(html).toContain('Recipient:')
       expect(html).toContain('0x222222...222222')
     })
+
+    it('omits Method row for bridge receipts by default', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(BridgeSuccessReceipt, {
+          amount: '25',
+          sourceChain: 'Arc_Testnet',
+          destChain: 'Base_Sepolia',
+          sourceChainName: 'Arc Testnet',
+          destChainName: 'Base Sepolia',
+          sourceIconId: 'arc',
+          destIconId: 'base',
+          recipient: OWN_WALLET,
+          connectedAddress: OWN_WALLET,
+          mode: 'direct',
+          onBridgeAgain: () => {},
+        })
+      )
+
+      expect(html).not.toContain('Method:')
+      expect(html).not.toContain('Direct CCTP Bridge')
+    })
   })
 
   describe('SwapSuccessReceipt', () => {
@@ -146,6 +183,28 @@ describe('Receipt Recipient Visibility Rules', () => {
       expect(html).toContain('You Received')
       expect(html).toContain('Recipient:')
       expect(html).toContain('0x222222...222222')
+    })
+
+    it('omits Method and Priority Tier rows by default', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(SwapSuccessReceipt, {
+          amountIn: '100',
+          amountOut: '99.5',
+          tokenIn: 'USDC',
+          tokenOut: 'EURC',
+          fromChain: 'Arc_Testnet',
+          toChain: 'Arc_Testnet',
+          recipient: OWN_WALLET,
+          connectedAddress: OWN_WALLET,
+          speedTier: 'Turbo',
+          onSwapAgain: () => {},
+        })
+      )
+
+      expect(html).not.toContain('Method:')
+      expect(html).not.toContain('Arc L1 Direct Swap')
+      expect(html).not.toContain('Priority Tier:')
+      expect(html).not.toContain('Turbo')
     })
   })
 

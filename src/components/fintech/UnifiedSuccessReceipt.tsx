@@ -94,6 +94,7 @@ export interface UnifiedSuccessReceiptProps {
 
   // Method & Recipient
   method?: string
+  showMethod?: boolean
   mode?: 'direct' | 'gateway' // for bridge
   recipient?: string
   connectedAddress?: string
@@ -184,6 +185,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
   // Method & Recipient
   method,
+  showMethod,
   mode,
   recipient,
   connectedAddress,
@@ -315,7 +317,9 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               ? 'Testnet funds successfully credited to your wallet'
               : 'AI service executed and settled onchain')
 
-  // Method string
+  // Method string & visibility rule
+  // Omitted for send, swap, and bridge transfers (where displaying the transfer method is redundant)
+  // unless explicitly requested via showMethod prop.
   const effectiveMethod =
     method ||
     (type === 'swap'
@@ -333,6 +337,10 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             : type === 'ai_service'
               ? 'x402 AI Service Settlement'
               : 'Arc L1 Direct Transfer')
+
+  const shouldShowMethod =
+    (showMethod ?? (type !== 'send' && type !== 'swap' && type !== 'bridge')) &&
+    Boolean(effectiveMethod)
 
   // Icons resolution
   const resolvedTokenIcon = resolveReceiptTokenIcon(tokenSymbol, tokenIcon)
@@ -702,11 +710,14 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           </div>
 
           {/* Execution Method — the mechanism the receipt actually settled through
-              (e.g. "Circle Gateway Deposit", "x402 AI Service Settlement"). */}
-          <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
-            <span>Method:</span>
-            <span className="text-slate-200 font-medium">{effectiveMethod}</span>
-          </div>
+              (e.g. "Circle Gateway Deposit", "x402 AI Service Settlement").
+              Omitted for direct Send transfers. */}
+          {shouldShowMethod && (
+            <div className="flex items-center justify-between text-slate-400 text-[11px] pt-1 border-t border-white/[0.04]">
+              <span>Method:</span>
+              <span className="text-slate-200 font-medium">{effectiveMethod}</span>
+            </div>
+          )}
 
           {/* Recipient in Card 2 (shown only when sending/bridging/swapping to an external wallet) */}
           {type !== 'send' && isExternalRecipient && recipient && (

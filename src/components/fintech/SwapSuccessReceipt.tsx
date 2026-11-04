@@ -26,6 +26,8 @@ export interface SwapSuccessReceiptProps {
   fee?: string
   /** Exact network fee read from the mined receipt (gasUsed × effectiveGasPrice). */
   networkFee?: string
+  showMethod?: boolean
+  showPriority?: boolean
 }
 
 export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
@@ -52,6 +54,8 @@ export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
   speedTier,
   fee,
   networkFee,
+  showMethod = false,
+  showPriority = false,
 }) => {
   return (
     <UnifiedSuccessReceipt
@@ -75,7 +79,8 @@ export const SwapSuccessReceipt: React.FC<SwapSuccessReceiptProps> = ({
       connectedAddress={connectedAddress || userAddress}
       rate={rate}
       slippage={slippage}
-      speedTier={speedTier}
+      showMethod={showMethod}
+      speedTier={showPriority ? speedTier : undefined}
       fee={fee}
       networkFee={networkFee}
     />

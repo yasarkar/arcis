@@ -41,6 +41,7 @@ export interface BridgeSuccessReceiptProps {
   onBridgeAgain: () => void
   onClose?: () => void
   isInline?: boolean
+  showMethod?: boolean
 }
 
 export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
@@ -72,6 +73,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
   onBridgeAgain,
   onClose,
   isInline = false,
+  showMethod = false,
 }) => {
   return (
     <UnifiedSuccessReceipt
@@ -92,6 +94,7 @@ export const BridgeSuccessReceipt: React.FC<BridgeSuccessReceiptProps> = ({
       recipient={recipient}
       connectedAddress={connectedAddress || userAddress}
       mode={mode}
+      showMethod={showMethod}
       txHash={txHash}
       sourceTxHash={sourceTxHash}
       destTxHash={destTxHash}
