@@ -102,9 +102,7 @@ export function largeShareWarning(
   const percent = Math.min(100, Math.round((amount / available) * 100))
   return {
     code: 'large-share-of-balance',
-    message: `This moves about ${percent}% of your ${warningTokenKey(symbol) ?? ''} balance (${trimAmount(
-      available
-    )} available).`.replace(/\s+/g, ' '),
+    message: `This moves about ${percent}% of your ${warningTokenKey(symbol) ?? ''} balance.`,
   }
 }
 

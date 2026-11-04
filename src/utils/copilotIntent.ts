@@ -28,20 +28,31 @@ export function classifyCopilotIntent(prompt: string): CopilotIntent {
     /\b(?:istemiyorum|yapmayin|göndermeyin|göndermesin|yatirmayin|aktarmayin|etme|etmeyin|durdur|vazgeçtim|vazgectim)\b/.test(text)) {
     return { kind: 'cancel', message: `${NO_ACTION} This message does not authorize execution. Unsubmitted drafts are canceled; already submitted transactions cannot be undone here.` }
   }
-  if (text.includes('?') || /["“”`]/.test(text) || /(?:^|\s)'[^']+'(?:\s|$)/.test(text) ||
+  const isStrategyOrPortfolio =
+    text.includes('portfolio') ||
+    text.includes('portfoy') ||
+    text.includes('strategy') ||
+    text.includes('strateji') ||
+    text.includes('bakiye') ||
+    text.includes('varliklarim')
+
+  const isQuestionOrExample = text.includes('?') || /["“”`]/.test(text) || /(?:^|\s)'[^']+'(?:\s|$)/.test(text) ||
     has('how', 'what', 'why', 'which', 'explain', 'example', 'quote', 'quoted', 'hypothetical', 'if',
       'nasil', 'nedir', 'neden', 'örnek', 'ornek', 'alinti', 'açikla', 'acikla', 'mi', 'mı', 'mu', 'mü',
       'misin', 'misiniz', 'miyim', 'miyiz', 'musun', 'musunuz', 'müsün', 'müsünüz',
-      'would', 'could', 'can', 'should', 'whether', 'analyze', 'analyse', 'analiz', 'portfolio', 'portföy', 'bakiye') ||
-    /(?:read[- ]?only|dry[- ]?run|for example|örneğin|ornegin|sadece bilgi|ne olur|ne demek)/.test(text)) {
+      'would', 'could', 'can', 'should', 'whether') ||
+    /(?:read[- ]?only|dry[- ]?run|for example|örneğin|ornegin|sadece bilgi|ne olur|ne demek)/.test(text)
+
+  if (!isStrategyOrPortfolio && isQuestionOrExample) {
     return { kind: 'read-only', message: `${NO_ACTION} Questions, examples and quoted commands are read-only. To prepare a transaction, write a separate explicit command / İşlem için ayrı, açık bir komut yazın.` }
   }
 
   const actions: TransactionIntent[] = []
   if (has('send', 'transfer', 'gönder', 'gonder', 'yolla', 'pay', 'öde', 'ode')) actions.push('send')
   if (has('swap', 'takas', 'trade', 'convert', 'çevir', 'cevir', 'dönüştür', 'donustur', 'buy', 'sell', 'al', 'almak', 'sat', 'satmak')) actions.push('swap')
-  if (has('deposit', 'yatir', 'stake')) actions.push('deposit')
+  if (has('deposit', 'yatir', 'stake', 'vault', 'kasa')) actions.push('deposit')
   if (has('bridge', 'köprü', 'kopru', 'aktar')) actions.push('bridge')
+
   if (actions.length > 1) {
     return { kind: 'ambiguous', message: `${NO_ACTION} Please specify one transaction at a time / Her mesajda tek işlem belirtin.` }
   }

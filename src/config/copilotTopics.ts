@@ -474,8 +474,26 @@ export function isActionOrStrategyIntent(query: string): boolean {
   if (isGatewayFlowReportQuery(query)) return false
   // Paid analysis/reporting intents are measurements, not transaction actions.
   if (isPortfolioAnalysisQuery(query) || isVaultReportQuery(query) || isVaultAnalyticsQuery(query)) return false
-  if (isTopicPrompt(query) || isPureEducationalQuery(query)) return false
+
   const p = query.toLowerCase().trim()
+  const isStrategyOrPortfolio =
+    p.includes('portföy') ||
+    p.includes('portfolio') ||
+    p.includes('strateji') ||
+    p.includes('strategy') ||
+    p.includes('tavsiye') ||
+    p.includes('ne yapmalı') ||
+    p.includes('durumum') ||
+    p.includes('bakiye') ||
+    p.includes('varlıklarım') ||
+    p.includes('analiz et') ||
+    p.includes('analyze') ||
+    p.includes('yield strategy') ||
+    p.includes('optimal') ||
+    p.includes('sağlık skoru') ||
+    p.includes('health score')
+
+  if (!isStrategyOrPortfolio && (isTopicPrompt(query) || isPureEducationalQuery(query))) return false
 
   // 1. Slash commands always route to intent/action handling
   if (p.startsWith('/')) return true

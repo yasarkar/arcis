@@ -277,9 +277,14 @@ async function quoteResult<T extends { message: string; actionPayload?: CopilotA
   // For clear transaction commands, local parsing is the authority for user-specified parameters.
   // The model may help with natural language, but must not alter amount, token, or recipient.
   const intent = classifyCopilotIntent(userPrompt)
+  const isStrategyRecommendation =
+    result.actionPayload?.type === 'interactive_deposit' &&
+    /(?:portf[oö]y|strateg|stratej|optimal|analiz|analyze|yield strategy)/i.test(userPrompt)
   const authoritativeResult = intent.kind === 'command' || intent.kind === 'correction'
     ? parseLocalIntentFallback(userPrompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas)
-    : { message: result.message, actionPayload: undefined }
+    : isStrategyRecommendation
+      ? result
+      : { message: result.message, actionPayload: undefined }
   const actionable = ensureActionableTransactionResult(
     authoritativeResult, userPrompt, walletAddress, livePrices, chatHistory, portfolio, liveMaxFeePerGas
   )
@@ -693,7 +698,7 @@ function parseLocalIntent(
     }
   }
 
-  const isPortfolioQuery = p.includes('portföy') || p.includes('portfolio') || p.includes('strateji') || p.includes('tavsiye') ||
+  const isPortfolioQuery = p.includes('portföy') || p.includes('portfolio') || p.includes('strateji') || p.includes('strategy') || p.includes('tavsiye') ||
     p.includes('ne yapmalı') || p.includes('durumum') || p.includes('bakiye') || p.includes('varlıklarım') ||
     p.includes('analiz et') || p.includes('analyze') || p.includes('yield strategy') || p.includes('optimal')
   if (isPortfolioQuery && portfolio) {

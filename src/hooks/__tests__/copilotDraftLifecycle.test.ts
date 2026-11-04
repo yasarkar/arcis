@@ -136,4 +136,29 @@ describe('A02 hook draft lifecycle before any signer', () => {
     expect(whyMsg.content).toContain('native gas currency instead of ETH')
     expect(whyMsg.content).not.toContain('No transaction prepared')
   })
+
+  it('processes /strategy command and portfolio analysis with chief strategist breakdown instead of no-transaction error', async () => {
+    // 1. Through mocked backend API
+    await query('/strategy')
+    const strategyMsg = messages()[messages().length - 1]
+    expect(strategyMsg.role).toBe('assistant')
+    expect(strategyMsg.content).not.toContain('No transaction prepared')
+    expect(strategyMsg.content).toBe('Prepared.')
+
+    await query('Analyze my wallet portfolio and propose the optimal DeFi yield strategy.')
+    const analysisMsg = messages()[messages().length - 1]
+    expect(analysisMsg.role).toBe('assistant')
+    expect(analysisMsg.content).not.toContain('No transaction prepared')
+    expect(analysisMsg.content).toBe('Prepared.')
+
+    // 2. Through local NLP fallback when backend API is unavailable
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('API down') }))
+    await query('/strategy')
+    const localStrategyMsg = messages()[messages().length - 1]
+    expect(localStrategyMsg.role).toBe('assistant')
+    expect(localStrategyMsg.content).not.toContain('No transaction prepared')
+    expect(localStrategyMsg.content).toContain('Portfolio')
+    expect(localStrategyMsg.actionPayload?.type).toBe('interactive_deposit')
+    expect(localStrategyMsg.actionPayload?.data?.amount).toBe(35)
+  })
 })

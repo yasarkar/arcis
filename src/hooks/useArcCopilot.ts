@@ -337,26 +337,63 @@ export function useArcCopilot(
     const liveConfig = getSessionKeyConfig(walletAddress)
     const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
 
-    if (isTransactionalAction(actionPayload?.type) && !isSessionActive) {
-      pendingActionRef.current = actionPayload
-      const blockedMsg: CopilotMessage = {
-        id: 'assistant-session-req-' + Date.now(),
-        role: 'assistant',
-        content: `⚠️ Active session required to execute this transaction. Please set up your Session Settings first.`,
-        timestamp: Date.now(),
-        actionPayload: {
-          type: 'configure_session',
-          title: 'Set Up Session Settings',
-          data: {
-            pendingAction: actionPayload,
-            reason: 'Active session required',
+    if (isTransactionalAction(actionPayload?.type)) {
+      if (!isSessionActive) {
+        pendingActionRef.current = actionPayload
+        const blockedMsg: CopilotMessage = {
+          id: 'assistant-session-req-' + Date.now(),
+          role: 'assistant',
+          content: `⚠️ Active session required to execute this transaction. Please set up your Session Settings first.`,
+          timestamp: Date.now(),
+          actionPayload: {
+            type: 'configure_session',
+            title: 'Set Up Session Settings',
+            data: {
+              pendingAction: actionPayload,
+              reason: 'Active session required',
+            },
           },
-        },
+        }
+        addMessage(blockedMsg)
+        return
       }
-      addMessage(blockedMsg)
-      return
-    }
 
+      const actionType = normalizeActionType(actionPayload.type)
+      const amount = Number(actionPayload.data?.amount) || 0
+      const tokenForLimit =
+        actionType === 'swap'
+          ? String(actionPayload.data?.fromToken || 'USDC')
+          : actionType === 'send'
+            ? String(actionPayload.data?.tokenSymbol || actionPayload.data?.token || 'USDC')
+            : 'USDC'
+      const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
+
+      if (!check.allowed) {
+        pendingActionRef.current = actionPayload
+        const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)
+        const reasonMsg = check.reason?.includes('not authorized')
+          ? `The "${actionName}" operation is not allowed for this active session. Please check your session settings to grant permission for ${actionName}s.`
+          : `${check.reason} Please adjust your session budget or limits in the Session Settings.`
+
+        const assistantMsg: CopilotMessage = {
+          id: 'assistant-session-limit-' + Date.now(),
+          role: 'assistant',
+          content: `⚠️ ${reasonMsg}`,
+          timestamp: Date.now(),
+          actionPayload: {
+            type: 'configure_session',
+            title: 'Open Session Settings',
+            data: {
+              pendingAction: actionPayload,
+              reason: reasonMsg,
+              actionType,
+            },
+          },
+        }
+        addMessage(assistantMsg)
+        return
+      }
+    }
     inFlightExecutionsRef.current.add(msgId)
 
     setMessages((prev) =>
@@ -446,9 +483,11 @@ export function useArcCopilot(
 
       const liveConfig = getSessionKeyConfig(walletAddress)
       const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
+      const intent = classifyCopilotIntent(queryText)
+      const isExplicitCommand = intent.kind === 'command' || intent.kind === 'correction'
 
       if (action && isTransactionalAction(action.type)) {
-        if (!isSessionActive) {
+        if (!isSessionActive && isExplicitCommand) {
           pendingActionRef.current = action
           const actionName =
             action.type.includes('swap') || action.type === 'trade'
@@ -462,7 +501,7 @@ export function useArcCopilot(
           const assistantMsg: CopilotMessage = {
             id: assistantMsgId,
             role: 'assistant',
-            content: `⚠️ Please set up your Session Settings before executing ${actionName} and other on-chain transactions. Once configured with your spend limits and duration, Arco can process your transactions safely.`,
+            content: `${llmResult.message ? `${llmResult.message}\n\n` : ''}⚠️ Please set up your Session Settings before executing ${actionName} and other on-chain transactions. Once configured with your spend limits and duration, Arco can process your transactions safely.`,
             timestamp: Date.now(),
             actionPayload: {
               type: 'configure_session',
@@ -488,33 +527,8 @@ export function useArcCopilot(
             : actionType === 'send'
               ? String(action.data?.tokenSymbol || action.data?.token || 'USDC')
               : 'USDC'
-        const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
-
-        if (!check.allowed) {
-          const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)
-          const reasonMsg = check.reason?.includes('not authorized')
-            ? `The "${actionName}" operation is not allowed for this active session. Please check your session settings to grant permission for ${actionName}s.`
-            : `${check.reason} Please adjust your session budget or limits in the Session Settings.`
-
-          const assistantMsg: CopilotMessage = {
-            id: assistantMsgId,
-            role: 'assistant',
-            content: `⚠️ ${reasonMsg}`,
-            timestamp: Date.now(),
-            actionPayload: {
-              type: 'configure_session',
-              title: '⚙️ Open Session Settings',
-              data: {
-                reason: reasonMsg,
-                actionType,
-              },
-            },
-          }
-          addMessage(assistantMsg)
-          return
-        }
-
-        if (liveConfig.autoExecute) {
+        const check = isSessionActive ? verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress) : { allowed: false }
+        if (liveConfig.autoExecute && isSessionActive && check.allowed) {
           const assistantMsg: CopilotMessage = {
             id: assistantMsgId,
             role: 'assistant',

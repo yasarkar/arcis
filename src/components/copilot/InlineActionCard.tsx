@@ -712,11 +712,11 @@ export default function InlineActionCard({
                     Deposit Amount
                   </span>
                   <div className="font-bold text-white text-base flex items-center gap-1.5 select-text">
+                    <CopilotTokenIcon symbol={depositToken} className="w-4 h-4 shrink-0" />
                     <span>
                       {hasValidDepositAmount ? formatSubscriptZero(data.amount) : '—'}
                     </span>
-                    <span className="text-xs text-slate-300 font-semibold">{depositToken}</span>
-                    <CopilotTokenIcon symbol={depositToken} className="w-5 h-5 shrink-0" />
+                    <span className="text-[12px] text-white font-bold">{depositToken}</span>
                   </div>
                   {fiat && (
                     <span className="text-[11px] font-mono text-slate-400 block mt-0.5">
@@ -731,12 +731,12 @@ export default function InlineActionCard({
                   <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-0.5 select-text">
                     Est. 1Y Yield
                   </span>
-                  <div className="font-bold text-emerald-400 text-base flex items-center justify-end gap-1 select-text">
+                  <div className="font-bold text-white text-base flex items-center justify-end gap-1 select-text">
                     <span>{hasYieldEstimate ? `+${yearlyYield.toFixed(2)}` : '—'}</span>
-                    <span className="text-xs text-emerald-300/80 font-normal">USDC</span>
+                    <span className="text-xs text-white font-bold">USDC</span>
                   </div>
-                  <span className="text-[10px] font-mono text-emerald-400/90 block mt-0.5">
-                    Variable APY (~8.4% Benchmark)
+                  <span className="text-[11px] font-mono text-slate-400 block mt-0.5">
+                    Variable APY (~8.4%)
                   </span>
                 </div>
               </div>
@@ -751,7 +751,7 @@ export default function InlineActionCard({
                 <DetailRow
                   label="APY"
                   value="Variable (Simulated ~8.4%)"
-                  valueClassName="text-emerald-400"
+                  valueClassName="text-slate-300"
                 />
                 <DetailRow
                   label="Compounding"
@@ -771,10 +771,10 @@ export default function InlineActionCard({
             }
             primaryAction={{
               label: hasValidDepositAmount ? 'Confirm Deposit' : 'Amount Required',
-              icon: <Coins className="w-3.5 h-3.5 text-emerald-200" />,
+              icon: <Coins className="w-3.5 h-3.5 text-indigo-200" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: !hasValidDepositAmount,
-              gradient: 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:brightness-110 text-white shadow-emerald-500/20',
+              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
             }}
             secondaryAction={{
               label: 'Pool Page',
