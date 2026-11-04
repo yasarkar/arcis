@@ -8,9 +8,10 @@ import {
 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
-import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
+import { TOKEN_ICON_MAP, UsdcIcon } from '../../config/tokenIcons'
 import { ARCIS_POOLS, type PoolConfig } from '../../config/poolsConfig'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
+import { DEFAULT_TOKEN_PRICES, normalizeTokenSymbol } from '../../services/tokenPriceService'
 
 interface YieldCalculatorProps {
   isOpen: boolean
@@ -18,6 +19,30 @@ interface YieldCalculatorProps {
   onSelectPoolToDeposit?: (pool: PoolConfig) => void
   walletBalanceUsdc?: string
   pools?: PoolConfig[]
+}
+
+function getTokenIcon(symbol: string): string {
+  return TOKEN_ICON_MAP[symbol] || TOKEN_ICON_MAP[normalizeTokenSymbol(symbol)] || UsdcIcon
+}
+
+function getTokenUsdPrice(symbol: string): number {
+  const norm = normalizeTokenSymbol(symbol).toUpperCase()
+  return DEFAULT_TOKEN_PRICES[norm] || DEFAULT_TOKEN_PRICES[symbol.toUpperCase()] || 1.0
+}
+
+function formatTokenYield(amount: number, symbol: string): string {
+  const sym = symbol.toUpperCase()
+  if (sym === 'CIRBTC' || sym === 'BTC' || sym === 'WBTC') {
+    if (amount < 0.0001) return amount.toFixed(6)
+    if (amount < 0.01) return amount.toFixed(5)
+    return amount.toFixed(4)
+  }
+  if (sym === 'WETH' || sym === 'ETH') {
+    if (amount < 0.01) return amount.toFixed(4)
+    if (amount < 1) return amount.toFixed(3)
+    return amount.toFixed(2)
+  }
+  return amount.toFixed(2)
 }
 
 export default function YieldCalculator({
@@ -142,7 +167,7 @@ export default function YieldCalculator({
             Compound Interest Calculator
           </h2>
           <p style={{ margin: '4px 0 0 0', fontSize: 13, color: 'var(--fp-3)', fontFamily: 'var(--font-app)' }}>
-            Simulate liquidity fees, vault revenue shares, and cross-chain routing returns on Arc Network.
+            Simulate real asset growth, vault revenue shares, and LP trading fee yields on Arc Network.
           </p>
         </div>
 
@@ -159,7 +184,7 @@ export default function YieldCalculator({
               letterSpacing: '0.5px',
             }}
           >
-            PRINCIPAL INVESTMENT
+            PRINCIPAL INVESTMENT (USD VALUATION)
           </label>
 
           <div style={{ position: 'relative', marginBottom: 10 }}>
@@ -196,7 +221,9 @@ export default function YieldCalculator({
                 pointerEvents: 'none',
               }}
             >
-              <img src={UsdcIcon} alt="USDC" style={{ width: 22, height: 22, objectFit: 'contain' }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--fp-3)', fontFamily: 'var(--fonts--space-grotesk)' }}>
+                USD
+              </span>
             </div>
           </div>
 
@@ -268,13 +295,8 @@ export default function YieldCalculator({
                   transition: 'all 0.15s ease',
                 }}
               >
-                <img
-                  src={UsdcIcon}
-                  alt="USDC"
-                  style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0, display: 'block' }}
-                />
                 <span style={{ lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>
-                  {parseInt(amt).toLocaleString()} USDC
+                  ${parseInt(amt).toLocaleString()}
                 </span>
               </button>
             ))}
@@ -306,9 +328,13 @@ export default function YieldCalculator({
           >
             {activePools.map((p) => {
               const isSelected = selectedPoolId === p.id
-              const shortName = p.isLpPool && p.tokens.length >= 2
+              const isLp = p.isLpPool && p.tokens.length >= 2
+              const shortName = isLp
                 ? `${p.tokens[0].symbol} / ${p.tokens[1].symbol}`
                 : p.name.replace(' Settlement Pool', ' Pool').replace(' Cross-Chain', '')
+
+              const tokenAIcon = getTokenIcon(p.tokens[0]?.symbol || 'USDC')
+              const tokenBIcon = isLp ? getTokenIcon(p.tokens[1]?.symbol || '') : null
 
               return (
                 <button
@@ -329,11 +355,25 @@ export default function YieldCalculator({
                     transition: 'all 0.15s ease',
                   }}
                 >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+                    <img
+                      src={tokenAIcon}
+                      alt={p.tokens[0]?.symbol || ''}
+                      style={{ width: 14, height: 14, objectFit: 'contain', display: 'block' }}
+                    />
+                    {tokenBIcon && (
+                      <img
+                        src={tokenBIcon}
+                        alt={p.tokens[1]?.symbol || ''}
+                        style={{ width: 14, height: 14, objectFit: 'contain', display: 'block' }}
+                      />
+                    )}
+                  </div>
                   <div
                     style={{
                       fontSize: 12,
                       fontWeight: 600,
-                      color: 'var(--fp-3)',
+                      color: isSelected ? '#fff' : 'var(--fp-3)',
                       marginBottom: 2,
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
@@ -361,15 +401,83 @@ export default function YieldCalculator({
             marginBottom: 24,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', fontFamily: 'var(--font-app)' }}>
-              Projected Returns: {selectedPool.name}
-            </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: 'var(--font-app)', display: 'block' }}>
+                Projected Returns: {selectedPool.name}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--fp-3)', fontFamily: 'var(--font-app)', marginTop: 2, display: 'block' }}>
+                {selectedPool.isLpPool && selectedPool.tokens.length >= 2
+                  ? `Real trading fee yield earned in ${selectedPool.tokens[0].symbol} + ${selectedPool.tokens[1].symbol}`
+                  : `Real protocol revenue distributed in ${selectedPool.tokens[0]?.symbol || 'USDC'}`}
+              </span>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {periods.map((period) => {
               const res = calculateCompoundReturn(period.days, selectedPool.apy)
+              const isLp = Boolean(selectedPool.isLpPool && selectedPool.tokens && selectedPool.tokens.length >= 2)
+
+              if (!isLp) {
+                // Single-asset vault (USDC)
+                const token = selectedPool.tokens[0] || { symbol: 'USDC' }
+                const tokenIcon = getTokenIcon(token.symbol)
+                const price = getTokenUsdPrice(token.symbol)
+                const tokenAmount = res.yieldEarned / price
+
+                return (
+                  <div
+                    key={period.days}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid rgba(255, 255, 255, 0.04)',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: 'var(--fp-3)', fontFamily: 'var(--font-app)' }}>
+                      {period.label}
+                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', lineHeight: 1 }}>
+                      <img
+                        src={tokenIcon}
+                        alt={token.symbol}
+                        style={{ width: 14, height: 14, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+                      />
+                      <span
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 700,
+                          fontFamily: 'var(--fonts--space-grotesk)',
+                          lineHeight: 1,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {formatTokenYield(tokenAmount, token.symbol)} {token.symbol}
+                      </span>
+                    </div>
+                  </div>
+                )
+              }
+
+              // Dual-Asset LP pool (e.g. cirBTC / WETH, EURC / WETH, USDC / cirBTC)
+              const tokenA = selectedPool.tokens[0]
+              const tokenB = selectedPool.tokens[1]
+              const iconA = getTokenIcon(tokenA.symbol)
+              const iconB = getTokenIcon(tokenB.symbol)
+              const ratioA = (selectedPool.reserves?.ratioA || 50) / 100
+              const ratioB = 1 - ratioA
+              const priceA = getTokenUsdPrice(tokenA.symbol)
+              const priceB = getTokenUsdPrice(tokenB.symbol)
+              const amountA = (res.yieldEarned * ratioA) / priceA
+              const amountB = (res.yieldEarned * ratioB) / priceB
+
               return (
                 <div
                   key={period.days}
@@ -377,7 +485,7 @@ export default function YieldCalculator({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '8px 12px',
+                    padding: '10px 14px',
                     borderRadius: 10,
                     background: 'rgba(255, 255, 255, 0.02)',
                     border: '1px solid rgba(255, 255, 255, 0.04)',
@@ -386,32 +494,70 @@ export default function YieldCalculator({
                   <span style={{ fontSize: 12, color: 'var(--fp-3)', fontFamily: 'var(--font-app)' }}>
                     {period.label}
                   </span>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', lineHeight: 1 }}>
-                    <img
-                      src={UsdcIcon}
-                      alt="USDC"
-                      style={{ width: 14, height: 14, objectFit: 'contain', flexShrink: 0, display: 'block' }}
-                    />
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', lineHeight: 1 }}>
+                      {/* Token A Yield */}
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, lineHeight: 1 }}>
+                        <img
+                          src={iconA}
+                          alt={tokenA.symbol}
+                          style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            fontFamily: 'var(--fonts--space-grotesk)',
+                            lineHeight: 1,
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {formatTokenYield(amountA, tokenA.symbol)} {tokenA.symbol}
+                        </span>
+                      </div>
+
+                      <span style={{ color: 'var(--fp-4)', fontSize: 15, fontWeight: 700, lineHeight: 1 }}>+</span>
+
+                      {/* Token B Yield */}
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, lineHeight: 1 }}>
+                        <img
+                          src={iconB}
+                          alt={tokenB.symbol}
+                          style={{ width: 13, height: 13, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+                        />
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            fontFamily: 'var(--fonts--space-grotesk)',
+                            lineHeight: 1,
+                            fontVariantNumeric: 'tabular-nums',
+                          }}
+                        >
+                          {formatTokenYield(amountB, tokenB.symbol)} {tokenB.symbol}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Total USD equivalent */}
                     <span
                       style={{
-                        fontSize: 14,
-                        fontWeight: 700,
+                        fontSize: 11,
+                        color: 'var(--fp-3)',
                         fontFamily: 'var(--fonts--space-grotesk)',
-                        lineHeight: 1,
-                        display: 'inline-flex',
-                        alignItems: 'center',
                         fontVariantNumeric: 'tabular-nums',
+                        lineHeight: 1,
                       }}
                     >
-                      {res.yieldEarned.toFixed(2)} USDC
+                      ≈ ${res.yieldEarned.toFixed(2)} USD
                     </span>
                   </div>
                 </div>
               )
             })}
           </div>
-          <p style={{ fontSize: 10.5, color: 'var(--fp-4)', margin: '12px 0 0 0', textAlign: 'center', lineHeight: 1.4 }}>
-            Linear stream and compound projections assume constant base APY. Realized returns compound directly on-chain into share value and fluctuate with protocol utilization and swap volume.
+          <p style={{ fontSize: 10.5, color: 'var(--fp-4)', margin: '14px 0 0 0', textAlign: 'center', lineHeight: 1.4 }}>
+            Linear stream and compound projections assume constant base APY. LP fee rewards accumulate directly in the pool's traded pairs ({selectedPool.tokens.map((t) => t.symbol).join(' + ')}).
           </p>
         </div>
 
@@ -441,4 +587,3 @@ export default function YieldCalculator({
     document.body
   )
 }
-
