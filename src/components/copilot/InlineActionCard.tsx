@@ -144,7 +144,6 @@ export default function InlineActionCard({
   onExecuteInline,
   onNavigateToTab,
   onOpenSessionSettings,
-  onOpenExecutionSettings,
   onCloseDrawer,
   onSendMessage,
   walletAddress,
@@ -600,7 +599,7 @@ export default function InlineActionCard({
                   </span>
                   <div className="font-bold text-white text-sm flex items-center gap-1.5 select-text">
                     <CopilotTokenIcon symbol={fromTok} className="w-5 h-5 shrink-0" />
-                    <span className="truncate" title={hasValidAmount ? String(data.amount) : undefined}>
+                    <span className="truncate">
                       {hasValidAmount ? formatSubscriptZero(data.amount) : '—'}
                     </span>
                     <span className="text-white font-bold">{fromTok}</span>
@@ -624,7 +623,7 @@ export default function InlineActionCard({
                   </span>
                   <div className="font-bold text-slate-200 text-sm flex items-center justify-end gap-1.5 select-text">
                     <CopilotTokenIcon symbol={toTok} className="w-5 h-5 shrink-0" />
-                    <span className="truncate" title={hasLiveQuote ? String(estimatedOut) : undefined}>
+                    <span className="truncate">
                       {hasLiveQuote ? `~${formatSubscriptZero(estimatedOut)}` : 'Quote required'}
                     </span>
                     <span className="text-white font-bold">{toTok}</span>
@@ -675,11 +674,6 @@ export default function InlineActionCard({
               icon: <ArrowRightLeft className="w-4 h-4" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: !hasLiveQuote || !hasValidAmount || !hasMinimum || slippageBps === undefined,
-              title: !hasValidAmount
-                ? 'A valid explicit amount is required before confirming this swap.'
-                : !hasLiveQuote || !hasMinimum || slippageBps === undefined
-                  ? 'A live quote with exact minimum output and valid slippage is required before confirming this swap.'
-                  : undefined,
               gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
             }}
             secondaryAction={{
@@ -697,9 +691,10 @@ export default function InlineActionCard({
       {(actionPayload.type === 'interactive_deposit' || actionPayload.type === 'view_pool') && (() => {
         const depositAmount = Number(data.amount)
         const hasValidDepositAmount = Number.isFinite(depositAmount) && depositAmount > 0
+        const depositToken = String(data.tokenSymbol || data.token || 'USDC')
         const yearlyYield = Number(data.estimatedYieldUsdcYearly)
         const hasYieldEstimate = hasValidDepositAmount && Number.isFinite(yearlyYield) && yearlyYield > 0
-        const fiat = formatFiatEstimate(data.amount, 'USDC', tokenPrices)
+        const fiat = formatFiatEstimate(data.amount, depositToken, tokenPrices)
         const warnings = depositActionWarnings({ amount: depositAmount, balances: availableBalances })
 
         return (
@@ -718,11 +713,11 @@ export default function InlineActionCard({
                     Deposit Amount
                   </span>
                   <div className="font-bold text-white text-base flex items-center gap-1.5 select-text">
-                    <span title={hasValidDepositAmount ? String(data.amount) : undefined}>
+                    <span>
                       {hasValidDepositAmount ? formatSubscriptZero(data.amount) : '—'}
                     </span>
-                    <span className="text-xs text-slate-300 font-semibold">USDC</span>
-                    <CopilotTokenIcon symbol="USDC" className="w-5 h-5 shrink-0" />
+                    <span className="text-xs text-slate-300 font-semibold">{depositToken}</span>
+                    <CopilotTokenIcon symbol={depositToken} className="w-5 h-5 shrink-0" />
                   </div>
                   {fiat && (
                     <span className="text-[12px] font-mono text-slate-400 block mt-0.5">
@@ -780,9 +775,6 @@ export default function InlineActionCard({
               icon: <Coins className="w-3.5 h-3.5 text-emerald-200" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: !hasValidDepositAmount,
-              title: !hasValidDepositAmount
-                ? 'A valid explicit amount is required before confirming this deposit.'
-                : undefined,
               gradient: 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:brightness-110 text-white shadow-emerald-500/20',
             }}
             secondaryAction={{
@@ -802,7 +794,8 @@ export default function InlineActionCard({
         const hasValidBridgeAmount = Number.isFinite(bridgeAmount) && bridgeAmount > 0
         const fromChain = data.fromChain || 'Arc Testnet'
         const toChain = data.toChain || 'Ethereum Sepolia'
-        const fiat = formatFiatEstimate(data.amount, 'USDC', tokenPrices)
+        const bridgeToken = String(data.tokenSymbol || data.token || data.fromToken || 'USDC')
+        const fiat = formatFiatEstimate(data.amount, bridgeToken, tokenPrices)
 
         return (
           <ActionCardShell
@@ -821,14 +814,11 @@ export default function InlineActionCard({
                 </div>
                 <div className="text-right select-text cursor-text">
                   <div className="flex items-center justify-end gap-1.5 select-text">
-                    <span
-                      className="font-bold text-white text-base tracking-tight select-text"
-                      title={hasValidBridgeAmount ? String(data.amount) : undefined}
-                    >
+                    <span className="font-bold text-white text-base tracking-tight select-text">
                       {hasValidBridgeAmount ? formatSubscriptZero(data.amount) : 'Amount unavailable'}
                     </span>
-                    <span className="text-xs font-semibold text-slate-300 select-text">USDC</span>
-                    <CopilotTokenIcon symbol="USDC" className="w-5 h-5 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-300 select-text">{bridgeToken}</span>
+                    <CopilotTokenIcon symbol={bridgeToken} className="w-5 h-5 shrink-0" />
                   </div>
                   {fiat && (
                     <span className="text-[12px] font-mono text-slate-400 block mt-0.5 select-text">
@@ -987,7 +977,6 @@ export default function InlineActionCard({
                   </span>
                   <div className="flex items-center gap-1.5 select-text">
                     <span
-                      title={fullRecipient}
                       className="font-mono text-slate-300 font-bold text-[12px] select-text cursor-text truncate max-w-[200px]"
                     >
                       {displayRecipient || '—'}
@@ -999,7 +988,6 @@ export default function InlineActionCard({
                           e.stopPropagation()
                           void handleCopyRecipient(fullRecipient)
                         }}
-                        title={copyError || (copiedRecipient ? 'Kopyalandı!' : 'Adresi Kopyala')}
                         aria-label={copyError || (copiedRecipient ? 'Adres panoya kopyalandı' : 'Alıcı adresini kopyala')}
                         className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition cursor-pointer flex items-center justify-center"
                       >
@@ -1243,7 +1231,6 @@ function ActionCardShell({
           type="button"
           onClick={primaryAction.onClick}
           disabled={primaryAction.disabled}
-          title={primaryAction.title}
           className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100 hover:brightness-110 ${primaryAction.gradient}`}
         >
           {primaryAction.icon}

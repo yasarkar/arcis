@@ -85,6 +85,8 @@ export const TOKEN_ICON_MAP: Record<string, string> = {
   EURC: EurcIcon,
   cirBTC: CirBtcIcon,
   BTC: CirBtcIcon,
+  WBTC: CirBtcIcon,
+  CIRCLE: CircleIcon,
   WETH: WethIcon,
   wETH: WethIcon,
   ETH: EthIcon,
