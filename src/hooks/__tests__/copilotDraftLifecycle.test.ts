@@ -122,4 +122,18 @@ describe('A02 hook draft lifecycle before any signer', () => {
     expect(messages().some(m => m.actionPayload?.type === 'interactive_deposit')).toBe(false)
     expect(executeDirectCopilotAction).not.toHaveBeenCalled()
   })
+
+  it('answers explore topic questions with educational content rather than no-transaction error', async () => {
+    await query('What is Arcis and what makes it unique on Arc L1?')
+    const lastMsg = messages()[messages().length - 1]
+    expect(lastMsg.role).toBe('assistant')
+    expect(lastMsg.content).toContain('Arcis Protocol is a next-generation decentralized capital')
+    expect(lastMsg.content).not.toContain('No transaction prepared')
+
+    await query('Why does Arc L1 use USDC as the native gas token?')
+    const whyMsg = messages()[messages().length - 1]
+    expect(whyMsg.role).toBe('assistant')
+    expect(whyMsg.content).toContain('native gas currency instead of ETH')
+    expect(whyMsg.content).not.toContain('No transaction prepared')
+  })
 })

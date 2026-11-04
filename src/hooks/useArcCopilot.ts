@@ -89,7 +89,7 @@ import {
   createArcoWelcomeMessage,
   isGatewayFlowReportQuery,
   isActionOrStrategyIntent, isPortfolioAnalysisQuery, isVaultReportQuery, isVaultAnalyticsQuery,
-  exploreTopicQuestions,
+  exploreTopicQuestions, isTopicPrompt, isPureEducationalQuery,
 } from '../config/copilotTopics'
 
 export {
@@ -101,7 +101,7 @@ export {
   createArcoWelcomeMessage,
   isGatewayFlowReportQuery,
   isActionOrStrategyIntent, isPortfolioAnalysisQuery, isVaultReportQuery,
-  exploreTopicQuestions,
+  exploreTopicQuestions, isTopicPrompt, isPureEducationalQuery,
 }
 
 
@@ -1155,7 +1155,7 @@ export function useArcCopilot(
         setCurrentSteps([])
         return
       }
-      if ('message' in intent) {
+      if (intent.kind === 'ambiguous' || (intent.kind === 'read-only' && !isTopicPrompt(queryText) && !isPureEducationalQuery(queryText))) {
         addMessage({ id: 'assistant-' + Date.now(), role: 'assistant', content: intent.message, timestamp: Date.now() })
         setCurrentSteps([])
         return

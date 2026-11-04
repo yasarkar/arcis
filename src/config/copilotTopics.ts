@@ -400,6 +400,68 @@ export function isVaultAnalyticsQuery(query: string): boolean {
   ].some((keyword) => p.includes(keyword))
 }
 
+export function isTopicPrompt(query: string): boolean {
+  if (!query) return false
+  const p = query.toLowerCase().trim()
+  return EXPLORE_TOPIC_CATEGORIES.some((cat) =>
+    cat.questions.some((q) => {
+      const qPrompt = q.prompt.toLowerCase().trim()
+      const qTitle = q.title.toLowerCase().trim()
+      return p === qPrompt || p === qTitle || p.includes(qPrompt) || qPrompt.includes(p)
+    })
+  )
+}
+
+export function isPureEducationalQuery(query: string): boolean {
+  if (!query) return false
+  const p = query.toLowerCase().trim()
+  if (isTopicPrompt(p)) return true
+
+  const faqKeywords = [
+    'what is arcis',
+    'unique on arc l1',
+    'get testnet usdc',
+    'start without paying eth gas',
+    'why does arc l1 use usdc',
+    'native gas token',
+    'core features i can use',
+    'core features',
+    '500ms finality',
+    'protect my trades',
+    'how do token swaps work',
+    'trading fees and gas costs',
+    'split-routing',
+    'which tokens are supported',
+    'which tokens can i swap',
+    'gasless eip-3009 swaps',
+    'sustainable 8.42% apy',
+    'protocol yield come from',
+    'how do i deposit usdc',
+    'what is af-usdc',
+    'yield & pools vaults compare',
+    'x402 nanopayments protocol work',
+    'what is circle gateway',
+    'instant cross-chain transfer work',
+    'deposit funds into gateway',
+    'what are transaction memos',
+    'what fees does arcis charge',
+    'how does gasless sending work',
+    'prevent sandwich',
+    'circle gateway unified balance safe',
+    'smart contract wallet on arcis',
+    'rpc goes down',
+    'who audits arcis',
+    'liquidity providers earn',
+    'how to calculate impermanent loss',
+    'bridge back to ethereum',
+    'protect against reentrancy',
+    'maximum slippage allowed',
+    'protocol revenue sharing work',
+  ]
+
+  return faqKeywords.some((kw) => p.includes(kw))
+}
+
 /**
  * Detects if a user query is an action, transaction command, portfolio strategy request,
  * multi-turn correction, or parameterized input that must be handled by LLM / Local NLP
@@ -412,6 +474,7 @@ export function isActionOrStrategyIntent(query: string): boolean {
   if (isGatewayFlowReportQuery(query)) return false
   // Paid analysis/reporting intents are measurements, not transaction actions.
   if (isPortfolioAnalysisQuery(query) || isVaultReportQuery(query) || isVaultAnalyticsQuery(query)) return false
+  if (isTopicPrompt(query) || isPureEducationalQuery(query)) return false
   const p = query.toLowerCase().trim()
 
   // 1. Slash commands always route to intent/action handling
