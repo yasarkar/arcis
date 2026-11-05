@@ -3,6 +3,21 @@ import type { SessionKeyConfig, SessionActionType, SessionTimeRemaining } from '
 import { getStoredMscaAddress } from './modularWalletService'
 import { sessionSpendSnapshot } from './sessionSpendLedger'
 import { logger } from '../utils/logger'
+import {
+  generateEphemeralSessionAccount,
+  getEphemeralSessionAccount,
+  clearEphemeralSessionAccount,
+  fetchEnclaveUsdcBalance,
+  sweepEnclaveUsdc,
+} from './sessionEnclaveService'
+
+export {
+  getEphemeralSessionAccount,
+  generateEphemeralSessionAccount,
+  clearEphemeralSessionAccount,
+  fetchEnclaveUsdcBalance,
+  sweepEnclaveUsdc,
+}
 
 /** Scoped logger: falling back to the 'default' session bucket must be visible. */
 const log = logger.createScope('sessionKeyService')
@@ -228,10 +243,12 @@ export async function activateSessionKey(params: {
   allowedActions?: SessionActionType[]
   mscaAddress?: string
   walletAddress?: string
+  enableEnclave?: boolean
 }): Promise<SessionKeyConfig> {
   const walletKey = resolveTargetWallet(params.walletAddress)
 
   if (!params.userApproved) {
+    clearEphemeralSessionAccount(walletKey)
     const unapproved = createInitialSessionConfig(walletKey)
     saveSessionKeyConfig(unapproved, true, walletKey)
     return unapproved
@@ -246,9 +263,20 @@ export async function activateSessionKey(params: {
     : [...DEFAULT_SESSION_KEY_CONFIG.allowedActions]
   const msca = params.mscaAddress || getStoredMscaAddress()
 
+  let sessionPublicKey = ''
+  if (params.enableEnclave) {
+    const existing = getEphemeralSessionAccount(walletKey)
+    if (existing) {
+      sessionPublicKey = existing.address
+    } else {
+      const generated = generateEphemeralSessionAccount(walletKey)
+      sessionPublicKey = generated.sessionPublicKey
+    }
+  }
+
   const newConfig: SessionKeyConfig = {
     sessionId: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-    sessionPublicKey: '',
+    sessionPublicKey,
     walletAddress: walletKey !== 'default' ? walletKey : undefined,
     mscaAddress: msca || undefined,
     delegationType: msca ? 'msca' : 'headless',
@@ -377,6 +405,7 @@ export function elevateSessionPerTxCap(newCap: number, walletAddress?: string): 
  */
 export function revokeSessionKey(walletAddress?: string): SessionKeyConfig {
   const walletKey = resolveTargetWallet(walletAddress)
+  clearEphemeralSessionAccount(walletKey)
   const storageKey = getStorageKeyForWallet(walletKey)
   try {
     if (typeof localStorage !== 'undefined') {

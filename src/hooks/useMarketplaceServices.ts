@@ -13,8 +13,10 @@ import {
   deductSessionBudget,
   type SessionBudgetState,
 } from '../services/x402Client'
-import { deductSessionSpend } from '../services/sessionKeyService'
+import { deductSessionSpend, getSessionKeyConfig } from '../services/sessionKeyService'
+import { getEphemeralSessionAccount } from '../services/sessionEnclaveService'
 import { resolveX402Payer, type UcwTypedDataChallenge } from '../services/x402/ucwPaymentSigner'
+import type { X402PayerKind, X402TypedDataSigner } from '../services/x402/paymentOrchestrator'
 import type {
   x402Service,
   ServiceCategory,
@@ -145,21 +147,37 @@ export function useMarketplaceServices(
     setIsExecuting(true)
     setExecutionResult(null)
     try {
-      // An injected EOA signs locally; a Circle Wallet (created as an EOA) signs through its
-      // Circle challenge. A passkey/MSCA wallet can do neither, so it stays unofferable.
-      const payer = resolveX402Payer(authSource, ucwSignTypedData)
-      if (!payer) {
-        const result: x402ExecutionResult = {
-          statusCode: 503,
-          success: false,
-          error: 'Circle Gateway paid calls require a connected external EOA or an active Circle Wallet signing session. Passkey/MSCA wallets are unsupported.',
-          executionTimeMs: 0,
-          costUsdc: 0,
+      // Check if an active Session Enclave is available for zero-click autonomous execution
+      const sessionConfig = getSessionKeyConfig(walletAddress)
+      const sessionAccount = (sessionConfig.isActive && sessionConfig.sessionPublicKey)
+        ? getEphemeralSessionAccount(walletAddress)
+        : null
+
+      let effectivePayerKind: X402PayerKind = 'external_eoa'
+      let effectiveSigner: X402TypedDataSigner | undefined = undefined
+      let effectivePayerAddress = walletAddress
+
+      if (sessionAccount && sessionConfig.isActive) {
+        effectivePayerKind = 'session_eoa'
+        effectivePayerAddress = sessionAccount.address
+      } else {
+        const payer = resolveX402Payer(authSource, ucwSignTypedData)
+        if (!payer) {
+          const result: x402ExecutionResult = {
+            statusCode: 503,
+            success: false,
+            error: 'Circle Gateway paid calls require a connected external EOA, an active Circle Wallet signing session, or an active Session Enclave. Passkey/MSCA wallets are unsupported.',
+            executionTimeMs: 0,
+            costUsdc: 0,
+          }
+          setExecutionResult(result)
+          return result
         }
-        setExecutionResult(result)
-        return result
+        effectivePayerKind = payer.kind
+        effectiveSigner = payer.signer
       }
-      const result = await executeX402Call(service, payload, walletAddress, provider, payer.kind, payer.signer)
+
+      const result = await executeX402Call(service, payload, effectivePayerAddress, provider, effectivePayerKind, effectiveSigner)
       setExecutionResult(result)
 
       // Increment stats dynamically and persist spend to active session envelope

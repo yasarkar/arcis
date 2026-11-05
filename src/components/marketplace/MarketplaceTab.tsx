@@ -28,21 +28,19 @@ import { usePlatformStats } from '../../hooks/usePlatformStats'
 import { useReportDigests } from '../../hooks/useReportDigests'
 import { useServiceTelemetry } from '../../hooks/useServiceTelemetry'
 import { useSharedLatency } from '../../hooks/useSharedLatency'
+import type { CopilotUcwHandlers } from '../../services/copilot/copilotCommon'
 import {
   deriveMarketplaceHeroStats,
   WEB2_CALL_BASELINE_USD,
 } from '../../services/marketplaceHeroStats'
-import type { CopilotUcwHandlers } from '../../services/copilot/copilotCommon'
-import type { UcwTypedDataChallenge } from '../../services/x402/ucwPaymentSigner'
 import {
   getSessionKeyConfig,
-  saveSessionKeyConfig,
-  SESSION_KEY_UPDATED_EVENT,
-  DEFAULT_SESSION_KEY_CONFIG,
+  SESSION_KEY_UPDATED_EVENT
 } from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
-import type { SessionKeyConfig } from '../../types/sessionKey'
+import type { UcwTypedDataChallenge } from '../../services/x402/ucwPaymentSigner'
 import type { x402Service } from '../../types/marketplace'
+import type { SessionKeyConfig } from '../../types/sessionKey'
 import NextStepRail, { LastMeasurementBadge } from './NextStepRail'
 import ProviderHubModal from './ProviderHubModal'
 import RegisterServiceModal from './RegisterServiceModal'
@@ -56,12 +54,12 @@ const SORT_OPTIONS: Array<{
   icon: typeof Sparkles
   badge?: string
 }> = [
-  { value: 'default', label: 'Default Order', icon: Sparkles },
-  { value: 'price_asc', label: 'Price: Low to High', icon: ArrowDown },
-  { value: 'price_desc', label: 'Price: High to Low', icon: ArrowUp },
-  { value: 'latency_asc', label: 'Latency: Fastest', icon: Zap, badge: 'SLA' },
-  { value: 'name_asc', label: 'Name: A to Z', icon: ArrowUpDown },
-]
+    { value: 'default', label: 'Default Order', icon: Sparkles },
+    { value: 'price_asc', label: 'Price: Low to High', icon: ArrowDown },
+    { value: 'price_desc', label: 'Price: High to Low', icon: ArrowUp },
+    { value: 'latency_asc', label: 'Latency: Fastest', icon: Zap, badge: 'SLA' },
+    { value: 'name_asc', label: 'Name: A to Z', icon: ArrowUpDown },
+  ]
 
 interface MarketplaceTabProps {
   walletAddress?: string
@@ -169,9 +167,9 @@ export default function MarketplaceTab({
       heroStats.userSavingsUsd === null
         ? null
         : heroStats.userSavingsUsd.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          }),
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }),
     [heroStats.userSavingsUsd]
   )
   const userSavingsDetail = useMemo(() => {
@@ -189,9 +187,9 @@ export default function MarketplaceTab({
       heroStats.protocolFeeUsdc === null
         ? null
         : `${heroStats.protocolFeeUsdc.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 6,
-          })} USDC`,
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 6,
+        })} USDC`,
     [heroStats.protocolFeeUsdc]
   )
   const protocolFeeDetail = useMemo(() => {
@@ -216,12 +214,6 @@ export default function MarketplaceTab({
   }, [walletAddress])
 
   const sessionIsActive = sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt
-
-  const averageServicePriceUsdc = useMemo(() => {
-    if (!services || services.length === 0) return 0.005
-    const sum = services.reduce((acc, s) => acc + (s.pricing?.priceUsdc || 0), 0)
-    return Math.max(0.001, sum / services.length)
-  }, [services])
 
   const sessionTimeRemaining = useMemo(() => {
     if (!sessionIsActive || !sessionConfig.expiresAt) return null
@@ -313,17 +305,10 @@ export default function MarketplaceTab({
 
   const isFiltered = searchQuery !== '' || filterCommunity !== 'all' || sortBy !== 'default'
 
-  // Envelope figures are derived once so the band, the meter and the labels can never disagree.
+  // Envelope figures for remaining / total cap display.
   const effectiveMaxSpend = sessionIsActive ? sessionConfig.maxSpendUsdc || 0 : 0
   const effectiveSpent = sessionIsActive ? sessionConfig.spentUsdc || 0 : 0
   const remainingUsdc = Math.max(0, effectiveMaxSpend - effectiveSpent)
-  const spentRatio =
-    effectiveMaxSpend > 0 ? Math.min(1, Math.max(0, effectiveSpent / effectiveMaxSpend)) : 0
-  const perTxCapUsdc = sessionIsActive ? sessionConfig.maxPerTxUsdc || 0 : 0
-  const estimatedCallCount =
-    sessionIsActive && averageServicePriceUsdc > 0
-      ? Math.floor(remainingUsdc / averageServicePriceUsdc)
-      : 0
 
   /** Opens a service with the inputs a recommendation was derived for. */
   const openServiceWithParams = (
@@ -342,28 +327,6 @@ export default function MarketplaceTab({
     soundService.play('pop')
     setPendingPayload(undefined)
     openPlayground(service)
-  }
-
-  const handleResetEnvelope = () => {
-    soundService.play('pop')
-    const current = getSessionKeyConfig(walletAddress)
-    const updated: SessionKeyConfig = {
-      ...current,
-      sessionId: `sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      isActive: true,
-      expiresAt: Date.now() + 24 * 3600 * 1000,
-      maxSpendUsdc: 2.0,
-      spentUsdc: 0.0,
-      maxPerTxUsdc: 0.5,
-      allowedActions:
-        current.allowedActions?.length > 0
-          ? current.allowedActions
-          : [...DEFAULT_SESSION_KEY_CONFIG.allowedActions],
-      createdAt: Date.now(),
-    }
-    saveSessionKeyConfig(updated, true, walletAddress)
-    setSessionConfig(updated)
-    handleResetBudget(2.0)
   }
 
   return (
@@ -424,247 +387,149 @@ export default function MarketplaceTab({
             </div>
           </div>
 
-          {/* Live Ecosystem Stats Grid (Space Grotesk + ECG Heartbeat + Space Mono) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:col-span-6 content-center">
-            <div
-              className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--sky-sync)]/30 transition-all duration-300"
-              title={paidCallsDetail}
-            >
-              <span className="arc-eyebrow text-[11px] flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
-                <span>Paid Calls</span>
-              </span>
-              <div
-                className="text-lg font-bold text-white mt-1.5 tabular-nums"
-                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-                aria-label={paidCallsValue ? `Paid calls: ${paidCallsValue}` : 'Paid calls: unavailable'}
-              >
-                {paidCallsValue ?? '—'}
-              </div>
-            </div>
-
-            <div
-              className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--earned-green)]/30 transition-all duration-300"
-              title={latencyDetail}
-            >
-              <span className="arc-eyebrow text-[11px] flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-[var(--earned-green)]">
-                  <Clock className="w-3.5 h-3.5 text-[var(--earned-green)]" />
-                  <span>Avg. Latency</span>
-                  <div className="ub-live-badge px-2 py-0.5" title="Shared server-measured Arc Testnet RPC round-trip">
-                    <svg className="ub-ecg-svg" viewBox="0 0 35 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-bg" />
-                      <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-pulse" />
-                    </svg>
+          {/* Right Wing: Session Envelope & Live Ecosystem Stats */}
+          <div className="space-y-3 lg:col-span-6 flex flex-col justify-center">
+            {/* Compact Session Envelope (positioned directly above the 2x2 stat boxes) */}
+            <div className="p-3 sm:p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-white/10 transition-all duration-300">
+              <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+                {/* Kalan Limit / Tüm Limit */}
+                <div className="flex flex-col min-w-0">
+                  <span className="arc-eyebrow text-[10px] text-[var(--fp-4)]">Session Envelope</span>
+                  <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span
+                      className={`text-base sm:text-lg font-bold tabular-nums ${sessionIsActive ? 'text-white' : 'text-[var(--fp-3)]'
+                        }`}
+                      style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                    >
+                      {sessionIsActive ? remainingUsdc.toFixed(2) : '0.00'}
+                    </span>
+                    <span className="text-xs text-[var(--fp-4)] font-mono">
+                      / {sessionIsActive ? effectiveMaxSpend.toFixed(2) : (sessionConfig.maxSpendUsdc ? sessionConfig.maxSpendUsdc.toFixed(2) : '0.00')} USDC
+                    </span>
                   </div>
-                </span>
+                </div>
 
-              </span>
-              <div className="flex items-center justify-between mt-1.5">
-                <span
-                  className="text-lg font-bold tabular-nums"
-                  style={{
-                    fontFamily: 'var(--fonts--space-grotesk)',
-                    color: 'var(--earned-green)',
-                  }}
-                  aria-label={latencyValue ? `Average latency: ${latencyValue}` : 'Average latency: unavailable'}
+                {/* Kalan Süre, Active'lik Durumu & Ayarlar Butonu */}
+                <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+                  {/* Kalan Süre */}
+                  <div
+                    className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--fp-3)] bg-white/[0.02] border border-white/5 px-2.5 py-1 rounded-lg"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+                    <span>{sessionIsActive && sessionTimeRemaining ? sessionTimeRemaining : '—'}</span>
+                  </div>
+
+                  {/* Active'lik Durumu */}
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono uppercase tracking-wider border ${sessionIsActive
+                      ? 'border-[var(--earned-green)]/30 bg-[var(--earned-green)]/10 text-[var(--earned-green)]'
+                      : 'border-white/10 bg-white/[0.04] text-[var(--fp-4)]'
+                      }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${sessionIsActive
+                        ? 'bg-[var(--earned-green)] animate-pulse shadow-[0_0_6px_rgba(1,208,98,0.6)]'
+                        : 'bg-[var(--fp-4)]'
+                        }`}
+                    />
+                    {sessionIsActive ? 'Active' : 'Inactive'}
+                  </span>
+
+                  {/* Ayarlar Butonu */}
+                  <button
+                    onClick={() => {
+                      soundService.play('pop')
+                      setIsSessionModalOpen(true)
+                    }}
+                    className="p-1.5 sm:p-2 rounded-lg bg-white/[0.04] border border-white/10 hover:border-white/20 hover:bg-white/[0.08] text-white/70 hover:text-white transition-all cursor-pointer flex items-center justify-center shrink-0"
+                    aria-label="Open session envelope settings"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Ecosystem Stats Grid (2x2) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div
+                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--sky-sync)]/30 transition-all duration-300"
+              >
+                <span className="arc-eyebrow text-[11px] flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+                  <span>Paid Calls</span>
+                </span>
+                <div
+                  className="text-lg font-bold text-white mt-1.5 tabular-nums"
+                  style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                  aria-label={paidCallsValue ? `Paid calls: ${paidCallsValue}` : 'Paid calls: unavailable'}
                 >
-                  {latencyValue ?? '—'}
+                  {paidCallsValue ?? '—'}
+                </div>
+              </div>
+
+              <div
+                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--earned-green)]/30 transition-all duration-300"
+              >
+                <span className="arc-eyebrow text-[11px] flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[var(--earned-green)]">
+                    <Clock className="w-3.5 h-3.5 text-[var(--earned-green)]" />
+                    <span>Avg. Latency</span>
+                    <div className="ub-live-badge px-2 py-0.5">
+                      <svg className="ub-ecg-svg" viewBox="0 0 35 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-bg" />
+                        <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-pulse" />
+                      </svg>
+                    </div>
+                  </span>
                 </span>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span
+                    className="text-lg font-bold tabular-nums"
+                    style={{
+                      fontFamily: 'var(--fonts--space-grotesk)',
+                      color: 'var(--earned-green)',
+                    }}
+                    aria-label={latencyValue ? `Average latency: ${latencyValue}` : 'Average latency: unavailable'}
+                  >
+                    {latencyValue ?? '—'}
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <div
-              className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--blockstream-gold)]/30 transition-all duration-300"
-              title={userSavingsDetail}
-            >
-              <span className="arc-eyebrow text-[11px] flex items-center gap-1.5 text-[var(--secondary-colors--blockstream-gold)]">
-                <PiggyBank className="w-3.5 h-3.5 text-[var(--secondary-colors--blockstream-gold)]" />
-                <span>User Savings</span>
-              </span>
               <div
-                className="text-lg font-bold mt-1.5 tabular-nums text-[var(--secondary-colors--blockstream-gold)]"
-                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-                aria-label={userSavingsValue ? `User savings: $${userSavingsValue}` : 'User savings: unavailable'}
+                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--blockstream-gold)]/30 transition-all duration-300"
               >
-                {userSavingsValue ? `$${userSavingsValue}` : '—'}
+                <span className="arc-eyebrow text-[11px] flex items-center gap-1.5 text-[var(--secondary-colors--blockstream-gold)]">
+                  <PiggyBank className="w-3.5 h-3.5 text-[var(--secondary-colors--blockstream-gold)]" />
+                  <span>User Savings</span>
+                </span>
+                <div
+                  className="text-lg font-bold mt-1.5 tabular-nums text-[var(--secondary-colors--blockstream-gold)]"
+                  style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                  aria-label={userSavingsValue ? `User savings: $${userSavingsValue}` : 'User savings: unavailable'}
+                >
+                  {userSavingsValue ? `$${userSavingsValue}` : '—'}
+                </div>
               </div>
-            </div>
 
-            <div
-              className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--purple-1)]/30 transition-all duration-300"
-              title={protocolFeeDetail}
-            >
-              <span className="arc-eyebrow text-[11px] flex items-center gap-1.5 text-[var(--purple-1)]">
-                <Sparkles className="w-3.5 h-3.5 text-[var(--purple-1)]" />
-                <span>Protocol Fee ({protocolFeeBps / 100}%)</span>
-              </span>
               <div
-                className="text-lg font-bold mt-1.5 tabular-nums text-[var(--purple-1)]"
-                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-                aria-label={protocolFeeValue ? `Protocol fee: ${protocolFeeValue}` : 'Protocol fee: unavailable'}
+                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--purple-1)]/30 transition-all duration-300"
               >
-                {protocolFeeValue ?? '—'}
+                <span className="arc-eyebrow text-[11px] flex items-center gap-1.5 text-[var(--purple-1)]">
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--purple-1)]" />
+                  <span>Protocol Fee ({protocolFeeBps / 100}%)</span>
+                </span>
+                <div
+                  className="text-lg font-bold mt-1.5 tabular-nums text-[var(--purple-1)]"
+                  style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                  aria-label={protocolFeeValue ? `Protocol fee: ${protocolFeeValue}` : 'Protocol fee: unavailable'}
+                >
+                  {protocolFeeValue ?? '—'}
+                </div>
               </div>
             </div>
           </div>
-
-          {/* ── SESSION ENVELOPE (single-surface statement line) ── */}
-          <section
-            aria-label="Session envelope"
-            className="w-full lg:col-span-12 border-t border-white/[0.07] pt-6 space-y-5"
-          >
-            {/* Header: label, live status, window, actions */}
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 min-w-0">
-                <span className="arc-eyebrow text-[11px]">Session Envelope</span>
-                <span className="w-px h-3 bg-white/10" aria-hidden="true" />
-                <span
-                  className={`flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider ${
-                    sessionIsActive ? 'text-[var(--earned-green)]' : 'text-[var(--fp-4)]'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      sessionIsActive
-                        ? 'bg-[var(--earned-green)] animate-pulse shadow-[0_0_6px_rgba(1,208,98,0.6)]'
-                        : 'bg-[var(--fp-4)]'
-                    }`}
-                  />
-                  {sessionIsActive ? 'Active' : 'Inactive'}
-                </span>
-                {sessionIsActive && sessionTimeRemaining && (
-                  <>
-                    <span className="w-px h-3 bg-white/10" aria-hidden="true" />
-                    <span className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--fp-4)]">
-                      <Clock className="w-3 h-3 text-[var(--secondary-colors--sky-sync)]" />
-                      {sessionTimeRemaining}
-                    </span>
-                  </>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    soundService.play('pop')
-                    setIsSessionModalOpen(true)
-                  }}
-                  className={`ub-action-btn py-1.5 px-3.5 text-[11px] flex items-center gap-1.5 cursor-pointer ${
-                    sessionIsActive ? '' : 'ub-action-btn-primary'
-                  }`}
-                  style={{ fontFamily: 'var(--fonts--space-mono)' }}
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Figure */}
-            <div className="flex items-baseline gap-2.5 min-w-0">
-              <span
-                className={`text-[42px] sm:text-[48px] leading-none tabular-nums ${
-                  sessionIsActive ? 'text-white' : 'text-[var(--fp-3)]'
-                }`}
-                style={{
-                  fontFamily: 'var(--fonts--space-grotesk)',
-                  fontWeight: 400,
-                  letterSpacing: '-1.5px',
-                }}
-              >
-                {remainingUsdc.toFixed(2)}
-              </span>
-              <span className="text-[11px] font-mono uppercase tracking-[2px] text-[var(--fp-3)]">
-                USDC
-              </span>
-              <span className="text-[11px] font-mono text-[var(--fp-4)]">
-                {sessionIsActive ? `of ${effectiveMaxSpend.toFixed(2)} cap` : 'Not configured'}
-              </span>
-            </div>
-
-            {/* Rail + ledger line */}
-            <div className="space-y-2.5">
-              <div
-                className="relative h-1"
-                role="progressbar"
-                aria-label="Session envelope spent"
-                aria-valuemin={0}
-                aria-valuemax={effectiveMaxSpend > 0 ? effectiveMaxSpend : 1}
-                aria-valuenow={effectiveSpent}
-              >
-                <div className="absolute inset-0 rounded-full bg-white/[0.06]" />
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700"
-                  style={{
-                    width: `${spentRatio * 100}%`,
-                    background:
-                      'linear-gradient(90deg, var(--color-brand-secondary) 0%, var(--color-brand-primary) 50%, var(--color-brand-accent) 100%)',
-                    boxShadow:
-                      sessionIsActive && spentRatio > 0
-                        ? '0 0 12px rgba(152, 150, 255, 0.35)'
-                        : undefined,
-                    transitionTimingFunction: 'var(--ease-out-smooth)',
-                  }}
-                />
-                {sessionIsActive && spentRatio > 0 && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-1/2 -translate-y-1/2 w-[7px] h-[7px] rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.65)]"
-                    style={{ left: `calc(${spentRatio * 100}% - 3.5px)` }}
-                  />
-                )}
-                {sessionIsActive && perTxCapUsdc > 0 && effectiveMaxSpend > 0 && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute -top-[3px] w-px h-[10px] bg-white/25"
-                    style={{
-                      left: `${Math.min(100, (perTxCapUsdc / effectiveMaxSpend) * 100)}%`,
-                    }}
-                  />
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] font-mono text-[var(--fp-4)]">
-                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                  <span>
-                    <span className="text-[var(--fp-2)] tabular-nums">
-                      {effectiveSpent.toFixed(2)}
-                    </span>{' '}
-                    spent
-                  </span>
-                  <span className="text-white/15" aria-hidden="true">
-                    /
-                  </span>
-                  <span>
-                    <span className="text-[var(--fp-2)] tabular-nums">
-                      {perTxCapUsdc.toFixed(2)}
-                    </span>{' '}
-                    per tx
-                  </span>
-                  <span className="text-white/15" aria-hidden="true">
-                    /
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Zap
-                      className={`w-3 h-3 ${
-                        sessionIsActive ? 'text-[var(--color-brand-accent)]' : 'text-[var(--fp-4)]'
-                      }`}
-                    />
-                    {sessionIsActive
-                      ? `~${estimatedCallCount > 9999 ? '9999+' : estimatedCallCount} calls`
-                      : '0 calls'}
-                  </span>
-                </div>
-                <span
-                  className={`tabular-nums ${
-                    sessionIsActive ? 'text-[var(--fp-3)]' : 'text-[var(--fp-4)]'
-                  }`}
-                >
-                  {Math.round(spentRatio * 100)}% used
-                </span>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
 
@@ -717,8 +582,8 @@ export default function MarketplaceTab({
                 setFilterCommunity('all')
               }}
               className={`flex items-center gap-1.5 px-3 h-full rounded-lg transition font-medium text-xs cursor-pointer ${filterCommunity === 'all'
-                  ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
+                ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
             >
               <Globe className="w-3 h-3 text-[var(--secondary-colors--sky-sync)]" />
@@ -737,8 +602,8 @@ export default function MarketplaceTab({
                 setFilterCommunity('verified')
               }}
               className={`flex items-center gap-1.5 px-3 h-full rounded-lg transition font-medium text-xs cursor-pointer ${filterCommunity === 'verified'
-                  ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
+                ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
             >
               <ShieldCheck className="w-3 h-3 text-[var(--earned-green)]" />
@@ -757,8 +622,8 @@ export default function MarketplaceTab({
                 setFilterCommunity('community')
               }}
               className={`flex items-center gap-1.5 px-3 h-full rounded-lg transition font-medium text-xs cursor-pointer ${filterCommunity === 'community'
-                  ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
-                  : 'text-white/60 hover:text-white hover:bg-white/5'
+                ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
                 }`}
             >
               <Users className="w-3 h-3 text-[var(--secondary-colors--sky-sync)]" />
@@ -785,26 +650,23 @@ export default function MarketplaceTab({
               }}
               aria-haspopup="listbox"
               aria-expanded={isSortOpen}
-              className={`h-9 px-3 rounded-xl border flex items-center gap-2 text-xs transition-all duration-200 cursor-pointer select-none ${
-                sortBy !== 'default'
-                  ? 'border-[var(--purple-1)]/50 bg-[var(--purple-1)]/10 text-white shadow-[0_0_14px_rgba(152,150,255,0.18)]'
-                  : 'border-white/10 text-white/80 hover:text-white hover:border-white/20'
-              }`}
+              className={`h-9 px-3 rounded-xl border flex items-center gap-2 text-xs transition-all duration-200 cursor-pointer select-none ${sortBy !== 'default'
+                ? 'border-[var(--purple-1)]/50 bg-[var(--purple-1)]/10 text-white shadow-[0_0_14px_rgba(152,150,255,0.18)]'
+                : 'border-white/10 text-white/80 hover:text-white hover:border-white/20'
+                }`}
               style={{
                 background: sortBy !== 'default' ? undefined : 'rgba(9, 11, 20, 0.85)',
                 fontFamily: 'var(--fonts--space-mono)',
               }}
             >
               <ActiveSortIcon
-                className={`w-3.5 h-3.5 ${
-                  sortBy !== 'default' ? 'text-[var(--purple-1)]' : 'text-white/50'
-                }`}
+                className={`w-3.5 h-3.5 ${sortBy !== 'default' ? 'text-[var(--purple-1)]' : 'text-white/50'
+                  }`}
               />
               <span className="font-medium whitespace-nowrap">{currentSortConfig.label}</span>
               <ChevronDown
-                className={`w-3.5 h-3.5 text-white/40 transition-transform duration-200 ${
-                  isSortOpen ? 'rotate-180 text-[var(--purple-1)]' : ''
-                }`}
+                className={`w-3.5 h-3.5 text-white/40 transition-transform duration-200 ${isSortOpen ? 'rotate-180 text-[var(--purple-1)]' : ''
+                  }`}
               />
             </button>
 
@@ -836,17 +698,15 @@ export default function MarketplaceTab({
                           setSortBy(opt.value)
                           setIsSortOpen(false)
                         }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all cursor-pointer select-none text-left ${
-                          isSelected
-                            ? 'bg-[var(--purple-1)]/15 text-white border border-[var(--purple-1)]/30 shadow-[0_0_12px_rgba(152,150,255,0.15)] font-semibold'
-                            : 'text-white/70 hover:text-white hover:bg-white/[0.06] border border-transparent'
-                        }`}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all cursor-pointer select-none text-left ${isSelected
+                          ? 'bg-[var(--purple-1)]/15 text-white border border-[var(--purple-1)]/30 shadow-[0_0_12px_rgba(152,150,255,0.15)] font-semibold'
+                          : 'text-white/70 hover:text-white hover:bg-white/[0.06] border border-transparent'
+                          }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <IconComp
-                            className={`w-3.5 h-3.5 flex-shrink-0 ${
-                              isSelected ? 'text-[var(--purple-1)]' : 'text-white/40'
-                            }`}
+                            className={`w-3.5 h-3.5 flex-shrink-0 ${isSelected ? 'text-[var(--purple-1)]' : 'text-white/40'
+                              }`}
                           />
                           <span className="truncate">{opt.label}</span>
                         </div>
@@ -869,7 +729,6 @@ export default function MarketplaceTab({
           {/* Live Network Auto-Sync Status Indicator */}
           <div
             className="ub-live-badge h-9 px-3 gap-2"
-            title="Physical network latency to Arc Testnet is auto-probed in real-time every 20s"
           >
             <span className="relative flex h-2 w-2">
               <span
@@ -943,7 +802,6 @@ export default function MarketplaceTab({
                   <div
                     className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border border-white/10 shadow-sm transition-all group-hover:border-[var(--purple-1)]/40"
                     style={{ background: 'rgba(8, 10, 18, 0.85)' }}
-                    title={`Native Arc x402 Micropayment: ${service.pricing.priceUsdc} USDC per call`}
                   >
                     <img
                       src={UsdcIcon}
@@ -1013,28 +871,23 @@ export default function MarketplaceTab({
               <div className="mt-5 space-y-3 pt-3 border-t border-white/[0.06]">
                 {/* Live Verified Performance Metrics (Ping on left, Success on right) */}
                 <div className="flex items-center justify-between text-[11px]">
-                  <div
-                    className="flex items-center gap-1.5 text-white/60"
-                    title={`Live physical latency: ${telemetry.latencyMs}ms • Measured from browser to Arc Testnet/endpoint • Samples: ${telemetry.sampleCount}`}
-                  >
+                  <div className="flex items-center gap-1.5 text-white/60">
                     <span className="relative flex h-2 w-2">
                       <span
-                        className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                          telemetry.status === 'offline'
-                            ? 'bg-rose-400'
-                            : telemetry.status === 'degraded'
+                        className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${telemetry.status === 'offline'
+                          ? 'bg-rose-400'
+                          : telemetry.status === 'degraded'
                             ? 'bg-amber-400'
                             : 'bg-[var(--earned-green)]'
-                        }`}
+                          }`}
                       />
                       <span
-                        className={`relative inline-flex rounded-full h-2 w-2 ${
-                          telemetry.status === 'offline'
-                            ? 'bg-rose-500'
-                            : telemetry.status === 'degraded'
+                        className={`relative inline-flex rounded-full h-2 w-2 ${telemetry.status === 'offline'
+                          ? 'bg-rose-500'
+                          : telemetry.status === 'degraded'
                             ? 'bg-amber-500'
                             : 'bg-[var(--earned-green)]'
-                        }`}
+                          }`}
                       />
                     </span>
                     <span style={{ fontFamily: 'var(--fonts--space-mono)' }}>
@@ -1042,10 +895,7 @@ export default function MarketplaceTab({
                     </span>
                   </div>
 
-                  <div
-                    className="flex items-center gap-1.5 text-white/60"
-                    title={`Calculated Success Rate: ${telemetry.successRate}% across ${telemetry.sampleCount} real runs/probes`}
-                  >
+                  <div className="flex items-center gap-1.5 text-white/60">
                     <TrendingUp className="w-3.5 h-3.5 text-[var(--earned-green)]" />
                     <span style={{ fontFamily: 'var(--fonts--space-mono)' }}>
                       Success: <strong className="text-[var(--earned-green)] tabular-nums">{telemetry.successRate}%</strong>
@@ -1056,7 +906,6 @@ export default function MarketplaceTab({
                 {/* Why the last paid call was voided — the same reason the playground names */}
                 {telemetry.lastFailure && (
                   <div
-                    title={`${telemetry.lastFailure.detail} — nothing was charged. Open the agent console for the full reason.`}
                     className="flex items-start gap-1.5 text-[10px] leading-snug rounded-lg border border-rose-500/25 bg-rose-500/[0.06] px-2 py-1.5 text-rose-200/90"
                     style={{ fontFamily: 'var(--fonts--space-mono)' }}
                   >
@@ -1150,6 +999,9 @@ export default function MarketplaceTab({
         isOpen={isSessionModalOpen}
         onClose={() => setIsSessionModalOpen(false)}
         walletAddress={walletAddress}
+        provider={provider}
+        authSource={authSource}
+        ucwHandlers={ucwHandlers}
         onBudgetUpdated={(newMax) => {
           handleResetBudget(newMax)
         }}

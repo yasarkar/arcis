@@ -17,6 +17,7 @@ import {
 } from '../services/sessionKeyService'
 import { executeDirectCopilotAction, type CopilotUcwHandlers } from '../services/copilotExecutionService'
 import { resolveX402Payer } from '../services/x402/ucwPaymentSigner'
+import { getEphemeralSessionAccount } from '../services/sessionEnclaveService'
 import { tokenAmountToUsd } from '../services/tokenPriceService'
 import {
   formatGatewayFlowReport,
@@ -118,14 +119,20 @@ export function useArcCopilot(
   // Paid x402 calls: an injected EOA signs its own EIP-3009 authorization; a Circle Wallet
   // (created as an EOA) signs through Circle's typed-data challenge. Passkey/MSCA smart
   // accounts and session keys cannot produce such a signature, so they stay blocked.
-  const paidCallPayer = resolveX402Payer(ucwHandlers?.authSource, ucwHandlers?.signTypedData)
-  const paidCallKind = paidCallPayer?.kind
-  const paidCallSigner = paidCallPayer?.signer
-  // A session can be charged only when it has both an address to bill and a payer that can
-  // sign the authorization. Passkey/MSCA and a Circle Wallet without its challenge signer
-  // are connected but cannot pay, so paid prompts are not offered to them.
-  const canPayForCalls = Boolean(walletAddress) && paidCallPayer !== null
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress))
+  const sessionEnclaveAccount = (sessionConfig.isActive && sessionConfig.sessionPublicKey)
+    ? getEphemeralSessionAccount(walletAddress)
+    : null
+
+  const paidCallPayer = resolveX402Payer(ucwHandlers?.authSource, ucwHandlers?.signTypedData)
+  const paidCallKind = (sessionEnclaveAccount && sessionConfig.isActive)
+    ? ('session_eoa' as const)
+    : paidCallPayer?.kind
+  const paidCallSigner = (sessionEnclaveAccount && sessionConfig.isActive)
+    ? undefined
+    : paidCallPayer?.signer
+
+  const canPayForCalls = Boolean(walletAddress) && (paidCallPayer !== null || Boolean(sessionConfig.isActive && sessionConfig.sessionPublicKey))
   const pendingActionRef = useRef<CopilotActionPayload | null>(null)
   const queryBusyRef = useRef<boolean>(false)
   // Guards a next-step card: a second click must not buy the same report twice.

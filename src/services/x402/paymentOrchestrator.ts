@@ -18,6 +18,7 @@ import {
   X402_SCHEMES,
 } from '../../config/x402/schemes'
 import { usdcToBaseUnits } from '../../config/x402/pricing'
+import { getEphemeralSessionAccount } from '../sessionEnclaveService'
 
 export function safeAddress(addr: string): Address {
   try {
@@ -137,13 +138,19 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
   }
   const payerKind: X402PayerKind = input.payer?.kind || 'external_eoa'
   const ucwSigner = payerKind === 'ucw_eoa' ? input.payer?.signTypedData : undefined
-  // A session key cannot sign, and a UCW payer without its challenge signer is not a payer.
-  const address =
-    payerKind === 'session_eoa' || (payerKind === 'ucw_eoa' && !ucwSigner)
-      ? ''
-      : input.payer?.address || input.walletAddress || ''
+  const sessionAccount = payerKind === 'session_eoa' ? getEphemeralSessionAccount(input.walletAddress) : null
+
+  let address = ''
+  if (payerKind === 'session_eoa') {
+    address = sessionAccount ? sessionAccount.address : (input.payer?.address || '')
+  } else if (payerKind === 'ucw_eoa') {
+    address = ucwSigner ? (input.payer?.address || input.walletAddress || '') : ''
+  } else {
+    address = input.payer?.address || input.walletAddress || ''
+  }
+
   if (!isAddress(address)) {
-    return failure(503, 'Paid x402 calls require a connected external EOA or an active Circle Wallet signing session. No authorization or charge was created; Circle passkey/MSCA and autonomous session signers are unsupported.', requirementsFallback)
+    return failure(503, 'Paid x402 calls require a connected external EOA, an active Circle Wallet signing session, or an active Session Enclave. No authorization or charge was created.', requirementsFallback)
   }
 
   const payerAddress = getAddress(address)
@@ -151,7 +158,17 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
     return failure(400, 'The paying EOA must differ from the service provider address.')
   }
   let signTypedData: X402TypedDataSigner
-  if (ucwSigner) {
+  if (payerKind === 'session_eoa') {
+    if (sessionAccount) {
+      signTypedData = async (typedData) => {
+        return sessionAccount.signTypedData(typedData as any) as Promise<Hex>
+      }
+    } else if (input.payer?.signTypedData) {
+      signTypedData = input.payer.signTypedData
+    } else {
+      return failure(503, 'Session enclave signer is unavailable in client memory. Please reactivate your session key; no authorization or charge was created.', requirementsFallback)
+    }
+  } else if (ucwSigner) {
     // The Circle challenge route selects the ARC-TESTNET wallet itself. A signature made by a
     // wallet in another EIP-712 domain recovers to a different address, so the server still
     // fails closed on ecrecover; no client-side chain probe exists (and none is trusted).
