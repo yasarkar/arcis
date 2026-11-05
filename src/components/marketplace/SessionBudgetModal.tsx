@@ -584,7 +584,7 @@ export default function SessionBudgetModal({
                   ) : (
                     <>
                       <Wallet className="w-3.5 h-3.5 text-[var(--purple-1)]" />
-                      <span>Deposit ${customBudget} USDC to Enclave</span>
+                      <span>Deposit {customBudget} USDC to Enclave</span>
                     </>
                   )}
                 </button>
