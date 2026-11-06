@@ -236,15 +236,6 @@ export default function SessionBudgetModal({
         <div className="absolute top-0 left-0 w-96 h-96 bg-[radial-gradient(ellipse_70%_50%_at_20%_0%,rgba(152,150,255,0.14)_0%,transparent_65%)] pointer-events-none" />
         <div className="absolute top-0 right-0 w-80 h-80 bg-[radial-gradient(circle,rgba(6,182,212,0.08)_0%,transparent_70%)] pointer-events-none" />
 
-        {/* Top Hairline Gradient Accent */}
-        <div
-          className="h-[2px] w-full"
-          style={{
-            background:
-              'linear-gradient(90deg, transparent 0%, var(--purple-1) 25%, var(--secondary-colors--sky-sync) 70%, var(--earned-green) 100%)',
-          }}
-        />
-
         {/* Header */}
         <div
           className="relative px-6 py-5 border-b border-white/[0.06] flex items-center justify-between"
