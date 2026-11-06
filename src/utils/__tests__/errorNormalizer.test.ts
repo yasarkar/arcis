@@ -167,4 +167,22 @@ describe('EURC/cirBTC V4 pool custom errors', () => {
     expect(normalized.message).toContain('eth_gasPrice')
     expect(normalized.isRetryable).toBe(true)
   })
+
+  it('correctly maps Viem RpcError with Invalid credentials to CLIENT_KEY_UNAUTHORIZED in normalizePasskeyError', async () => {
+    const { normalizePasskeyError } = await import('../errorNormalizer')
+    const rpcErr: any = new Error('An unknown RPC error occurred.')
+    rpcErr.name = 'RpcError'
+    rpcErr.shortMessage = 'An unknown RPC error occurred.'
+    rpcErr.details = 'Invalid credentials.'
+    rpcErr.cause = {
+      code: -32600,
+      message: 'Invalid credentials.',
+    }
+
+    const normalized = normalizePasskeyError(rpcErr)
+    expect(normalized.code).toBe('CLIENT_KEY_UNAUTHORIZED')
+    expect(normalized.category).toBe('PASSKEY_AUTH')
+    expect(normalized.title).toBe('Circle Client Key Unauthorized')
+    expect(normalized.message).toContain('Circle Client Key is invalid or this domain')
+  })
 })

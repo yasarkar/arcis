@@ -14,7 +14,6 @@ import {
   Droplets,
   Bot,
   Sparkles,
-  Fingerprint,
   ChevronDown,
   Copy,
   Check,
@@ -263,7 +262,6 @@ function Header({
               onClick={onOpenFaucet}
               className="ub-action-btn flex items-center justify-center gap-1.5 cursor-pointer hover:border-indigo-400/50 hover:text-indigo-200 transition-all shrink-0 px-2.5 2xl:px-3 py-1.5"
               style={{ fontSize: 11 }}
-              title="Arc Testnet Faucet"
               aria-label="Arc Testnet Faucet"
             >
               <span className="hidden 2xl:inline">Faucet</span>
@@ -276,7 +274,6 @@ function Header({
               rel="noopener noreferrer"
               className="hidden md:flex ub-action-btn shrink-0 items-center justify-center gap-1.5 px-2.5 2xl:px-3 py-1.5"
               style={{ fontSize: 11 }}
-              title="ArcScan Explorer"
               aria-label="ArcScan Explorer"
             >
               <span className="hidden 2xl:inline">Explorer</span>
@@ -293,43 +290,33 @@ function Header({
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('passkey')
                   setIsPasskeyMenuOpen((prev) => !prev)
                 }}
-                className={`flex items-center gap-2 rounded-full px-3 py-1.5 transition-all duration-200 cursor-pointer select-none shrink-0 ${isPasskeyMenuOpen || activeAuthSource === 'passkey'
-                    ? 'bg-cyan-500/20 border-2 border-cyan-400 text-white shadow-[0_0_16px_rgba(6,182,212,0.4)]'
-                    : 'bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 text-cyan-200'
-                  }`}
+                className="ub-action-btn primary w-auto max-w-[160px] shrink-0"
               >
-                <Fingerprint className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <span className="text-xs font-bold text-cyan-200 font-mono">
+                <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
+                  <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
+                </div>
+                <span className="text-xs font-semibold tracking-wide text-white font-mono truncate">
                   {mscaAddress.slice(0, 6)}...{mscaAddress.slice(-4)}
                 </span>
                 <ChevronDown
                   size={12}
-                  className={`text-cyan-300 transition-transform duration-200 shrink-0 ${isPasskeyMenuOpen ? 'rotate-180 text-cyan-100' : 'opacity-70'
-                    }`}
+                  className={`text-white transition-transform duration-200 shrink-0 ${
+                    isPasskeyMenuOpen ? 'rotate-180 text-blue-100' : 'opacity-70'
+                  }`}
                 />
               </button>
 
               {/* Passkey Dropdown Menu */}
               {isPasskeyMenuOpen && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in max-h-[calc(100vh-90px)] overflow-y-auto no-scrollbar"
+                  className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in max-h-[calc(100vh-90px)] overflow-y-auto no-scrollbar"
                   style={{
                     background: 'rgba(13, 17, 28, 0.96)',
-                    border: '1px solid rgba(6, 182, 212, 0.25)',
-                    boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(6, 182, 212, 0.15)',
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(59, 130, 246, 0.15)',
                     zIndex: 10005,
                   }}
                 >
-                  <div className="px-3 py-2 border-b border-white/[0.08] flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse" />
-                      <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">Passkey MSCA</span>
-                    </div>
-                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.5 rounded-md">
-                      Arc Testnet
-                    </span>
-                  </div>
-
                   {/* Portfolio Option */}
                   <button
                     type="button"
@@ -340,15 +327,10 @@ function Header({
                     className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
                   >
                     <div className="flex items-center gap-2.5">
-                      <PieChart size={14} className="text-slate-400 group-hover:text-cyan-400 transition-colors shrink-0" />
+                      <PieChart size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
                       <span className="font-semibold text-slate-100">Portfolio</span>
                     </div>
-                    <span className="text-[10px] font-semibold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">
-                      Multi-Chain
-                    </span>
                   </button>
-
-                  <div className="my-1 border-t border-white/[0.08]" />
 
                   {/* Copy Address */}
                   <button
@@ -362,13 +344,10 @@ function Header({
                       {copiedMsca ? (
                         <Check size={14} className="text-emerald-400 shrink-0" />
                       ) : (
-                        <Copy size={14} className="text-slate-400 group-hover:text-cyan-400 transition-colors shrink-0" />
+                        <Copy size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
                       )}
                       <span>{copiedMsca ? 'Copied!' : 'Copy Address'}</span>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-500">
-                      {mscaAddress.slice(0, 4)}...{mscaAddress.slice(-4)}
-                    </span>
                   </button>
 
                   {/* ArcScan Explorer */}
@@ -380,10 +359,9 @@ function Header({
                     className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
                   >
                     <div className="flex items-center gap-2.5">
-                      <ExternalLink size={14} className="text-slate-400 group-hover:text-cyan-400 transition-colors shrink-0" />
+                      <ExternalLink size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
                       <span>View on ArcScan</span>
                     </div>
-                    <span className="text-[10px] text-slate-500">↗</span>
                   </a>
 
                   <div className="my-1 border-t border-white/[0.08]" />

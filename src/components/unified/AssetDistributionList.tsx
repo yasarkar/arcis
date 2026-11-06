@@ -179,36 +179,6 @@ export default function AssetDistributionList({
             </div>
           )}
 
-          {!showSkeleton && walletAddress && !hasError && activeChains === 0 && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '12px 16px',
-                marginBottom: 16,
-                background: 'rgba(152, 150, 255, 0.06)',
-                border: '1px solid rgba(152, 150, 255, 0.15)',
-                borderRadius: 12,
-                fontSize: 12,
-                color: 'var(--fp-3)',
-                flexWrap: 'wrap',
-                gap: 10,
-              }}
-            >
-              <span>No active Gateway deposits yet. You can deposit USDC from any of the {supportedNetworks.length} supported networks below.</span>
-              <button
-                type="button"
-                onClick={onDeposit}
-                className="ub-action-btn"
-                style={{ padding: '4px 10px', fontSize: 11, borderRadius: 99, flexShrink: 0 }}
-              >
-                <Plus size={11} aria-hidden="true" />
-                <span>Deposit USDC</span>
-              </button>
-            </div>
-          )}
-
           {!showSkeleton && walletAddress && visibleBalances.map((item) => {
             const meta = CHAIN_META[item.chainKey] || { iconId: 'ethereum', color: '#64748b', gradient: 'linear-gradient(135deg, #64748b, #475569)' }
             const balance = Number.parseFloat(item.balance || '0')

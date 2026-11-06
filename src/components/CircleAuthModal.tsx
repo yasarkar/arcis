@@ -121,9 +121,9 @@ export default function CircleAuthModal({
 
   useEffect(() => {
     if (authPhase === 'creating_wallet') {
-      setStatusMessage({ text: 'Doğrulama başarılı! Circle cüzdanı hazırlanıyor, lütfen bekleyin...', isSuccess: false })
+      setStatusMessage({ text: 'Verification successful! Preparing Circle wallet, please wait...', isSuccess: false })
     } else if (authPhase === 'success') {
-      setStatusMessage({ text: 'Cüzdan başarıyla bağlandı!', isSuccess: true })
+      setStatusMessage({ text: 'Wallet successfully connected!', isSuccess: true })
     }
   }, [authPhase])
 
@@ -520,7 +520,7 @@ export default function CircleAuthModal({
                     )}
                   </div>
 
-                  {/* Attached Droplist (Bitişik Dropdown) */}
+                  {/* Attached Droplist */}
                   {isDropdownOpen && (
                     <div
                       className="absolute left-0 right-0 top-full rounded-b-xl overflow-hidden z-50 transition-all duration-150 shadow-2xl animate-fade-in"
@@ -615,7 +615,7 @@ export default function CircleAuthModal({
                   </button>
                 </div>
               ) : (
-                <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-cyan-500/30 space-y-2.5 animate-fade-in">
+                <div className="p-3.5 rounded-2xl bg-white/[0.03] space-y-2.5 animate-fade-in">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-white flex items-center gap-1.5">
                       <span>New Passkey Smart Account</span>

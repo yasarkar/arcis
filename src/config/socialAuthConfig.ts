@@ -38,8 +38,8 @@ export function getSocialProviderInfo(provider: SocialProvider): SocialProviderI
         isConfigured,
         clientId: googleClientId,
         helpMessage: isConfigured
-          ? 'Google OAuth kimliği hazır.'
-          : 'Google ile giriş için VITE_GOOGLE_CLIENT_ID .env dosyasına eklenmeli ve Circle Developer Console > User-Controlled Wallets > Social Logins alanında Google OAuth yapılandırılmalıdır.',
+          ? 'Google OAuth credentials are ready.'
+          : 'To sign in with Google, add VITE_GOOGLE_CLIENT_ID to your .env file and configure Google OAuth in Circle Developer Console > User-Controlled Wallets > Social Logins.',
         docUrl: 'https://developers.google.com/identity/gsi/web/guides/overview',
       }
     }
@@ -52,8 +52,8 @@ export function getSocialProviderInfo(provider: SocialProvider): SocialProviderI
         isConfigured,
         clientId: appleClientId,
         helpMessage: isConfigured
-          ? 'Apple Sign-In kimliği hazır.'
-          : 'Apple ile giriş için VITE_APPLE_CLIENT_ID (Service ID) .env dosyasına eklenmeli ve Circle Developer Console üzerinde Apple OAuth yapılandırılmalıdır.',
+          ? 'Apple Sign-In credentials are ready.'
+          : 'To sign in with Apple, add VITE_APPLE_CLIENT_ID (Service ID) to your .env file and configure Apple OAuth in Circle Developer Console.',
         docUrl: 'https://developer.apple.com/sign-in-with-apple/',
       }
     }
@@ -66,8 +66,8 @@ export function getSocialProviderInfo(provider: SocialProvider): SocialProviderI
         isConfigured,
         clientId: facebookAppId,
         helpMessage: isConfigured
-          ? 'Facebook App ID hazır.'
-          : 'Facebook ile giriş için VITE_FACEBOOK_APP_ID .env dosyasına eklenmeli ve Circle Developer Console üzerinde Facebook App ID yapılandırılmalıdır.',
+          ? 'Facebook App ID is ready.'
+          : 'To sign in with Facebook, add VITE_FACEBOOK_APP_ID to your .env file and configure Facebook App ID in Circle Developer Console.',
         docUrl: 'https://developers.facebook.com/docs/development/create-an-app',
       }
     }

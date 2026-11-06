@@ -33,22 +33,22 @@ describe('useUserControlledWallet Unit Tests', () => {
   })
 
   describe('parseCircleAuthError', () => {
-    it('accurately maps Circle SDK error codes to Turkish messages', () => {
-      expect(parseCircleAuthError({ code: 155104 })).toContain('Oturum süreniz doldu')
-      expect(parseCircleAuthError({ code: 155101 })).toContain('Cihaz oturumu bulunamadı')
-      expect(parseCircleAuthError({ code: 155130 })).toContain('Doğrulama kodunun (OTP) süresi doldu')
-      expect(parseCircleAuthError({ code: 155131 })).toContain('Geçersiz doğrulama kodu belirteci')
-      expect(parseCircleAuthError({ code: 155133 })).toContain('Girdiğiniz doğrulama kodu geçersiz')
-      expect(parseCircleAuthError({ code: 155134 })).toContain('Doğrulama kodu eşleşmedi')
-      expect(parseCircleAuthError({ code: 155146 })).toContain('güvenlik kilidi uygulandı')
-      expect(parseCircleAuthError({ code: 155106 })).toContain('Kullanıcı hesabı zaten tanımlı')
-      expect(parseCircleAuthError({ code: 401 })).toContain('Circle API kimlik doğrulama hatası (401)')
-      expect(parseCircleAuthError({ code: 429 })).toContain('Çok fazla istek gönderildi')
-      expect(parseCircleAuthError({ message: 'SMTP sending failed' })).toContain('SMTP sağlayıcısı yapılandırılmamış')
+    it('accurately maps Circle SDK error codes to English messages', () => {
+      expect(parseCircleAuthError({ code: 155104 })).toContain('Session expired')
+      expect(parseCircleAuthError({ code: 155101 })).toContain('Device session not found')
+      expect(parseCircleAuthError({ code: 155130 })).toContain('Verification code (OTP) expired')
+      expect(parseCircleAuthError({ code: 155131 })).toContain('Invalid verification code token')
+      expect(parseCircleAuthError({ code: 155133 })).toContain('The verification code you entered is invalid')
+      expect(parseCircleAuthError({ code: 155134 })).toContain('Verification code does not match')
+      expect(parseCircleAuthError({ code: 155146 })).toContain('Security lock applied')
+      expect(parseCircleAuthError({ code: 155106 })).toContain('User account already exists')
+      expect(parseCircleAuthError({ code: 401 })).toContain('Circle API authentication error (401)')
+      expect(parseCircleAuthError({ code: 429 })).toContain('Too many requests')
+      expect(parseCircleAuthError({ message: 'SMTP sending failed' })).toContain('SMTP provider might not be configured')
     })
 
     it('handles unexpected or fallback error formats safely', () => {
-      expect(parseCircleAuthError(null)).toBe('Bilinmeyen bir hata oluştu.')
+      expect(parseCircleAuthError(null)).toBe('An unknown error occurred.')
       expect(parseCircleAuthError('Custom error message')).toBe('Custom error message')
     })
   })

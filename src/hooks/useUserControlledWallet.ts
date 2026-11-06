@@ -54,44 +54,44 @@ export function cleanupCircleIframe(): void {
 }
 
 export function parseCircleAuthError(err: any): string {
-  if (!err) return 'Bilinmeyen bir hata oluştu.';
+  if (!err) return 'An unknown error occurred.';
   const msg = err?.message || (typeof err === 'string' ? err : JSON.stringify(err));
   const code = err?.code || err?.response?.data?.code || err?.statusCode || err?.status;
 
   if (code === 401 || String(code) === '401' || msg.includes('401') || msg.toLowerCase().includes('invalid credentials')) {
-    return 'Circle API kimlik doğrulama hatası (401). Lütfen Circle API anahtarınızı (CIRCLE_API_KEY) kontrol edin.';
+    return 'Circle API authentication error (401). Please verify your Circle API key (CIRCLE_API_KEY).';
   }
   if (code === 429 || String(code) === '429' || msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
-    return 'Çok fazla istek gönderildi. Lütfen bir süre bekleyip tekrar deneyin.';
+    return 'Too many requests. Please wait a moment and try again.';
   }
   if (code === 155138 || msg.toLowerCase().includes('smtp') || msg.includes('email sending failed')) {
-    return 'E-posta gönderim hatası: Circle Console üzerinde SMTP sağlayıcısı yapılandırılmamış olabilir.';
+    return 'Email delivery error: SMTP provider might not be configured on Circle Console.';
   }
   if (code === 155104 || String(code) === '155104') {
-    return 'Oturum süreniz doldu (Geçersiz kullanıcı belirteci). Lütfen yeniden giriş yapın.';
+    return 'Session expired (invalid user token). Please sign in again.';
   }
   if (code === 155101 || String(code) === '155101') {
-    return 'Cihaz oturumu bulunamadı. Lütfen sayfayı yenileyip tekrar deneyin.';
+    return 'Device session not found. Please refresh the page and try again.';
   }
   if (code === 155130 || String(code) === '155130') {
-    return 'Doğrulama kodunun (OTP) süresi doldu. Lütfen yeni bir kod isteyin.';
+    return 'Verification code (OTP) expired. Please request a new code.';
   }
   if (code === 155131 || String(code) === '155131') {
-    return 'Geçersiz doğrulama kodu belirteci. Lütfen yeni bir kod isteyin.';
+    return 'Invalid verification code token. Please request a new code.';
   }
   if (code === 155133 || String(code) === '155133') {
-    return 'Girdiğiniz doğrulama kodu geçersiz. Lütfen 6 haneli kodu kontrol edin.';
+    return 'The verification code you entered is invalid. Please check the 6-digit code.';
   }
   if (code === 155134 || String(code) === '155134') {
-    return 'Doğrulama kodu eşleşmedi. Lütfen e-postanıza gelen kodu doğru girdiğinizden emin olun.';
+    return 'Verification code does not match. Please verify the code sent to your email.';
   }
   if (code === 155146 || String(code) === '155146') {
-    return '3 hatalı deneme nedeniyle güvenlik kilidi uygulandı. Lütfen yeni bir doğrulama kodu talep edin.';
+    return 'Security lock applied due to 3 failed attempts. Please request a new verification code.';
   }
   if (code === 155106 || String(code) === '155106') {
-    return 'Kullanıcı hesabı zaten tanımlı.';
+    return 'User account already exists.';
   }
-  return msg || 'İşlem sırasında bir hata oluştu.';
+  return msg || 'An error occurred during the operation.';
 }
 
 /**
@@ -412,7 +412,7 @@ export function useUserControlledWallet() {
             setOtpStep('input');
           } else {
             console.warn("[Circle UCW] ❌ Could not obtain wallet address from Circle API.");
-            setError("Circle servisinden cüzdan adresi alınamadı. Lütfen tekrar deneyin.");
+            setError("Could not retrieve wallet address from Circle service. Please try again.");
             setAuthPhase('error');
             setIsLoading(false);
           }
@@ -506,7 +506,7 @@ export function useUserControlledWallet() {
         return sdk;
       } catch (err: any) {
         console.error("Failed to initialize Circle W3S Web SDK:", err);
-        const msg = err?.message || "Circle Web SDK başlatılamadı. Reklam engelleyici veya Brave Shields kullanıyorsanız lütfen kapatın.";
+        const msg = err?.message || "Failed to initialize Circle Web SDK. Please disable AdBlock or Brave Shields if active.";
         setError(msg);
         return null;
       } finally {
@@ -543,7 +543,7 @@ export function useUserControlledWallet() {
     setError(null);
     try {
       if (!circleAppId) {
-        const errMsg = 'VITE_CIRCLE_APP_ID ortam değişkenlerinde yapılandırılmamış (.env dosyasını kontrol edin).';
+        const errMsg = 'VITE_CIRCLE_APP_ID is not configured in environment variables (check .env file).';
         setError(errMsg);
         setAuthPhase('error');
         setIsLoading(false);
@@ -552,7 +552,7 @@ export function useUserControlledWallet() {
 
       const activeSdk = sdkInstance || (await ensureSdk());
       if (!activeSdk) {
-        const errMsg = 'Circle Web SDK başlatılamadı. Brave Shields veya Reklam Engelleyici (AdBlock) kullanıyorsanız lütfen devre dışı bırakıp sayfayı yenileyin.';
+        const errMsg = 'Failed to initialize Circle Web SDK. Please disable Brave Shields or AdBlock and refresh the page.';
         setError(errMsg);
         setAuthPhase('error');
         setIsLoading(false);
@@ -577,7 +577,7 @@ export function useUserControlledWallet() {
       }
 
       if (!currentDeviceId) {
-        const errMsg = 'Circle güvenlik oturumu (iframe/deviceId) kurulamadı. Tarayıcınızda Brave Shields veya reklam engelleyici varsa devre dışı bırakıp sayfayı yenileyin.';
+        const errMsg = 'Failed to establish Circle security session (iframe/deviceId). Please disable Brave Shields or AdBlock and refresh the page.';
         setError(errMsg);
         setAuthPhase('error');
         setIsLoading(false);
@@ -637,7 +637,7 @@ export function useUserControlledWallet() {
     setError(null);
     try {
       if (!circleAppId) {
-        const errMsg = 'VITE_CIRCLE_APP_ID ortam değişkenlerinde yapılandırılmamış.';
+        const errMsg = 'VITE_CIRCLE_APP_ID is not configured in environment variables.';
         setError(errMsg);
         setAuthPhase('error');
         setIsLoading(false);
@@ -646,7 +646,7 @@ export function useUserControlledWallet() {
 
       const activeSdk = sdkInstance || (await ensureSdk());
       if (!activeSdk) {
-        const errMsg = 'Circle Web SDK başlatılamadı. Lütfen sayfayı yenileyin.';
+        const errMsg = 'Failed to initialize Circle Web SDK. Please refresh the page.';
         setError(errMsg);
         setAuthPhase('error');
         setIsLoading(false);
@@ -664,7 +664,7 @@ export function useUserControlledWallet() {
         const address = wData.wallets?.[0]?.address;
 
         if (!address) {
-          throw new Error('Circle sisteminde bu kullanıcıya ait cüzdan adresi bulunamadı.');
+          throw new Error('No wallet address found for this user in Circle system.');
         }
 
         setUcwAddress(address);
@@ -722,7 +722,7 @@ export function useUserControlledWallet() {
     try {
       const uId = userIdInput || `user_${Date.now()}`;
       if (!circleAppId) {
-        const errMsg = 'VITE_CIRCLE_APP_ID ortam değişkenlerinde yapılandırılmamış.';
+        const errMsg = 'VITE_CIRCLE_APP_ID is not configured in environment variables.';
         setError(errMsg);
         setIsLoading(false);
         return { success: false, error: errMsg };
@@ -730,7 +730,7 @@ export function useUserControlledWallet() {
 
       const activeSdk = sdkInstance || (await ensureSdk());
       if (!activeSdk) {
-        const errMsg = 'Circle Web SDK başlatılamadı. Brave Shields veya Reklam Engelleyici (AdBlock) kullanıyorsanız lütfen devre dışı bırakın.';
+        const errMsg = 'Failed to initialize Circle Web SDK. Please disable Brave Shields or AdBlock.';
         setError(errMsg);
         setIsLoading(false);
         return { success: false, error: errMsg };
@@ -831,7 +831,7 @@ export function useUserControlledWallet() {
       localStorage.setItem('arc_ucw_auth_method', provider);
 
       if (!circleAppId) {
-        const errMsg = 'VITE_CIRCLE_APP_ID ortam değişkenlerinde yapılandırılmamış.';
+        const errMsg = 'VITE_CIRCLE_APP_ID is not configured in environment variables.';
         setError(errMsg);
         setIsLoading(false);
         return { success: false, error: errMsg };
@@ -839,7 +839,7 @@ export function useUserControlledWallet() {
 
       const activeSdk = sdkInstance || (await ensureSdk());
       if (!activeSdk) {
-        const errMsg = 'Circle Web SDK başlatılamadı. Brave Shields veya Reklam Engelleyici (AdBlock) kullanıyorsanız lütfen devre dışı bırakın.';
+        const errMsg = 'Failed to initialize Circle Web SDK. Please disable Brave Shields or AdBlock.';
         setError(errMsg);
         setIsLoading(false);
         return { success: false, error: errMsg };
@@ -1065,7 +1065,7 @@ export function useUserControlledWallet() {
         if (!uToken || !eKey) {
           return {
             success: false,
-            error: 'Oturum süresi doldu veya cüzdan bağlı değil. Lütfen yeniden giriş yapın.',
+            error: 'Session expired or wallet not connected. Please sign in again.',
           };
         }
 
@@ -1074,7 +1074,7 @@ export function useUserControlledWallet() {
 
         const activeSdk = sdkRef.current || sdkInstance || (await ensureSdk());
         if (!activeSdk) {
-          return { success: false, error: 'Circle Web SDK başlatılamadı.' };
+          return { success: false, error: 'Failed to initialize Circle Web SDK.' };
         }
 
         const targetBlockchain = normalizeCircleBlockchainParam(params.blockchain) || 'ARC-TESTNET';
@@ -1121,7 +1121,7 @@ export function useUserControlledWallet() {
         if (!data.success || !data.challengeId) {
           return {
             success: false,
-            error: data.error || 'Akıllı sözleşme çağrısı challenge oluşturulamadı.',
+            error: data.error || 'Failed to create contract call challenge.',
           };
         }
 
@@ -1159,7 +1159,7 @@ export function useUserControlledWallet() {
         };
       } catch (err: any) {
         console.error('[Circle UCW] executeContractCall error:', err);
-        const errMsg = err?.message || 'İşlem sırasında bir hata oluştu.';
+        const errMsg = err?.message || 'An error occurred during the transaction.';
         return { success: false, error: errMsg };
       }
     },
@@ -1183,7 +1183,7 @@ export function useUserControlledWallet() {
         if (!uToken || !eKey) {
           return {
             success: false,
-            error: 'Oturum süresi doldu veya cüzdan bağlı değil. Lütfen yeniden giriş yapın.',
+            error: 'Session expired or wallet not connected. Please sign in again.',
           };
         }
 
@@ -1192,7 +1192,7 @@ export function useUserControlledWallet() {
 
         const activeSdk = sdkRef.current || sdkInstance || (await ensureSdk());
         if (!activeSdk) {
-          return { success: false, error: 'Circle Web SDK başlatılamadı.' };
+          return { success: false, error: 'Failed to initialize Circle Web SDK.' };
         }
 
         const targetBlockchain = normalizeCircleBlockchainParam(params.blockchain) || 'ARC-TESTNET';
@@ -1235,7 +1235,7 @@ export function useUserControlledWallet() {
         if (!data.success || !data.challengeId) {
           return {
             success: false,
-            error: data.error || 'İmza isteği challenge oluşturulamadı.',
+            error: data.error || 'Failed to create signature challenge.',
           };
         }
 
@@ -1273,7 +1273,7 @@ export function useUserControlledWallet() {
         return signResult;
       } catch (err: any) {
         console.error('[Circle UCW] signTypedData error:', err);
-        const errMsg = err?.message || 'İmzalama sırasında bir hata oluştu.';
+        const errMsg = err?.message || 'An error occurred during signing.';
         return { success: false, error: errMsg };
       }
     },
@@ -1308,7 +1308,7 @@ export function useUserControlledWallet() {
         if (!uToken || !eKey) {
           return {
             success: false,
-            error: 'Oturum süresi doldu veya cüzdan bağlı değil. Lütfen yeniden giriş yapın.',
+            error: 'Session expired or wallet not connected. Please sign in again.',
           };
         }
 
@@ -1317,7 +1317,7 @@ export function useUserControlledWallet() {
 
         const activeSdk = sdkRef.current || sdkInstance || (await ensureSdk());
         if (!activeSdk) {
-          return { success: false, error: 'Circle Web SDK başlatılamadı.' };
+          return { success: false, error: 'Failed to initialize Circle Web SDK.' };
         }
 
         const targetBlockchain = normalizeCircleBlockchainParam(params.blockchain) || 'ARC-TESTNET';
@@ -1362,7 +1362,7 @@ export function useUserControlledWallet() {
         if (!data.success || !data.challengeId) {
           return {
             success: false,
-            error: data.error || 'Transfer challenge oluşturulamadı.',
+            error: data.error || 'Failed to create transfer challenge.',
           };
         }
 
@@ -1399,7 +1399,7 @@ export function useUserControlledWallet() {
         };
       } catch (err: any) {
         console.error('[Circle UCW] executeTransfer error:', err);
-        const errMsg = err?.message || 'Transfer sırasında bir hata oluştu.';
+        const errMsg = err?.message || 'An error occurred during the transfer.';
         return { success: false, error: errMsg };
       }
     },

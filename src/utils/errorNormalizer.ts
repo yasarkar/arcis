@@ -244,10 +244,14 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
   }
 
   const errName = (err as any)?.name || ''
+  const details = (err as any)?.details || ''
+  const message = (err as any)?.message || ''
+  const shortMessage = (err as any)?.shortMessage || ''
+  const causeMsg = (err as any)?.cause?.message || (err as any)?.cause?.details || ''
   const rawMsg = typeof err === 'string'
     ? err
-    : ((err as any)?.shortMessage || (err as any)?.message || (err as any)?.details || String(err))
-  const lowMsg = rawMsg.toLowerCase()
+    : (shortMessage || message || details || String(err))
+  const lowMsg = [rawMsg, details, message, causeMsg].filter(Boolean).join(' ').toLowerCase()
   const origin = typeof window !== 'undefined' ? window.location.origin : 'current domain'
 
   // 1. User Canceled / Biometrics Timed Out
@@ -351,8 +355,13 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
   if (
     lowMsg.includes('invalid credentials') ||
     lowMsg.includes('unauthorized') ||
+    lowMsg.includes('-32600') ||
+    (err as any)?.code === -32600 ||
+    (err as any)?.cause?.code === -32600 ||
     (err as any)?.code === 401 ||
     (err as any)?.code === 403 ||
+    (err as any)?.status === 401 ||
+    (err as any)?.status === 403 ||
     lowMsg.includes('401') ||
     lowMsg.includes('403')
   ) {
@@ -361,7 +370,7 @@ export function normalizePasskeyError(err: unknown): ArcisAppError {
       category: def.category,
       code: 'CLIENT_KEY_UNAUTHORIZED',
       title: def.title,
-      message: `The current domain (${origin}) is not listed under 'Allowed Domains' in Circle Developer Console.`,
+      message: `Circle Client Key is invalid or this domain (${origin}) is not listed under 'Allowed Domains' in Circle Developer Console.`,
       isCanceled: false,
       isRetryable: false,
       isActionable: true,
@@ -466,8 +475,9 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
   const rawMessage = typeof err === 'string'
     ? err
     : ((err as any).shortMessage || (err as any).message || (err as any).details || (err as any).errorMessage || String(err))
-
-  const lowMsg = rawMessage.toLowerCase()
+  const details = (err as any)?.details || ''
+  const message = (err as any)?.message || ''
+  const lowMsg = [rawMessage, details, message].filter(Boolean).join(' ').toLowerCase()
   const errName = (err as any)?.name || ''
 
   // 0. Known pool custom errors (e.g. LiquidityLockedThisBlock on withdraw / harvest) — specific, so
