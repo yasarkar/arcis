@@ -2072,19 +2072,24 @@ export default function ServicePlaygroundModal({
               <button
                 onClick={handleRun}
                 disabled={isExecuting || !readiness.ready}
-                className="arc-btn arc-btn-primary w-full py-3.5 px-6 rounded-full text-sm font-bold tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl disabled:opacity-40 disabled:cursor-not-allowed transition hover:scale-[1.01] active:scale-[0.99]"
+                className={`w-full py-4 px-6 rounded-2xl font-semibold text-sm sm:text-base tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none ${
+                  readiness.ready && !isExecuting
+                    ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
+                    : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+                }`}
+                style={{ fontFamily: 'var(--font-app)' }}
               >
                 {!readiness.ready ? (
-                  <Lock className="w-4 h-4 text-black" />
+                  <Lock className="w-4 h-4 text-slate-400" />
                 ) : (
-                  <Zap className="w-4 h-4 text-black" />
+                  <Zap className="w-4 h-4 text-white" />
                 )}
                 <span>
                   {!readiness.ready
                     ? 'SETTLEMENT GATE BLOCKED'
                     : `EXECUTE — ${service.pricing.priceUsdc} USDC`}
                 </span>
-                <ArrowRight className="w-4 h-4 text-black ml-1" />
+                <ArrowRight className={`w-4 h-4 ml-1 ${readiness.ready && !isExecuting ? 'text-white' : 'text-slate-400'}`} />
               </button>
             </div>
           </div>

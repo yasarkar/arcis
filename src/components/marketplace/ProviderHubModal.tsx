@@ -280,16 +280,21 @@ export default function ProviderHubModal({
               <button
                 onClick={handleClaim}
                 disabled={unclaimedUsdc <= 0 || isClaiming}
-                className="arc-btn arc-btn-primary px-5 py-2.5 rounded-full text-xs font-bold shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed tracking-wider"
+                className={`px-5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none ${
+                  unclaimedUsdc > 0 && !isClaiming
+                    ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
+                    : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+                }`}
+                style={{ fontFamily: 'var(--font-app)' }}
               >
                 {isClaiming ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     <span>SENDING PAYOUT...</span>
                   </>
                 ) : (
                   <>
-                    <Coins className="w-4 h-4 text-black" />
+                    <Coins className="w-4 h-4 text-white" />
                     <span>WITHDRAW USDC</span>
                   </>
                 )}

@@ -101,16 +101,21 @@ Lightweight utility panel for floating popovers, drawers, and modal backdrops:
 
 ### 4.2 Buttons & Controls
 
-#### 1. Arc Webflow Buttons
-- **Base Class**: `.arc-btn`
-  - Font: `Space Mono`, 14px, weight 700, uppercase, letter-spacing `1.2px`.
-  - Radius: `15px`, padding `10px 18px`.
-- **Variants**:
-  - **Primary** (`.arc-btn-primary`): Solid white `#ffffff`, dark text `#000000`. On hover turns Sky Sync (`#acc6e9`) with soft shadow.
-  - **Secondary** (`.arc-btn-secondary`): Sky Sync background with dark text.
-  - **Ghost** (`.arc-btn-ghost`): Transparent background, hairline Sky Sync border (`rgba(172, 198, 233, 0.25)`), Sky Sync text.
+#### 1. Primary Action & Fintech Buttons (`FintechActionButton`, `.arc-btn.arc-btn-primary`)
+Standard across Swap, Send, Bridge, and AI Services / Marketplace.
+- **Font**: `Inter` (`var(--font-app)`), 14px–16px, weight 600, `tracking-wide` (letter-spacing 0.025em).
+- **Radius**: `16px` (`rounded-2xl` / `rounded-xl`), padding `12px–16px` dikey, `20px–24px` yatay.
+- **Surface**:
+  - **Actionable / Active**: High-grade fintech gradient `bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600` (`linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #9333ea 100%)`). Text `#ffffff`.
+  - **Hover**: `from-indigo-400 via-indigo-500 to-purple-500`, shadow `0 4px 20px rgba(99, 102, 241, 0.25)`.
+  - **Disabled**: `bg-white/[0.04]`, border `1px solid rgba(255, 255, 255, 0.06)`, text `text-slate-500`, `cursor-not-allowed`.
+  - **Micro-interaction**: `active:scale-[0.99] transition-all duration-200`.
 
-#### 2. Capsule Action Buttons (`.ub-action-btn`)
+#### 2. Secondary & Ghost Variants
+- **Secondary** (`.arc-btn-secondary`): Sky Sync background with dark text.
+- **Ghost** (`.arc-btn-ghost`): Transparent background, hairline Sky Sync border (`rgba(172, 198, 233, 0.25)`), Sky Sync text.
+
+#### 3. Capsule Action Buttons (`.ub-action-btn`)
 Used for quick utility actions (e.g. "Deposit", "Sync", filter pills).
 - Pill-shaped (`border-radius: 99px`), padding `7px 16px`.
 - Semi-transparent glass with 1px border.

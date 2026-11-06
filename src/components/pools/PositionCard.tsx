@@ -242,19 +242,12 @@ export const PositionCard: React.FC<PositionCardProps> = ({
             type="button"
             onClick={() => onClaim(position.poolId)}
             disabled={isThisClaiming}
-            className="w-full py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm tracking-wide text-white transition-all duration-200 shadow-lg active:scale-95 cursor-pointer flex items-center justify-center gap-2 select-none hover:brightness-110"
-            style={{
-              background: position.isVault
-                ? 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)'
-                : 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
-              boxShadow: position.isVault
-                ? '0 6px 18px -4px rgba(2, 132, 199, 0.45)'
-                : '0 6px 18px -4px rgba(249, 115, 22, 0.45)',
-            }}
+            className="w-full py-2.5 px-4 rounded-xl font-semibold text-xs sm:text-sm tracking-wide text-white transition-all duration-200 flex items-center justify-center gap-2 select-none bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer"
+            style={{ fontFamily: 'var(--font-app)' }}
           >
             {isThisClaiming ? (
               <>
-                <RefreshCw size={14} className="arcis-spin" />
+                <RefreshCw size={14} className="arcis-spin text-white" />
                 <span>{position.isVault ? 'Harvesting...' : 'Claiming...'}</span>
               </>
             ) : (
@@ -265,12 +258,8 @@ export const PositionCard: React.FC<PositionCardProps> = ({
           <button
             type="button"
             disabled
-            className="w-full py-2.5 px-4 rounded-xl font-medium text-xs tracking-wide transition-all flex items-center justify-center gap-2 select-none cursor-not-allowed border"
-            style={{
-              background: 'rgba(245, 158, 11, 0.06)',
-              borderColor: 'rgba(245, 158, 11, 0.22)',
-              color: '#fbbf24',
-            }}
+            className="w-full py-2.5 px-4 rounded-xl font-medium text-xs tracking-wide transition-all flex items-center justify-center gap-2 select-none cursor-not-allowed bg-white/[0.04] text-slate-500 border border-white/[0.06] opacity-80"
+            style={{ fontFamily: 'var(--font-app)' }}
             title="Accrued fees are below the minimum threshold ($0.01 USDC) to claim."
           >
             <span>Min $0.01 to Claim</span>
@@ -279,12 +268,8 @@ export const PositionCard: React.FC<PositionCardProps> = ({
           <button
             type="button"
             disabled
-            className="w-full py-2.5 px-4 rounded-xl font-medium text-xs sm:text-sm tracking-wide transition-all flex items-center justify-center gap-2 select-none cursor-not-allowed opacity-60"
-            style={{
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              color: 'rgba(255, 255, 255, 0.45)',
-            }}
+            className="w-full py-2.5 px-4 rounded-xl font-medium text-xs sm:text-sm tracking-wide transition-all flex items-center justify-center gap-2 select-none cursor-not-allowed bg-white/[0.04] text-slate-500 border border-white/[0.06] opacity-80"
+            style={{ fontFamily: 'var(--font-app)' }}
           >
             <span>{position.isVault ? 'No Yield to Harvest' : 'No Fees to Claim'}</span>
           </button>

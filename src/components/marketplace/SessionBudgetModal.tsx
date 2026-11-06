@@ -618,9 +618,14 @@ export default function SessionBudgetModal({
             <button
               onClick={() => handleActivateNew(parseFloat(customBudget) || 1.0, selectedDuration)}
               disabled={isFunding || isSweeping}
-              className="arc-btn arc-btn-primary px-6 py-2.5 rounded-full text-xs font-bold cursor-pointer shadow-lg tracking-wider disabled:opacity-50 flex items-center gap-2"
+              className={`px-6 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center gap-2 select-none ${
+                !(isFunding || isSweeping)
+                  ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
+                  : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+              }`}
+              style={{ fontFamily: 'var(--font-app)' }}
             >
-              <RefreshCw className="w-3.5 h-3.5 text-black" />
+              <RefreshCw className="w-3.5 h-3.5 text-white" />
               <span>{isSessionActive ? 'UPDATE SESSION' : 'ACTIVATE SESSION'}</span>
             </button>
           </div>

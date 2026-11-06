@@ -208,7 +208,6 @@ export default function App() {
     verifyEmailOtpCode,
     reopenOtpVerificationWindow,
     cleanupIframe,
-    loginWithPin,
     loginWithSocial,
     executeContractCall: executeUcwContract,
     signTypedData: executeUcwSignTypedData,
@@ -608,7 +607,6 @@ export default function App() {
           onVerifyOtp={verifyEmailOtpCode}
           onReopenOtpVerification={reopenOtpVerificationWindow}
           onCleanupIframe={cleanupIframe}
-          onLoginPin={loginWithPin}
           onLoginSocial={loginWithSocial}
           isLoading={isUcwLoading || isModularLoading}
           otpStep={otpStep}

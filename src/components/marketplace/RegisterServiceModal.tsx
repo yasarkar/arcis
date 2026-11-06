@@ -374,9 +374,14 @@ export default function RegisterServiceModal({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="arc-btn arc-btn-primary w-full py-3 rounded-xl text-xs font-bold tracking-wider uppercase shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`w-full py-3.5 px-6 rounded-xl font-semibold text-xs tracking-wide uppercase transition-all duration-200 flex items-center justify-center gap-2 select-none ${
+                !isSubmitting
+                  ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
+                  : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+              }`}
+              style={{ fontFamily: 'var(--font-app)' }}
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 text-white" />
               <span>{isSubmitting ? 'Signing & Publishing…' : signedManifest ? 'Retry Publish Signed Service' : 'Sign & Publish Service'}</span>
             </button>
           </div>

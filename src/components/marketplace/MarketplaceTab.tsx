@@ -922,9 +922,10 @@ export default function MarketplaceTab({
                     e.stopPropagation()
                     openService(service)
                   }}
-                  className="arc-btn arc-btn-primary w-full py-2.5 px-4 rounded-full text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-lg tracking-wider group-hover:scale-[1.02] active:scale-[0.98]"
+                  className="w-full py-3 px-4 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer"
+                  style={{ fontFamily: 'var(--font-app)' }}
                 >
-                  <Zap className="w-3.5 h-3.5 text-black" />
+                  <Zap className="w-3.5 h-3.5 text-white" />
                   <span>LAUNCH AGENT</span>
                 </button>
               </div>
@@ -946,9 +947,10 @@ export default function MarketplaceTab({
               setFilterCommunity('all')
               setSortBy('default')
             }}
-            className="arc-btn arc-btn-primary inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-bold cursor-pointer shadow-lg mt-5"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 cursor-pointer mt-5 active:scale-[0.99]"
+            style={{ fontFamily: 'var(--font-app)' }}
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className="w-3.5 h-3.5 text-white" />
             <span>RESET ALL FILTERS</span>
           </button>
         </div>

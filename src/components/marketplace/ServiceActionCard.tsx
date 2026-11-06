@@ -214,11 +214,16 @@ export default function ServiceActionCard({
           <button
             onClick={handleExecute}
             disabled={isExecuting || (requiresTradeAmount && !hasValidTradeAmount)}
-            className="arc-btn arc-btn-primary px-4 py-2 rounded-full text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg cursor-pointer disabled:opacity-50 tracking-wider"
+            className={`px-4 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none ${
+              !(isExecuting || (requiresTradeAmount && !hasValidTradeAmount))
+                ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
+                : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+            }`}
+            style={{ fontFamily: 'var(--font-app)' }}
           >
             {isExecuting ? (
               <>
-                <Clock className="w-3.5 h-3.5 animate-spin text-black" />
+                <Clock className="w-3.5 h-3.5 animate-spin text-white" />
                 <span className="capitalize">{progressState}...</span>
               </>
             ) : (
@@ -232,7 +237,7 @@ export default function ServiceActionCard({
                         ? 'Apply & Proceed'
                         : 'Execute Opportunity on Arc'}
                 </span>
-                <ArrowRight className="w-3.5 h-3.5 text-black" />
+                <ArrowRight className="w-3.5 h-3.5 text-white" />
               </>
             )}
           </button>

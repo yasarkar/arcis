@@ -12,8 +12,8 @@ import {
   Fingerprint,
   ChevronDown,
   Loader,
+  RefreshCw,
 } from 'lucide-react'
-import circleTokenIcon from '../assets/Token-Icon/CIRCLE Token.svg'
 import arcLogo from '../assets/Arcis-Icon.svg'
 import googleLogo from '../assets/Social-Login-Icon/google-logo.svg.svg'
 import appleLogo from '../assets/Social-Login-Icon/apple-logo.svg.svg'
@@ -33,7 +33,6 @@ interface CircleAuthModalProps {
   onVerifyOtp?: (code?: string) => Promise<{ success: boolean; address?: string; error?: string }>
   onReopenOtpVerification?: () => boolean
   onCleanupIframe?: () => void
-  onLoginPin: () => Promise<{ success: boolean; address?: string; error?: string }>
   onLoginSocial: (provider: 'google' | 'apple' | 'facebook') => Promise<{ success: boolean; address?: string; error?: string }>
   onRegisterPasskey?: (username: string) => Promise<{ success: boolean; address?: string; error?: string }>
   onLoginPasskey?: () => Promise<{ success: boolean; address?: string; error?: string }>
@@ -57,7 +56,6 @@ export default function CircleAuthModal({
   onVerifyOtp: _onVerifyOtp,
   onReopenOtpVerification: _onReopenOtpVerification,
   onCleanupIframe,
-  onLoginPin,
   onLoginSocial,
   onRegisterPasskey,
   onLoginPasskey,
@@ -76,7 +74,6 @@ export default function CircleAuthModal({
   const [email, setEmail] = useState('')
   const [passkeyName, setPasskeyName] = useState('')
   const [showPasskeyRegister, setShowPasskeyRegister] = useState(false)
-  const [viewMode, setViewMode] = useState<'auth' | 'pin'>('auth')
   const [statusMessage, setStatusMessage] = useState<{ text: string; isError?: boolean; isSuccess?: boolean } | null>(null)
   const [autoLoginPhase, setAutoLoginPhase] = useState<'idle' | 'authenticating' | 'success' | 'failed'>('idle')
   const [autoLoginAddress, setAutoLoginAddress] = useState<string>('')
@@ -144,7 +141,6 @@ export default function CircleAuthModal({
       setEmail('')
       setPasskeyName('')
       setShowPasskeyRegister(false)
-      setViewMode('auth')
       if (setOtpStep) setOtpStep('input')
       setAutoLoginPhase('idle')
       setAutoLoginAddress('')
@@ -276,27 +272,8 @@ export default function CircleAuthModal({
   const isDropdownOpen = showSavedDropdown && savedEmails.length > 0 && displayEmails.length > 0
 
   // ─────────────────────────────────────────────────────────────
-  // PIN & SOCIAL HANDLERS
+  // SOCIAL HANDLERS
   // ─────────────────────────────────────────────────────────────
-  const handlePinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setStatusMessage({ text: 'Initializing Circle PIN & MPC wallet setup...' })
-    const res = await onLoginPin()
-    if (res.success) {
-      setStatusMessage({
-        text: res.address
-          ? `Circle PIN wallet connected: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
-          : `Circle PIN wallet setup complete.`,
-        isSuccess: true,
-      })
-      setTimeout(() => {
-        onClose()
-      }, 1500)
-    } else {
-      setStatusMessage({ text: res.error || 'PIN wallet setup failed.', isError: true })
-    }
-  }
-
   const handleSocialClick = async (provider: 'google' | 'apple' | 'facebook') => {
     const info = getSocialProviderInfo(provider)
     if (!info.isConfigured) {
@@ -335,9 +312,6 @@ export default function CircleAuthModal({
           boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 64px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(99, 102, 241, 0.15)',
         }}
       >
-        {/* Ambient Gradient Glow */}
-        <div className="absolute -top-28 -left-28 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-28 -right-28 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
 
         {/* Close Button */}
         <button
@@ -353,7 +327,7 @@ export default function CircleAuthModal({
             <img src={arcLogo} alt="Arcis Logo" className="h-10 w-auto object-contain" />
           </div>
 
-          {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
+          {autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
             <div className="space-y-2 mt-10">
               <h2 className="text-2xl text-slate-300 tracking-tight">
                 Sign up / Login
@@ -444,7 +418,7 @@ export default function CircleAuthModal({
         )}
 
         {/* MAIN VIEW MODE: Passkeys, Email, Social — only when not auto-login overlay and not connected */}
-        {viewMode === 'auth' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
+        {autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
           <div className="px-6 pt-3 pb-2 md:px-7 md:pt-3 md:pb-2.5 space-y-3.5 max-h-[80vh] overflow-y-auto custom-scrollbar">
             {/* ═════════════════════════════════════════════════════════ */}
             {/* 1. EMAIL FORM (PRIMARY INPUT)                            */}
@@ -567,14 +541,23 @@ export default function CircleAuthModal({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3.5 rounded-full text-xs font-extrabold text-white bg-blue-900 hover:bg-blue-800 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.99] uppercase tracking-wider"
+                className={`w-full py-3.5 px-6 rounded-2xl font-semibold text-xs sm:text-sm tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none uppercase ${
+                  !isLoading
+                    ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
+                    : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+                }`}
+                style={{ fontFamily: 'var(--font-app)' }}
               >
                 {isLoading ? (
                   <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
                     <span>SENDING CODE...</span>
                   </>
                 ) : (
-                  <span>CONTINUE</span>
+                  <>
+                    <span>CONTINUE</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-white" />
+                  </>
                 )}
               </button>
             </form>
@@ -640,9 +623,21 @@ export default function CircleAuthModal({
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="px-4 py-2.5 rounded-xl bg-blue-900 hover:bg-blue-800 text-white text-xm font-bold transition-all cursor-pointer disabled:opacity-50 active:scale-[0.99]"
+                      className={`px-4 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer select-none active:scale-[0.99] ${
+                        !isLoading
+                          ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25'
+                          : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+                      }`}
+                      style={{ fontFamily: 'var(--font-app)' }}
                     >
-                      Create
+                      {isLoading ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                          <span>Creating...</span>
+                        </>
+                      ) : (
+                        <span>Create</span>
+                      )}
                     </button>
                   </form>
                 </div>
@@ -661,28 +656,32 @@ export default function CircleAuthModal({
                 <span className="flex-1 text-center pr-5">Continue with Google</span>
               </button>
 
-              {/* Apple */}
+              {/* Apple (Disabled & Blurred) */}
               <button
                 type="button"
-                onClick={() => handleSocialClick('apple')}
-                disabled={isLoading}
-                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
+                disabled
+                aria-disabled="true"
+                title="Apple Sign-In is temporarily unavailable"
+                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.02] border border-white/[0.05] text-white/50 text-xm font-semibold cursor-not-allowed opacity-40 select-none shadow-sm transition-all"
+                style={{ filter: 'blur(0.8px)' }}
               >
                 <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                  <img src={appleLogo} alt="Apple" className="w-5 h-5 object-contain brightness-0 invert" />
+                  <img src={appleLogo} alt="Apple" className="w-5 h-5 object-contain brightness-0 invert opacity-60" />
                 </div>
                 <span className="flex-1 text-center pr-5">Continue with Apple</span>
               </button>
 
-              {/* Facebook */}
+              {/* Facebook (Disabled & Blurred) */}
               <button
                 type="button"
-                onClick={() => handleSocialClick('facebook')}
-                disabled={isLoading}
-                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
+                disabled
+                aria-disabled="true"
+                title="Facebook Sign-In is temporarily unavailable"
+                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.02] border border-white/[0.05] text-white/50 text-xm font-semibold cursor-not-allowed opacity-40 select-none shadow-sm transition-all"
+                style={{ filter: 'blur(0.8px)' }}
               >
                 <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                  <img src={facebookLogo} alt="Facebook" className="w-5 h-5 object-contain" />
+                  <img src={facebookLogo} alt="Facebook" className="w-5 h-5 object-contain opacity-60" />
                 </div>
                 <span className="flex-1 text-center pr-5">Continue with Facebook</span>
               </button>
@@ -701,89 +700,7 @@ export default function CircleAuthModal({
                 </a>
                 .
               </p>
-
-              {/* Optional Circle PIN Link */}
-              <button
-                type="button"
-                onClick={() => setViewMode('pin')}
-                className="text-[11px] text-slate-400 hover:text-cyan-400 transition cursor-pointer inline-flex items-center gap-1"
-              >
-                <div className="w-3 h-3 rounded-full overflow-hidden shrink-0" style={{ clipPath: 'circle(50%)' }}>
-                  <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
-                </div>
-                <span>Circle PIN Login</span>
-              </button>
             </div>
-          </div>
-        )}
-
-        {/* ALTERNATE VIEW MODE: PIN & Security Questions */}
-        {viewMode === 'pin' && autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && (
-          <div className="p-5 md:p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-white tracking-tight">
-                  Create 6-Digit PIN
-                </h2>
-                <p className="text-xs text-slate-400">
-                  MPC-based 2-of-2 key security for your non-custodial wallet.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewMode('auth')}
-                className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
-              >
-                ← Back
-              </button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 py-1">
-              <div className="p-2.5 rounded-2xl text-center space-y-1 bg-indigo-500/10 border border-indigo-500/30">
-                <span className="text-[10px] font-mono text-indigo-300 uppercase block font-bold">1. PIN</span>
-                <span className="text-[11px] text-white font-medium">6-Digit PIN</span>
-              </div>
-              <div className="p-2.5 rounded-2xl text-center space-y-1 bg-white/[0.03] border border-white/[0.08]">
-                <span className="text-[10px] font-mono text-slate-400 uppercase block font-bold">2. Recovery</span>
-                <span className="text-[11px] text-slate-400 font-medium">2 Questions</span>
-              </div>
-              <div className="p-2.5 rounded-2xl text-center space-y-1 bg-white/[0.03] border border-white/[0.08]">
-                <span className="text-[10px] font-mono text-slate-400 uppercase block font-bold">3. Consent</span>
-                <span className="text-[11px] text-slate-400 font-medium">Agreement</span>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl text-xs space-y-2 bg-indigo-500/5 border border-indigo-500/20">
-              <div className="flex items-center gap-2 text-indigo-300 font-semibold">
-                <Shield className="w-4 h-4 text-indigo-400" />
-                <span>Keep your security answers safe</span>
-              </div>
-              <ul className="space-y-1.5 text-[11px] list-disc list-inside text-slate-300 leading-relaxed">
-                <li>This is the only way to recover your non-custodial wallet.</li>
-                <li>Circle never stores your answers; cryptographic keys stay in your control.</li>
-              </ul>
-            </div>
-
-            <form onSubmit={handlePinSubmit} className="space-y-4">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="ub-action-btn ub-action-btn-primary w-full py-3.5 rounded-full text-xs font-bold text-white shadow-lg flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50 active:scale-[0.99]"
-              >
-                {isLoading ? (
-                  <>
-                    <Sparkles className="w-4 h-4 animate-spin text-purple-200" />
-                    INITIALIZING PIN...
-                  </>
-                ) : (
-                  <>
-                    <Key className="w-4 h-4 text-purple-300" />
-                    <span>INITIALIZE PIN &amp; RECOVERY SETUP</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
           </div>
         )}
       </div>

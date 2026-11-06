@@ -954,14 +954,12 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                 type="button"
                 onClick={handleDeposit}
                 disabled={isButtonDisabled}
-                className={`w-full py-3.5 rounded-2xl font-bold text-xs sm:text-sm tracking-wide text-white transition-all duration-200 shadow-lg active:scale-95 flex items-center justify-center gap-2 select-none ${
+                className={`w-full py-4 px-6 rounded-2xl font-semibold text-sm sm:text-base tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none ${
                   isButtonDisabled
-                    ? 'bg-white/[0.05] border border-white/[0.08] text-white/40 cursor-not-allowed'
-                    : isWeth
-                    ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-sky-600 hover:brightness-110 shadow-indigo-500/25 cursor-pointer'
-                    : 'bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:brightness-110 shadow-orange-500/25 cursor-pointer'
+                    ? 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+                    : 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
                 }`}
-                style={!isButtonDisabled ? buttonGradientActive : undefined}
+                style={{ fontFamily: 'var(--font-app)' }}
               >
                 {getButtonText()}
               </button>

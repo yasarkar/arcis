@@ -535,16 +535,10 @@ export default function PoolCard({
         <button
           type="button"
           onClick={() => onDeposit(pool)}
-          className="ub-action-btn ub-action-btn-primary"
-          style={{
-            flex: 1,
-            justifyContent: 'center',
-            padding: '8px 14px',
-            fontSize: 12,
-            fontWeight: 600,
-          }}
+          className="flex-1 py-2.5 px-4 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer"
+          style={{ fontFamily: 'var(--font-app)' }}
         >
-          <Plus size={13} />
+          <Plus size={13} className="text-white" />
           <span>{pool.isLpPool ? 'Add Liquidity' : 'Deposit'}</span>
         </button>
 
@@ -559,11 +553,9 @@ export default function PoolCard({
               }
             }}
             disabled={isThisPoolClaiming || !isClaimReady}
-            className="ub-action-btn"
+            className="px-3.5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99]"
             style={{
-              padding: '8px 14px',
-              fontSize: 12,
-              fontWeight: 600,
+              fontFamily: 'var(--font-app)',
               background: isClaimReady
                 ? 'linear-gradient(135deg, rgba(1, 208, 98, 0.16) 0%, rgba(56, 189, 248, 0.12) 100%)'
                 : 'rgba(255, 255, 255, 0.04)',
@@ -594,11 +586,9 @@ export default function PoolCard({
             type="button"
             onClick={() => onWithdraw(pool)}
             disabled={!hasDeposit}
-            className="ub-action-btn"
+            className="px-3.5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99]"
             style={{
-              padding: '8px 14px',
-              fontSize: 12,
-              fontWeight: 600,
+              fontFamily: 'var(--font-app)',
               borderColor: hasDeposit ? 'rgba(152, 150, 255, 0.35)' : 'rgba(255, 255, 255, 0.1)',
               color: hasDeposit ? '#fff' : 'var(--fp-4)',
               opacity: hasDeposit ? 1 : 0.45,
@@ -614,10 +604,9 @@ export default function PoolCard({
             <button
               type="button"
               onClick={() => onWithdraw(pool)}
-              className="ub-action-btn"
+              className="px-3.5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99] cursor-pointer"
               style={{
-                padding: '8px 14px',
-                fontSize: 12,
+                fontFamily: 'var(--font-app)',
                 borderColor: 'rgba(255, 255, 255, 0.15)',
               }}
             >
@@ -631,11 +620,9 @@ export default function PoolCard({
         <button
           type="button"
           onClick={() => setShowDetails((prev) => !prev)}
-          className="ub-action-btn"
+          className="px-3 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99] cursor-pointer text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]"
           style={{
-            padding: '8px 14px',
-            fontSize: 12,
-            borderColor: 'rgba(255, 255, 255, 0.15)',
+            fontFamily: 'var(--font-app)',
           }}
         >
           <span>Details</span>
