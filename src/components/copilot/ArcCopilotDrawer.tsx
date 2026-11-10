@@ -13,7 +13,6 @@ import {
   Activity,
   RotateCcw,
   MoveDiagonal2,
-  Zap,
   Check,
   Copy,
   Pencil,
@@ -586,16 +585,25 @@ export default function ArcCopilotDrawer({
                         type="button"
                         onClick={handleSubmitEdit}
                         disabled={!editingText.trim() || isAnalyzing}
-                        className="px-3 py-1 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-md shadow-indigo-500/20"
+                        className="px-3 py-1 rounded-lg hover:brightness-110 disabled:opacity-50 text-white text-[11px] font-bold transition cursor-pointer flex items-center gap-1 shadow-md shadow-purple-500/20 active:scale-95 disabled:hover:brightness-100"
+                        style={{
+                          background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                          boxShadow: '0 4px 16px rgba(152, 150, 255, 0.25)',
+                        }}
                       >
-                        <Send className="w-3 h-3" />
                         <span>Send</span>
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-end max-w-[85%] space-y-1 group">
-                    <div className="rounded-2xl p-3.5 leading-relaxed bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-br-none shadow-md shadow-indigo-500/10 select-text cursor-text">
+                    <div
+                      className="rounded-2xl p-3.5 leading-relaxed text-white rounded-br-none shadow-md shadow-purple-500/10 select-text cursor-text"
+                      style={{
+                        background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                        boxShadow: '0 4px 16px rgba(152, 150, 255, 0.2)',
+                      }}
+                    >
                       <div
                         className="whitespace-pre-wrap leading-relaxed text-[12.5px] select-text cursor-text selection:bg-indigo-400/30 selection:text-white"
                         dangerouslySetInnerHTML={{ __html: sanitizeCopilotHtml(msg.content) }}
@@ -757,9 +765,17 @@ export default function ArcCopilotDrawer({
                           setSelectedTopicId((prev) => (prev === topic.id ? null : topic.id))
                         }
                         className={`px-3.5 py-1 rounded-full text-[11px] font-medium transition cursor-pointer shadow-sm active:scale-95 border ${isSelected
-                            ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold border-indigo-400/50 shadow-md shadow-indigo-500/25'
+                            ? 'text-white font-semibold border-white/20 shadow-md shadow-purple-500/25'
                             : 'bg-[#161926]/90 text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40'
                           }`}
+                        style={
+                          isSelected
+                            ? {
+                                background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                                boxShadow: '0 4px 16px rgba(152, 150, 255, 0.25)',
+                              }
+                            : undefined
+                        }
                       >
                         {topic.label}
                       </button>
@@ -902,7 +918,15 @@ export default function ArcCopilotDrawer({
             type="submit"
             aria-label="Send message"
             disabled={!canSendInput}
-            className="w-9 h-9 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:bg-[#161926] disabled:text-slate-600 text-white flex items-center justify-center transition cursor-pointer disabled:cursor-not-allowed shadow-md shadow-indigo-500/25 flex-shrink-0"
+            className="w-9 h-9 rounded-2xl disabled:bg-[#161926] disabled:text-slate-600 text-white flex items-center justify-center transition cursor-pointer disabled:cursor-not-allowed shadow-md shadow-purple-500/25 flex-shrink-0 hover:brightness-110 active:scale-95 disabled:hover:brightness-100 disabled:shadow-none"
+            style={
+              canSendInput
+                ? {
+                    background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                    boxShadow: '0 4px 16px rgba(152, 150, 255, 0.3)',
+                  }
+                : undefined
+            }
           >
             <Send className="w-3.5 h-3.5" />
           </button>

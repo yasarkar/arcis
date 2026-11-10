@@ -43,6 +43,11 @@ import {
 /** Scoped logger: skipped best-effort work must be traceable without raw console noise. */
 const log = logger.createScope('InlineActionCard')
 
+const PRIMARY_ACTION_GRADIENT_STYLE: React.CSSProperties = {
+  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+  boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+}
+
 /**
  * Reconstructs the canonical chat command from a completed receipt or action payload
  * so clicking "Send Again" (or action again) repeats the operation seamlessly.
@@ -673,7 +678,8 @@ export default function InlineActionCard({
               icon: <ArrowRightLeft className="w-4 h-4" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: !hasLiveQuote || !hasValidAmount || !hasMinimum || slippageBps === undefined,
-              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
+              gradient: 'hover:brightness-110 text-white shadow-purple-500/20',
+              style: PRIMARY_ACTION_GRADIENT_STYLE,
             }}
             secondaryAction={{
               label: 'Swap Page',
@@ -774,7 +780,8 @@ export default function InlineActionCard({
               icon: <Coins className="w-3.5 h-3.5 text-indigo-200" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: !hasValidDepositAmount,
-              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
+              gradient: 'hover:brightness-110 text-white shadow-purple-500/20',
+              style: PRIMARY_ACTION_GRADIENT_STYLE,
             }}
             secondaryAction={{
               label: 'Pool Page',
@@ -870,7 +877,8 @@ export default function InlineActionCard({
               title: !hasValidBridgeAmount
                 ? 'A valid explicit amount is required before confirming this bridge.'
                 : undefined,
-              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
+              gradient: 'hover:brightness-110 text-white shadow-purple-500/20',
+              style: PRIMARY_ACTION_GRADIENT_STYLE,
             }}
             secondaryAction={{
               label: 'Bridge Page',
@@ -1017,7 +1025,8 @@ export default function InlineActionCard({
               icon: <ArrowUpRight className="w-4 h-4" />,
               onClick: () => onExecuteInline(message.id, actionPayload),
               disabled: isExecutingInline || !hasValidSendAmount,
-              gradient: 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white shadow-indigo-500/20',
+              gradient: 'hover:brightness-110 text-white shadow-purple-500/20',
+              style: PRIMARY_ACTION_GRADIENT_STYLE,
             }}
             secondaryAction={{
               label: 'Send Page',
@@ -1096,6 +1105,7 @@ interface ActionCardShellProps {
     disabled?: boolean
     title?: string
     gradient: string
+    style?: React.CSSProperties
   }
   secondaryAction?: {
     label: string
@@ -1202,6 +1212,7 @@ function ActionCardShell({
           onClick={primaryAction.onClick}
           disabled={primaryAction.disabled}
           className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100 hover:brightness-110 ${primaryAction.gradient}`}
+          style={primaryAction.style}
         >
           {primaryAction.icon}
           <span>{primaryAction.label}</span>

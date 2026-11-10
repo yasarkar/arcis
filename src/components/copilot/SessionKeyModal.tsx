@@ -2,6 +2,7 @@
 // These browser-side controls do not register on-chain SessionKeyModule delegations.
 
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X,
   Zap,
@@ -85,15 +86,21 @@ export default function SessionKeyModal({
     setIsConfirmOpen(false)
   }, [budgetUsdc, durationHours, maxPerTx, allowedActions, isCustomBudget])
 
-  // Escape key dismisses the safety bubble without touching the modal
+  // Escape key closes safety bubble if open, otherwise closes the modal
   useEffect(() => {
-    if (!isOpen || !isConfirmOpen) return
+    if (!isOpen) return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsConfirmOpen(false)
+      if (event.key === 'Escape') {
+        if (isConfirmOpen) {
+          setIsConfirmOpen(false)
+        } else {
+          onClose()
+        }
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isConfirmOpen])
+  }, [isOpen, isConfirmOpen, onClose])
 
   // Live countdown timer ticker
   useEffect(() => {
@@ -108,7 +115,7 @@ export default function SessionKeyModal({
     return () => clearInterval(interval)
   }, [isOpen, walletAddress])
 
-  if (!isOpen) return null
+  if (!isOpen || typeof document === 'undefined') return null
 
   const handleToggleAction = (actionId: SessionActionType) => {
     if (allowedActions.includes(actionId)) {
@@ -170,13 +177,21 @@ export default function SessionKeyModal({
     : 0
   const isExpired = Date.now() > sessionConfig.expiresAt
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in select-text selection:bg-indigo-500/30 selection:text-white">
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Session Settings"
+      className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overscroll-contain touch-none select-text selection:bg-indigo-500/30 selection:text-white"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-lg rounded-3xl border border-white/[0.08] bg-[#0f111a]/95 p-6 space-y-5 shadow-2xl overflow-hidden relative select-text"
+        className="w-full max-w-lg rounded-3xl border border-white/[0.08] bg-[#0f111a]/95 p-6 space-y-5 shadow-2xl overflow-hidden relative select-text animate-scale-in"
         style={{
           boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 35px rgba(99, 102, 241, 0.15)',
+          fontFamily: 'var(--font-app)',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Glow ambient background element */}
         <div className="absolute -top-24 -left-24 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -296,9 +311,17 @@ export default function SessionKeyModal({
                     }}
                     className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
                       budgetUsdc === amt
-                        ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-indigo-400/50 shadow-md shadow-indigo-500/20'
+                        ? 'text-white border-white/20 shadow-md shadow-purple-500/20'
                         : 'bg-[#161926]/80 text-slate-300 border-white/[0.08] hover:border-slate-600'
                     }`}
+                    style={
+                      budgetUsdc === amt
+                        ? {
+                            background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                            boxShadow: '0 4px 16px rgba(152, 150, 255, 0.25)',
+                          }
+                        : undefined
+                    }
                   >
                     {amt} USDC
                   </button>
@@ -323,9 +346,17 @@ export default function SessionKeyModal({
                   onClick={() => setDurationHours(hrs)}
                   className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
                     durationHours === hrs
-                      ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-indigo-400/50 shadow-md shadow-indigo-500/20'
+                      ? 'text-white border-white/20 shadow-md shadow-purple-500/20'
                       : 'bg-[#161926]/80 text-slate-300 border-white/[0.08] hover:border-slate-600'
                   }`}
+                  style={
+                    durationHours === hrs
+                      ? {
+                          background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                          boxShadow: '0 4px 16px rgba(152, 150, 255, 0.25)',
+                        }
+                      : undefined
+                  }
                 >
                   {hrs}h
                 </button>
@@ -401,7 +432,12 @@ export default function SessionKeyModal({
               type="button"
               onClick={handleSaveClick}
               disabled={isSaving}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:brightness-110 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-500/25 disabled:opacity-50"
+              className="px-5 py-2 rounded-xl hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-purple-500/25 disabled:opacity-50"
+              style={{
+                fontFamily: 'var(--font-app)',
+                background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+              }}
             >
               {savedSuccess ? (
                 <>
@@ -424,12 +460,16 @@ export default function SessionKeyModal({
             {/* Click-away layer: dims the form and dismisses the bubble */}
             <div
               className="absolute inset-0 z-20 bg-slate-950/30"
-              onClick={() => setIsConfirmOpen(false)}
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsConfirmOpen(false)
+              }}
             />
             <div
               role="alertdialog"
               aria-label="Confirm updating the active session"
               className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 w-[21rem] rounded-2xl border border-amber-500/50 bg-slate-950 p-3.5 space-y-3 shadow-2xl shadow-amber-500/10 animate-fade-in select-text"
+              onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-start gap-2">
                 <div className="w-7 h-7 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
@@ -465,6 +505,7 @@ export default function SessionKeyModal({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
