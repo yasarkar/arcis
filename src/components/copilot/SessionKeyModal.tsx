@@ -1,5 +1,7 @@
-// Session Key Configuration Modal
-// These browser-side controls do not register on-chain SessionKeyModule delegations.
+// src/components/copilot/SessionKeyModal.tsx
+// Session Key Configuration Modal for Ask Arco Copilot
+// Engineered strictly according to DESIGN.md (Aave Luxury + Arc Blockchain High-Fi Obsidian)
+// Controls client-side execution boundaries, spend caps, and authorization scopes.
 
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
@@ -11,13 +13,18 @@ import {
   Trash2,
   Lock,
   Clock,
-  Check,
   AlertTriangle,
+  ArrowLeftRight,
+  Landmark,
+  Compass,
+  Send,
+  ShieldCheck,
 } from 'lucide-react'
 import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey'
 import { getSessionKeyConfig, getSessionTimeRemaining } from '../../services/sessionKeyService'
+import { soundService } from '../../services/soundService'
 
-interface SessionKeyModalProps {
+export interface SessionKeyModalProps {
   isOpen: boolean
   onClose: () => void
   sessionConfig: SessionKeyConfig
@@ -36,11 +43,16 @@ interface SessionKeyModalProps {
   onToggleAutoExecute: (enabled: boolean) => void
 }
 
-const ACTION_OPTIONS: { id: SessionActionType; label: string; description: string }[] = [
-  { id: 'swap', label: 'Swap', description: 'Instant token swaps' },
-  { id: 'deposit', label: 'Vault Deposit', description: 'Real-yield pools' },
-  { id: 'bridge', label: 'Bridge', description: 'Cross-chain transfers' },
-  { id: 'send', label: 'Send', description: 'Transfers to any recipient' },
+const ACTION_OPTIONS: {
+  id: SessionActionType
+  label: string
+  description: string
+  icon: React.ComponentType<{ className?: string }>
+}[] = [
+  { id: 'swap', label: 'Token Swap', description: 'Instant DEX trades', icon: ArrowLeftRight },
+  { id: 'deposit', label: 'Vault Deposit', description: 'Real-yield pools', icon: Landmark },
+  { id: 'bridge', label: 'Cross-Chain', description: 'CCTP & Gateway', icon: Compass },
+  { id: 'send', label: 'Direct Send', description: 'USDC transfers', icon: Send },
 ]
 
 export default function SessionKeyModal({
@@ -60,11 +72,12 @@ export default function SessionKeyModal({
       ? sessionConfig.allowedActions
       : ['swap', 'deposit', 'bridge', 'send']
   )
+  const [autoExecute, setAutoExecute] = useState<boolean>(sessionConfig.autoExecute || false)
   const [isCustomBudget, setIsCustomBudget] = useState<boolean>(false)
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
   const [timeRemainingText, setTimeRemainingText] = useState<string>('')
-  // Yes/No safety bubble shown before replacing an already-running session
+  // Safety confirmation dialog shown before replacing an active session
   const [isConfirmOpen, setIsConfirmOpen] = useState<boolean>(false)
 
   // Sync state when sessionConfig or isOpen or walletAddress changes
@@ -76,17 +89,18 @@ export default function SessionKeyModal({
       if (fresh.allowedActions && fresh.allowedActions.length > 0) {
         setAllowedActions(fresh.allowedActions)
       }
+      setAutoExecute(fresh.autoExecute || false)
       setIsConfirmOpen(false)
+      setIsCustomBudget(![25, 50, 100, 250].includes(fresh.maxSpendUsdc || 100))
     }
   }, [isOpen, walletAddress])
 
-  // Dismiss the safety bubble whenever the user tweaks a setting,
-  // so the confirmation always refers to the visible configuration.
+  // Dismiss safety confirm if user tweaks any setting
   useEffect(() => {
     setIsConfirmOpen(false)
-  }, [budgetUsdc, durationHours, maxPerTx, allowedActions, isCustomBudget])
+  }, [budgetUsdc, durationHours, maxPerTx, allowedActions, isCustomBudget, autoExecute])
 
-  // Escape key closes safety bubble if open, otherwise closes the modal
+  // Escape key closes safety prompt if open, otherwise closes the modal
   useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -140,16 +154,21 @@ export default function SessionKeyModal({
         maxSpendUsdc: Number(budgetUsdc),
         durationHours: Number(durationHours),
         maxPerTxUsdc: Math.min(Number(maxPerTx), Number(budgetUsdc)),
-        // Do not force zero-popup on: preserve the user's existing auto-execution choice.
-        autoExecute: false,
+        autoExecute,
         allowedActions,
         walletAddress,
       })
+      if (autoExecute !== sessionConfig.autoExecute) {
+        onToggleAutoExecute(autoExecute)
+      }
+      soundService.play('success')
       setSavedSuccess(true)
       setTimeout(() => {
         setSavedSuccess(false)
         onClose()
       }, 500)
+    } catch {
+      soundService.play('error')
     } finally {
       setIsSaving(false)
     }
@@ -157,8 +176,7 @@ export default function SessionKeyModal({
 
   const handleSaveClick = () => {
     if (isSaving) return
-    // Guard rail: replacing a running session resets its budget, so require
-    // an explicit yes/no before we overwrite it.
+    soundService.play('pop')
     if (hasOngoingSession()) {
       setIsConfirmOpen(true)
       return
@@ -171,10 +189,14 @@ export default function SessionKeyModal({
     void performSave()
   }
 
-  const remainingBudget = Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc - (sessionConfig.reservedUsdc || 0))
-  const spentPercent = sessionConfig.maxSpendUsdc > 0
-    ? Math.min(100, Math.round((sessionConfig.spentUsdc / sessionConfig.maxSpendUsdc) * 100))
-    : 0
+  const remainingBudget = Math.max(
+    0,
+    sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc - (sessionConfig.reservedUsdc || 0)
+  )
+  const spentPercent =
+    sessionConfig.maxSpendUsdc > 0
+      ? Math.min(100, Math.round((sessionConfig.spentUsdc / sessionConfig.maxSpendUsdc) * 100))
+      : 0
   const isExpired = Date.now() > sessionConfig.expiresAt
 
   return createPortal(
@@ -182,81 +204,173 @@ export default function SessionKeyModal({
       role="dialog"
       aria-modal="true"
       aria-label="Session Settings"
-      className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overscroll-contain touch-none select-text selection:bg-indigo-500/30 selection:text-white"
+      className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-5 bg-[#07080d]/85 backdrop-blur-[24px] animate-fade-in overscroll-contain select-text selection:bg-[var(--purple-1)]/30 selection:text-white"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-3xl border border-white/[0.08] bg-[#0f111a]/95 p-6 space-y-5 shadow-2xl overflow-hidden relative select-text animate-scale-in"
+        className="relative w-full max-w-lg rounded-[28px] overflow-hidden transition-all my-auto flex flex-col border border-white/[0.08] p-5 sm:p-6 space-y-4 sm:space-y-5 animate-scale-in max-h-[92vh] overflow-y-auto"
         style={{
-          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 35px rgba(99, 102, 241, 0.15)',
+          background:
+            'linear-gradient(145deg, rgba(22, 25, 42, 0.98) 0%, rgba(15, 17, 30, 0.99) 60%, rgba(9, 10, 18, 1) 100%)',
+          backdropFilter: 'blur(28px)',
+          WebkitBackdropFilter: 'blur(28px)',
+          boxShadow:
+            '0 32px 80px -16px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 48px rgba(152, 150, 255, 0.12)',
           fontFamily: 'var(--font-app)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Glow ambient background element */}
-        <div className="absolute -top-24 -left-24 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        {/* Ambient Top Glow Orbs (DESIGN.md) */}
+        <div className="absolute -top-24 -left-24 w-80 h-80 bg-[radial-gradient(ellipse_70%_50%_at_20%_0%,rgba(152,150,255,0.18)_0%,transparent_70%)] pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-[radial-gradient(circle,rgba(6,182,212,0.1)_0%,transparent_70%)] pointer-events-none" />
 
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
+        <div className="flex items-center justify-between pb-4 border-b border-white/[0.06] relative z-10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center shadow-inner">
-              <Zap className="w-5 h-5 text-indigo-400" />
+            <div
+              className="w-10 h-10 rounded-2xl flex items-center justify-center border transition-transform hover:scale-105 flex-shrink-0"
+              style={{
+                backgroundColor: 'rgba(152, 150, 255, 0.12)',
+                borderColor: 'rgba(152, 150, 255, 0.3)',
+                boxShadow: '0 0 16px rgba(152, 150, 255, 0.2)',
+              }}
+            >
+              <Zap className="w-5 h-5 text-[var(--purple-1)]" />
             </div>
             <div>
-              <h3 className="text-base font-display font-bold text-white flex items-center gap-2">
+              <h3
+                className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2"
+                style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+              >
                 <span>Session Settings</span>
               </h3>
-              <p className="text-xs text-slate-400">Browser-held key and client-side execution limits only</p>
+              <p className="text-[11px] sm:text-xs text-slate-400">
+                Client-side spend boundaries &amp; autonomous execution authority
+              </p>
             </div>
           </div>
+
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            type="button"
+            onClick={() => {
+              soundService.play('pop')
+              onClose()
+            }}
+            aria-label="Close session settings"
+            className="w-8 h-8 rounded-full bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-white/20 text-slate-400 hover:text-white transition flex items-center justify-center cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--purple-1)] flex-shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Active Status Badge & Budget Progress Bar */}
-        <div className="p-4 rounded-2xl bg-[#090a0f]/80 border border-white/[0.06] space-y-3.5 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-400 flex items-center gap-1.5 font-medium">
-              <Key className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Session Key Status:</span>
-            </span>
+        {/* Status Cockpit HUD Ribbon & Real-time Telemetry Matrix */}
+        <div
+          className="p-3.5 sm:p-4 rounded-2xl border border-white/[0.08] relative overflow-hidden space-y-3"
+          style={{
+            background: 'linear-gradient(135deg, rgba(20, 25, 46, 0.85) 0%, rgba(12, 16, 32, 0.9) 100%)',
+            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 32px -8px rgba(0, 0, 0, 0.6)',
+          }}
+        >
+          {/* Header of HUD */}
+          <div className="flex items-center justify-between text-xs pb-2.5 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
-              {sessionConfig.isActive && !isExpired && (
-                <span className="text-[11px] font-mono text-indigo-400 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-indigo-400" />
-                  {timeRemainingText}
-                </span>
+              {sessionConfig.isActive && !isExpired ? (
+                <div className="ub-live-badge">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--earned-green)] shadow-[0_0_8px_var(--earned-green)] animate-pulse" />
+                  <span>ACTIVE SESSION</span>
+                  <svg className="ub-ecg-svg" viewBox="0 0 42 14" aria-hidden="true">
+                    <path
+                      className="ub-ecg-path-bg"
+                      d="M 1 7 L 12 7 L 15 2 L 18 12 L 21 4 L 24 9 L 26 7 L 41 7"
+                    />
+                    <path
+                      className="ub-ecg-path-pulse"
+                      d="M 1 7 L 12 7 L 15 2 L 18 12 L 21 4 L 24 9 L 26 7 L 41 7"
+                    />
+                  </svg>
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-semibold tracking-wider uppercase text-slate-400 bg-white/[0.04] border border-white/[0.08]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                  <span>INACTIVE SESSION</span>
+                </div>
               )}
-              <span
-                className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] flex items-center gap-1.5 ${
-                  sessionConfig.isActive && !isExpired
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${sessionConfig.isActive && !isExpired ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-                {sessionConfig.isActive && !isExpired ? 'Active' : 'Inactive'}
+            </div>
+
+            {sessionConfig.isActive && !isExpired && (
+              <div className="text-[11px] sm:text-xs text-[var(--secondary-colors--sky-sync)] font-mono flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+                <span className="tabular-nums font-semibold">{timeRemainingText}</span>
+              </div>
+            )}
+          </div>
+
+          {/* 3-Stat Inset Telemetry Strip */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
+              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                REMAINING
               </span>
+              <div
+                className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
+                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+              >
+                <span className="text-[var(--earned-green)]">
+                  {sessionConfig.isActive && !isExpired ? remainingBudget.toFixed(2) : '0.00'}
+                </span>
+                <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
+              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                TOTAL CAP
+              </span>
+              <div
+                className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
+                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+              >
+                <span>{sessionConfig.maxSpendUsdc.toFixed(2)}</span>
+                <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
+              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                PER-TX LIMIT
+              </span>
+              <div
+                className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
+                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+              >
+                <span className="text-[var(--purple-1)]">{sessionConfig.maxPerTxUsdc.toFixed(2)}</span>
+                <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+              </div>
             </div>
           </div>
 
-          {/* Live Glowing Budget Progress Bar (Only rendered when session is active with a real cap) */}
+          {/* Glowing Budget Progress Bar */}
           {sessionConfig.isActive && !isExpired && sessionConfig.maxSpendUsdc > 0 && (
-            <div className="space-y-1.5 pt-1">
-              <div className="flex items-center justify-between text-[12px]">
-                <span className="text-slate-400 font-sans">Spend Cap Usage:</span>
-                <span className="font-mono text-slate-300">
-                  <span className="text-emerald-400 font-bold tabular-nums">{remainingBudget.toFixed(2)}</span> / {sessionConfig.maxSpendUsdc.toFixed(2)} USDC
+            <div className="space-y-1 pt-0.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400 font-mono uppercase tracking-wider text-[10px]">
+                  Envelope Usage
+                </span>
+                <span className="text-slate-300 font-mono text-[11px]">
+                  <span className="text-[var(--earned-green)] font-semibold tabular-nums">
+                    {Math.max(0, 100 - spentPercent)}%
+                  </span>{' '}
+                  available
                 </span>
               </div>
-              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
+              <div className="w-full h-1.5 rounded-full bg-white/[0.05] border border-white/[0.06] overflow-hidden relative">
                 <div
-                  className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400"
-                  style={{ width: `${100 - spentPercent}%` }}
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.max(0, 100 - spentPercent)}%`,
+                    background: 'linear-gradient(90deg, #6366f1 0%, #9896ff 50%, #01d062 100%)',
+                    boxShadow: '0 0 10px rgba(1, 208, 98, 0.4)',
+                  }}
                 />
               </div>
             </div>
@@ -265,165 +379,281 @@ export default function SessionKeyModal({
 
         {/* Configuration Controls */}
         <div className="space-y-4">
-          {/* 1. Budget Presets & Custom Input */}
+          {/* 1. Spend Cap Section */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300">Spend Cap:</label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCustomBudget(!isCustomBudget)}
-                  className="text-[10px] text-indigo-400 hover:text-indigo-300 transition underline cursor-pointer"
-                >
-                  {isCustomBudget ? 'Choose Preset' : 'Custom'}
-                </button>
-                <span className="text-indigo-300 font-mono font-bold tabular-nums">{budgetUsdc} USDC</span>
-              </div>
+              <span className="arc-eyebrow text-[11px] font-semibold tracking-wider text-[var(--secondary-colors--sky-sync)] uppercase">
+                SPEND ENVELOPE
+              </span>
+              <span
+                className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full"
+                style={{
+                  backgroundColor: 'rgba(152, 150, 255, 0.12)',
+                  border: '1px solid rgba(152, 150, 255, 0.3)',
+                  color: 'var(--purple-1)',
+                }}
+              >
+                {budgetUsdc} USDC
+              </span>
             </div>
 
-            {isCustomBudget ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={10}
-                  max={5000}
-                  step={5}
-                  value={budgetUsdc}
-                  onChange={(e) => {
-                    const val = Number(e.target.value)
-                    setBudgetUsdc(val)
-                    if (maxPerTx > val) setMaxPerTx(val)
-                  }}
-                  className="flex-1 bg-[#090a0f] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-400"
-                  placeholder="Enter custom budget in USDC"
-                />
-                <span className="text-xs text-slate-400 font-mono">USDC</span>
-              </div>
-            ) : (
-              <div className="grid grid-cols-4 gap-2">
-                {[25, 50, 100, 250].map((amt) => (
+            <div className="grid grid-cols-5 gap-1.5">
+              {[25, 50, 100, 250].map((amt) => {
+                const isSelected = !isCustomBudget && budgetUsdc === amt
+                return (
                   <button
                     key={amt}
                     type="button"
                     onClick={() => {
+                      soundService.play('pop')
+                      setIsCustomBudget(false)
                       setBudgetUsdc(amt)
                       if (maxPerTx > amt) setMaxPerTx(amt)
                     }}
-                    className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                      budgetUsdc === amt
-                        ? 'text-white border-white/20 shadow-md shadow-purple-500/20'
-                        : 'bg-[#161926]/80 text-slate-300 border-white/[0.08] hover:border-slate-600'
+                    className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
+                      isSelected
+                        ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                        : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
                     }`}
-                    style={
-                      budgetUsdc === amt
-                        ? {
-                            background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                            boxShadow: '0 4px 16px rgba(152, 150, 255, 0.25)',
-                          }
-                        : undefined
-                    }
                   >
                     {amt} USDC
                   </button>
-                ))}
+                )
+              })}
+              <button
+                type="button"
+                onClick={() => {
+                  soundService.play('pop')
+                  setIsCustomBudget(true)
+                }}
+                className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
+                  isCustomBudget
+                    ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                    : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+
+            {isCustomBudget && (
+              <div className="relative animate-fade-in pt-1">
+                <div className="relative flex items-center rounded-xl bg-black/40 border border-white/[0.1] focus-within:border-[var(--purple-1)] focus-within:ring-1 focus-within:ring-[var(--purple-1)]/30 transition-all overflow-hidden">
+                  <input
+                    type="number"
+                    min={5}
+                    max={5000}
+                    step={5}
+                    value={budgetUsdc}
+                    onChange={(e) => {
+                      const val = Number(e.target.value)
+                      setBudgetUsdc(val)
+                      if (maxPerTx > val) setMaxPerTx(val)
+                    }}
+                    className="w-full bg-transparent px-3 py-2 text-xs text-white font-mono tabular-nums focus:outline-none"
+                    placeholder="Enter custom budget in USDC"
+                  />
+                  <span className="pr-5 text-xs text-[var(--secondary-colors--sky-sync)] font-mono font-semibold">
+                    USDC
+                  </span>
+                </div>
               </div>
             )}
           </div>
 
-          {/* 2. Duration Presets */}
+          {/* 2. Session Duration Section */}
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-              <span>Session Duration:</span>
-              <span className="text-indigo-300 font-mono font-bold tabular-nums">
+            <div className="flex items-center justify-between">
+              <span className="arc-eyebrow text-[11px] font-semibold tracking-wider text-[var(--secondary-colors--sky-sync)] uppercase">
+                SESSION DURATION
+              </span>
+              <span
+                className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full"
+                style={{
+                  backgroundColor: 'rgba(152, 150, 255, 0.12)',
+                  border: '1px solid rgba(152, 150, 255, 0.3)',
+                  color: 'var(--purple-1)',
+                }}
+              >
                 {durationHours === 1 ? '1 Hour' : `${durationHours} Hours`}
               </span>
-            </label>
-            <div className="grid grid-cols-4 gap-2">
-              {[1, 6, 12, 24].map((hrs) => (
-                <button
-                  key={hrs}
-                  type="button"
-                  onClick={() => setDurationHours(hrs)}
-                  className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                    durationHours === hrs
-                      ? 'text-white border-white/20 shadow-md shadow-purple-500/20'
-                      : 'bg-[#161926]/80 text-slate-300 border-white/[0.08] hover:border-slate-600'
-                  }`}
-                  style={
-                    durationHours === hrs
-                      ? {
-                          background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                          boxShadow: '0 4px 16px rgba(152, 150, 255, 0.25)',
-                        }
-                      : undefined
-                  }
-                >
-                  {hrs}h
-                </button>
-              ))}
             </div>
-          </div>
 
-          {/* 3. Single-Tx Cap */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-              <span>Per Transaction Cap:</span>
-              <span className="text-indigo-300 font-mono tabular-nums">{maxPerTx} USDC</span>
-            </label>
-            <input
-              type="range"
-              min={5}
-              max={budgetUsdc}
-              step={5}
-              value={maxPerTx}
-              onChange={(e) => setMaxPerTx(Number(e.target.value))}
-              className="w-full accent-indigo-500 cursor-pointer"
-            />
-          </div>
-
-          {/* 4. Granular Action Scopes */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-              <span>Action Filters:</span>
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {ACTION_OPTIONS.map((act) => {
-                const isChecked = allowedActions.includes(act.id)
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { hrs: 1, label: '1h' },
+                { hrs: 6, label: '6h' },
+                { hrs: 12, label: '12h' },
+                { hrs: 24, label: '24h' },
+              ].map(({ hrs, label }) => {
+                const isSelected = durationHours === hrs
                 return (
                   <button
-                    key={act.id}
+                    key={hrs}
                     type="button"
-                    onClick={() => handleToggleAction(act.id)}
-                    title={act.description}
-                    className={`px-2.5 py-1.5 rounded-xl text-[11px] font-medium transition cursor-pointer flex items-center gap-1.5 border ${
-                      isChecked
-                        ? 'bg-indigo-950/70 border-indigo-500/50 text-indigo-200'
-                        : 'bg-[#090a0f]/50 border-white/[0.06] text-slate-400 hover:border-white/[0.12]'
+                    onClick={() => {
+                      soundService.play('pop')
+                      setDurationHours(hrs)
+                    }}
+                    className={`py-2 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
+                      isSelected
+                        ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                        : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
                     }`}
                   >
-                    <div
-                      className={`w-3.5 h-3.5 rounded flex items-center justify-center ${
-                        isChecked ? 'bg-indigo-600 text-white' : 'border border-slate-600'
-                      }`}
-                    >
-                      {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                    </div>
-                    <span>{act.label}</span>
+                    {label}
                   </button>
                 )
               })}
             </div>
           </div>
+
+          {/* 3. Single-Tx Cap Section */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="arc-eyebrow text-[11px] font-semibold tracking-wider text-[var(--secondary-colors--sky-sync)] uppercase">
+                SINGLE-TX THRESHOLD
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400 font-mono">
+                  ({Math.round((maxPerTx / Math.max(1, budgetUsdc)) * 100)}% of cap)
+                </span>
+                <span
+                  className="text-xs font-mono font-bold px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: 'rgba(152, 150, 255, 0.12)',
+                    border: '1px solid rgba(152, 150, 255, 0.3)',
+                    color: 'var(--purple-1)',
+                  }}
+                >
+                  {maxPerTx} USDC
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1 pt-1">
+              <input
+                type="range"
+                min={5}
+                max={Math.max(5, budgetUsdc)}
+                step={5}
+                value={maxPerTx}
+                onChange={(e) => setMaxPerTx(Number(e.target.value))}
+                className="w-full accent-[var(--purple-1)] h-1.5 bg-white/[0.08] rounded-lg appearance-none cursor-pointer focus:outline-none"
+              />
+              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                <span>5 USDC</span>
+                <span>{budgetUsdc} USDC</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Action Filters Section */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="arc-eyebrow text-[11px] font-semibold tracking-wider text-[var(--secondary-colors--sky-sync)] uppercase">
+                PERMITTED ACTIONS
+              </span>
+              <span className="text-[10px] font-mono text-[var(--secondary-colors--sky-sync)] uppercase">
+                {allowedActions.length} OF {ACTION_OPTIONS.length} ENABLED
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {ACTION_OPTIONS.map((act) => {
+                const isChecked = allowedActions.includes(act.id)
+                const Icon = act.icon
+                return (
+                  <button
+                    key={act.id}
+                    type="button"
+                    onClick={() => {
+                      soundService.play('pop')
+                      handleToggleAction(act.id)
+                    }}
+                    className={`p-2.5 rounded-xl border transition-all duration-200 text-left flex items-start gap-2.5 cursor-pointer relative ${
+                      isChecked
+                        ? 'bg-[rgba(152,150,255,0.12)] border-[rgba(152,150,255,0.4)] shadow-[0_0_12px_rgba(152,150,255,0.15)] text-white'
+                        : 'bg-white/[0.02] border-white/[0.06] text-slate-400 opacity-60 hover:opacity-90'
+                    }`}
+                  >
+                    <div
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                        isChecked
+                          ? 'bg-[rgba(152,150,255,0.25)] text-white'
+                          : 'bg-white/[0.04] text-slate-500'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold tracking-tight truncate">
+                          {act.label}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                        {act.description}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* 5. Autonomous Zero-Popup Execution Toggle */}
+          <div
+            onClick={() => {
+              soundService.play('pop')
+              setAutoExecute(!autoExecute)
+            }}
+            className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/[0.12] transition-all flex items-center justify-between gap-3 cursor-pointer select-none"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400">
+                <ShieldCheck className="w-3.5 h-3.5 text-[var(--purple-1)]" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-white truncate">Autonomous Mode</span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    Zero-Popup
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 truncate">
+                  Execute authorized transactions within caps without pop-up prompts
+                </p>
+              </div>
+            </div>
+
+            <div
+              className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 p-0.5 ${
+                autoExecute
+                  ? 'bg-gradient-to-r from-[#9896ff] to-[#7c3aed]'
+                  : 'bg-white/[0.1]'
+              }`}
+            >
+              <div
+                className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                  autoExecute ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* Modal Actions */}
-        <div className="flex items-center justify-between pt-2 border-t border-white/[0.08]">
+        {/* Modal Actions Footer */}
+        <div className="flex items-center justify-between pt-3 border-t border-white/[0.06] relative z-10">
           <button
             type="button"
-            onClick={onRevokeSession}
-            className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3 py-2 rounded-xl hover:bg-rose-950/30"
+            onClick={() => {
+              soundService.play('cancel')
+              onRevokeSession()
+            }}
+            className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5" />
             <span>Revoke Session</span>
           </button>
 
@@ -432,11 +662,11 @@ export default function SessionKeyModal({
               type="button"
               onClick={handleSaveClick}
               disabled={isSaving}
-              className="px-5 py-2 rounded-xl hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-purple-500/25 disabled:opacity-50"
+              className="px-6 py-2.5 rounded-full text-white text-xs font-semibold tracking-wide transition cursor-pointer flex items-center gap-2 shadow-lg disabled:opacity-50 hover:brightness-110 hover:scale-[1.01] active:scale-[0.98]"
               style={{
                 fontFamily: 'var(--font-app)',
                 background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+                boxShadow: '0 6px 24px rgba(152, 150, 255, 0.35)',
               }}
             >
               {savedSuccess ? (
@@ -444,22 +674,27 @@ export default function SessionKeyModal({
                   <CheckCircle2 className="w-4 h-4 text-white" />
                   <span>Activated!</span>
                 </>
+              ) : isSaving ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Saving...</span>
+                </>
               ) : (
                 <>
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Save</span>
+                  <span>Save &amp; Activate</span>
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* ── YES/NO SAFETY BUBBLE ── */}
+        {/* ── YES/NO SAFETY CONFIRMATION DIALOG ── */}
         {isConfirmOpen && (
           <>
-            {/* Click-away layer: dims the form and dismisses the bubble */}
+            {/* Click-away layer: dims and blurs the underlying form */}
             <div
-              className="absolute inset-0 z-20 bg-slate-950/30"
+              className="absolute inset-0 z-20 bg-[#07080d]/80 backdrop-blur-sm rounded-[28px] animate-fade-in"
               onClick={(e) => {
                 e.stopPropagation()
                 setIsConfirmOpen(false)
@@ -468,37 +703,69 @@ export default function SessionKeyModal({
             <div
               role="alertdialog"
               aria-label="Confirm updating the active session"
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 w-[21rem] rounded-2xl border border-amber-500/50 bg-slate-950 p-3.5 space-y-3 shadow-2xl shadow-amber-500/10 animate-fade-in select-text"
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 w-[90%] max-w-[22rem] rounded-2xl border p-4 sm:p-5 space-y-3.5 shadow-2xl animate-scale-in"
+              style={{
+                background:
+                  'linear-gradient(145deg, rgba(22, 25, 42, 0.98) 0%, rgba(12, 14, 24, 0.99) 100%)',
+                borderColor: 'rgba(233, 161, 63, 0.4)',
+                boxShadow:
+                  '0 24px 64px -12px rgba(0, 0, 0, 0.95), 0 0 32px rgba(233, 161, 63, 0.2)',
+              }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-start gap-2">
-                <div className="w-7 h-7 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <div className="flex items-start gap-3">
+                <div
+                  className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{
+                    backgroundColor: 'rgba(233, 161, 63, 0.15)',
+                    border: '1px solid rgba(233, 161, 63, 0.35)',
+                  }}
+                >
+                  <AlertTriangle className="w-4 h-4 text-[var(--secondary-colors--blockstream-gold)]" />
                 </div>
-                <div className="space-y-1">
-                  <span className="text-[13px] font-bold text-white">Are you sure?</span>
+                <div className="space-y-0.5">
+                  <span className="arc-eyebrow text-[9px] text-[var(--secondary-colors--blockstream-gold)] font-mono font-semibold tracking-wider uppercase block">
+                    SECURITY SAFEGUARD
+                  </span>
+                  <h4 className="text-sm font-bold text-white tracking-tight">
+                    Replace Active Session?
+                  </h4>
                 </div>
               </div>
-              <p className="text-[12px] text-slate-400 leading-snug mb-5">
-                An active session is running{' '}
-                <strong>{timeRemainingText ? ` (${timeRemainingText})` : ''}</strong>. Saving will
-                replace it and reset the remaining budget.
+
+              <p className="text-xs text-slate-300 leading-relaxed">
+                An active session is currently running{' '}
+                {timeRemainingText && (
+                  <strong className="text-white font-mono font-semibold">({timeRemainingText})</strong>
+                )}
+                . Saving will overwrite the key and reset the spend budget counters.
               </p>
-              <div className="flex items-center justify-between gap-1.5">
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/[0.06]">
                 <button
                   type="button"
-                  onClick={() => setIsConfirmOpen(false)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 text-[11px] font-bold transition cursor-pointer"
+                  onClick={() => {
+                    soundService.play('cancel')
+                    setIsConfirmOpen(false)
+                  }}
+                  className="px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-slate-300 text-xs font-semibold transition cursor-pointer"
                 >
-                  No
+                  Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={handleConfirmSave}
+                  onClick={() => {
+                    soundService.play('pop')
+                    handleConfirmSave()
+                  }}
                   disabled={isSaving}
-                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-slate-950 text-[11px] font-bold transition cursor-pointer shadow-md shadow-amber-500/20 disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-full text-slate-950 text-xs font-bold transition cursor-pointer shadow-md disabled:opacity-50 hover:brightness-110 active:scale-[0.98]"
+                  style={{
+                    background: 'linear-gradient(135deg, #e9a13f 0%, #d97706 100%)',
+                    boxShadow: '0 4px 16px rgba(233, 161, 63, 0.3)',
+                  }}
                 >
-                  Yes, replace
+                  Yes, Replace
                 </button>
               </div>
             </div>
