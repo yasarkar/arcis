@@ -210,7 +210,8 @@ export const AssetInputPanel: React.FC<AssetInputPanelProps> = ({
                 type="button"
                 disabled={disabled}
                 onClick={() => onSelectPercentage(pct)}
-                className="px-2 py-0.5 rounded-md text-[10px] font-semibold text-slate-400 hover:text-indigo-300 hover:bg-indigo-500/15 border border-white/[0.06] hover:border-indigo-500/30 transition-all cursor-pointer active:scale-95 disabled:pointer-events-none"
+                className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.2] transition-all cursor-pointer hover:scale-105 active:scale-95 disabled:pointer-events-none"
+                style={{ fontFamily: 'var(--font-app)' }}
               >
                 {pct === 100 ? 'MAX' : `${pct}%`}
               </button>

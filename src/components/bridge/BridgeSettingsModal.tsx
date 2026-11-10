@@ -74,9 +74,14 @@ export const BridgeSettingsModal: React.FC<BridgeSettingsModalProps> = ({
         <button
           type="button"
           onClick={onSave}
-          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+          className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-full text-xs sm:text-sm font-semibold tracking-wide text-white transition-all duration-200 cursor-pointer shadow-lg shadow-purple-500/25 hover:scale-[1.01] hover:brightness-110 active:scale-[0.98]"
+          style={{
+            fontFamily: 'var(--font-app)',
+            background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+            boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+          }}
         >
-          <Save className="w-4 h-4" />
+          <Save className="w-4 h-4 text-white" />
           <span>Save Settings</span>
         </button>
       </div>

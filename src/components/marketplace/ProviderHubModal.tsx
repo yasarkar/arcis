@@ -280,12 +280,20 @@ export default function ProviderHubModal({
               <button
                 onClick={handleClaim}
                 disabled={unclaimedUsdc <= 0 || isClaiming}
-                className={`px-5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none ${
+                className={`px-6 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none ${
                   unclaimedUsdc > 0 && !isClaiming
-                    ? 'bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer'
+                    ? 'text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer'
                     : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
                 }`}
-                style={{ fontFamily: 'var(--font-app)' }}
+                style={{
+                  fontFamily: 'var(--font-app)',
+                  ...(unclaimedUsdc > 0 && !isClaiming
+                    ? {
+                        background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                        boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+                      }
+                    : {}),
+                }}
               >
                 {isClaiming ? (
                   <>

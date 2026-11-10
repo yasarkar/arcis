@@ -1,4 +1,4 @@
-import { ArrowRight, Check, CheckCircle2, ChevronDown, Droplets } from 'lucide-react'
+import { ArrowRight, CheckCircle2, ChevronDown, Droplets } from 'lucide-react'
 import { useState } from 'react'
 import { PinnedNetworkIcon } from '../common/PinnedIcons'
 
@@ -442,6 +442,16 @@ export default function HomePage({
           boxShadow: '0 20px 60px -15px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
         }}
       >
+        {/* Full-Card Metallic Dynamic Light Shimmer Sweep */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl z-[1]">
+          <div
+            className="w-[28%] h-[250%] absolute -top-[75%] -skew-x-20 animate-hero-shimmer pointer-events-none"
+            style={{
+              background: 'linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.02) 20%, rgba(255, 255, 255, 0.16) 50%, rgba(129, 140, 248, 0.18) 75%, transparent 100%)',
+            }}
+          />
+        </div>
+
         {/* Glow Spheres */}
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-indigo-500/20 rounded-full blur-[140px] pointer-events-none" />
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-cyan-500/20 rounded-full blur-[140px] pointer-events-none" />
@@ -490,23 +500,15 @@ export default function HomePage({
             <img
               src={heroTitaniumCardImg}
               alt="Arcis L1 Institutional Layer 1 Titanium Card"
-              className="w-full h-auto object-contain transform scale-100 lg:scale-105 filter drop-shadow-[0_20px_50px_rgba(0,0,0,0.85)] group-hover:drop-shadow-[0_25px_65px_rgba(39,117,202,0.35)] transition-all duration-700"
+              className="w-full h-auto object-contain transform scale-100 lg:scale-105 filter group-hover:drop-shadow-[0_25px_65px_rgba(39,117,202,0.35)] transition-all duration-700"
               style={{
-                WebkitMaskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
-                maskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
+                mixBlendMode: 'screen',
+                WebkitMaskImage:
+                  'radial-gradient(ellipse 65% 60% at 50% 50%, rgba(0,0,0,1) 20%, rgba(0,0,0,0.8) 45%, rgba(0,0,0,0.2) 65%, rgba(0,0,0,0) 80%)',
+                maskImage:
+                  'radial-gradient(ellipse 65% 60% at 50% 50%, rgba(0,0,0,1) 20%, rgba(0,0,0,0.8) 45%, rgba(0,0,0,0.2) 65%, rgba(0,0,0,0) 80%)',
               }}
             />
-
-            {/* Metallic Dynamic Light Shimmer Sweep */}
-            <div
-              className="absolute inset-0 pointer-events-none overflow-hidden"
-              style={{
-                WebkitMaskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
-                maskImage: 'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 25%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.25) 75%, rgba(0,0,0,0) 100%)',
-              }}
-            >
-              <div className="w-[30%] h-[200%] absolute -top-1/2 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 animate-hero-shimmer" />
-            </div>
 
             {/* Dynamic Energy Node Sparkles */}
             <div
@@ -548,19 +550,19 @@ export default function HomePage({
           {/* Fast Bullet Points */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs sm:text-sm text-slate-300">
             <div className="flex items-center gap-2.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
               <span>&lt; 1.0s Instant Finality</span>
             </div>
             <div className="flex items-center gap-2.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
               <span>Native USDC Gas (Zero ETH)</span>
             </div>
             <div className="flex items-center gap-2.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
               <span>Biometric Passkey Login</span>
             </div>
             <div className="flex items-center gap-2.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />
               <span>Automated AI Micropayments</span>
             </div>
           </div>
@@ -733,19 +735,19 @@ export default function HomePage({
                     {pillar.title}
                   </h3>
 
-                  <h4 className="text-sm sm:text-base font-semibold text-sky-300">
+                  <h4 className="text-sm sm:text-base font-semibold text-indigo-200/90 tracking-wide">
                     {pillar.headline}
                   </h4>
 
-                  <p className="text-sm sm:text-base text-slate-300 leading-relaxed font-normal">
+                  <p className="text-sm sm:text-base text-white/70 leading-relaxed font-normal">
                     {pillar.description}
                   </p>
 
                   {/* Bullet Points */}
-                  <ul className="flex flex-col gap-2.5 pt-2 text-xs sm:text-sm text-slate-300">
+                  <ul className="flex flex-col gap-2.5 pt-2 text-xs sm:text-sm text-white/75">
                     {pillar.bullets.map((b, bIdx) => (
                       <li key={bIdx} className="flex items-start gap-2.5">
-                        <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
                         <span>{b}</span>
                       </li>
                     ))}

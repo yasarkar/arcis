@@ -1794,10 +1794,11 @@ export default function SendModal({
                           type="button"
                           onClick={() => handleSelectMemoPreset(preset)}
                           title={preset.text}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${isSelected
-                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/10'
-                              : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/[0.06]'
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer ${isSelected
+                              ? 'bg-[rgba(152,150,255,0.18)] text-white border border-[rgba(152,150,255,0.45)] shadow-[0_0_12px_rgba(152,150,255,0.18)]'
+                              : 'bg-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.08] border border-white/[0.08]'
                             }`}
+                          style={{ fontFamily: 'var(--font-app)' }}
                         >
                           <span className="text-[12px]">{preset.icon}</span>
                           <span>{preset.label}</span>
@@ -1808,7 +1809,8 @@ export default function SendModal({
                       <button
                         type="button"
                         onClick={handleClearMemo}
-                        className="px-2 py-1 rounded-lg text-[11px] text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 transition-colors ml-auto cursor-pointer"
+                        className="px-2.5 py-1 rounded-full text-[11px] font-medium text-slate-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors ml-auto cursor-pointer"
+                        style={{ fontFamily: 'var(--font-app)' }}
                       >
                         Clear
                       </button>
@@ -1992,9 +1994,14 @@ export default function SendModal({
                 updateWalletSettings({ sendSpeedTier: speedTier })
                 setShowSettings(false)
               }}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-full text-xs sm:text-sm font-semibold tracking-wide text-white transition-all duration-200 cursor-pointer shadow-lg shadow-purple-500/25 hover:scale-[1.01] hover:brightness-110 active:scale-[0.98]"
+              style={{
+                fontFamily: 'var(--font-app)',
+                background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+              }}
             >
-              <Save className="w-4 h-4" />
+              <Save className="w-4 h-4 text-white" />
               <span>Save Settings</span>
             </button>
           </div>

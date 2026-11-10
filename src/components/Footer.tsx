@@ -223,11 +223,19 @@ function Footer({ onNavigate, onOpenFaucet }: FooterProps) {
                 <button
                   type="submit"
                   disabled={isSubscribed}
-                  className="py-3 px-4 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-
+                  className="py-2.5 px-4 rounded-lg text-xs font-semibold text-white transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed hover:brightness-110 hover:scale-[1.01] active:scale-[0.98] select-none my-1 mr-1"
+                  style={{
+                    fontFamily: 'var(--font-app)',
+                    background: isSubscribed
+                      ? 'rgba(1, 208, 98, 0.25)'
+                      : 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                    boxShadow: isSubscribed
+                      ? 'none'
+                      : '0 4px 16px rgba(152, 150, 255, 0.25)',
+                  }}
                 >
                   {isSubscribed ? (
-                    <span className="font-mono text-emerald-100">
+                    <span className="font-mono text-emerald-200 font-semibold">
                       Joined
                     </span>
                   ) : (

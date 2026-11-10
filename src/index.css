@@ -245,18 +245,21 @@
 
 @keyframes heroShimmerSweep {
   0% {
-    transform: translateX(-150%) skewX(-20deg);
+    transform: translateX(-200%) skewX(-20deg);
     opacity: 0;
   }
-  20% {
-    opacity: 0.55;
+  15% {
+    opacity: 0.7;
   }
-  50% {
-    transform: translateX(250%) skewX(-20deg);
+  45% {
+    opacity: 0.7;
+  }
+  60% {
+    transform: translateX(500%) skewX(-20deg);
     opacity: 0;
   }
   100% {
-    transform: translateX(250%) skewX(-20deg);
+    transform: translateX(500%) skewX(-20deg);
     opacity: 0;
   }
 }
@@ -283,7 +286,7 @@
 }
 
 .animate-hero-shimmer {
-  animation: heroShimmerSweep 5.5s ease-in-out infinite;
+  animation: heroShimmerSweep 6s ease-in-out infinite;
   will-change: transform, opacity;
 }
 
@@ -388,9 +391,9 @@
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.025em;
-  border-radius: 16px;
+  border-radius: 99px;
   padding: 10px 18px;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.2s var(--ease-out-smooth);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -399,17 +402,22 @@
 }
 
 .arc-btn-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #9333ea 100%);
+  background: linear-gradient(135deg, #9896ff 0%, #7c3aed 100%);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 6px 24px rgba(152, 150, 255, 0.3);
 }
 
 .arc-btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 50%, #a855f7 100%);
+  background: linear-gradient(135deg, #a8a6ff 0%, #8b5cf6 100%);
   border-color: rgba(255, 255, 255, 0.2);
   color: #ffffff;
-  box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 8px 28px rgba(152, 150, 255, 0.4);
+  transform: scale(1.01);
+}
+
+.arc-btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .arc-btn-secondary {

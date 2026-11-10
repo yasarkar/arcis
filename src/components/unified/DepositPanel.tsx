@@ -1,37 +1,35 @@
+import {
+  AlertTriangle,
+  ArrowDownRight,
+  Ban,
+  ChevronDown,
+  Fuel,
+  Info,
+  RefreshCw,
+  X,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
-import {
-  RefreshCw,
-  AlertTriangle,
-  ChevronDown,
-  X,
-  Ban,
-  Info,
-  ArrowDownRight,
-  Fuel,
-} from 'lucide-react'
-import { ChainIcon } from '../common/ChainIcon'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
+import { ChainIcon } from '../common/ChainIcon'
 
-import { depositToGateway, resolvePaidNetworkFee } from '../../services/gatewayService'
-import { useBroadcast } from '../BroadcastNotification'
-import { normalizeAppError } from '../../utils/errorNormalizer'
-import { parseUnits, encodeFunctionData, erc20Abi, type Hex } from 'viem'
-import { getResilientPublicClient, resilientWaitForReceipt } from '../../services/rpc'
+import { encodeFunctionData, erc20Abi, parseUnits, type Hex } from 'viem'
+import { IS_TESTNET } from '../../config/arcChain'
+import { CHAIN_DEFS, CHAIN_META, getChainDisplayName, isSolanaChain } from '../../config/chainMeta'
 import {
-  GATEWAY_SUPPORTED_CHAINS,
   ACTIVE_GATEWAY_CONTRACTS,
+  GATEWAY_SUPPORTED_CHAINS,
   GATEWAY_WALLET_ABI,
   USDC_ADDRESSES,
 } from '../../config/gatewayConfig'
-import { CHAIN_META, CHAIN_DEFS, getChainDisplayName, isSolanaChain } from '../../config/chainMeta'
-import { ensureNetwork, ensureHealthyWalletRpc } from '../../services/chainSwitchService'
 import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
-import { mapChainKeyToCircleBlockchain } from '../../services/gatewayUcwService'
-import { IS_TESTNET } from '../../config/arcChain'
-import type { WalletBalancesRecord } from '../../hooks/useWalletTestnetBalances'
-import type { UserOpCall } from '../../services/modularWalletService'
 import type { ExecuteContractCallParams } from '../../hooks/useUserControlledWallet'
+import type { WalletBalancesRecord } from '../../hooks/useWalletTestnetBalances'
+import { ensureHealthyWalletRpc, ensureNetwork } from '../../services/chainSwitchService'
+import { depositToGateway, resolvePaidNetworkFee } from '../../services/gatewayService'
+import { mapChainKeyToCircleBlockchain } from '../../services/gatewayUcwService'
+import type { UserOpCall } from '../../services/modularWalletService'
+import { getResilientPublicClient, resilientWaitForReceipt } from '../../services/rpc'
 import {
   ARC_GAS_RESERVE_USDC,
   computeMaxDeposit,
@@ -42,6 +40,8 @@ import {
   type DepositFee,
   type DepositOutcome,
 } from '../../utils/depositFlow'
+import { normalizeAppError } from '../../utils/errorNormalizer'
+import { useBroadcast } from '../BroadcastNotification'
 
 const DEPOSIT_TOKEN = 'USDC' as const
 const CROSS_CHAIN_ACTIVE_KEY = 'arcis_cross_chain_active'
@@ -167,7 +167,7 @@ export default function DepositPanel({
       if (!list) return
       const selected = list.querySelector<HTMLElement>('[role="option"][aria-selected="true"]:not([disabled])')
       const first = list.querySelector<HTMLElement>('[role="option"]:not([disabled])')
-      ;(selected || first)?.focus()
+        ; (selected || first)?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
   }, [showChainDropdown])
@@ -780,7 +780,18 @@ export default function DepositPanel({
           <div
             id="ub-deposit-amount-error"
             role="alert"
-            style={{ padding: '10px 14px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 12, fontSize: 12, color: '#f87171', fontFamily: 'var(--font-app)', display: 'flex', alignItems: 'center', gap: 8 }}
+            style={
+              { 
+                padding: '10px 14px', 
+                background: 'rgba(239, 68, 68, 0.1)', 
+                border: '1px solid rgba(239, 68, 68, 0.25)', 
+                borderRadius: 12, 
+                fontSize: 12, 
+                color: '#f87171', 
+                fontFamily: 'var(--font-app)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 8 }}
           >
             <AlertTriangle size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
             <span>Deposit amount ({depositAmount} USDC) exceeds your wallet balance of {selectedWalletTokenBalance} USDC on {getChainDisplayName(depositChain)}.</span>

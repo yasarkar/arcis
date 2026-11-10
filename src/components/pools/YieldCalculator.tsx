@@ -569,8 +569,12 @@ export default function YieldCalculator({
               onSelectPoolToDeposit(selectedPool)
               onClose()
             }}
-            className="w-full py-4 px-6 rounded-2xl font-semibold text-sm sm:text-base tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer"
-            style={{ fontFamily: 'var(--font-app)' }}
+            className="w-full py-4 px-6 rounded-full font-semibold text-sm sm:text-base tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer"
+            style={{
+              fontFamily: 'var(--font-app)',
+              background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+              boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+            }}
           >
             <Plus size={16} className="text-white" />
             <span>{selectedPool.isLpPool ? 'Add Liquidity' : 'Deposit'}</span>

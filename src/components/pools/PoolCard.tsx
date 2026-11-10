@@ -535,8 +535,12 @@ export default function PoolCard({
         <button
           type="button"
           onClick={() => onDeposit(pool)}
-          className="flex-1 py-2.5 px-4 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:via-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-500/25 active:scale-[0.99] cursor-pointer"
-          style={{ fontFamily: 'var(--font-app)' }}
+          className="flex-1 py-2.5 px-4 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none text-white shadow-lg shadow-purple-500/25 hover:shadow-purple-500/35 hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer"
+          style={{
+            fontFamily: 'var(--font-app)',
+            background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+            boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+          }}
         >
           <Plus size={13} className="text-white" />
           <span>{pool.isLpPool ? 'Add Liquidity' : 'Deposit'}</span>
@@ -553,7 +557,7 @@ export default function PoolCard({
               }
             }}
             disabled={isThisPoolClaiming || !isClaimReady}
-            className="px-3.5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99]"
+            className="px-3.5 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none hover:scale-[1.02] active:scale-[0.98]"
             style={{
               fontFamily: 'var(--font-app)',
               background: isClaimReady
@@ -586,7 +590,7 @@ export default function PoolCard({
             type="button"
             onClick={() => onWithdraw(pool)}
             disabled={!hasDeposit}
-            className="px-3.5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99]"
+            className="px-3.5 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none hover:scale-[1.02] active:scale-[0.98]"
             style={{
               fontFamily: 'var(--font-app)',
               borderColor: hasDeposit ? 'rgba(152, 150, 255, 0.35)' : 'rgba(255, 255, 255, 0.1)',
@@ -604,7 +608,7 @@ export default function PoolCard({
             <button
               type="button"
               onClick={() => onWithdraw(pool)}
-              className="px-3.5 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99] cursor-pointer"
+              className="px-3.5 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
               style={{
                 fontFamily: 'var(--font-app)',
                 borderColor: 'rgba(255, 255, 255, 0.15)',
@@ -620,7 +624,7 @@ export default function PoolCard({
         <button
           type="button"
           onClick={() => setShowDetails((prev) => !prev)}
-          className="px-3 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none active:scale-[0.99] cursor-pointer text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]"
+          className="px-3 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-1.5 select-none hover:scale-[1.02] active:scale-[0.98] cursor-pointer text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.06]"
           style={{
             fontFamily: 'var(--font-app)',
           }}

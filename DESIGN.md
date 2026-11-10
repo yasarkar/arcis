@@ -102,14 +102,14 @@ Lightweight utility panel for floating popovers, drawers, and modal backdrops:
 ### 4.2 Buttons & Controls
 
 #### 1. Primary Action & Fintech Buttons (`FintechActionButton`, `.arc-btn.arc-btn-primary`)
-Standard across Swap, Send, Bridge, and AI Services / Marketplace.
-- **Font**: `Inter` (`var(--font-app)`), 14px–16px, weight 600, `tracking-wide` (letter-spacing 0.025em).
-- **Radius**: `16px` (`rounded-2xl` / `rounded-xl`), padding `12px–16px` dikey, `20px–24px` yatay.
+Standard across Swap, Send, Bridge, Pools, and Settings Modals.
+- **Font**: `Inter` (`var(--font-app)`), 14px–16px, weight 600, `tracking-wide` (letter-spacing 0.025em / 0.3px).
+- **Radius**: `99px` (`rounded-full` pill standard), padding `12px–16px` dikey, `20px–24px` yatay.
 - **Surface**:
-  - **Actionable / Active**: High-grade fintech gradient `bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600` (`linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #9333ea 100%)`). Text `#ffffff`.
-  - **Hover**: `from-indigo-400 via-indigo-500 to-purple-500`, shadow `0 4px 20px rgba(99, 102, 241, 0.25)`.
+  - **Actionable / Active**: High-grade Aave Luxury violet gradient `linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)`. Text `#ffffff`.
+  - **Hover**: `brightness-110` / `scale-[1.01]`, shadow `0 6px 24px rgba(152, 150, 255, 0.3)`.
   - **Disabled**: `bg-white/[0.04]`, border `1px solid rgba(255, 255, 255, 0.06)`, text `text-slate-500`, `cursor-not-allowed`.
-  - **Micro-interaction**: `active:scale-[0.99] transition-all duration-200`.
+  - **Micro-interaction**: `hover:scale-[1.01] active:scale-[0.98] transition-all duration-200`.
 
 #### 2. Secondary & Ghost Variants
 - **Secondary** (`.arc-btn-secondary`): Sky Sync background with dark text.
