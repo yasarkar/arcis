@@ -217,11 +217,6 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
 
         {/* Speed & Execution Priority Section */}
         <div className="space-y-2 pt-1">
-          <div className="flex items-center justify-between ml-1">
-            <span className="text-[12px] font-semibold tracking-wide text-slate-300 font-mono">
-              GAS &amp; EXECUTION SPEED
-            </span>
-          </div>
           <SpeedFeeSelector
             selectedTier={selectedSpeedTier}
             onSelectTier={setSelectedSpeedTier}
@@ -229,11 +224,6 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
             disabled={disabled}
           />
         </div>
-
-        {/* Context Note */}
-        <p className="text-[11px] font-mono text-slate-400 leading-relaxed px-1">
-          These preferences automatically apply to all Ask Arco swaps, sends, and inline executions unless overridden explicitly in your prompt.
-        </p>
 
         {/* Save button */}
         <button
