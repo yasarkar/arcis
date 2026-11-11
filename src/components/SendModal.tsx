@@ -825,11 +825,9 @@ export default function SendModal({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showSettings, showTokenModal, showChainModal, isInline, isOpen, onClose])
 
-  // Modal-mode accessibility: background scroll lock, initial focus and Tab trap
+  // Modal-mode accessibility: initial focus and Tab trap (background scroll is handled by useBodyScrollLock)
   useEffect(() => {
     if (isInline || !isOpen) return
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     const node = dialogRef.current
     node?.focus()
     const handleTab = (e: KeyboardEvent) => {
@@ -856,7 +854,6 @@ export default function SendModal({
     window.addEventListener('keydown', handleTab)
     return () => {
       window.removeEventListener('keydown', handleTab)
-      document.body.style.overflow = previousOverflow
     }
   }, [isOpen, isInline])
 

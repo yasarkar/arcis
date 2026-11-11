@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { getChainDisplayName, getChainIconId } from '../../config/chainMeta'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { useChainSwitch } from '../../hooks/useChainSwitch'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
@@ -1484,6 +1485,9 @@ export default function ServicePlaygroundModal({
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() =>
     getSessionKeyConfig(walletAddress)
   )
+
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
   useEffect(() => {
     const syncSessionConfig = () => setSessionConfig(getSessionKeyConfig(walletAddress))
     syncSessionConfig()
@@ -1559,11 +1563,9 @@ export default function ServicePlaygroundModal({
     }
     if (isOpen) {
       window.addEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = 'hidden'
     }
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = 'unset'
     }
   }, [isOpen, onClose])
 

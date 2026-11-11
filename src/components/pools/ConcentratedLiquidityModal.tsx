@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo} from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import {
   X,
   ChevronLeft,
@@ -51,6 +52,19 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   onExecuteDeposit,
 }) => {
   const { data: tokenPrices } = useLiveTokenPrices()
+
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
+
+  // Accessibility: Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
 
   // Identify base/quote token (Token A: tokens[0])
   const tokenA = pool?.tokens?.[0] || { symbol: 'USDC', name: 'USD Coin', decimals: 6, iconType: 'usdc' }
@@ -408,7 +422,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md overflow-y-auto overscroll-contain touch-none animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div

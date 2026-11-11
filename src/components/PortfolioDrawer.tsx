@@ -1,6 +1,7 @@
 // High-fidelity Multi-Chain Portfolio Slide-over Drawer for Circle User-Controlled & Modular Wallets.
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
   X,
   RotateCw,
@@ -121,16 +122,7 @@ export default function PortfolioDrawer({
   }, [isOpen, onClose])
 
   // Prevent body scroll when drawer is open
-  useEffect(() => {
-    if (shouldRender) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
-  }, [shouldRender])
+  useBodyScrollLock(shouldRender)
 
   // Calculate aggregated portfolio metrics
   const portfolioStats = useMemo(() => {

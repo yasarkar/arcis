@@ -33,6 +33,7 @@ import {
 } from '../../config/poolsConfig'
 import { WethIcon } from '../../config/tokenIcons'
 import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import { useGatewayBalance } from '../../hooks/useGatewayBalance'
 import { useLiveTokenPrices } from '../../hooks/useLiveTokenPrices'
@@ -99,6 +100,9 @@ export default function PoolActionModal({
   const [activeMode, setActiveMode] = useState<'deposit' | 'withdraw' | 'swap'>(initialMode)
   const { chainId: walletChainId, connector } = useAccount()
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false)
+
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
 
   // Pause background auto-switch while this modal is open
   useEffect(() => {
@@ -256,6 +260,22 @@ export default function PoolActionModal({
     setErrorMsg(null)
     setIsCanceledError(false)
   }
+
+  // Accessibility: Close on Escape key (unless processing transaction)
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isProcessing) {
+        if (showChainDropdown) {
+          setShowChainDropdown(false)
+        } else {
+          onClose()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose, isProcessing, showChainDropdown])
 
   const handleActionError = (err: any, fallbackMessage: string) => {
     if (isUserCanceled(err) || err?.isCanceled === true) {
@@ -1000,12 +1020,7 @@ export default function PoolActionModal({
   return createPortal(
     <>
       <div
-        className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-        style={{
-          background: 'rgba(5, 7, 15, 0.78)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-        }}
+        className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/75 backdrop-blur-md overscroll-contain touch-none animate-in fade-in duration-200"
         onClick={(e) => {
           if (e.target === e.currentTarget && !isProcessing) onClose()
         }}

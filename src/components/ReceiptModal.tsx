@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
   X,
   Check,
@@ -46,12 +47,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [showQrCode, setShowQrCode] = useState(false)
 
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
+
   useEffect(() => {
     if (!isOpen) return
-
-    // Prevent background scrolling while modal is open to ensure exact center view
-    const originalOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -64,7 +64,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, ite
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      document.body.style.overflow = originalOverflow
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, showQrCode, onClose])

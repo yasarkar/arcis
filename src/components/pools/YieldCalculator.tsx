@@ -6,10 +6,11 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { TOKEN_ICON_MAP, UsdcIcon } from '../../config/tokenIcons'
 import { ARCIS_POOLS, type PoolConfig } from '../../config/poolsConfig'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
 import { DEFAULT_TOKEN_PRICES, normalizeTokenSymbol } from '../../services/tokenPriceService'
 
@@ -65,6 +66,19 @@ export default function YieldCalculator({
 
   useClearOnWalletDisconnect(resetFormInputs)
 
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
+
+  // Accessibility: Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   const principalNum = Math.max(0, parseFloat(principal) || 0)
   const selectedPool = activePools.find((p) => p.id === selectedPoolId) || activePools[0]
 
@@ -87,10 +101,10 @@ export default function YieldCalculator({
   }
 
   const periods = [
-    { label: '30 Days (1 Mo)', days: 30 },
-    { label: '90 Days (3 Mo)', days: 90 },
-    { label: '180 Days (6 Mo)', days: 180 },
-    { label: '1 Year (365 D)', days: 365 },
+    { label: '30 Days', days: 30 },
+    { label: '90 Days', days: 90 },
+    { label: '180 Days', days: 180 },
+    { label: '1 Year', days: 365 },
   ]
 
   const quickAmounts = ['500', '1000', '5000']
@@ -99,12 +113,7 @@ export default function YieldCalculator({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-      style={{
-        background: 'rgba(5, 7, 15, 0.78)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-      }}
+      className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/75 backdrop-blur-md overscroll-contain touch-none animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -184,7 +193,7 @@ export default function YieldCalculator({
               letterSpacing: '0.5px',
             }}
           >
-            PRINCIPAL INVESTMENT (USD VALUATION)
+            PRINCIPAL INVESTMENT
           </label>
 
           <div style={{ position: 'relative', marginBottom: 10 }}>
@@ -202,7 +211,7 @@ export default function YieldCalculator({
                 borderRadius: 14,
                 padding: '14px 18px',
                 paddingRight: '60px',
-                fontSize: 20,
+                fontSize: 15,
                 color: '#fff',
                 fontFamily: 'var(--fonts--space-grotesk)',
                 fontWeight: 600,
