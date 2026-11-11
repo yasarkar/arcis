@@ -258,7 +258,7 @@ export async function activateSessionKey(params: {
   const maxSpendUsdc = params.maxSpendUsdc ?? DEFAULT_SESSION_KEY_CONFIG.maxSpendUsdc
   const maxPerTxUsdc = params.maxPerTxUsdc ?? Math.min(maxSpendUsdc, DEFAULT_SESSION_KEY_CONFIG.maxPerTxUsdc)
   const autoExecute = params.autoExecute ?? false
-  const allowedActions = params.allowedActions && params.allowedActions.length > 0 
+  const allowedActions = Array.isArray(params.allowedActions)
     ? params.allowedActions 
     : [...DEFAULT_SESSION_KEY_CONFIG.allowedActions]
   const msca = params.mscaAddress || getStoredMscaAddress()

@@ -55,6 +55,13 @@ const ACTION_OPTIONS: {
   { id: 'send', label: 'Direct Send', description: 'USDC transfers', icon: Send },
 ]
 
+const SINGLE_TX_PRESETS: { label: string; ratio: number }[] = [
+  { label: '10%', ratio: 0.1 },
+  { label: '25%', ratio: 0.25 },
+  { label: '50%', ratio: 0.5 },
+  { label: 'Max', ratio: 1.0 },
+]
+
 export default function SessionKeyModal({
   isOpen,
   onClose,
@@ -68,7 +75,7 @@ export default function SessionKeyModal({
   const [durationHours, setDurationHours] = useState<number>(24)
   const [maxPerTx, setMaxPerTx] = useState<number>(sessionConfig.maxPerTxUsdc || 50)
   const [allowedActions, setAllowedActions] = useState<SessionActionType[]>(
-    sessionConfig.allowedActions && sessionConfig.allowedActions.length > 0
+    Array.isArray(sessionConfig.allowedActions)
       ? sessionConfig.allowedActions
       : ['swap', 'deposit', 'bridge', 'send']
   )
@@ -86,7 +93,7 @@ export default function SessionKeyModal({
       const fresh = getSessionKeyConfig(walletAddress)
       setBudgetUsdc(fresh.maxSpendUsdc || 100)
       setMaxPerTx(fresh.maxPerTxUsdc || 50)
-      if (fresh.allowedActions && fresh.allowedActions.length > 0) {
+      if (Array.isArray(fresh.allowedActions)) {
         setAllowedActions(fresh.allowedActions)
       }
       setAutoExecute(fresh.autoExecute || false)
@@ -133,7 +140,6 @@ export default function SessionKeyModal({
 
   const handleToggleAction = (actionId: SessionActionType) => {
     if (allowedActions.includes(actionId)) {
-      if (allowedActions.length === 1) return // Keep at least one action
       setAllowedActions(allowedActions.filter((a) => a !== actionId))
     } else {
       setAllowedActions([...allowedActions, actionId])
@@ -189,15 +195,21 @@ export default function SessionKeyModal({
     void performSave()
   }
 
-  const remainingBudget = Math.max(
-    0,
-    sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc - (sessionConfig.reservedUsdc || 0)
-  )
-  const spentPercent =
-    sessionConfig.maxSpendUsdc > 0
-      ? Math.min(100, Math.round((sessionConfig.spentUsdc / sessionConfig.maxSpendUsdc) * 100))
-      : 0
+  const maxSpend = Number(sessionConfig.maxSpendUsdc) || 0
+  const spent = Number(sessionConfig.spentUsdc) || 0
+  const reserved = Number(sessionConfig.reservedUsdc) || 0
+  const perTx = Number(sessionConfig.maxPerTxUsdc) || 0
+  const remainingBudget = Math.max(0, maxSpend - spent - reserved)
+  const spentPercent = maxSpend > 0 ? Math.min(100, Math.round((spent / maxSpend) * 100)) : 0
   const isExpired = Date.now() > sessionConfig.expiresAt
+  const visibleEnabledCount = ACTION_OPTIONS.filter((act) => allowedActions.includes(act.id)).length
+  const minSliderVal = 5
+  const maxSliderVal = Math.max(5, budgetUsdc)
+  const sliderProgress =
+    maxSliderVal > minSliderVal
+      ? Math.min(100, Math.max(0, ((maxPerTx - minSliderVal) / (maxSliderVal - minSliderVal)) * 100))
+      : 100
+  const capPercent = Math.round((maxPerTx / Math.max(1, budgetUsdc)) * 100)
 
   return createPortal(
     <div
@@ -265,20 +277,20 @@ export default function SessionKeyModal({
 
         {/* Status Cockpit HUD Ribbon & Real-time Telemetry Matrix */}
         <div
-          className="p-3.5 sm:p-4 rounded-2xl border border-white/[0.08] relative overflow-hidden space-y-3"
+          className="p-4 sm:p-4.5 rounded-2xl border border-white/[0.08] relative space-y-3.5"
           style={{
             background: 'linear-gradient(135deg, rgba(20, 25, 46, 0.85) 0%, rgba(12, 16, 32, 0.9) 100%)',
             boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 32px -8px rgba(0, 0, 0, 0.6)',
           }}
         >
           {/* Header of HUD */}
-          <div className="flex items-center justify-between text-xs pb-2.5 border-b border-white/[0.06]">
+          <div className="flex items-center justify-between gap-3 min-h-[40px] pb-3.5 border-b border-white/[0.08]">
             <div className="flex items-center gap-2">
               {sessionConfig.isActive && !isExpired ? (
-                <div className="ub-live-badge">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--earned-green)] shadow-[0_0_8px_var(--earned-green)] animate-pulse" />
-                  <span>ACTIVE SESSION</span>
-                  <svg className="ub-ecg-svg" viewBox="0 0 42 14" aria-hidden="true">
+                <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.18)] leading-none select-none flex-shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse flex-shrink-0" />
+                  <span className="leading-none pt-0.5">ACTIVE SESSION</span>
+                  <svg className="ub-ecg-svg h-3.5 w-10 flex-shrink-0" viewBox="0 0 42 14" aria-hidden="true">
                     <path
                       className="ub-ecg-path-bg"
                       d="M 1 7 L 12 7 L 15 2 L 18 12 L 21 4 L 24 9 L 26 7 L 41 7"
@@ -290,23 +302,23 @@ export default function SessionKeyModal({
                   </svg>
                 </div>
               ) : (
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-semibold tracking-wider uppercase text-slate-400 bg-white/[0.04] border border-white/[0.08]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                  <span>INACTIVE SESSION</span>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-semibold tracking-wider uppercase text-slate-400 bg-white/[0.04] border border-white/[0.08] leading-none select-none flex-shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-slate-500 flex-shrink-0" />
+                  <span className="leading-none pt-0.5">INACTIVE SESSION</span>
                 </div>
               )}
             </div>
 
             {sessionConfig.isActive && !isExpired && (
-              <div className="text-[11px] sm:text-xs text-[var(--secondary-colors--sky-sync)] font-mono flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
-                <span className="tabular-nums font-semibold">{timeRemainingText}</span>
+              <div className="text-xs text-[var(--secondary-colors--sky-sync)] font-mono flex items-center gap-1.5 leading-none flex-shrink-0">
+                <Clock className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />
+                <span className="tabular-nums font-semibold leading-none pt-0.5">{timeRemainingText}</span>
               </div>
             )}
           </div>
 
           {/* 3-Stat Inset Telemetry Strip */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2 pt-0.5">
             <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
               <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
                 REMAINING
@@ -330,7 +342,7 @@ export default function SessionKeyModal({
                 className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
                 style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
               >
-                <span>{sessionConfig.maxSpendUsdc.toFixed(2)}</span>
+                <span>{maxSpend.toFixed(2)}</span>
                 <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
               </div>
             </div>
@@ -343,14 +355,14 @@ export default function SessionKeyModal({
                 className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
                 style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
               >
-                <span className="text-[var(--purple-1)]">{sessionConfig.maxPerTxUsdc.toFixed(2)}</span>
+                <span className="text-[var(--purple-1)]">{perTx.toFixed(2)}</span>
                 <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
               </div>
             </div>
           </div>
 
           {/* Glowing Budget Progress Bar */}
-          {sessionConfig.isActive && !isExpired && sessionConfig.maxSpendUsdc > 0 && (
+          {sessionConfig.isActive && !isExpired && maxSpend > 0 && (
             <div className="space-y-1 pt-0.5">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-400 font-mono uppercase tracking-wider text-[10px]">
@@ -509,21 +521,22 @@ export default function SessionKeyModal({
           </div>
 
           {/* 3. Single-Tx Cap Section */}
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="arc-eyebrow text-[11px] font-semibold tracking-wider text-[var(--secondary-colors--sky-sync)] uppercase">
                 SINGLE-TX THRESHOLD
               </span>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-slate-400 font-mono">
-                  ({Math.round((maxPerTx / Math.max(1, budgetUsdc)) * 100)}% of cap)
+                  ({capPercent}% of cap)
                 </span>
                 <span
-                  className="text-xs font-mono font-bold px-2 py-0.5 rounded-full"
+                  className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full"
                   style={{
-                    backgroundColor: 'rgba(152, 150, 255, 0.12)',
-                    border: '1px solid rgba(152, 150, 255, 0.3)',
+                    backgroundColor: 'rgba(152, 150, 255, 0.14)',
+                    border: '1px solid rgba(152, 150, 255, 0.35)',
                     color: 'var(--purple-1)',
+                    boxShadow: '0 0 12px rgba(152, 150, 255, 0.15)',
                   }}
                 >
                   {maxPerTx} USDC
@@ -531,19 +544,99 @@ export default function SessionKeyModal({
               </div>
             </div>
 
-            <div className="space-y-1 pt-1">
-              <input
-                type="range"
-                min={5}
-                max={Math.max(5, budgetUsdc)}
-                step={5}
-                value={maxPerTx}
-                onChange={(e) => setMaxPerTx(Number(e.target.value))}
-                className="w-full accent-[var(--purple-1)] h-1.5 bg-white/[0.08] rounded-lg appearance-none cursor-pointer focus:outline-none"
-              />
-              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                <span>5 USDC</span>
-                <span>{budgetUsdc} USDC</span>
+            {/* Precision Range Slider */}
+            <div className="space-y-2 pt-0.5">
+              <div className="relative group py-2 flex items-center">
+                {/* Ambient glow behind track on hover */}
+                <div
+                  className="absolute inset-x-0 h-2.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none blur-md"
+                  style={{ backgroundColor: 'rgba(152, 150, 255, 0.25)' }}
+                />
+
+                {/* Recessed Track Groove */}
+                <div className="relative h-2.5 w-full bg-[#0a0c16] rounded-full border border-white/[0.08] shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.85)] overflow-hidden">
+                  {/* Precision tick graduation lines at 25%, 50%, 75% */}
+                  <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute top-0 bottom-0 left-1/4 w-[1px] bg-white/[0.12]" />
+                    <div className="absolute top-0 bottom-0 left-2/4 w-[1px] bg-white/[0.12]" />
+                    <div className="absolute top-0 bottom-0 left-3/4 w-[1px] bg-white/[0.12]" />
+                  </div>
+
+                  {/* Active Glowing Progress Fill */}
+                  <div
+                    className="h-full rounded-full transition-[width] duration-75 relative"
+                    style={{
+                      width: `${sliderProgress}%`,
+                      background: 'linear-gradient(90deg, #4f46e5 0%, #7c3aed 50%, #9896ff 100%)',
+                      boxShadow: '0 0 12px rgba(152, 150, 255, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.35)',
+                    }}
+                  />
+                </div>
+
+                {/* Jewel Thumb Knob */}
+                <div
+                  className="absolute top-1/2 pointer-events-none"
+                  style={{
+                    left: `clamp(10px, ${sliderProgress}%, calc(100% - 10px))`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  <div
+                    className="w-5 h-5 rounded-full flex items-center justify-center border-2 transition-all duration-150 group-hover:scale-110"
+                    style={{
+                      backgroundColor: '#0c0e18',
+                      borderColor: 'var(--purple-1)',
+                      boxShadow:
+                        '0 0 14px rgba(152, 150, 255, 0.8), 0 2px 6px rgba(0, 0, 0, 0.9), inset 0 0 4px rgba(152, 150, 255, 0.3)',
+                    }}
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_6px_#ffffff]" />
+                  </div>
+                </div>
+
+                {/* Transparent Interactive Native Input */}
+                <input
+                  type="range"
+                  min={minSliderVal}
+                  max={maxSliderVal}
+                  step={5}
+                  value={maxPerTx}
+                  onChange={(e) => setMaxPerTx(Number(e.target.value))}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20 m-0 p-0"
+                  aria-label="Single transaction threshold in USDC"
+                />
+              </div>
+
+              {/* Lower Control Bar: Min / Preset Chips / Max */}
+              <div className="flex items-center justify-between text-[10px] font-mono">
+                <span className="text-slate-500 tabular-nums">5 USDC</span>
+                <div className="flex items-center gap-1.5">
+                  {SINGLE_TX_PRESETS.map(({ label, ratio }) => {
+                    const targetVal =
+                      ratio === 1.0
+                        ? maxSliderVal
+                        : Math.max(5, Math.min(maxSliderVal, Math.round((budgetUsdc * ratio) / 5) * 5))
+                    const isSelected = maxPerTx === targetVal
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => {
+                          soundService.play('pop')
+                          setMaxPerTx(targetVal)
+                        }}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all duration-150 cursor-pointer border ${
+                          isSelected
+                            ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.22)] shadow-[0_0_10px_rgba(152,150,255,0.3)]'
+                            : 'text-slate-400 border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.08] hover:text-slate-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <span className="text-slate-500 tabular-nums">{budgetUsdc} USDC</span>
               </div>
             </div>
           </div>
@@ -555,7 +648,7 @@ export default function SessionKeyModal({
                 PERMITTED ACTIONS
               </span>
               <span className="text-[10px] font-mono text-[var(--secondary-colors--sky-sync)] uppercase">
-                {allowedActions.length} OF {ACTION_OPTIONS.length} ENABLED
+                {visibleEnabledCount} OF {ACTION_OPTIONS.length} ENABLED
               </span>
             </div>
 
@@ -587,10 +680,11 @@ export default function SessionKeyModal({
                       <Icon className="w-3.5 h-3.5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-1">
                         <span className="text-xs font-semibold tracking-tight truncate">
                           {act.label}
                         </span>
+                
                       </div>
                       <p className="text-[10px] text-slate-400 truncate mt-0.5">
                         {act.description}

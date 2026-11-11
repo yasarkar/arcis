@@ -71,5 +71,63 @@ describe('SessionKeyModal Centered Screen Overlay', () => {
 
     expect(html).toBe('')
   })
+
+  it('correctly handles empty allowedActions without forcing 1 of 4', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: {
+          ...mockConfig,
+          allowedActions: [],
+        },
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('0 OF 4 ENABLED')
+  })
+
+  it('correctly reports 0 of 4 enabled when allowedActions contains non-UI action like ai_service', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: {
+          ...mockConfig,
+          allowedActions: ['ai_service'],
+        },
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('0 OF 4 ENABLED')
+  })
+
+  it('renders the luxury single-tx threshold slider with preset buttons and precision track', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: mockConfig,
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('SINGLE-TX THRESHOLD')
+    expect(html).toContain('50% of cap')
+    expect(html).toContain('50 USDC')
+    expect(html).toContain('aria-label="Single transaction threshold in USDC"')
+    expect(html).toContain('10%')
+    expect(html).toContain('25%')
+    expect(html).toContain('50%')
+    expect(html).toContain('Max')
+  })
 })
 
