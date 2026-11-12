@@ -472,17 +472,22 @@ export default function CircleAuthModal({
                     onFocus={() => {
                       if (savedEmails.length > 0) setShowSavedDropdown(true)
                     }}
-                    placeholder="Email"
+                    placeholder="example@gmail.com"
                     disabled={isLoading}
-                    className={`w-full px-4 py-3.5 pl-11 pr-14 text-xs text-white placeholder-slate-500 focus:outline-none transition-all ${isDropdownOpen
-                      ? 'rounded-t-xl rounded-b-none'
-                      : 'rounded-xl'
-                      }`}
+                    className={`w-full px-4 py-3.5 pl-11 pr-14 text-xs text-white placeholder-slate-500 focus:outline-none transition-all ${
+                      isDropdownOpen
+                        ? 'rounded-t-xl rounded-b-none'
+                        : 'rounded-xl'
+                    }`}
                     style={{
-                      background: 'rgba(255, 255, 255, 0.04)',
+                      background: isDropdownOpen
+                        ? 'rgba(18, 22, 38, 0.95)'
+                        : 'rgba(255, 255, 255, 0.04)',
                       borderWidth: '1px',
                       borderStyle: 'solid',
-                      borderColor: 'rgba(255, 255, 255, 0.1)',
+                      borderColor: isDropdownOpen
+                        ? 'rgba(99, 102, 241, 0.35)'
+                        : 'rgba(255, 255, 255, 0.1)',
                     }}
                   />
                   <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -522,36 +527,41 @@ export default function CircleAuthModal({
                     )}
                   </div>
 
-                  {/* Attached Droplist */}
+                  {/* Attached Droplist (Bitişik Düz Duvar Dropdown) */}
                   {isDropdownOpen && (
                     <div
-                      className="absolute left-0 right-0 top-full rounded-b-xl overflow-hidden z-50 transition-all duration-150 shadow-2xl animate-fade-in"
+                      className="absolute left-0 right-0 top-full rounded-b-xl overflow-hidden z-50 transition-all duration-150 animate-fade-in"
                       style={{
                         marginTop: '-1px', // Seamless connection to input bottom border
-                        background: 'rgba(255, 255, 255, 0.04)',
+                        background: 'linear-gradient(180deg, rgba(16, 20, 36, 0.98) 0%, rgba(12, 15, 28, 0.99) 100%)',
                         borderWidth: '1px',
                         borderStyle: 'solid',
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
-                        backdropFilter: 'blur(20px)',
-                        WebkitBackdropFilter: 'blur(20px)',
+                        borderColor: 'rgba(99, 102, 241, 0.35)',
                         borderTop: 'none',
-                        boxShadow: '0 20px 40px -8px rgba(0, 0, 0, 0.9), 0 0 20px rgba(6, 182, 212, 0.15)',
+                        boxShadow: '0 20px 40px -8px rgba(0, 0, 0, 0.9), 0 0 20px rgba(99, 102, 241, 0.12)',
                       }}
                     >
-                      <div className="max-h-48 overflow-y-auto custom-scrollbar divide-y divide-white/[0.04]">
-                        {displayEmails.map((savedEmail, idx) => {
+                      {/* Items List */}
+                      <div className="max-h-52 overflow-y-auto custom-scrollbar divide-y divide-white/[0.04]">
+                        {displayEmails.map((savedEmail) => {
                           const isSelected = email.trim().toLowerCase() === savedEmail
                           return (
                             <div
                               key={savedEmail}
-                              onClick={() => handleSelectSavedEmail(savedEmail)}
-                              className={`w-full flex items-center justify-between px-3.5 py-2.5 text-xs transition cursor-pointer group ${isSelected
-                                ? 'bg-cyan-500/15 text-cyan-300 font-medium'
-                                : 'text-slate-200 hover:bg-white/[0.06] hover:text-white'
-                                }`}
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                handleSelectSavedEmail(savedEmail)
+                              }}
+                              className={`w-full flex items-center justify-between px-4 py-2.5 text-xs transition cursor-pointer group ${
+                                isSelected
+                                  ? 'bg-indigo-500/15 text-indigo-300 font-medium'
+                                  : 'text-slate-200 hover:bg-white/[0.06] hover:text-white'
+                              }`}
                             >
                               <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                                <span className="truncate">{savedEmail}</span>
+                                <span className="font-mono text-xs text-slate-200 group-hover:text-white truncate" title={savedEmail}>
+                                  {savedEmail}
+                                </span>
                               </div>
                             </div>
                           )
