@@ -84,22 +84,27 @@ describe('stripCopilotHtml', () => {
     expect(stripCopilotHtml('')).toBe('')
   })
 
-  it('renders network markers as plain chain names for the clipboard and inline editor', () => {
+  it('renders network markers as plain chain names and strips token markers for the clipboard and inline editor', () => {
     expect(stripCopilotHtml('• <strong>Network:</strong> [[network:Arc Testnet]]')).toBe(
       '• Network: Arc Testnet'
+    )
+    expect(stripCopilotHtml('• <strong>Available balance:</strong> [[token:USDC]] <strong>327.06 USDC</strong>')).toBe(
+      '• Available balance: 327.06 USDC'
     )
     expect(stripNetworkTokens('[[network:Base Sepolia]]')).toBe('Base Sepolia')
   })
 })
 
 describe('splitCopilotNetworkSegments', () => {
-  it('separates sanitized HTML from inline network markers', () => {
-    const segments = splitCopilotNetworkSegments('• <strong>Network:</strong> [[network:Arc Testnet]]!')
+  it('separates sanitized HTML from inline network markers and token markers', () => {
+    const segments = splitCopilotNetworkSegments('• <strong>Network:</strong> [[network:Arc Testnet]]! • <strong>Balance:</strong> [[token:USDC]] 100 USDC')
 
     expect(segments).toEqual([
       { type: 'html', value: '• <strong>Network:</strong> ' },
       { type: 'network', value: 'Arc Testnet' },
-      { type: 'html', value: '!' },
+      { type: 'html', value: '! • <strong>Balance:</strong> ' },
+      { type: 'token', value: 'USDC' },
+      { type: 'html', value: ' 100 USDC' },
     ])
   })
 

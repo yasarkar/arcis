@@ -48,6 +48,11 @@ const PRIMARY_ACTION_GRADIENT_STYLE: React.CSSProperties = {
   boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
 }
 
+const SESSION_ACTION_GRADIENT_STYLE: React.CSSProperties = {
+  background: 'linear-gradient(135deg, #ffaa6b 0%, #ea580c 100%)',
+  boxShadow: '0 6px 24px rgba(234, 88, 12, 0.28)',
+}
+
 /**
  * Reconstructs the canonical chat command from a completed receipt or action payload
  * so clicking "Send Again" (or action again) repeats the operation seamlessly.
@@ -505,6 +510,13 @@ export default function InlineActionCard({
   // ── 3. FAILED / CANCELLED RECEIPT CARD ──
   if (receipt && (receipt.status === 'FAILED' || receipt.status === 'CANCELED')) {
     const isCanceled = isCanceledReceipt(receipt)
+    const isBridgeFailure =
+      receipt.actionType === 'bridge' ||
+      actionPayload?.type === 'unsupported_bridge' ||
+      actionPayload?.type === 'interactive_bridge' ||
+      actionPayload?.type === 'bridge' ||
+      Boolean(receipt.title && /bridge/i.test(receipt.title)) ||
+      Boolean(receipt.errorMessage && /bridge/i.test(receipt.errorMessage))
 
     return (
       <div
@@ -525,7 +537,19 @@ export default function InlineActionCard({
         <p className={`text-xs leading-relaxed select-text cursor-text ${isCanceled ? 'text-slate-300' : 'text-rose-200/90'}`}>
           {receipt.errorMessage || 'An unexpected error occurred.'}
         </p>
-        {actionPayload && (
+        {isBridgeFailure ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (onNavigateToTab) onNavigateToTab('bridge')
+              onCloseDrawer()
+            }}
+            className="w-full py-2.5 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 select-none bg-rose-950/80 hover:bg-rose-900 border-rose-700/80 hover:border-rose-600 text-rose-200 shadow-lg shadow-rose-950/40 hover:brightness-110 active:scale-[0.99]"
+          >
+            <span>Open Bridge Page</span>
+            <ArrowRight className="w-3.5 h-3.5 text-rose-300" />
+          </button>
+        ) : actionPayload ? (
           <button
             onClick={() => onExecuteInline(message.id, actionPayload)}
             className={`w-full py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 select-none group ${isCanceled
@@ -536,7 +560,7 @@ export default function InlineActionCard({
             <RotateCw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" />
             <span>Try Again</span>
           </button>
-        )}
+        ) : null}
       </div>
     )
   }
@@ -1050,7 +1074,7 @@ export default function InlineActionCard({
           }}
           primaryAction={{
             label: actionPayload.title || 'Open Session Settings',
-            icon: <Settings className="w-3.5 h-3.5 text-slate-950" />,
+            icon: <Settings className="w-3.5 h-3.5 text-white" />,
             onClick: () => {
               if (onOpenSessionSettings) {
                 onOpenSessionSettings()
@@ -1058,10 +1082,65 @@ export default function InlineActionCard({
                 window.dispatchEvent(new CustomEvent('arcis_open_session_modal'))
               }
             },
-            gradient: 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:brightness-110 text-slate-950 font-extrabold shadow-amber-500/20',
+            gradient: 'hover:brightness-110 text-white shadow-orange-500/20',
+            style: SESSION_ACTION_GRADIENT_STYLE,
           }}
         />
       )}
+
+      {/* 4.6 UNSUPPORTED BRIDGE ASSET ERROR CARD */}
+      {actionPayload.type === 'unsupported_bridge' && (() => {
+        const tokenName = data.token || 'Asset'
+        return (
+          <div
+            className="p-3.5 rounded-2xl bg-slate-950/95 border border-rose-500/50 space-y-2.5 shadow-xl shadow-rose-500/10 select-text selection:bg-rose-500/30 selection:text-white"
+          >
+            <div className="flex items-center justify-between text-xs font-bold text-rose-300">
+              <div className="flex items-center gap-1.5 select-text cursor-text">
+                <AlertCircle className="w-4 h-4 select-none text-rose-400 shrink-0" />
+                <span className="select-text">{actionPayload.title || 'Unsupported Bridge Asset'}</span>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950/80 border border-rose-500/30 text-rose-300 uppercase">
+                USDC ONLY
+              </span>
+            </div>
+
+            <div className="rounded-xl bg-slate-900/90 border border-rose-500/20 p-2.5 space-y-1 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Requested Asset:</span>
+                <span className="font-mono font-bold text-white flex items-center gap-1.5">
+                  <CopilotTokenIcon symbol={tokenName} className="w-3.5 h-3.5 object-contain inline-block" />
+                  {tokenName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Copilot Protocol:</span>
+                <span className="font-mono text-rose-300">Circle Gateway (USDC Only)</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Multi-Asset Route:</span>
+                <span className="font-mono text-emerald-400">CCTP-X (Manual Bridge Tab)</span>
+              </div>
+            </div>
+
+            <p className="text-xs leading-relaxed select-text cursor-text text-rose-200/90">
+              {data.reason || `Ask Arco currently supports bridging for USDC only. To bridge ${tokenName}, please use the manual Bridge tab.`}
+            </p>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onNavigateToTab) onNavigateToTab('bridge')
+                onCloseDrawer()
+              }}
+              className="w-full py-2.5 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 select-none bg-rose-950/80 hover:bg-rose-900 border-rose-700/80 hover:border-rose-600 text-rose-200 shadow-lg shadow-rose-950/40 hover:brightness-110 active:scale-[0.99]"
+            >
+              <span>Open Bridge Page</span>
+              <ArrowRight className="w-3.5 h-3.5 text-rose-300" />
+            </button>
+          </div>
+        )
+      })()}
     </div>
   )
 }

@@ -92,7 +92,9 @@ describe('local NLP send hardening', () => {
     expect(r.actionPayload?.type).toBe('interactive_send')
     expect(r.actionPayload?.data?.amount).toBe(0.0001)
     expect(r.actionPayload?.data?.tokenSymbol).toBe('cirBTC')
-    expect(r.message).toContain('Available balance: 0.5 cirBTC')
+    expect(r.message).toContain('Available balance:')
+    expect(r.message).toContain('0.5 cirBTC')
+    expect(r.message).toContain('[[token:cirBTC]]')
   })
 })
 

@@ -804,8 +804,8 @@ export default function HomePage({
             <thead>
               <tr className="border-b border-white/10 bg-white/5 text-slate-300 font-mono">
                 <th className="py-4 px-4 sm:px-6 font-semibold">FEATURE</th>
-                <th className="py-4 px-4 sm:px-6 font-semibold text-rose-300">LEGACY L1 / L2</th>
-                <th className="py-4 px-4 sm:px-6 font-semibold text-emerald-300">ARCIS ON ARC L1</th>
+                <th className="py-4 px-4 sm:px-6 font-semibold">LEGACY L1 / L2</th>
+                <th className="py-4 px-4 sm:px-6 font-semibold">ARCIS ON ARC L1</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -818,7 +818,7 @@ export default function HomePage({
                       <span>{row.legacy}</span>
                     </div>
                   </td>
-                  <td className="py-4 px-4 sm:px-6 text-emerald-200 font-medium">
+                  <td className="py-4 px-4 sm:px-6 font-medium">
                     <div className="flex items-center gap-2">
                       <span className="text-emerald-400 font-bold">✓</span>
                       <span>{row.arcis}</span>

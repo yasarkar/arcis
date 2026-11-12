@@ -117,6 +117,7 @@ export type CopilotActionType =
   | 'interactive_send'
   | 'interactive_batch_send'
   | 'configure_session'
+  | 'unsupported_bridge'
 
 export interface CopilotActionPayload {
   /** Unsubmitted transaction identity; revisions never inherit a different action's draft. */

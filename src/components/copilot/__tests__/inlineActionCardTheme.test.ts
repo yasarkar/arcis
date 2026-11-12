@@ -155,5 +155,56 @@ describe('InlineActionCard outcome themes', () => {
     expect(html).not.toContain('<p class="text-[10px] font-mono text-slate-400 break-all">')
     expect(html).not.toContain('>0x1234567890abcdef')
   })
+
+  it('renders unsupported_bridge action card with rose error theme and Open Bridge Tab button', () => {
+    const message: CopilotMessage = {
+      id: 'msg-unsupported-bridge',
+      role: 'assistant',
+      content: 'Unsupported bridge token.',
+      timestamp: Date.now(),
+      actionPayload: {
+        type: 'unsupported_bridge',
+        title: 'Unsupported Bridge Asset',
+        data: {
+          token: 'WETH',
+          reason: 'Ask Arco currently supports bridging for USDC only via Circle Gateway. To bridge WETH, please use the manual Bridge tab.',
+        },
+      },
+    }
+
+    const html = renderToStaticMarkup(
+      React.createElement(InlineActionCard, {
+        message,
+        onExecuteInline: async () => {},
+        onCloseDrawer: () => {},
+      })
+    )
+
+    expect(html).toContain('border-rose-500/50')
+    expect(html).toContain('Unsupported Bridge Asset')
+    expect(html).toContain('USDC ONLY')
+    expect(html).toContain('WETH')
+    expect(html).toContain('Circle Gateway (USDC Only)')
+    expect(html).toContain('Open Bridge Page')
+  })
+
+  it('renders Open Bridge Page instead of Try Again for failed bridge receipts', () => {
+    const html = render({
+      id: 'rcpt-failed-bridge',
+      actionType: 'bridge',
+      title: 'Unsupported Bridge Asset',
+      status: 'FAILED',
+      txHash: '',
+      gasUsdc: 0,
+      settlementLatencyMs: 100,
+      timestamp: Date.now(),
+      errorMessage: 'Ask Arco supports bridging for USDC only.',
+    })
+
+    expect(html).toContain('border-rose-500/50')
+    expect(html).toContain('Unsupported Bridge Asset')
+    expect(html).toContain('Open Bridge Page')
+    expect(html).not.toContain('Try Again')
+  })
 })
 

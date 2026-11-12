@@ -26,6 +26,8 @@ import {
   isValidEvmAddress,
   isZeroAddress,
   validateSendAmount,
+  detectNonUsdcBridgeToken,
+  unsupportedBridgeTokenGuidance,
 } from '../config/copilotTokens'
 import { getSwapEstimate } from './swapService'
 import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from './arcGasService'
@@ -317,6 +319,14 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
   }
   const isSwap = payload?.type === 'interactive_swap' || payload?.type === 'trade'
   const isSend = payload?.type === 'interactive_send' || payload?.type === 'send'
+  const isBridge = payload?.type === 'interactive_bridge' || payload?.type === 'bridge'
+  if (isBridge) {
+    const rawToken = String(payload.data?.tokenSymbol || payload.data?.token || payload.data?.fromToken || '').trim()
+    if (rawToken && rawToken.toUpperCase() !== 'USDC') {
+      const guidance = unsupportedBridgeTokenGuidance(rawToken)
+      return { ...result, message: guidance.message, actionPayload: guidance.actionPayload }
+    }
+  }
   if (!payload || (!isSwap && !isSend)) return result
   const data = payload.data || {}
   const amount = Number(data.amount)
@@ -461,6 +471,9 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
 - CONTEXT & MULTI-TURN DIALOGUE:
   - You have full awareness of the recent conversation history.
   - If the user corrects or updates a previous action (e.g. "actually make it 250", "swap to WETH instead"), seamlessly resolve parameters and trigger the updated tool call.
+- BRIDGE POLICY:
+  - Ask Arco supports bridging for USDC ONLY via Circle Gateway.
+  - If the user asks to bridge any other token (such as WETH, ETH, cirBTC, BTC, EURC), NEVER call execute_bridge and NEVER convert it to USDC. Instead, explicitly explain that Copilot bridging is USDC-only and guide the user to the manual Bridge tab in the navigation menu for CCTP-X multi-asset routes.
 - FORMATTING RULES:
   - Never use markdown bold asterisks (do not use **).
   - Use <strong> tags for bold headings and key bullet points.
@@ -471,7 +484,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
   const ARC_COPILOT_TOOLS = [
     { type: 'function', function: { name: 'execute_swap', description: 'Execute instant on-chain token swap on Arc Testnet DEX with USDC native gas', parameters: { type: 'object', properties: { fromToken: { type: 'string', description: 'Token symbol to swap from (e.g. USDC, EURC, cirBTC)' }, toToken: { type: 'string', description: 'Token symbol to swap to (e.g. USDC, EURC, cirBTC)' }, amount: { type: 'number', description: 'Amount of tokens to swap' }, slippage: { type: 'number', description: 'Slippage percentage e.g. 0.1' } }, required: ['fromToken', 'toToken', 'amount'] } } },
     { type: 'function', function: { name: 'execute_deposit_yield', description: 'Deposit USDC into Arcis Real-Yield vault earning 8.42% APY', parameters: { type: 'object', properties: { amount: { type: 'number', description: 'Amount of USDC to deposit' } }, required: ['amount'] } } },
-    { type: 'function', function: { name: 'execute_bridge', description: 'Bridge USDC via Circle Gateway between Arc Testnet and other chains (e.g. Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia, Solana Devnet)', parameters: { type: 'object', properties: { fromChain: { type: 'string' }, toChain: { type: 'string' }, amount: { type: 'number' } }, required: ['amount'] } } },
+    { type: 'function', function: { name: 'execute_bridge', description: 'Bridge USDC via Circle Gateway between Arc Testnet and other chains (e.g. Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia). NOTE: Only USDC is supported in Copilot; do NOT call this tool for non-USDC tokens like WETH, cirBTC, EURC.', parameters: { type: 'object', properties: { fromChain: { type: 'string' }, toChain: { type: 'string' }, amount: { type: 'number' }, token: { type: 'string', description: 'Token symbol to bridge (only USDC is supported in Copilot)' } }, required: ['amount'] } } },
     { type: 'function', function: { name: 'execute_send', description: 'Send or transfer USDC/EURC/WETH/cirBTC to a recipient address on Arc Testnet with optional memo. WBTC is NOT supported on Arc.', parameters: { type: 'object', properties: { recipient: { type: 'string' }, amount: { type: 'number' }, token: { type: 'string' }, memo: { type: 'string' } }, required: ['recipient', 'amount'] } } },
   ]
 
@@ -523,10 +536,15 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       return { message: `I have calculated your compound yield allocation. Click below to allocate your USDC into the YieldVault.`, actionPayload: { type: 'interactive_deposit', title: `🏦 Deposit ${amount} USDC into YieldVault`, data: { amount, apy: '8.42%', estimatedYieldUsdcYearly: Number(yearlyYield.toFixed(2)) } } }
     }
     if (fnName === 'execute_bridge') {
+      const tokenArg = String(args.token || '').trim()
+      const nonUsdc = detectNonUsdcBridgeToken(userPrompt) || (tokenArg && tokenArg.toUpperCase() !== 'USDC' ? tokenArg : null)
+      if (nonUsdc) {
+        return unsupportedBridgeTokenGuidance(canonicalCopilotTokenSymbol(nonUsdc))
+      }
       const fromChain = args.fromChain ? resolveChainName(args.fromChain) : 'Arc Testnet'
       const toChain = args.toChain ? resolveChainName(args.toChain) : (fromChain === 'Arc Testnet' ? 'Ethereum Sepolia' : 'Arc Testnet')
       const amount = Number(args.amount)
-      if (!Number.isFinite(amount) || amount <= 0) return { message: '<strong>Valid amount required.</strong>\\n\\nPlease provide a positive USDC bridge amount.' }
+      if (!Number.isFinite(amount) || amount <= 0) return { message: '<strong>Valid amount required.</strong>\n\nPlease provide a positive USDC bridge amount.' }
       return { message: `I have initialized your Circle Gateway transfer. Click below to review and execute the secure transfer.`, actionPayload: { type: 'interactive_bridge', title: `🌉 Bridge ${amount} USDC (${fromChain} ➔ ${toChain})`, data: { fromChain, toChain, amount } } }
     }
     if (fnName === 'execute_send') {
@@ -560,8 +578,12 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
           : ARC_GAS_LIMITS.erc20Transfer
       const liveMaxFeePerGas = await resolveLiveMaxFeePerGas(targetGasLimit)
       const sendFeeUsdc = transferFeeFor(token, liveMaxFeePerGas, hasMemo)
+      const balanceLine = available !== null
+        ? `\n\n<strong>Available balance:</strong> [[token:${token}]] <strong>${available} ${token}</strong>`
+        : ''
+      const memoLine = memo ? `\n• <strong>Memo:</strong> ${memo}` : ''
       return {
-        message: `I have prepared your transfer on Arc Testnet.${memo ? ` Memo: ${memo}.` : ''} Click below to confirm and broadcast this transaction on-chain.`,
+        message: `I have prepared your transfer on Arc Testnet.${balanceLine}${memoLine}\n\nClick below to confirm and broadcast this transaction on-chain.`,
         actionPayload: {
           type: 'interactive_send',
           title: `📤 Send ${amount} ${token} to ${shortRecipient}`,
@@ -593,6 +615,9 @@ export function parseLocalIntentFallback(
   }
   const payload = result.actionPayload
   if (!payload) return result
+  if (payload.type === 'unsupported_bridge' || payload.type === 'configure_session') {
+    return result
+  }
   const token = payload.type === 'interactive_swap' || payload.type === 'trade'
     ? String(payload.data?.fromToken || 'USDC')
     : String(payload.data?.tokenSymbol || 'USDC')
@@ -656,6 +681,10 @@ function parseLocalIntent(
       return { message: `I have updated your YieldVault deposit allocation. Click below to verify and lock in your updated deposit.`, actionPayload: { type: 'interactive_deposit', title: `🏦 Deposit ${newAmount} USDC into YieldVault (8.42% APY)`, data: { amount: newAmount, apy: '8.42%', estimatedYieldUsdcYearly: Number(yearlyReturn.toFixed(2)) } } }
     }
     if (prevAction.type === 'interactive_bridge') {
+      const nonUsdcToken = detectNonUsdcBridgeToken(p)
+      if (nonUsdcToken) {
+        return unsupportedBridgeTokenGuidance(nonUsdcToken)
+      }
       const newAmount = amountMatch ? parsedAmount : (prevData.amount || 0)
       if (!Number.isFinite(newAmount) || newAmount <= 0) return { message: '<strong>Valid amount required.</strong>\\n\\nPlease include a positive USDC bridge amount.' }
       let fromChain = prevData.fromChain || 'Arc Testnet'
@@ -750,8 +779,12 @@ function parseLocalIntent(
 
   const isBridge = intent.kind === 'command' && intent.action === 'bridge'
   if (isBridge) {
+    const nonUsdcToken = detectNonUsdcBridgeToken(p)
+    if (nonUsdcToken) {
+      return unsupportedBridgeTokenGuidance(nonUsdcToken)
+    }
     if (!amountMatch || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      return { message: '<strong>Valid amount required.</strong>\\n\\nPlease include a positive USDC amount to bridge.' }
+      return { message: '<strong>Valid amount required.</strong>\n\nPlease include a positive USDC amount to bridge.' }
     }
     let sourceChain = 'Arc Testnet'
     let destChain = 'Ethereum Sepolia'
@@ -800,8 +833,12 @@ function parseLocalIntent(
     const shortRecipient = `${recipient.slice(0, 6)}...${recipient.slice(-4)}`
     const hasMemo = Boolean(memo && memo.trim().length > 0)
     const feeEstimate = transferFeeFor(tokenSymbol, liveMaxFeePerGas, hasMemo)
+    const balanceLine = available !== null
+      ? `\n\n<strong>Available balance:</strong> [[token:${tokenSymbol}]] <strong>${available} ${tokenSymbol}</strong>`
+      : ''
+    const memoLine = memo ? `\n• <strong>Memo:</strong> ${memo}` : ''
     return {
-      message: `I have prepared your transfer on Arc Testnet.${available !== null ? ` Available balance: ${available} ${tokenSymbol}.` : ''}${memo ? ` Memo: ${memo}.` : ''} Click below to review and send.`,
+      message: `I have prepared your transfer on Arc Testnet.${balanceLine}${memoLine}\n\nClick below to review and send.`,
       actionPayload: {
         type: 'interactive_send',
         title: `📤 Send ${amount} ${tokenSymbol} to ${shortRecipient}`,

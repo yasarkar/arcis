@@ -131,4 +131,39 @@ describe('A02 new commands versus draft revisions', () => {
     expect((await queryArcisLLM('5 USDC', undefined, history(swap), snapshot)).actionPayload).toBeUndefined()
     expect((await queryArcisLLM('actually make it 5', undefined, [], snapshot)).actionPayload).toBeUndefined()
   })
+
+  it('refuses to bridge non-USDC tokens and never converts them to USDC', async () => {
+    const nonUsdcBridgePrompts = [
+      'bridge 1 WETH to Ethereum Sepolia',
+      '0.05 cirBTC bridge et',
+      '100 EURC köprüle',
+      'bridge 2 ETH to Sepolia',
+    ]
+
+    for (const p of nonUsdcBridgePrompts) {
+      const local = parseLocalIntentFallback(p, undefined, undefined, [])
+      expect(local.actionPayload).toBeDefined()
+      expect(local.actionPayload?.type).toBe('unsupported_bridge')
+      expect(local.actionPayload?.type).not.toBe('interactive_bridge')
+      expect(local.message).toContain('Unsupported bridge token')
+      expect(local.message).toContain('Bridge')
+
+      // Even if backend LLM attempts to return an execute_bridge for USDC, queryArcisLLM refuses it
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+        success: true,
+        message: 'Prepared bridge.',
+        actionPayload: { type: 'interactive_bridge', title: 'Bridge', data: { fromChain: 'Arc Testnet', toChain: 'Ethereum Sepolia', amount: 1 } },
+      })))
+      const result = await queryArcisLLM(p, undefined, [], snapshot)
+      expect(result.actionPayload).toBeDefined()
+      expect(result.actionPayload?.type).toBe('unsupported_bridge')
+      expect(result.actionPayload?.type).not.toBe('interactive_bridge')
+      expect(result.message).toContain('Unsupported bridge token')
+    }
+
+    // Normal USDC bridge works seamlessly
+    const validUsdc = parseLocalIntentFallback('bridge 100 USDC to Base', undefined, undefined, [])
+    expect(validUsdc.actionPayload?.type).toBe('interactive_bridge')
+    expect(validUsdc.actionPayload?.data?.amount).toBe(100)
+  })
 })

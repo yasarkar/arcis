@@ -15,6 +15,15 @@ const ALLOWED_TAGS = new Set(['strong', 'em', 'code', 'br', 'p', 'ul', 'ol', 'li
  */
 export const COPILOT_NETWORK_TOKEN_REGEX = /\[\[network:([^\]]+)\]\]/g
 
+/**
+ * Inline token icon marker emitted by Copilot templates, e.g. `[[token:USDC]]`.
+ * The chat renderer mounts the corresponding token SVG icon.
+ */
+export const COPILOT_TOKEN_REGEX = /\[\[token:([^\]]+)\]\]/g
+
+/** Matches both network and token embed markers. */
+export const COPILOT_EMBED_TOKEN_REGEX = /\[\[(network|token):([^\]]+)\]\]/g
+
 /** Replaces inline network markers with their plain chain name (copy / edit / clipboard). */
 export function stripNetworkTokens(input: string): string {
   if (!input || typeof input !== 'string') return ''
@@ -22,23 +31,39 @@ export function stripNetworkTokens(input: string): string {
 }
 
 export interface CopilotContentSegment {
-  type: 'html' | 'network'
+  type: 'html' | 'network' | 'token'
   value: string
 }
 
 /**
- * Splits Copilot content into sanitized HTML segments and network-name segments so the chat
- * renderer can mount a real @web3icons chain badge wherever a `[[network:<chain>]]` marker appears.
- * Each HTML segment is sanitized independently, so the guarantee of sanitizeCopilotHtml holds.
+ * Splits Copilot content into sanitized HTML segments, network badges, and token icons so the chat
+ * renderer can mount real React components wherever a `[[network:<chain>]]` or `[[token:<symbol>]]`
+ * marker appears. Each HTML segment is sanitized independently, so the guarantee of sanitizeCopilotHtml holds.
  */
 export function splitCopilotNetworkSegments(content: string): CopilotContentSegment[] {
-  return (content || '')
-    .split(COPILOT_NETWORK_TOKEN_REGEX)
-    .map((part, index) =>
-      index % 2 === 1
-        ? { type: 'network' as const, value: part.trim() }
-        : { type: 'html' as const, value: sanitizeCopilotHtml(part) }
-    )
+  if (!content || typeof content !== 'string') return []
+
+  const segments: CopilotContentSegment[] = []
+  const regex = /\[\[(network|token):([^\]]+)\]\]/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      const htmlSlice = content.slice(lastIndex, match.index)
+      segments.push({ type: 'html', value: sanitizeCopilotHtml(htmlSlice) })
+    }
+    const kind = match[1] as 'network' | 'token'
+    segments.push({ type: kind, value: match[2].trim() })
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < content.length) {
+    const htmlSlice = content.slice(lastIndex)
+    segments.push({ type: 'html', value: sanitizeCopilotHtml(htmlSlice) })
+  }
+
+  return segments
 }
 
 // Tags that carry no closing counterpart.
@@ -119,6 +144,7 @@ export function stripCopilotHtml(input: string): string {
   if (!input || typeof input !== 'string') return ''
 
   return stripNetworkTokens(sanitizeCopilotHtml(input))
+    .replace(/\[\[token:[^\]]+\]\]\s?/g, '')
     .replace(/<[^>]*>/g, '')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')

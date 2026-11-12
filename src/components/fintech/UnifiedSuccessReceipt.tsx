@@ -959,14 +959,23 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             <Loader2 className={`${isInline ? 'w-3.5 h-3.5' : 'w-4 h-4'} animate-spin`} />
             <span>Awaiting Destination Confirmation</span>
           </div>
-        ) : <button
-          type="button"
-          onClick={onActionAgain}
-          className={`w-full ${isInline ? 'py-2.5 px-3 shadow-lg active:scale-[0.99]' : 'py-3.5 px-4 shadow-md'} rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 shadow-indigo-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer`}
-        >
-          <ActionIcon className="w-3.5 h-3.5" />
-          <span>{defaultBtnText}</span>
-        </button>}
+        ) : (
+          <button
+            type="button"
+            onClick={onActionAgain}
+            className={`w-full ${
+              isInline ? 'py-2.5 px-3' : 'py-3.5 px-4'
+            } rounded-xl text-xs font-bold text-white transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg hover:brightness-110 hover:scale-[1.01] active:scale-[0.98]`}
+            style={{
+              fontFamily: 'var(--font-app)',
+              background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+              boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+            }}
+          >
+            <ActionIcon className="w-3.5 h-3.5" />
+            <span className="tracking-wide">{defaultBtnText}</span>
+          </button>
+        )}
 
         {!isInline && onClose && (
           <button

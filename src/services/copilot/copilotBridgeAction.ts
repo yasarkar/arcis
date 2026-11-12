@@ -34,6 +34,17 @@ export async function executeCopilotBridgeAction(
   } = context
   const data = actionPayload.data || {}
 
+  const rawToken = String(data.tokenSymbol || data.token || data.fromToken || '').trim()
+  if (rawToken && rawToken.toUpperCase() !== 'USDC') {
+    if (onProgress) onProgress('failed')
+    return failedActionReceipt(
+      'bridge',
+      'Unsupported Bridge Asset',
+      `Ask Arco supports bridging for USDC only. To bridge ${rawToken}, please use the manual Bridge tab in the navigation menu.`,
+      startTime
+    )
+  }
+
   const amount = Number(data.amount)
   if (!isPositiveTokenAmount(amount, 6)) {
     if (onProgress) onProgress('failed')

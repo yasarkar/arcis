@@ -8,6 +8,7 @@
 //      routing to a different asset (which would move the user's USDC while claiming WBTC).
 
 import { numberToExactDecimal } from '../utils/copilotAmount'
+import type { CopilotActionPayload } from '../types/marketplace'
 
 /** Tokens the copilot can send or swap on Arc Testnet, in their canonical display casing. */
 export const COPILOT_SUPPORTED_TOKENS = ['USDC', 'EURC', 'WETH', 'cirBTC', 'af-USDC'] as const
@@ -125,4 +126,60 @@ export function mentionsUnsupportedBtc(prompt: string): boolean {
   const p = (prompt || '').toLowerCase()
   if (mentionsCirBtc(p)) return false
   return p.includes('wbtc') || /\bbtc\b/.test(p) || p.includes('bitcoin')
+}
+
+/**
+ * Detects if a prompt specifies a non-USDC token for bridging (e.g. WETH, ETH, cirBTC, BTC, EURC).
+ * Copilot bridge operations are strictly USDC-only; any non-USDC token must be refused with guidance
+ * rather than silently converting to USDC.
+ */
+export function detectNonUsdcBridgeToken(prompt: string): string | null {
+  const p = (prompt || '').toLowerCase()
+
+  // First, check if an explicit amount is attached to a token symbol
+  const amountToken = p.match(/\b\d+(?:[.,]\d+)?\s*(weth|eth|cirbtc|btc|wbtc|eurc|usdc)\b/)
+    || p.match(/\b(weth|eth|cirbtc|btc|wbtc|eurc|usdc)\s*\d+(?:[.,]\d+)?\b/)
+
+  if (amountToken) {
+    const sym = (amountToken[1] || amountToken[2] || '').toLowerCase()
+    if (sym === 'usdc') return null
+    if (sym === 'weth' || sym === 'eth') return 'WETH'
+    if (sym === 'cirbtc' || sym === 'btc' || sym === 'wbtc') return 'cirBTC'
+    if (sym === 'eurc') return 'EURC'
+  }
+
+  // If the prompt explicitly specifies a USDC amount anywhere, it is a USDC bridge
+  if (/\b\d+(?:[.,]\d+)?\s*usdc\b/.test(p) || /\busdc\s*\d+(?:[.,]\d+)?\b/.test(p)) {
+    return null
+  }
+
+  if (/\bcirbtc\b/.test(p) || /circle\s*btc/.test(p)) return 'cirBTC'
+  if (/\b(wbtc|btc|bitcoin)\b/.test(p)) return 'cirBTC'
+  if (/\bweth\b/.test(p)) return 'WETH'
+  if (/\beurc\b/.test(p) || /\beuro\b/.test(p)) return 'EURC'
+
+  // Bare ETH check: ensure it's not a chain reference like "to eth", "from eth", "eth sepolia"
+  if (/\beth\b/.test(p) && !/(?:from|to|den|dan|ten|tan|ye|ya)\s+eth\b/.test(p) && !/\beth\s+sepolia\b/.test(p)) {
+    return 'WETH'
+  }
+
+  return null
+}
+
+/** Plain-text / markdown guidance shown when the user asks to bridge a non-USDC token in Copilot. */
+export function unsupportedBridgeTokenGuidance(tokenName: string): {
+  message: string
+  actionPayload: CopilotActionPayload
+} {
+  return {
+    message: `<strong>Unsupported bridge token.</strong>\n\nAsk Arco currently supports bridging for <strong>USDC only</strong> via Circle Gateway. To bridge <strong>${tokenName}</strong>, please use the manual <strong>Bridge</strong> tab in the navigation menu where CCTP-X multi-asset routes are supported.`,
+    actionPayload: {
+      type: 'unsupported_bridge',
+      title: 'Unsupported Bridge Asset',
+      data: {
+        token: tokenName,
+        reason: `Ask Arco currently supports bridging for USDC only via Circle Gateway. To bridge ${tokenName}, please use the manual Bridge tab in the navigation menu where CCTP-X multi-asset routes are supported.`,
+      },
+    },
+  }
 }

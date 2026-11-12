@@ -7,7 +7,7 @@
 // badge in its place, sanitizing each HTML segment independently.
 import React from 'react'
 import { splitCopilotNetworkSegments } from '../../utils/sanitizeCopilotHtml'
-import { CopilotNetworkBadge } from './CopilotTokenIcon'
+import { CopilotNetworkBadge, CopilotTokenIcon } from './CopilotTokenIcon'
 
 interface CopilotMessageContentProps {
   content: string
@@ -19,13 +19,19 @@ export function CopilotMessageContent({ content, className = '' }: CopilotMessag
 
   return (
     <span className={className}>
-      {segments.map((segment, index) =>
-        segment.type === 'network' ? (
-          <CopilotNetworkBadge key={index} chainName={segment.value} className="align-middle mx-0.5" />
-        ) : (
-          <span key={index} dangerouslySetInnerHTML={{ __html: segment.value }} />
-        )
-      )}
+      {segments.map((segment, index) => {
+        if (segment.type === 'network') {
+          return <CopilotNetworkBadge key={index} chainName={segment.value} className="align-middle mx-0.5" />
+        }
+        if (segment.type === 'token') {
+          return (
+            <span key={index} className="inline-flex items-center align-middle mx-1 -mt-0.5">
+              <CopilotTokenIcon symbol={segment.value} className="w-4 h-4 object-contain inline-block" />
+            </span>
+          )
+        }
+        return <span key={index} dangerouslySetInnerHTML={{ __html: segment.value }} />
+      })}
     </span>
   )
 }

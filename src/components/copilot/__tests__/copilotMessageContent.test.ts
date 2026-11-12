@@ -40,4 +40,17 @@ describe('CopilotMessageContent', () => {
     expect(html).not.toContain('<img src=x onerror=alert(1)>')
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
+
+  it('renders an inline token icon for token markers', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(CopilotMessageContent, {
+        content: '• <strong>Available balance:</strong> [[token:USDC]] <strong>327.06 USDC</strong>',
+      })
+    )
+
+    expect(html).not.toContain('[[token:')
+    expect(html).toContain('Available balance:')
+    expect(html).toContain('327.06 USDC')
+    expect(html).toContain('alt="USDC"')
+  })
 })

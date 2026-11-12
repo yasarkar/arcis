@@ -51,7 +51,7 @@ export function classifyCopilotIntent(prompt: string): CopilotIntent {
   if (has('send', 'transfer', 'gönder', 'gonder', 'yolla', 'pay', 'öde', 'ode')) actions.push('send')
   if (has('swap', 'takas', 'trade', 'convert', 'çevir', 'cevir', 'dönüştür', 'donustur', 'buy', 'sell', 'al', 'almak', 'sat', 'satmak')) actions.push('swap')
   if (has('deposit', 'yatir', 'stake', 'vault', 'kasa')) actions.push('deposit')
-  if (has('bridge', 'köprü', 'kopru', 'aktar')) actions.push('bridge')
+  if (has('bridge', 'köprü', 'kopru', 'köprüle', 'koprule', 'aktar')) actions.push('bridge')
 
   if (actions.length > 1) {
     return { kind: 'ambiguous', message: `${NO_ACTION} Please specify one transaction at a time / Her mesajda tek işlem belirtin.` }
