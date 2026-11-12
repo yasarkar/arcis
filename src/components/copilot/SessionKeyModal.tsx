@@ -23,6 +23,7 @@ import {
 import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey'
 import { getSessionKeyConfig, getSessionTimeRemaining } from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 
 export interface SessionKeyModalProps {
   isOpen: boolean
@@ -86,6 +87,9 @@ export default function SessionKeyModal({
   const [timeRemainingText, setTimeRemainingText] = useState<string>('')
   // Safety confirmation dialog shown before replacing an active session
   const [isConfirmOpen, setIsConfirmOpen] = useState<boolean>(false)
+
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
 
   // Sync state when sessionConfig or isOpen or walletAddress changes
   useEffect(() => {
@@ -216,7 +220,7 @@ export default function SessionKeyModal({
       role="dialog"
       aria-modal="true"
       aria-label="Session Settings"
-      className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-5 bg-[#07080d]/85 backdrop-blur-[24px] animate-fade-in overscroll-contain select-text selection:bg-[var(--purple-1)]/30 selection:text-white"
+      className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-5 bg-[#07080d]/85 backdrop-blur-[24px] animate-fade-in overscroll-contain touch-none select-text selection:bg-[var(--purple-1)]/30 selection:text-white"
       onClick={onClose}
     >
       <div

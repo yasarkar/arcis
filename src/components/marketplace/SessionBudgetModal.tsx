@@ -21,6 +21,7 @@ import { createPortal } from 'react-dom'
 import { createWalletClient, custom, encodeFunctionData, parseUnits, type Address } from 'viem'
 import { arcTestnet } from '../../config/arcChain'
 import { POOL_CONTRACTS, ERC20_ABI } from '../../config/poolsConfig'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { getStoredMscaAddress } from '../../services/modularWalletService'
 import {
   activateSessionKey,
@@ -76,6 +77,21 @@ export default function SessionBudgetModal({
     window.addEventListener(SESSION_KEY_UPDATED_EVENT, handleUpdate)
     return () => window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleUpdate)
   }, [walletAddress])
+
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
+
+  // Accessibility: Close on Escape key (unless funding or sweeping enclave)
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isFunding && !isSweeping) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose, isFunding, isSweeping])
 
   // Sync on modal open and query live enclave balance
   useEffect(() => {
@@ -212,16 +228,17 @@ export default function SessionBudgetModal({
   const isSessionActive = config.isActive && Date.now() <= config.expiresAt
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-      {/* Backdrop: deep obsidian with 28px blur */}
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 overflow-y-auto overscroll-contain touch-none">
+      {/* Backdrop: deep obsidian with blur */}
       <div
-        className="fixed inset-0 bg-[#07080d]/85 backdrop-blur-[28px] transition-all duration-300 animate-fade-in"
+        className="fixed inset-0 bg-[#07080d]/85 backdrop-blur-md transition-all duration-300 animate-fade-in"
         onClick={onClose}
       />
 
       {/* Modal Container: 28px superellipse, luxury obsidian surface */}
       <div
         className="relative w-full max-w-xl rounded-[28px] overflow-hidden transition-all my-auto flex flex-col z-10"
+        onClick={(e) => e.stopPropagation()}
         style={{
           background:
             'linear-gradient(145deg, rgba(22, 25, 42, 0.95) 0%, rgba(15, 17, 30, 0.97) 60%, rgba(9, 10, 18, 0.99) 100%)',

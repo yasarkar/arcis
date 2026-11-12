@@ -5,6 +5,7 @@
 import { AlertTriangle, Check, Save, SlidersHorizontal, X } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import type { SpeedTier } from '../../config/feeTiers'
 import { POOL_MAX_SLIPPAGE_BPS, POOL_MIN_SLIPPAGE_BPS } from '../../config/poolsConfig'
 import type { SlippagePreset } from '../../types/walletSettings'
@@ -52,6 +53,19 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
       setSavedFeedback(false)
     }
   }, [isOpen, initialSlippage, initialSlippageType, initialCustomSlippage, initialSpeedTier])
+
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
+
+  // Accessibility: Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
 
   if (!isOpen || typeof document === 'undefined') return null
 
@@ -116,7 +130,7 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label="Ask Arco Execution Settings"
-        className="w-full max-w-[480px] rounded-3xl p-6 sm:p-7 shadow-2xl relative border space-y-5 animate-scale-in"
+        className="w-full max-w-[480px] max-h-[90vh] overflow-y-auto rounded-3xl p-6 sm:p-7 shadow-2xl relative border space-y-5 animate-scale-in"
         style={{
           background: 'linear-gradient(180deg, rgba(16, 20, 36, 0.98) 0%, rgba(10, 12, 22, 0.99) 100%)',
           borderColor: 'rgba(255, 255, 255, 0.1)',

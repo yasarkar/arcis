@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
@@ -185,6 +187,25 @@ export default function CircleAuthModal({
     }
   }, [statusMessage])
 
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
+
+  // Accessibility: Close on Escape key (unless authenticating)
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isLoading && autoLoginPhase !== 'authenticating') {
+        if (showSavedDropdown) {
+          setShowSavedDropdown(false)
+        } else {
+          handleClose()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isLoading, autoLoginPhase, showSavedDropdown])
+
   if (!isOpen) return null
 
   // Email Validation Helper
@@ -298,19 +319,26 @@ export default function CircleAuthModal({
     }
   }
 
-  return (
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[10010] flex items-center justify-center p-4 bg-[#07080d]/90 backdrop-blur-md animate-fade-in select-text"
-      style={{ zIndex: 10010 }}
+      className="fixed inset-0 z-[10010] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overscroll-contain touch-none select-text"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isLoading && autoLoginPhase !== 'authenticating') {
+          handleClose()
+        }
+      }}
     >
       {/* Superellipse Modal Card */}
       <div
-        className="ub-asset-card arc-animate-reveal relative w-full max-w-lg overflow-hidden border border-white/[0.08] shadow-2xl"
+        className="ub-asset-card arc-animate-reveal relative w-full max-w-lg max-h-[90vh] overflow-y-auto border border-white/[0.08] shadow-2xl"
         style={{
           borderRadius: '28px',
           background: 'rgba(13, 15, 27, 0.95)',
           boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 64px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(99, 102, 241, 0.15)',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
 
         {/* Close Button */}
@@ -720,6 +748,7 @@ export default function CircleAuthModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

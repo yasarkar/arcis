@@ -366,10 +366,14 @@ export default function MarketplaceTab({
                   soundService.play('pop')
                   setIsProviderHubOpen(true)
                 }}
-                className="ub-action-btn ub-action-btn-primary px-4 py-2.5 rounded-full text-xs font-semibold flex items-center gap-2 cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95"
-                style={{ fontFamily: 'var(--fonts--space-mono)' }}
+                className="py-2.5 px-4 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer"
+                style={{
+                  fontFamily: 'var(--font-app)',
+                  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                  boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+                }}
               >
-                <PiggyBank className="w-3.5 h-3.5 text-[var(--purple-1)]" />
+                <PiggyBank className="w-3.5 h-3.5 text-white" />
                 <span>Provider Hub & Earnings</span>
               </button>
 
@@ -378,10 +382,14 @@ export default function MarketplaceTab({
                   soundService.play('pop')
                   setIsRegisterModalOpen(true)
                 }}
-                className="ub-action-btn px-4 py-2.5 rounded-full text-xs font-semibold flex items-center gap-2 cursor-pointer transition-transform hover:scale-105 active:scale-95 text-white"
-                style={{ fontFamily: 'var(--fonts--space-mono)' }}
+                className="py-2.5 px-4 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer"
+                style={{
+                  fontFamily: 'var(--font-app)',
+                  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                  boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+                }}
               >
-                <Plus className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+                <Plus className="w-3.5 h-3.5 text-white" />
                 <span>List Your AI Service</span>
               </button>
             </div>
@@ -472,7 +480,7 @@ export default function MarketplaceTab({
                 className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--earned-green)]/30 transition-all duration-300"
               >
                 <span className="arc-eyebrow text-[11px] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-[var(--earned-green)]">
+                  <span className="flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-[var(--earned-green)]" />
                     <span>Avg. Latency</span>
                     <div className="ub-live-badge px-2 py-0.5">
@@ -582,9 +590,10 @@ export default function MarketplaceTab({
                 setFilterCommunity('all')
               }}
               className={`flex items-center gap-1.5 px-3 h-full rounded-lg transition font-medium text-xs cursor-pointer ${filterCommunity === 'all'
-                ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
-                : 'text-white/60 hover:text-white hover:bg-white/5'
+                ? 'text-white shadow-sm font-semibold border border-white/20'
+                : 'text-white/60 hover:text-white hover:bg-white/5 border border-transparent'
                 }`}
+              style={filterCommunity === 'all' ? { background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)' } : undefined}
             >
               <Globe className="w-3 h-3 text-[var(--secondary-colors--sky-sync)]" />
               <span>All</span>
@@ -602,11 +611,12 @@ export default function MarketplaceTab({
                 setFilterCommunity('verified')
               }}
               className={`flex items-center gap-1.5 px-3 h-full rounded-lg transition font-medium text-xs cursor-pointer ${filterCommunity === 'verified'
-                ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
-                : 'text-white/60 hover:text-white hover:bg-white/5'
+                ? 'text-white shadow-sm font-semibold border border-white/20'
+                : 'text-white/60 hover:text-white hover:bg-white/5 border border-transparent'
                 }`}
+              style={filterCommunity === 'verified' ? { background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)' } : undefined}
             >
-              <ShieldCheck className="w-3 h-3 text-[var(--earned-green)]" />
+              <ShieldCheck className="w-3 h-3 text-[var(--secondary-colors--sky-sync)]" />
               <span>Verified</span>
               <span
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${filterCommunity === 'verified' ? 'bg-white/20 text-white' : 'bg-white/5 text-white/50'
@@ -622,9 +632,10 @@ export default function MarketplaceTab({
                 setFilterCommunity('community')
               }}
               className={`flex items-center gap-1.5 px-3 h-full rounded-lg transition font-medium text-xs cursor-pointer ${filterCommunity === 'community'
-                ? 'bg-[var(--primary-colors--validator-blue)] text-white shadow-sm font-semibold border border-[var(--secondary-colors--sky-sync)]/30'
-                : 'text-white/60 hover:text-white hover:bg-white/5'
+                ? 'text-white shadow-sm font-semibold border border-white/20'
+                : 'text-white/60 hover:text-white hover:bg-white/5 border border-transparent'
                 }`}
+              style={filterCommunity === 'community' ? { background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)' } : undefined}
             >
               <Users className="w-3 h-3 text-[var(--secondary-colors--sky-sync)]" />
               <span>Community</span>

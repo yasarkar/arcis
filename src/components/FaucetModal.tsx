@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
 import {
   X,
@@ -196,6 +197,25 @@ export default function FaucetModal({
   }, [])
 
   useClearOnWalletDisconnect(resetFormInputs)
+
+  // Standard body scroll lock
+  useBodyScrollLock(isOpen)
+
+  // Accessibility: Close on Escape key (unless request is in flight)
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isLoading) {
+        if (isNetworkDropdownOpen) {
+          setIsNetworkDropdownOpen(false)
+        } else {
+          onClose()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose, isLoading, isNetworkDropdownOpen])
 
   const isArcChain =
     selectedNetwork.blockchainCode === 'ARC-TESTNET' ||
@@ -396,12 +416,7 @@ export default function FaucetModal({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-      style={{
-        background: 'rgba(5, 7, 15, 0.78)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-      }}
+      className="fixed inset-0 z-[999] flex items-center justify-center p-4 sm:p-6 overflow-y-auto bg-black/75 backdrop-blur-md overscroll-contain touch-none animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isLoading) {
           onClose()
