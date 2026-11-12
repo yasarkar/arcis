@@ -454,7 +454,6 @@ export default function ArcCopilotDrawer({
             type="button"
             onClick={() => setIsSettingsModalOpen(true)}
             aria-label="Ask Arco transaction settings"
-            title="Ask Arco Slippage & Gas Önceliği Ayarları"
             className="px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40 hover:shadow-indigo-500/10"
           >
             <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
