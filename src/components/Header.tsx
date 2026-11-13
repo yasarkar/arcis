@@ -79,6 +79,18 @@ function Header({
   const isEvmWalletConnected = Boolean(isEvmConnected || (walletConnected && activeAuthSource === 'evm'))
 
   const { solana, disconnectSolana, injective, disconnectInjective } = useMultiChainWallet()
+
+  // Single-wallet exclusivity: Circle Group (Passkey / UCW) vs Other Group (EVM / Solana / Injective)
+  const isCircleConnected = Boolean((isPasskeyConnected && mscaAddress) || (isUcwConnected && ucwAddress))
+  const isOtherConnected = Boolean(isEvmWalletConnected || (solana.isConnected && solana.address) || (injective.isConnected && injective.address))
+
+  // In single-wallet mode, only one group is active and rendered when connected:
+  const isCircleActive = isCircleConnected && (!isOtherConnected || activeAuthSource === 'passkey' || activeAuthSource === 'ucw')
+  const isOtherActive = isOtherConnected && (!isCircleConnected || activeAuthSource === 'evm')
+
+  // When no wallet is connected, show both triggers so the user can choose how to log in:
+  const showCircleTrigger = !isCircleActive && !isOtherActive && !isCircleConnected
+  const showOtherGroup = isOtherActive || (!isCircleActive && !isCircleConnected)
   const [copiedMsca, setCopiedMsca] = useState<boolean>(false)
   const [copiedUcw, setCopiedUcw] = useState<boolean>(false)
   const [copiedSol, setCopiedSol] = useState<boolean>(false)
@@ -260,11 +272,11 @@ function Header({
             <button
               type="button"
               onClick={onOpenFaucet}
-              className="ub-action-btn flex items-center justify-center gap-1.5 cursor-pointer hover:border-indigo-400/50 hover:text-indigo-200 transition-all shrink-0 px-2.5 2xl:px-3 py-1.5"
+              className="ub-action-btn flex items-center justify-center gap-1.5 cursor-pointer hover:border-indigo-400/50 hover:text-indigo-200 transition-all shrink-0 px-2.5 3xl:px-3 py-1.5"
               style={{ fontSize: 11 }}
               aria-label="Arc Testnet Faucet"
             >
-              <span className="hidden 2xl:inline">Faucet</span>
+              <span className="hidden 3xl:inline">Faucet</span>
               <Droplets size={14} style={{ opacity: 0.8 }} />
             </button>
 
@@ -272,17 +284,17 @@ function Header({
               href={arcTestnet.blockExplorers?.default?.url || 'https://testnet.arcscan.app'}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden md:flex ub-action-btn shrink-0 items-center justify-center gap-1.5 px-2.5 2xl:px-3 py-1.5"
+              className="hidden md:flex ub-action-btn shrink-0 items-center justify-center gap-1.5 px-2.5 3xl:px-3 py-1.5"
               style={{ fontSize: 11 }}
               aria-label="ArcScan Explorer"
             >
-              <span className="hidden 2xl:inline">Explorer</span>
+              <span className="hidden 3xl:inline">Explorer</span>
               <ExternalLink size={14} style={{ opacity: 0.8 }} />
             </a>
           </div>
 
           {/* 1. Circle Modular Passkey MSCA Connected State */}
-          {isPasskeyConnected && mscaAddress && (
+          {isCircleActive && isPasskeyConnected && mscaAddress && (
             <div className={`relative shrink-0 ${isPasskeyMenuOpen ? 'z-[10005]' : ''}`} ref={passkeyMenuRef}>
               <button
                 type="button"
@@ -384,7 +396,7 @@ function Header({
           )}
 
           {/* 2. Circle UCW Connected State */}
-          {isUcwConnected && ucwAddress && (
+          {isCircleActive && isUcwConnected && ucwAddress && (
             <div className={`relative shrink-0 ${isCircleMenuOpen ? 'z-[10005]' : ''}`} ref={circleMenuRef}>
               <button
                 type="button"
@@ -484,36 +496,35 @@ function Header({
             </div>
           )}
 
-          {/* 3. Circle Auth / Passkey Login Trigger (shown if neither is connected) */}
-          {!isPasskeyConnected && !isUcwConnected && (
+          {/* 3. Circle Auth / Passkey Login Trigger (shown only if no wallet is connected) */}
+          {showCircleTrigger && (
             isRestoring ? (
               <div
-                className="flex items-center justify-center gap-1.5 rounded-full transition-all duration-200 shrink-0"
+                className="flex items-center justify-center gap-1.5 rounded-full transition-all duration-200 shrink-0 px-2.5 3xl:px-3.5 py-1.5"
                 style={{
-                  padding: isEvmWalletConnected ? '6px 10px' : '6px 12px',
                   background: 'rgba(255, 255, 255, 0.04)',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
                 }}
               >
                 <div className="w-3.5 h-3.5 rounded-full bg-slate-600 animate-pulse" />
-                {!isEvmWalletConnected && <div className="hidden sm:block w-20 h-3 rounded bg-slate-700 animate-pulse" />}
+                <div className="hidden 3xl:block w-20 h-3 rounded bg-slate-700 animate-pulse" />
               </div>
             ) : (
               <button
                 onClick={onOpenCircleAuth}
                 type="button"
-                className="ub-action-btn flex items-center justify-center gap-1.5 transition-all duration-200 shrink-0"
-                style={{ padding: isEvmWalletConnected ? '6px 10px' : '6px 13px' }}
+                className="ub-action-btn flex items-center justify-center gap-1.5 transition-all duration-200 shrink-0 px-2.5 3xl:px-3.5 py-1.5"
                 aria-label="Circle & Passkey"
+                title="Circle & Passkey"
               >
                 <img src={circleTokenIcon} alt="Circle & Passkey" className="w-4 h-4 object-contain transition-transform hover:scale-110 shrink-0" />
-                {!isEvmWalletConnected && <span className="hidden sm:inline font-semibold">Circle & Passkey</span>}
+                <span className="hidden 3xl:inline font-semibold">Circle & Passkey</span>
               </button>
             )
           )}
 
           {/* 4. Solana Connected State Badge */}
-          {solana.isConnected && solana.address && (
+          {isOtherActive && solana.isConnected && solana.address && (
             <div
               className="flex items-center gap-1.5 rounded-full px-2.5 sm:px-3 py-1.5 transition-all animate-fade-in shrink-0"
               style={{
@@ -560,7 +571,7 @@ function Header({
           )}
 
           {/* 5. Injective Connected State Badge */}
-          {injective.isConnected && injective.address && (
+          {isOtherActive && injective.isConnected && injective.address && (
             <div
               className="flex items-center gap-1.5 rounded-full px-2.5 sm:px-3 py-1.5 transition-all animate-fade-in shrink-0"
               style={{
@@ -607,96 +618,97 @@ function Header({
           )}
 
           {/* Connect Wallet Button (RainbowKit Custom with Multi-Chain Modal Support) */}
-          <ConnectButton.Custom>
-            {({
-              account,
-              chain,
-              openChainModal,
-              openConnectModal,
-              authenticationStatus,
-              mounted,
-            }) => {
-              const ready = mounted && authenticationStatus !== 'loading'
-              const connected =
-                ready &&
-                account &&
-                chain &&
-                (!authenticationStatus ||
-                  authenticationStatus === 'authenticated')
+          {showOtherGroup && (
+            <ConnectButton.Custom>
+              {({
+                account,
+                chain,
+                openChainModal,
+                openConnectModal,
+                authenticationStatus,
+                mounted,
+              }) => {
+                const ready = mounted && authenticationStatus !== 'loading'
+                const connected =
+                  ready &&
+                  account &&
+                  chain &&
+                  (!authenticationStatus ||
+                    authenticationStatus === 'authenticated')
 
-              return (
-                <div
-                  {...(!ready && {
-                    'aria-hidden': true,
-                    style: {
-                      opacity: 0,
-                      pointerEvents: 'none',
-                      userSelect: 'none',
-                    },
-                  })}
-                >
-                  {(() => {
-                    if (!connected) {
+                return (
+                  <div
+                    {...(!ready && {
+                      'aria-hidden': true,
+                      style: {
+                        opacity: 0,
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                      },
+                    })}
+                  >
+                    {(() => {
+                      if (!connected) {
+                        // If Solana or Injective is connected as the active other wallet, don't show another connect trigger
+                        if (isOtherActive && (solana.isConnected || injective.isConnected)) {
+                          return null
+                        }
+                        return (
+                          <button
+                            // P03: first click loads WalletConnect + Coinbase on demand,
+                            // then `DeferredConnectOpener` opens the modal with the
+                            // full list. Pre-connection only, so no session remounts.
+                            onClick={() => {
+                              void requestFullWalletConnect()
+                            }}
+                            type="button"
+                            className="ub-action-btn flex items-center justify-center gap-1.5 shrink-0 px-2.5 3xl:px-3.5 py-1.5"
+                            aria-label="Connect Wallet"
+                            title="Connect Wallet"
+                          >
+                            <Wallet className="w-3.5 h-3.5 shrink-0" />
+                            <span className="hidden 3xl:inline">Connect Wallet</span>
+                          </button>
+                        )
+                      }
+
+                      if (chain.unsupported) {
+                        return (
+                          <button
+                            onClick={openChainModal}
+                            type="button"
+                            className="ub-action-btn shrink-0 px-3 py-1.5"
+                            style={{
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              borderColor: 'rgba(239, 68, 68, 0.4)',
+                              color: '#f87171',
+                            }}
+                            aria-label="Wrong network"
+                          >
+                            ⚠️ Wrong network
+                          </button>
+                        )
+                      }
+
                       return (
-                        <button
-                          // P03: first click loads WalletConnect + Coinbase on demand,
-                          // then `DeferredConnectOpener` opens the modal with the
-                          // full list. Pre-connection only, so no session remounts.
-                          onClick={() => {
-                            void requestFullWalletConnect()
-                          }}
-                          type="button"
-                          className="ub-action-btn shrink-0"
-                          style={{
-                            padding: isUcwConnected || isPasskeyConnected ? '6px 10px' : '6px 16px',
-                          }}
-                          aria-label="Connect Wallet"
-                        >
-                          <Wallet className={isUcwConnected || isPasskeyConnected ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
-                          {!(isUcwConnected || isPasskeyConnected) && <span>Connect Wallet</span>}
-                        </button>
-                      )
-                    }
-
-                    if (chain.unsupported) {
-                      return (
-                        <button
-                          onClick={openChainModal}
-                          type="button"
-                          className="ub-action-btn shrink-0"
-                          style={{
-                            background: 'rgba(239, 68, 68, 0.15)',
-                            borderColor: 'rgba(239, 68, 68, 0.4)',
-                            color: '#f87171',
-                            padding: isUcwConnected || isPasskeyConnected ? '6px 10px' : undefined,
-                          }}
-                          aria-label="Wrong network"
-                        >
-                          {isUcwConnected || isPasskeyConnected ? '⚠️' : 'Wrong network'}
-                        </button>
-                      )
-                    }
-
-                    return (
-                      <div className={`relative shrink-0 ${isEvmMenuOpen ? 'z-[10005]' : ''}`} ref={evmMenuRef}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onSelectActiveAuthSource) onSelectActiveAuthSource('evm')
-                            setIsEvmMenuOpen((prev) => !prev)
-                          }}
-                          className={`ub-action-btn ${isUcwConnected ? '' : 'gap-2'} transition-all duration-200 cursor-pointer select-none shrink-0`}>
-                          <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain shrink-0" />
-                          {!isUcwConnected && (
+                        <div className={`relative shrink-0 ${isEvmMenuOpen ? 'z-[10005]' : ''}`} ref={evmMenuRef}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onSelectActiveAuthSource) onSelectActiveAuthSource('evm')
+                              setIsEvmMenuOpen((prev) => !prev)
+                            }}
+                            className="ub-action-btn gap-2 transition-all duration-200 cursor-pointer select-none shrink-0"
+                          >
+                            <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain shrink-0" />
                             <span className="max-w-[110px] truncate" style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>{account.displayName}</span>
-                          )}
-                          <ChevronDown
-                            size={12}
-                            className={`transition-transform duration-200 shrink-0 ${
-                              isEvmMenuOpen ? 'rotate-180 text-white' : 'opacity-70 text-slate-400'
-                            }`}
-                          />
-                        </button>
+                            <ChevronDown
+                              size={12}
+                              className={`transition-transform duration-200 shrink-0 ${
+                                isEvmMenuOpen ? 'rotate-180 text-white' : 'opacity-70 text-slate-400'
+                              }`}
+                            />
+                          </button>
 
                         {/* EVM Custom Dropdown Menu */}
                         {isEvmMenuOpen && (
@@ -798,6 +810,7 @@ function Header({
               )
             }}
           </ConnectButton.Custom>
+        )}
 
         </div>
       </div>

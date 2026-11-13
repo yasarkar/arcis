@@ -383,10 +383,12 @@ export default function App() {
   // Declared after the wallet hooks — they close over the disconnect fns.
   const handleDisconnectUcwOnly = useCallback(() => {
     disconnectUcw()
+    setPreferredAuthSource(null)
     clearAllAppInputs()
   }, [disconnectUcw])
   const handleDisconnectPasskeyOnly = useCallback(() => {
     disconnectPasskey()
+    setPreferredAuthSource(null)
     clearAllAppInputs()
   }, [disconnectPasskey])
 

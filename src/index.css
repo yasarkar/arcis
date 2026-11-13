@@ -11,6 +11,8 @@
   --color-brand-accent: #06b6d4;
   
   --font-display: 'Outfit', 'Inter', system-ui, sans-serif;
+
+  --breakpoint-3xl: 1720px;
 }
 
 @layer base {
