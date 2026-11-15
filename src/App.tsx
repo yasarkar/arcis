@@ -14,6 +14,7 @@ import { useAutoSwitchArcChain } from './hooks/useAutoSwitchArcChain'
 import { BroadcastProvider } from './components/BroadcastNotification'
 import { prefetchGlobalData, prefetchAllWalletData, prefetchEssentialWalletData, prefetchDeferredWalletData } from './services/prefetchCoordinator'
 import { SectionErrorBoundary } from './components/common/GlobalErrorBoundary'
+import { requestFullWalletConnect } from './config/walletConfigStore'
 import { logger } from './utils/logger'
 import type { CopilotUcwHandlers } from './services/copilotExecutionService'
 
@@ -149,7 +150,9 @@ export default function App() {
     setActiveTab(tab as any)
   }, [])
 
-  const handleConnect = useCallback(() => setActiveTab('unified'), [])
+  const handleConnect = useCallback(() => {
+    void requestFullWalletConnect()
+  }, [])
   const handleSelectActiveAuthSource = useCallback(
     (source: 'passkey' | 'ucw' | 'evm') => setPreferredAuthSource(source),
     []
@@ -649,7 +652,9 @@ export default function App() {
 
         {/* Unified Multi-Chain (EVM & Solana) Wallet Modal */}
         <Suspense fallback={null}>
-          <UnifiedWalletModal onOpenCircleAuth={handleOpenCircleAuth} />
+          <SectionErrorBoundary title="Wallet Interface Error">
+            <UnifiedWalletModal onOpenCircleAuth={handleOpenCircleAuth} />
+          </SectionErrorBoundary>
         </Suspense>
       </div>
     </BroadcastProvider>

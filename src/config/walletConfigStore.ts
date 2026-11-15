@@ -63,7 +63,7 @@ export function getWalletConfig(): Config {
 
 /** True once the full (WalletConnect + Coinbase) config is active. */
 export function isFullWalletConfigActive(): boolean {
-  return configVersion > 0
+  return true
 }
 
 function requestConnectOpen() {
@@ -94,31 +94,10 @@ export function consumePendingConnectOpen(): boolean {
 let upgradeInFlight: Promise<Config> | null = null
 
 /**
- * Ensures the full wallet list is active, then signals that the connect modal
- * should open. Safe to call on every Connect click: after the first upgrade it
- * only flips the pending-open flag. Must only be called pre-connection (the
- * sole caller is the disconnected-state Connect button).
+ * Signals that the connect modal should open. Safe to call on every Connect click.
+ * Since all connectors are initialized in the active config, this opens the modal
+ * directly without triggering any WagmiProvider remount or app teardown.
  */
 export async function requestFullWalletConnect(): Promise<void> {
   openWalletModal()
-  if (isFullWalletConfigActive()) {
-    requestConnectOpen()
-    return
-  }
-  if (!upgradeInFlight) {
-    upgradeInFlight = ensureFullWalletConfig().then((full) => {
-      activeConfig = full
-      configVersion += 1
-      emit()
-      return full
-    })
-  }
-  try {
-    await upgradeInFlight
-  } finally {
-    // A failed upgrade must not wedge future clicks: allow a retry, and still
-    // open the modal with the eager wallets so Connect keeps working.
-    if (!isFullWalletConfigActive()) upgradeInFlight = null
-  }
-  requestConnectOpen()
 }

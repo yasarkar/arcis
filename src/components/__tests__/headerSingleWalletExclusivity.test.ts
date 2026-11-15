@@ -29,7 +29,7 @@ vi.mock('../../config/walletConfigStore', () => ({
 import Header from '../Header'
 
 describe('Header Single Wallet Exclusivity', () => {
-  it('renders both triggers when no wallet is connected', () => {
+  it('renders Connect Wallet trigger when no wallet is connected (Circle trigger moved into Connect Wallet modal)', () => {
     mocks.account.isConnected = false
     mocks.account.address = undefined
     mocks.multiChain.solana.isConnected = false
@@ -47,8 +47,8 @@ describe('Header Single Wallet Exclusivity', () => {
       })
     )
 
-    expect(html).toContain('Circle &amp; Passkey')
     expect(html).toContain('Connect Wallet')
+    expect(html).not.toContain('Circle &amp; Passkey')
   })
 
   it('renders only Circle UCW and completely hides Connect Wallet / EVM when Circle is connected', () => {

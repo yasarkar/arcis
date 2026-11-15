@@ -91,8 +91,7 @@ function Header({
   const isCircleActive = isCircleConnected && (!isOtherConnected || activeAuthSource === 'passkey' || activeAuthSource === 'ucw')
   const isOtherActive = isOtherConnected && (!isCircleConnected || activeAuthSource === 'evm')
 
-  // When no wallet is connected, show both triggers so the user can choose how to log in:
-  const showCircleTrigger = !isCircleActive && !isOtherActive && !isCircleConnected
+  // When no wallet is connected, show wallet connect trigger:
   const showOtherGroup = isOtherActive || (!isCircleActive && !isCircleConnected)
   const [copiedMsca, setCopiedMsca] = useState<boolean>(false)
   const [copiedUcw, setCopiedUcw] = useState<boolean>(false)
@@ -499,34 +498,7 @@ function Header({
             </div>
           )}
 
-          {/* 3. Circle Auth / Passkey Login Trigger (shown only if no wallet is connected) */}
-          {showCircleTrigger && (
-            isRestoring ? (
-              <div
-                className="flex items-center justify-center gap-1.5 rounded-full transition-all duration-200 shrink-0 px-2.5 3xl:px-3.5 py-1.5"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                }}
-              >
-                <div className="w-3.5 h-3.5 rounded-full bg-slate-600 animate-pulse" />
-                <div className="hidden 3xl:block w-20 h-3 rounded bg-slate-700 animate-pulse" />
-              </div>
-            ) : (
-              <button
-                onClick={onOpenCircleAuth}
-                type="button"
-                className="ub-action-btn flex items-center justify-center gap-1.5 transition-all duration-200 shrink-0 px-2.5 3xl:px-3.5 py-1.5"
-                aria-label="Circle & Passkey"
-                title="Circle & Passkey"
-              >
-                <img src={circleTokenIcon} alt="Circle & Passkey" className="w-4 h-4 object-contain transition-transform hover:scale-110 shrink-0" />
-                <span className="hidden 3xl:inline font-semibold">Circle & Passkey</span>
-              </button>
-            )
-          )}
-
-          {/* 4. Solana Connected State Badge */}
+          {/* 3. Solana Connected State Badge */}
           {isOtherActive && solana.isConnected && solana.address && (
             <div
               className="flex items-center gap-1.5 rounded-full px-2.5 sm:px-3 py-1.5 transition-all animate-fade-in shrink-0"
@@ -636,7 +608,11 @@ function Header({
               return (
                 <button
                   onClick={() => {
-                    void requestFullWalletConnect()
+                    if (onConnect) {
+                      onConnect()
+                    } else {
+                      void requestFullWalletConnect()
+                    }
                   }}
                   type="button"
                   className="ub-action-btn flex items-center justify-center gap-1.5 shrink-0 px-2.5 3xl:px-3.5 py-1.5 cursor-pointer"

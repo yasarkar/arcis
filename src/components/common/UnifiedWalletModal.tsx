@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useConnect, useAccount } from 'wagmi'
-import { X, ArrowLeft, Loader2, QrCode, ChevronRight, ExternalLink, AlertCircle, CheckCircle2, Wallet } from 'lucide-react'
+import { X, ArrowLeft, ArrowRight, Loader2, QrCode, ChevronRight, ExternalLink, AlertCircle, CheckCircle2, Wallet } from 'lucide-react'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import {
   closeWalletModal,
@@ -13,7 +13,16 @@ import {
   SOLANA_WALLET_INSTALL_URLS,
 } from '../../services/solanaWalletService'
 import type { SolanaWalletProvider } from '../../types/multiChainWallet'
+import { isUserCanceledError } from '../../utils/errorNormalizer'
 import { PinnedNetworkIcon } from './PinnedIcons'
+import {
+  useEip6963,
+  findEip6963Provider,
+  WALLET_RDNS_MAP,
+  type EIP6963ProviderDetail,
+} from '../../hooks/useEip6963'
+import { arcActiveChain } from '../../config/networks/networkRegistry'
+import { ensureArcNetwork } from '../../services/chainSwitchService'
 
 // Official wallet SVG icons from src/assets/wallets/
 import metamaskSvg from '../../assets/wallets/metamask.svg'
@@ -33,6 +42,7 @@ interface UnifiedWalletModalProps {
   onOpenCircleAuth?: () => void
   defaultTab?: 'evm' | 'solana'
   initialSubView?: 'main' | 'other_wallets'
+  forceMobile?: boolean
 }
 
 interface ModalWalletItem {
@@ -59,6 +69,127 @@ export const EVM_WALLET_INSTALL_URLS: Record<string, string> = {
   zerion: 'https://zerion.io/download',
 }
 
+/**
+ * Detects whether the current browser session is running on a mobile or tablet device.
+ * Supports passing a custom User-Agent string for deterministic test coverage.
+ */
+export function isMobileBrowser(customUserAgent?: string): boolean {
+  if (typeof window === 'undefined' && !customUserAgent) return false
+  const ua = customUserAgent || (typeof navigator !== 'undefined' ? (navigator.userAgent || navigator.vendor || '') : '')
+  const isTouch = typeof navigator !== 'undefined' && navigator.maxTouchPoints && navigator.maxTouchPoints > 1
+  return Boolean(
+    /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua) ||
+    (Boolean(isTouch) && /Macintosh/.test(ua))
+  )
+}
+
+/**
+ * Returns the mobile deep link / universal link for opening a dApp directly inside
+ * the corresponding mobile wallet application.
+ */
+export function getWalletMobileDeepLink(walletId: string, currentUrl?: string): string | null {
+  const fullUrl = currentUrl || (typeof window !== 'undefined' ? window.location.href : 'https://arcis.finance/')
+  const urlNoProtocol = fullUrl.replace(/^https?:\/\//i, '')
+
+  switch (walletId) {
+    case 'metamask':
+      // Official MetaMask Universal Link: https://metamask.app.link/dapp/<url_no_protocol>
+      return `https://metamask.app.link/dapp/${urlNoProtocol}`
+    case 'phantom':
+      // Official Phantom Universal Link: https://phantom.app/ul/browse/<url>?ref=<ref>
+      return `https://phantom.app/ul/browse/${encodeURIComponent(fullUrl)}?ref=${encodeURIComponent(fullUrl)}`
+    case 'coinbase':
+      // Official Coinbase Wallet Universal Link: https://go.cb-w.com/dapp?cb_url=<encoded_url>
+      return `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(fullUrl)}`
+    case 'trust':
+      // Official Trust Wallet Universal Link: https://link.trustwallet.com/open_url?coin_id=60&url=<encoded_url>
+      return `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(fullUrl)}`
+    case 'rainbow':
+      // Official Rainbow Universal Link: https://rainbow.me/ul/v1/navigate?url=<encoded_url>
+      return `https://rainbow.me/ul/v1/navigate?url=${encodeURIComponent(fullUrl)}`
+    case 'okx':
+      // Official OKX Universal Deep Link
+      return `https://www.okx.com/download?deeplink=${encodeURIComponent(`okx://wallet/dapp/url?dappUrl=${encodeURIComponent(fullUrl)}`)}`
+    case 'solflare':
+      // Official Solflare Universal Link: https://solflare.com/ul/v1/browse/<url>?ref=<ref>
+      return `https://solflare.com/ul/v1/browse/${encodeURIComponent(fullUrl)}?ref=${encodeURIComponent(fullUrl)}`
+    case 'backpack':
+      // Official Backpack Universal Link: https://backpack.app/ul/v1/browse/<url>
+      return `https://backpack.app/ul/v1/browse/${encodeURIComponent(fullUrl)}`
+    default:
+      return null
+  }
+}
+
+/**
+ * Triggers mobile deep link navigation or falls back to standard external URL.
+ */
+export function openMobileWalletDeepLink(walletId: string, fallbackUrl?: string): boolean {
+  if (typeof window === 'undefined') return false
+  const deepLink = getWalletMobileDeepLink(walletId)
+  if (deepLink) {
+    try {
+      window.location.href = deepLink
+      return true
+    } catch {
+      if (fallbackUrl) {
+        window.open(fallbackUrl, '_blank', 'noopener,noreferrer')
+        return true
+      }
+    }
+  } else if (fallbackUrl) {
+    window.open(fallbackUrl, '_blank', 'noopener,noreferrer')
+    return true
+  }
+  return false
+}
+
+/**
+ * Normalizes wallet connection errors into user-friendly, clear English messages,
+ * preventing raw RPC stack traces, viem internal error codes, or confusing technical jargon.
+ */
+export function formatWalletConnectError(err: unknown): string {
+  if (!err) return ''
+
+  if (isUserCanceledError(err)) {
+    return 'Connection request was cancelled in your wallet. Select a wallet to try again.'
+  }
+
+  const rawMessage = typeof err === 'string'
+    ? err
+    : ((err as any)?.shortMessage || (err as any)?.message || (err as any)?.details || String(err))
+  const lowMsg = rawMessage.toLowerCase()
+
+  // 1. Pending request in wallet (code -32002)
+  const code = (err as any)?.code ?? (err as any)?.cause?.code
+  if (
+    code === -32002 ||
+    lowMsg.includes('already pending') ||
+    lowMsg.includes('resource unavailable') ||
+    lowMsg.includes('resource not available')
+  ) {
+    return 'A connection request is already pending in your wallet. Please check your browser extension.'
+  }
+
+  // 2. Extension / Provider not detected
+  if (
+    lowMsg.includes('not found') ||
+    lowMsg.includes('not installed') ||
+    lowMsg.includes('connectornotfound') ||
+    lowMsg.includes('provider not found')
+  ) {
+    return 'Wallet extension was not detected. Please make sure your wallet is installed and unlocked.'
+  }
+
+  // 3. Network / Chain issue
+  if (lowMsg.includes('unsupported chain') || lowMsg.includes('wrong network') || lowMsg.includes('chain not supported')) {
+    return 'Unsupported network. Please switch to Arc Testnet or another supported network.'
+  }
+
+  // 4. Clean fallback without technical jargon
+  return 'Connection could not be completed. Please ensure your wallet is unlocked and try again.'
+}
+
 // Reusable official wallet icon renderer
 function WalletIcon({ src, alt }: { src: string; alt: string }) {
   return (
@@ -75,7 +206,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
   onOpenCircleAuth,
   defaultTab = 'evm',
   initialSubView = 'main',
+  forceMobile,
 }) => {
+  const isMobile = forceMobile !== undefined ? forceMobile : isMobileBrowser()
+
   const isOpen = useSyncExternalStore(
     subscribeWalletConfig,
     getIsWalletModalOpen,
@@ -88,8 +222,13 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
   // Default to EVM as requested by the user
   const [activeTab, setActiveTab] = useState<'evm' | 'solana'>(defaultTab)
   const [subView, setSubView] = useState<'main' | 'other_wallets'>(initialSubView)
-  const { isConnected: isEvmConnected } = useAccount()
-  const { connectors, connect, isPending: isEvmPending, error: evmError } = useConnect()
+  const {
+    isConnected: isEvmConnected,
+    address: evmAddress,
+    chainId: evmChainId,
+    connector: activeConnector,
+  } = useAccount()
+  const { connectors, connect, isPending: isEvmPending, error: evmError, reset: resetEvmConnect } = useConnect()
   const { solana, connectSolana, isSolanaInstalled } = useMultiChainWallet()
 
   const [solanaInstalledState, setSolanaInstalledState] = useState<Record<string, boolean>>({})
@@ -106,31 +245,58 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
     }
   })
 
-  // Detect installed EVM extensions safely
-  const hasMetaMask = typeof window !== 'undefined' && Boolean((window as any).ethereum?.isMetaMask && !(window as any).ethereum?.isRabby)
-  const hasRabby = typeof window !== 'undefined' && Boolean((window as any).ethereum?.isRabby)
-  const hasOkx = typeof window !== 'undefined' && Boolean((window as any).okxwallet || (window as any).ethereum?.isOkxWallet)
-  const hasPhantomEvm = typeof window !== 'undefined' && Boolean((window as any).phantom?.ethereum)
-  const hasCoinbase = typeof window !== 'undefined' && Boolean((window as any).coinbaseWalletExtension || (window as any).ethereum?.isCoinbaseWallet)
-  const hasBinance = typeof window !== 'undefined' && Boolean(
+  // EIP-6963 Multi-Injected Provider Discovery
+  const eip6963Providers = useEip6963()
+
+  // Match announced EIP-6963 providers (conflict-free)
+  const metaMaskEip = findEip6963Provider(eip6963Providers, 'metamask')
+  const rabbyEip = findEip6963Provider(eip6963Providers, 'rabby')
+  const okxEip = findEip6963Provider(eip6963Providers, 'okx')
+  const phantomEip = findEip6963Provider(eip6963Providers, 'phantom')
+  const coinbaseEip = findEip6963Provider(eip6963Providers, 'coinbase')
+  const binanceEip = findEip6963Provider(eip6963Providers, 'binance')
+  const trustEip = findEip6963Provider(eip6963Providers, 'trust')
+  const rainbowEip = findEip6963Provider(eip6963Providers, 'rainbow')
+  const zerionEip = findEip6963Provider(eip6963Providers, 'zerion')
+
+  // Helper to safely check window properties without throwing
+  const safeCheck = (fn: () => boolean): boolean => {
+    try {
+      return typeof window !== 'undefined' && Boolean(fn())
+    } catch {
+      return false
+    }
+  }
+
+  // Detect installed EVM extensions safely (EIP-6963 announced providers first, falling back to legacy window flags)
+  const hasMetaMask = Boolean(metaMaskEip) || safeCheck(() => (window as any).ethereum?.isMetaMask && !(window as any).ethereum?.isRabby)
+  const hasRabby = Boolean(rabbyEip) || safeCheck(() => (window as any).ethereum?.isRabby)
+  const hasOkx = Boolean(okxEip) || safeCheck(() => (window as any).okxwallet || (window as any).ethereum?.isOkxWallet)
+  const hasPhantomEvm = Boolean(phantomEip) || safeCheck(() => (window as any).phantom?.ethereum)
+  const hasCoinbase = Boolean(coinbaseEip) || safeCheck(() => (window as any).coinbaseWalletExtension || (window as any).ethereum?.isCoinbaseWallet)
+  const hasBinance = Boolean(binanceEip) || safeCheck(() =>
     (window as any).BinanceChain || (window as any).binance || (window as any).ethereum?.isBinance || (window as any).ethereum?.isBinanceWallet
   )
-  const hasTrust = typeof window !== 'undefined' && Boolean(
+  const hasTrust = Boolean(trustEip) || safeCheck(() =>
     (window as any).trustwallet || (window as any).ethereum?.isTrust || (window as any).ethereum?.isTrustWallet
   )
-  const hasRainbow = typeof window !== 'undefined' && Boolean((window as any).ethereum?.isRainbow)
-  const hasZerion = typeof window !== 'undefined' && Boolean((window as any).zerionWallet || (window as any).ethereum?.isZerion)
+  const hasRainbow = Boolean(rainbowEip) || safeCheck(() => (window as any).ethereum?.isRainbow)
+  const hasZerion = Boolean(zerionEip) || safeCheck(() => (window as any).zerionWallet || (window as any).ethereum?.isZerion)
 
   // Reset subView whenever modal opens or tab changes
   useEffect(() => {
     if (!isOpen) {
       setSubView('main')
+      setSolanaError(null)
+      resetEvmConnect?.()
     }
-  }, [isOpen])
+  }, [isOpen, resetEvmConnect])
 
   useEffect(() => {
     setSubView('main')
-  }, [activeTab])
+    setSolanaError(null)
+    resetEvmConnect?.()
+  }, [activeTab, resetEvmConnect])
 
   // Check Solana extension installation when modal opens or tab changes
   useEffect(() => {
@@ -176,31 +342,73 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, subView])
 
-  // Close modal automatically on successful EVM connection
+  // Close modal automatically on successful EVM connection and ensure Arc Network (chainId: 5042002)
   useEffect(() => {
-    if (isOpen && isEvmConnected) {
+    if (isOpen && isEvmConnected && evmAddress) {
       closeWalletModal()
-    }
-  }, [isOpen, isEvmConnected])
 
-  if (!isOpen) return null
+      if (evmChainId && evmChainId !== arcActiveChain.id) {
+        void (async () => {
+          try {
+            const provider = (await activeConnector?.getProvider()) as any
+            await ensureArcNetwork(provider)
+          } catch (err) {
+            console.warn('[UnifiedWalletModal] Auto-switch to Arc Network skipped or declined:', err)
+          }
+        })()
+      }
+    }
+  }, [isOpen, isEvmConnected, evmAddress, evmChainId, activeConnector])
 
   const handleEvmConnect = (connector: any, walletKey: string) => {
     setConnectingWalletKey(walletKey)
     connect(
-      { connector },
       {
-        onSuccess: () => {
+        connector,
+        chainId: arcActiveChain.id,
+      },
+      {
+        onSuccess: async (data: any) => {
           try {
             localStorage.setItem(STORAGE_LAST_WALLET, walletKey)
             setRecentWallet(walletKey)
-          } catch {}
+          } catch (err) {
+            console.debug('[UnifiedWalletModal] Failed to persist recent wallet:', err)
+          }
           closeWalletModal()
+
+          const connectedChainId = data?.chainId || evmChainId
+          if (connectedChainId && connectedChainId !== arcActiveChain.id) {
+            try {
+              const provider = (await connector.getProvider()) as any
+              await ensureArcNetwork(provider)
+            } catch (err) {
+              console.warn('[UnifiedWalletModal] Auto-switch to Arc Network skipped or declined:', err)
+            }
+          }
         },
         onSettled: () => {
           setConnectingWalletKey(null)
         },
       }
+    )
+  }
+
+  const findConnectorForWallet = (walletId: string, eipDetail?: EIP6963ProviderDetail) => {
+    if (eipDetail) {
+      const rdns = eipDetail.info.rdns.toLowerCase()
+      const name = eipDetail.info.name.toLowerCase()
+      const match = connectors.find((c) => {
+        const cId = c.id.toLowerCase()
+        const cRdns = ((c as any).rdns || '').toLowerCase()
+        const cName = c.name.toLowerCase()
+        return cId === rdns || cRdns === rdns || cName === name
+      })
+      if (match) return match
+    }
+    // Fallback to searching connectors by walletId or name
+    return connectors.find(
+      (c) => c.id.toLowerCase().includes(walletId) || c.name.toLowerCase().includes(walletId)
     )
   }
 
@@ -218,6 +426,23 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
       return
     }
 
+    // 1. Direct EIP-6963 provider resolution (conflict-free)
+    const matchingEip = eip6963Providers.find(
+      (p) =>
+        p.info.rdns.toLowerCase() === walletId.toLowerCase() ||
+        (WALLET_RDNS_MAP[walletId.toLowerCase()] || []).some((r) =>
+          p.info.rdns.toLowerCase().includes(r.toLowerCase())
+        )
+    )
+
+    if (matchingEip) {
+      const eipConnector = findConnectorForWallet(walletId, matchingEip)
+      if (eipConnector) {
+        handleEvmConnect(eipConnector, walletId)
+        return
+      }
+    }
+
     if (walletId === 'binance') {
       const binanceConnector = connectors.find(
         (c) => c.id.toLowerCase().includes('binance') || c.name.toLowerCase().includes('binance')
@@ -232,6 +457,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasBinance && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('binance', EVM_WALLET_INSTALL_URLS.binance)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.binance, '_blank')
         return
       }
@@ -250,6 +479,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasCoinbase && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('coinbase', EVM_WALLET_INSTALL_URLS.coinbase)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.coinbase, '_blank')
         return
       }
@@ -274,6 +507,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasTrust && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('trust', EVM_WALLET_INSTALL_URLS.trust)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.trust, '_blank')
         return
       }
@@ -297,6 +534,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasRainbow && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('rainbow', EVM_WALLET_INSTALL_URLS.rainbow)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.rainbow, '_blank')
         return
       }
@@ -320,6 +561,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasZerion && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('zerion', EVM_WALLET_INSTALL_URLS.zerion)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.zerion, '_blank')
         return
       }
@@ -343,6 +588,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasMetaMask && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('metamask', EVM_WALLET_INSTALL_URLS.metamask)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.metamask, '_blank')
         return
       }
@@ -366,6 +615,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasOkx && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('okx', EVM_WALLET_INSTALL_URLS.okx)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.okx, '_blank')
         return
       }
@@ -382,6 +635,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasPhantomEvm && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('phantom', EVM_WALLET_INSTALL_URLS.phantom)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.phantom, '_blank')
         return
       }
@@ -398,6 +655,10 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         return
       }
       if (!hasRabby && typeof window !== 'undefined') {
+        if (isMobile) {
+          openMobileWalletDeepLink('rabby', EVM_WALLET_INSTALL_URLS.rabby)
+          return
+        }
         window.open(EVM_WALLET_INSTALL_URLS.rabby, '_blank')
         return
       }
@@ -423,7 +684,9 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         try {
           localStorage.setItem(STORAGE_LAST_WALLET, `solana_${provider}`)
           setRecentWallet(`solana_${provider}`)
-        } catch {}
+        } catch (err) {
+          console.debug('[UnifiedWalletModal] Failed to persist recent Solana wallet:', err)
+        }
         closeWalletModal()
       } else {
         setSolanaError(res.error || 'Connection failed.')
@@ -435,32 +698,85 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
     }
   }
 
+  const walletConnectItem: ModalWalletItem = useMemo(
+    () => ({
+      id: 'walletconnect',
+      name: 'WalletConnect',
+      icon: <WalletIcon src={walletconnectSvg} alt="WalletConnect" />,
+      isInstalled: false,
+      badgeIcon: isMobile ? (
+        <span className="text-[10px] font-semibold text-indigo-400 px-2 py-0.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 tracking-wide uppercase">
+          Universal
+        </span>
+      ) : (
+        <QrCode size={16} className="text-slate-400 group-hover:text-slate-200 transition-colors" />
+      ),
+    }),
+    [isMobile]
+  )
+
+  // Helper to render official icon: preference to EIP-6963 announced icon, fallback to bundled SVG
+  const renderWalletIcon = (eipDetail?: EIP6963ProviderDetail, fallbackSvg?: string, alt?: string) => {
+    if (eipDetail?.info.icon) {
+      return (
+        <img
+          src={eipDetail.info.icon}
+          alt={eipDetail.info.name || alt || ''}
+          className="w-7 h-7 rounded-xl object-contain shrink-0 shadow-sm"
+          loading="lazy"
+        />
+      )
+    }
+    return <WalletIcon src={fallbackSvg || ''} alt={alt || ''} />
+  }
+
+  // Dynamically surface any newly discovered EIP-6963 wallets not in the default list (e.g. Brave, Talisman)
+  const additionalEipWallets: ModalWalletItem[] = useMemo(() => {
+    const knownRdns = Object.values(WALLET_RDNS_MAP).flat().map((r) => r.toLowerCase())
+    return eip6963Providers
+      .filter((p) => !knownRdns.some((k) => p.info.rdns.toLowerCase().includes(k)))
+      .map((p) => ({
+        id: p.info.rdns,
+        name: p.info.name,
+        icon: (
+          <img
+            src={p.info.icon}
+            alt={p.info.name}
+            className="w-7 h-7 rounded-xl object-contain shrink-0 shadow-sm"
+            loading="lazy"
+          />
+        ),
+        isInstalled: true,
+      }))
+  }, [eip6963Providers])
+
   // EVM Primary Wallets List (top-level)
   const evmWallets: ModalWalletItem[] = [
     {
       id: 'metamask',
-      name: 'MetaMask',
-      icon: <WalletIcon src={metamaskSvg} alt="MetaMask" />,
+      name: metaMaskEip?.info.name || 'MetaMask',
+      icon: renderWalletIcon(metaMaskEip, metamaskSvg, 'MetaMask'),
       isInstalled: hasMetaMask,
     },
     {
       id: 'okx',
-      name: 'OKX Wallet',
-      icon: <WalletIcon src={okxSvg} alt="OKX Wallet" />,
+      name: okxEip?.info.name || 'OKX Wallet',
+      icon: renderWalletIcon(okxEip, okxSvg, 'OKX Wallet'),
       isInstalled: hasOkx,
     },
     {
       id: 'phantom',
-      name: 'Phantom',
-      icon: <WalletIcon src={phantomSvg} alt="Phantom" />,
+      name: phantomEip?.info.name || 'Phantom',
+      icon: renderWalletIcon(phantomEip, phantomSvg, 'Phantom'),
       isInstalled: hasPhantomEvm,
     },
     {
       id: 'rabby',
-      name: 'Rabby Wallet',
-      icon: <WalletIcon src={rabbySvg} alt="Rabby Wallet" />,
+      name: rabbyEip?.info.name || 'Rabby Wallet',
+      icon: renderWalletIcon(rabbyEip, rabbySvg, 'Rabby Wallet'),
       isInstalled: hasRabby,
     },
+    ...additionalEipWallets,
     {
       id: 'other',
       name: 'Other Wallets',
@@ -475,41 +791,35 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
   const otherWallets: ModalWalletItem[] = [
     {
       id: 'coinbase',
-      name: 'Coinbase Wallet',
-      icon: <WalletIcon src={coinbaseSvg} alt="Coinbase Wallet" />,
+      name: coinbaseEip?.info.name || 'Coinbase Wallet',
+      icon: renderWalletIcon(coinbaseEip, coinbaseSvg, 'Coinbase Wallet'),
       isInstalled: hasCoinbase,
     },
     {
       id: 'binance',
-      name: 'Binance Wallet',
-      icon: <WalletIcon src={binanceSvg} alt="Binance Wallet" />,
+      name: binanceEip?.info.name || 'Binance Wallet',
+      icon: renderWalletIcon(binanceEip, binanceSvg, 'Binance Wallet'),
       isInstalled: hasBinance,
     },
     {
       id: 'trust',
-      name: 'Trust Wallet',
-      icon: <WalletIcon src={trustSvg} alt="Trust Wallet" />,
+      name: trustEip?.info.name || 'Trust Wallet',
+      icon: renderWalletIcon(trustEip, trustSvg, 'Trust Wallet'),
       isInstalled: hasTrust,
     },
     {
       id: 'rainbow',
-      name: 'Rainbow',
-      icon: <WalletIcon src={rainbowSvg} alt="Rainbow" />,
+      name: rainbowEip?.info.name || 'Rainbow',
+      icon: renderWalletIcon(rainbowEip, rainbowSvg, 'Rainbow'),
       isInstalled: hasRainbow,
     },
     {
       id: 'zerion',
-      name: 'Zerion',
-      icon: <WalletIcon src={zerionSvg} alt="Zerion" />,
+      name: zerionEip?.info.name || 'Zerion',
+      icon: renderWalletIcon(zerionEip, zerionSvg, 'Zerion'),
       isInstalled: hasZerion,
     },
-    {
-      id: 'walletconnect',
-      name: 'WalletConnect',
-      icon: <WalletIcon src={walletconnectSvg} alt="WalletConnect" />,
-      isInstalled: false,
-      badgeIcon: <QrCode size={16} className="text-slate-400 group-hover:text-slate-200 transition-colors" />,
-    },
+    walletConnectItem,
   ]
 
   // Solana Wallets List (Expanded with leading wallets)
@@ -550,8 +860,31 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
     },
   ]
 
-  // Priority order for EVM: 1) Recent, 2) Detected (installed), 3) Install, 4) Navigation (Other Wallets)
+  // Priority order for EVM:
+  // On mobile: 1) WalletConnect, 2) Recent (if not WC), 3) Detected (installed), 4) Other options, 5) Other Wallets navigation
+  // On desktop: 1) Recent, 2) Detected (installed), 3) Install, 4) Navigation (Other Wallets)
   const sortedEvmWallets = useMemo(() => {
+    if (isMobile) {
+      // Mobile View: WalletConnect is at the very top (#1)
+      const nonWcList = evmWallets.filter((w) => w.id !== 'walletconnect' && !w.isNavigation)
+      const navItem = evmWallets.find((w) => w.isNavigation)
+
+      const sortedNonWc = [...nonWcList].sort((a, b) => {
+        const aRecent = recentWallet === a.id
+        const bRecent = recentWallet === b.id
+        if (aRecent && !bRecent) return -1
+        if (!aRecent && bRecent) return 1
+
+        if (a.isInstalled && !b.isInstalled) return -1
+        if (!a.isInstalled && b.isInstalled) return 1
+
+        return 0
+      })
+
+      return [walletConnectItem, ...sortedNonWc, ...(navItem ? [navItem] : [])]
+    }
+
+    // Desktop View: Standard sorting
     const recentOther = otherWallets.find((w) => w.id === recentWallet)
     const baseList = recentOther
       ? [recentOther, ...evmWallets.filter((w) => w.id !== recentWallet)]
@@ -571,11 +904,12 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
 
       return 0
     })
-  }, [evmWallets, otherWallets, recentWallet])
+  }, [evmWallets, otherWallets, recentWallet, isMobile, walletConnectItem])
 
   // Priority order for Other Wallets: 1) Recent, 2) Detected, 3) Install / WalletConnect
   const sortedOtherWallets = useMemo(() => {
-    return [...otherWallets].sort((a, b) => {
+    const list = isMobile ? otherWallets.filter((w) => w.id !== 'walletconnect') : otherWallets
+    return [...list].sort((a, b) => {
       const aRecent = recentWallet === a.id
       const bRecent = recentWallet === b.id
       if (aRecent && !bRecent) return -1
@@ -586,7 +920,7 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
 
       return 0
     })
-  }, [otherWallets, recentWallet])
+  }, [otherWallets, recentWallet, isMobile])
 
   // Priority order for Solana: 1) Recent, 2) Detected, 3) Install
   const sortedSolanaWallets = useMemo(() => {
@@ -620,6 +954,8 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
             setSubView('other_wallets')
           } else if (isInstalled || wallet.id === 'walletconnect') {
             handleEvmWalletClick(wallet.id)
+          } else if (isMobile) {
+            openMobileWalletDeepLink(wallet.id, installUrl)
           } else if (installUrl) {
             window.open(installUrl, '_blank')
           }
@@ -645,22 +981,35 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
             <span className="text-[12px] text-slate-400 font-normal">Detected</span>
           ) : wallet.badgeIcon ? (
             wallet.badgeIcon
+          ) : isMobile && getWalletMobileDeepLink(wallet.id) ? (
+            <span
+              onClick={(e) => {
+                e.stopPropagation()
+                openMobileWalletDeepLink(wallet.id, installUrl)
+              }}
+              className="text-[11px] font-medium text-indigo-300 hover:text-white px-2 py-0.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 transition-all flex items-center gap-1 cursor-pointer"
+            >
+              <span>Open App</span>
+              <ExternalLink size={10} />
+            </span>
           ) : installUrl ? (
-            <a
-              href={installUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+            <span
+              onClick={(e) => {
+                e.stopPropagation()
+                window.open(installUrl, '_blank', 'noopener,noreferrer')
+              }}
               className="text-[11px] font-medium text-slate-400 hover:text-white px-2 py-0.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-all flex items-center gap-1 cursor-pointer"
             >
               <span>Install</span>
               <ExternalLink size={10} />
-            </a>
+            </span>
           ) : null}
         </div>
       </button>
     )
   }
+
+  if (!isOpen) return null
 
   const modalContent = (
     <div
@@ -731,7 +1080,7 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'
               }`}
             >
-              <PinnedNetworkIcon name="ethereum" size={14} variant="branded" />
+              <PinnedNetworkIcon name="ethereum" size={18} variant="branded" />
               <span>EVM</span>
             </button>
 
@@ -740,11 +1089,11 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
               onClick={() => setActiveTab('solana')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'solana'
-                  ? 'bg-purple-900/40 text-purple-200 shadow-sm border border-purple-500/30'
+                  ? 'bg-white/[0.1] text-white shadow-sm border border-white/[0.08]'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'
               }`}
             >
-              <PinnedNetworkIcon name="solana" size={14} variant="branded" />
+              <PinnedNetworkIcon name="solana" size={18} variant="branded" />
               <span>Solana</span>
             </button>
           </div>
@@ -757,7 +1106,7 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         {activeTab === 'evm' && evmError && (
           <div className="mb-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-start gap-2 text-rose-300 text-xs">
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
-            <span className="leading-tight">{evmError.message || 'Wallet connection failed.'}</span>
+            <span className="leading-tight">{formatWalletConnectError(evmError)}</span>
           </div>
         )}
 
@@ -765,7 +1114,7 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         {activeTab === 'solana' && solanaError && (
           <div className="mb-2 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-start gap-2 text-rose-300 text-xs">
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
-            <span className="leading-tight">{solanaError}</span>
+            <span className="leading-tight">{formatWalletConnectError(solanaError)}</span>
           </div>
         )}
 
@@ -789,7 +1138,7 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
         )}
 
         {/* WALLETS LIST */}
-        <div className="space-y-1.5 max-h-[360px] overflow-y-auto no-scrollbar">
+        <div className="space-y-1.5 max-h-[300px] overflow-y-auto no-scrollbar">
           {subView === 'other_wallets' ? (
             /* Sub-screen: Other Wallets (Sorted: Recent -> Detected -> Install) */
             sortedOtherWallets.map((wallet) => renderWalletRow(wallet))
@@ -811,6 +1160,8 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
                   onClick={() => {
                     if (isInstalled) {
                       void handleSolanaConnect(wallet.id)
+                    } else if (isMobile) {
+                      openMobileWalletDeepLink(wallet.id, installUrl)
                     } else if (installUrl) {
                       window.open(installUrl, '_blank')
                     }
@@ -834,17 +1185,28 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
                       <span className="text-[12px] font-medium text-pink-500">Recent</span>
                     ) : isInstalled ? (
                       <span className="text-[12px] text-slate-400 font-normal">Detected</span>
+                    ) : isMobile && getWalletMobileDeepLink(wallet.id) ? (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openMobileWalletDeepLink(wallet.id, installUrl)
+                        }}
+                        className="text-[11px] font-medium text-purple-300 hover:text-white px-2 py-0.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>Open App</span>
+                        <ExternalLink size={10} />
+                      </span>
                     ) : installUrl ? (
-                      <a
-                        href={installUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          window.open(installUrl, '_blank', 'noopener,noreferrer')
+                        }}
                         className="text-[11px] font-medium text-slate-400 hover:text-white px-2 py-0.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-all flex items-center gap-1 cursor-pointer"
                       >
                         <span>Install</span>
                         <ExternalLink size={10} />
-                      </a>
+                      </span>
                     ) : null}
                   </div>
                 </button>
@@ -853,8 +1215,34 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
           )}
         </div>
 
+        {/* Divider Line: or */}
+        <div className="relative flex items-center justify-center my-3.5">
+          <div className="border-t border-white/[0.08] w-full" />
+          <span className="bg-[#12141a] px-3 text-[11px] text-slate-400 lowercase font-medium">or</span>
+          <div className="border-t border-white/[0.08] w-full" />
+        </div>
+
+        {/* Web2 / Passkey Log In / Sign Up Button (Circle Primary Gradient Style) */}
+        <button
+          type="button"
+          onClick={() => {
+            closeWalletModal()
+            onOpenCircleAuth?.()
+          }}
+          className="w-full py-3.5 px-6 rounded-full font-semibold text-xs sm:text-sm tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none uppercase text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer shadow-lg"
+          style={{
+            fontFamily: 'var(--font-app)',
+            background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+            boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+          }}
+          aria-label="Log In / Sign Up"
+        >
+          <span>Log In / Sign Up</span>
+          <ArrowRight className="w-3.5 h-3.5 text-white shrink-0 ml-0.5" />
+        </button>
+
         {/* Legal Disclaimer */}
-        <p className="text-[11px] text-slate-400 text-center leading-relaxed mt-4 px-2">
+        <p className="text-[11px] text-slate-400 text-center leading-relaxed mt-3.5 px-2">
           By connecting a wallet, you agree to Arcis' Terms of Service and Privacy Policy.
         </p>
       </div>
@@ -867,3 +1255,5 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
 
   return modalContent
 }
+
+export default UnifiedWalletModal

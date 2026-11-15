@@ -7,8 +7,6 @@ import './index.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   getWalletConfig,
-  getWalletConfigVersion,
-  subscribeWalletConfig,
 } from './config/walletConfigStore'
 
 import { MultiChainWalletProvider } from './context/MultiChainWalletContext'
@@ -26,15 +24,10 @@ const queryClient = new QueryClient({
 })
 
 function WalletProviders() {
-  // Remounts only when the config upgrades pre-connection (version bump in walletConfigStore)
-  const configVersion = useSyncExternalStore(
-    subscribeWalletConfig,
-    getWalletConfigVersion
-  )
   const config = getWalletConfig()
 
   return (
-    <WagmiProvider key={configVersion} config={config}>
+    <WagmiProvider config={config}>
       <MultiChainWalletProvider>
         <App />
       </MultiChainWalletProvider>

@@ -332,7 +332,7 @@ export default function CircleAuthModal({
     >
       {/* Superellipse Modal Card */}
       <div
-        className="ub-asset-card arc-animate-reveal relative w-full max-w-lg max-h-[90vh] overflow-y-auto border border-white/[0.08] shadow-2xl"
+        className="ub-asset-card arc-animate-reveal relative w-full max-w-lg max-h-[95vh] overflow-y-auto border border-white/[0.08] shadow-2xl"
         style={{
           borderRadius: '28px',
           background: 'rgba(13, 15, 27, 0.95)',

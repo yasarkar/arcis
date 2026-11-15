@@ -37,10 +37,20 @@ export function isAutoSwitchPaused(): boolean {
 }
 
 export function useAutoSwitchArcChain() {
-  const { isConnected, chainId, connector } = useAccount()
+  const { isConnected, address, chainId, connector } = useAccount()
   const { switchToArc } = useChainSwitch()
+  const prevAddressRef = useRef<string | undefined>(undefined)
   const hasAttemptedThisSession = useRef<boolean>(false)
   const hasAttemptedTokenWatch = useRef<boolean>(false)
+
+  // Reset switch attempt when a new wallet address connects
+  useEffect(() => {
+    if (address && address !== prevAddressRef.current) {
+      prevAddressRef.current = address
+      hasAttemptedThisSession.current = false
+      hasAttemptedTokenWatch.current = false
+    }
+  }, [address])
 
   // Trigger function to switch or add Arc network
   const handleSwitchToArc = useCallback(async (): Promise<{ success: boolean; error?: string }> => {

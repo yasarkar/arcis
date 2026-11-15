@@ -3,7 +3,7 @@
 // Consumes Viem chain definitions from src/config/networks/networkRegistry.ts
 
 import { createConfig, http } from 'wagmi'
-import { injected } from 'wagmi/connectors'
+import { injected, coinbaseWallet, walletConnect } from 'wagmi/connectors'
 import type { Config } from 'wagmi'
 import {
   ACTIVE_NETWORKS,
@@ -81,41 +81,44 @@ function makeConfig(connectors: any[]): Config {
     connectors,
     transports,
     ssr: false,
+    multiInjectedProviderDiscovery: true,
   })
 }
 
-/** Eager minimal config used for first paint. Fast to evaluate, injected-only. */
-export const config: Config = makeConfig([injected()])
+function buildConnectors(): any[] {
+  const list: any[] = [
+    injected(),
+    coinbaseWallet({ appName: 'Arcis' }),
+  ]
+  if (isWalletConnectConfigured) {
+    list.push(
+      walletConnect({
+        projectId: walletConnectProjectId,
+        showQrModal: true,
+        qrModalOptions: {
+          themeMode: 'dark',
+          themeVariables: {
+            '--wcm-z-index': '100050',
+          },
+        },
+      })
+    )
+  }
+  return list
+}
 
-let fullConfigPromise: Promise<Config> | null = null
+/** Complete Wagmi config initialized with all supported EVM connectors. */
+export const config: Config = makeConfig(buildConnectors())
 
 /**
- * Loads the full wallet list (WalletConnect + Coinbase) on demand and builds
- * the upgraded wagmi config. Single-flight: concurrent callers share one
- * import + build.
+ * Ensures full wallet config is active. Config is already initialized
+ * with all connectors, returning immediately without triggering provider remounts.
  */
-export function ensureFullWalletConfig(): Promise<Config> {
-  if (!fullConfigPromise) {
-    fullConfigPromise = import('wagmi/connectors').then(({ coinbaseWallet, walletConnect }) => {
-      const fullConnectors: any[] = [
-        injected(),
-        coinbaseWallet({ appName: 'Arcis' }),
-      ]
-      if (isWalletConnectConfigured) {
-        fullConnectors.push(
-          walletConnect({
-            projectId: walletConnectProjectId,
-            showQrModal: true,
-          })
-        )
-      }
-      return makeConfig(fullConnectors)
-    })
-  }
-  return fullConfigPromise
+export async function ensureFullWalletConfig(): Promise<Config> {
+  return config
 }
 
 /** True once the full (WalletConnect + Coinbase) config has been built. */
 export function isFullWalletConfigLoaded(): boolean {
-  return fullConfigPromise !== null
+  return true
 }
