@@ -247,6 +247,8 @@ describe('InlineActionCard Institutional Templates', () => {
 
     // Button
     expect(html).toContain('Configure Autonomous Session Policy')
+    expect(html).toContain('linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)')
+    expect(html).not.toContain('#ffaa6b')
   })
 
   it('renders subscript zero notation for tiny crypto amounts like cirBTC (0.00000035 -> 0.0₆35)', () => {

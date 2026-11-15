@@ -49,8 +49,8 @@ const PRIMARY_ACTION_GRADIENT_STYLE: React.CSSProperties = {
 }
 
 const SESSION_ACTION_GRADIENT_STYLE: React.CSSProperties = {
-  background: 'linear-gradient(135deg, #ffaa6b 0%, #ea580c 100%)',
-  boxShadow: '0 6px 24px rgba(234, 88, 12, 0.28)',
+  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+  boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
 }
 
 /**
@@ -1066,9 +1066,9 @@ export default function InlineActionCard({
       {/* 4.5 CONFIGURE SESSION SETTINGS CARD */}
       {actionPayload.type === 'configure_session' && (
         <ActionCardShell
-          accentColor="amber"
+          accentColor="indigo"
           header={{
-            icon: <Settings className="w-4 h-4 text-amber-400" />,
+            icon: <Settings className="w-4 h-4 text-indigo-400" />,
             title: 'Session Key Authorization',
             subtitle: 'Smart Account Policy • Autonomous Limits',
           }}
@@ -1082,7 +1082,7 @@ export default function InlineActionCard({
                 window.dispatchEvent(new CustomEvent('arcis_open_session_modal'))
               }
             },
-            gradient: 'hover:brightness-110 text-white shadow-orange-500/20',
+            gradient: 'hover:brightness-110 text-white shadow-indigo-500/20',
             style: SESSION_ACTION_GRADIENT_STYLE,
           }}
         />
