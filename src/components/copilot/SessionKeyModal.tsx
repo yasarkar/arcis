@@ -206,6 +206,7 @@ export default function SessionKeyModal({
   const remainingBudget = Math.max(0, maxSpend - spent - reserved)
   const spentPercent = maxSpend > 0 ? Math.min(100, Math.round((spent / maxSpend) * 100)) : 0
   const isExpired = Date.now() > sessionConfig.expiresAt
+  const isSessionActive = Boolean(sessionConfig.isActive && !isExpired)
   const visibleEnabledCount = ACTION_OPTIONS.filter((act) => allowedActions.includes(act.id)).length
   const minSliderVal = 5
   const maxSliderVal = Math.max(5, budgetUsdc)
@@ -288,9 +289,13 @@ export default function SessionKeyModal({
           }}
         >
           {/* Header of HUD */}
-          <div className="flex items-center justify-between gap-3 min-h-[40px] pb-3.5 border-b border-white/[0.08]">
+          <div
+            className={`flex items-center justify-between gap-2 min-h-[20px] ${
+              isSessionActive ? 'pb-3.5 border-b border-white/[0.08]' : ''
+            }`}
+          >
             <div className="flex items-center gap-2">
-              {sessionConfig.isActive && !isExpired ? (
+              {isSessionActive ? (
                 <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.18)] leading-none select-none flex-shrink-0">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse flex-shrink-0" />
                   <span className="leading-none pt-0.5">ACTIVE SESSION</span>
@@ -313,60 +318,66 @@ export default function SessionKeyModal({
               )}
             </div>
 
-            {sessionConfig.isActive && !isExpired && (
+            {isSessionActive ? (
               <div className="text-xs text-[var(--secondary-colors--sky-sync)] font-mono flex items-center gap-1.5 leading-none flex-shrink-0">
                 <Clock className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />
                 <span className="tabular-nums font-semibold leading-none pt-0.5">{timeRemainingText}</span>
               </div>
+            ) : (
+              <span className="text-[11px] text-slate-400 font-mono">
+                No active policy
+              </span>
             )}
           </div>
 
-          {/* 3-Stat Inset Telemetry Strip */}
-          <div className="grid grid-cols-3 gap-2 pt-0.5">
-            <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-                REMAINING
-              </span>
-              <div
-                className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
-                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-              >
-                <span className="text-[var(--earned-green)]">
-                  {sessionConfig.isActive && !isExpired ? remainingBudget.toFixed(2) : '0.00'}
+          {/* 3-Stat Inset Telemetry Strip: Only visible when an active session exists */}
+          {isSessionActive && (
+            <div className="grid grid-cols-3 gap-2 pt-0.5">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
+                <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                  REMAINING
                 </span>
-                <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+                <div
+                  className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
+                  style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                >
+                  <span className="text-[var(--earned-green)]">
+                    {remainingBudget.toFixed(2)}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+                </div>
               </div>
-            </div>
 
-            <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-                TOTAL CAP
-              </span>
-              <div
-                className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
-                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-              >
-                <span>{maxSpend.toFixed(2)}</span>
-                <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
+                <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                  TOTAL CAP
+                </span>
+                <div
+                  className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
+                  style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                >
+                  <span>{maxSpend.toFixed(2)}</span>
+                  <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+                </div>
               </div>
-            </div>
 
-            <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-                PER-TX LIMIT
-              </span>
-              <div
-                className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
-                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-              >
-                <span className="text-[var(--purple-1)]">{perTx.toFixed(2)}</span>
-                <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
+                <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                  PER-TX LIMIT
+                </span>
+                <div
+                  className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
+                  style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                >
+                  <span className="text-[var(--purple-1)]">{perTx.toFixed(2)}</span>
+                  <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Glowing Budget Progress Bar */}
-          {sessionConfig.isActive && !isExpired && maxSpend > 0 && (
+          {isSessionActive && maxSpend > 0 && (
             <div className="space-y-1 pt-0.5">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-slate-400 font-mono uppercase tracking-wider text-[10px]">
@@ -413,7 +424,7 @@ export default function SessionKeyModal({
               </span>
             </div>
 
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-5 gap-2 mb-8">
               {[25, 50, 100, 250].map((amt) => {
                 const isSelected = !isCustomBudget && budgetUsdc === amt
                 return (
@@ -495,7 +506,7 @@ export default function SessionKeyModal({
               </span>
             </div>
 
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-2 mb-8">
               {[
                 { hrs: 1, label: '1h' },
                 { hrs: 6, label: '6h' },
@@ -531,7 +542,7 @@ export default function SessionKeyModal({
                 SINGLE-TX THRESHOLD
               </span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-slate-400 font-mono">
+                <span className="text-[11px] text-slate-400 font-mono">
                   ({capPercent}% of cap)
                 </span>
                 <span
@@ -549,7 +560,7 @@ export default function SessionKeyModal({
             </div>
 
             {/* Precision Range Slider */}
-            <div className="space-y-2 pt-0.5">
+            <div className="space-y-2 pt-0.5 mb-8">
               <div className="relative group py-2 flex items-center">
                 {/* Ambient glow behind track on hover */}
                 <div
@@ -612,35 +623,31 @@ export default function SessionKeyModal({
               </div>
 
               {/* Lower Control Bar: Min / Preset Chips / Max */}
-              <div className="flex items-center justify-between text-[10px] font-mono">
-                <span className="text-slate-500 tabular-nums">5 USDC</span>
-                <div className="flex items-center gap-1.5">
-                  {SINGLE_TX_PRESETS.map(({ label, ratio }) => {
-                    const targetVal =
-                      ratio === 1.0
-                        ? maxSliderVal
-                        : Math.max(5, Math.min(maxSliderVal, Math.round((budgetUsdc * ratio) / 5) * 5))
-                    const isSelected = maxPerTx === targetVal
-                    return (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => {
-                          soundService.play('pop')
-                          setMaxPerTx(targetVal)
-                        }}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all duration-150 cursor-pointer border ${
-                          isSelected
-                            ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.22)] shadow-[0_0_10px_rgba(152,150,255,0.3)]'
-                            : 'text-slate-400 border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.08] hover:text-slate-200'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
-                <span className="text-slate-500 tabular-nums">{budgetUsdc} USDC</span>
+              <div className="flex items-center justify-start gap-1.5 text-[11px] font-mono">
+                {SINGLE_TX_PRESETS.map(({ label, ratio }) => {
+                  const targetVal =
+                    ratio === 1.0
+                      ? maxSliderVal
+                      : Math.max(5, Math.min(maxSliderVal, Math.round((budgetUsdc * ratio) / 5) * 5))
+                  const isSelected = maxPerTx === targetVal
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        soundService.play('pop')
+                        setMaxPerTx(targetVal)
+                      }}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer border ${
+                        isSelected
+                          ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.22)] shadow-[0_0_10px_rgba(152,150,255,0.3)]'
+                          : 'text-slate-400 border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.08] hover:text-slate-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
@@ -743,17 +750,21 @@ export default function SessionKeyModal({
 
         {/* Modal Actions Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-white/[0.06] relative z-10">
-          <button
-            type="button"
-            onClick={() => {
-              soundService.play('cancel')
-              onRevokeSession()
-            }}
-            className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Revoke Session</span>
-          </button>
+          {isSessionActive ? (
+            <button
+              type="button"
+              onClick={() => {
+                soundService.play('cancel')
+                onRevokeSession()
+              }}
+              className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Revoke Session</span>
+            </button>
+          ) : (
+            <div />
+          )}
 
           <div className="flex items-center gap-2">
             <button

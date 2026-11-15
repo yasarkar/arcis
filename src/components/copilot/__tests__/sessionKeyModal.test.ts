@@ -129,5 +129,56 @@ describe('SessionKeyModal Centered Screen Overlay', () => {
     expect(html).toContain('50%')
     expect(html).toContain('Max')
   })
+
+  it('does NOT render REMAINING, TOTAL CAP, or PER-TX LIMIT telemetry strip when session is inactive', () => {
+    const inactiveConfig: SessionKeyConfig = {
+      ...mockConfig,
+      isActive: false,
+    }
+
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: inactiveConfig,
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('>INACTIVE SESSION<')
+    expect(html).not.toContain('>ACTIVE SESSION<')
+    expect(html).not.toContain('REMAINING')
+    expect(html).not.toContain('TOTAL CAP')
+    expect(html).not.toContain('PER-TX LIMIT')
+    expect(html).not.toContain('Revoke Session')
+  })
+
+  it('renders REMAINING, TOTAL CAP, and PER-TX LIMIT telemetry strip when session is active', () => {
+    const activeConfig: SessionKeyConfig = {
+      ...mockConfig,
+      isActive: true,
+      expiresAt: Date.now() + 3600000,
+    }
+
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: activeConfig,
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('>ACTIVE SESSION<')
+    expect(html).not.toContain('>INACTIVE SESSION<')
+    expect(html).toContain('REMAINING')
+    expect(html).toContain('TOTAL CAP')
+    expect(html).toContain('PER-TX LIMIT')
+    expect(html).toContain('Revoke Session')
+  })
 })
 
