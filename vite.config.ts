@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { visualizer } from 'rollup-plugin-visualizer'
-import path from 'path'
 import { signInternalClientIpHeaders } from './api/_utils/trustedIp'
 
 function apiPlugin(): Plugin {
@@ -130,22 +129,6 @@ function apiPlugin(): Plugin {
   }
 }
 
-function shimMissingConnectorsPlugin(): Plugin {
-  return {
-    name: 'shim-missing-connectors',
-    transform(code, id) {
-      if (id.includes('rainbowkit') && code.includes('import { gemini } from "wagmi/connectors"')) {
-        return {
-          code: code.replace(
-            'import { gemini } from "wagmi/connectors";',
-            'const gemini = () => ({ id: "gemini", name: "Gemini", type: "injected" });'
-          ),
-          map: null,
-        }
-      }
-    },
-  }
-}
 
 // P07: emits dist/bundle-stats.html (gitignored) for manual chunk audits.
 // Only wired in when ANALYZE=1, so normal builds pay nothing for it.
@@ -198,15 +181,11 @@ export default defineConfig(({ mode }) => {
         },
       }),
       apiPlugin(),
-      shimMissingConnectorsPlugin(),
       // P07: bundle visualizer is dev-only and opt-in (`npm run build:analyze`);
       // it never runs in normal builds or CI.
       ...(process.env.ANALYZE === '1' ? [visualizerReportPlugin()] : []),
     ],
     resolve: {
-      alias: {
-        'wagmi/connectors': path.resolve(__dirname, 'src/config/wagmiConnectorsShim.ts'),
-      },
       // P07: single React copy — duplicates break hooks and bloat the bundle.
       dedupe: ['react', 'react-dom'],
     },

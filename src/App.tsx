@@ -32,6 +32,9 @@ const CircleAuthModal = lazy(() => import('./components/CircleAuthModal'))
 const FaucetModal = lazy(() => import('./components/FaucetModal'))
 const PortfolioDrawer = lazy(() => import('./components/PortfolioDrawer'))
 const ArcCopilotDrawer = lazy(() => import('./components/copilot/ArcCopilotDrawer'))
+const UnifiedWalletModal = lazy(() =>
+  import('./components/common/UnifiedWalletModal').then((m) => ({ default: m.UnifiedWalletModal }))
+)
 
 /** Placeholder for a lazily-loaded tab: keeps the page height stable while the chunk arrives. */
 function TabLoadingFallback() {
@@ -643,6 +646,11 @@ export default function App() {
         />
         </Suspense>
         )}
+
+        {/* Unified Multi-Chain (EVM & Solana) Wallet Modal */}
+        <Suspense fallback={null}>
+          <UnifiedWalletModal onOpenCircleAuth={handleOpenCircleAuth} />
+        </Suspense>
       </div>
     </BroadcastProvider>
   )
