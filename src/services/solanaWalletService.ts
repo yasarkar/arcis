@@ -1,5 +1,6 @@
 // Solana Browser Wallet Adapter Service for Phantom, Solflare, Backpack, and OKX
 import type { SolanaWalletProvider } from '../types/multiChainWallet'
+export type { SolanaWalletProvider }
 
 const STORAGE_KEYS = {
   ADDRESS: 'arcis_solana_wallet_address',
@@ -11,6 +12,8 @@ export const SOLANA_WALLET_INSTALL_URLS: Record<SolanaWalletProvider, string> = 
   solflare: 'https://solflare.com/download',
   backpack: 'https://backpack.app/download',
   okx: 'https://www.okx.com/web3',
+  coinbase: 'https://www.coinbase.com/wallet',
+  trust: 'https://trustwallet.com/download',
   unknown: 'https://solana.com/ecosystem/explore?categories=wallet',
 }
 
@@ -30,11 +33,22 @@ export function getSolanaProvider(providerType: SolanaWalletProvider): any | nul
       return null
 
     case 'backpack':
+      if (win.backpack?.solana) return win.backpack.solana
       if (win.backpack?.isBackpack) return win.backpack
-      return null
+      if (win.solana?.isBackpack) return win.solana
+      return win.backpack || null
 
     case 'okx':
       if (win.okxwallet?.solana) return win.okxwallet.solana
+      return null
+
+    case 'coinbase':
+      if (win.coinbaseSolana) return win.coinbaseSolana
+      if (win.coinbaseWalletExtension?.solana) return win.coinbaseWalletExtension.solana
+      return null
+
+    case 'trust':
+      if (win.trustwallet?.solana) return win.trustwallet.solana
       return null
 
     case 'unknown':
@@ -130,5 +144,115 @@ export async function disconnectSolanaWallet(providerType: SolanaWalletProvider 
     console.warn('[SolanaWallet] Disconnect notice:', err)
   } finally {
     clearStoredSolanaWallet()
+  }
+}
+
+// ── Solana Web3.js RPC & Balance Integration ──────────────────────────────
+export const SOLANA_DEVNET_RPC = 'https://api.devnet.solana.com'
+export const SOLANA_DEVNET_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+
+export interface SolanaBalances {
+  sol: string
+  usdc: string
+}
+
+let cachedConnection: any = null
+
+export async function getSolanaConnection(rpcUrl = SOLANA_DEVNET_RPC) {
+  if (!cachedConnection) {
+    const { Connection } = await import('@solana/web3.js')
+    cachedConnection = new Connection(rpcUrl, 'confirmed')
+  }
+  return cachedConnection
+}
+
+/**
+ * Fetches native SOL and Devnet USDC balances for a Solana address.
+ * Uses dynamic import of @solana/web3.js to keep critical path lightweight.
+ */
+export async function fetchSolanaBalances(
+  address: string,
+  rpcUrl = SOLANA_DEVNET_RPC
+): Promise<SolanaBalances> {
+  if (!address) return { sol: '0.0000', usdc: '0.00' }
+  try {
+    const { PublicKey, LAMPORTS_PER_SOL } = await import('@solana/web3.js')
+    const connection = await getSolanaConnection(rpcUrl)
+    const pubKey = new PublicKey(address)
+
+    // 1. Native SOL balance
+    const lamports = await connection.getBalance(pubKey)
+    const sol = (lamports / LAMPORTS_PER_SOL).toFixed(4)
+
+    // 2. SPL Token USDC balance
+    let usdc = '0.00'
+    try {
+      const usdcMint = new PublicKey(SOLANA_DEVNET_USDC_MINT)
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(pubKey, {
+        mint: usdcMint,
+      })
+      if (tokenAccounts?.value?.length > 0) {
+        const total = tokenAccounts.value.reduce((acc: number, item: any) => {
+          const val = item.account?.data?.parsed?.info?.tokenAmount?.uiAmount
+          return acc + (Number(val) || 0)
+        }, 0)
+        usdc = total.toFixed(2)
+      }
+    } catch (tokenErr) {
+      console.warn('[SolanaWallet] SPL USDC balance read notice:', tokenErr)
+    }
+
+    return { sol, usdc }
+  } catch (err) {
+    console.warn('[SolanaWallet] Failed to fetch Solana balances:', err)
+    return { sol: '0.0000', usdc: '0.00' }
+  }
+}
+
+/**
+ * Prepares and signs/sends a Solana transaction with Phantom / Backpack.
+ */
+export async function signAndSendSolanaTransaction(
+  providerType: SolanaWalletProvider,
+  instructions: any[],
+  rpcUrl = SOLANA_DEVNET_RPC
+): Promise<{ success: boolean; signature?: string; error?: string }> {
+  try {
+    const provider = getSolanaProvider(providerType)
+    if (!provider) throw new Error('Solana provider not found')
+
+    const { Transaction } = await import('@solana/web3.js')
+    const connection = await getSolanaConnection(rpcUrl)
+
+    const transaction = new Transaction().add(...instructions)
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash()
+    transaction.recentBlockhash = blockhash
+    transaction.feePayer = provider.publicKey
+
+    if (typeof provider.signAndSendTransaction === 'function') {
+      const res = await provider.signAndSendTransaction(transaction)
+      const signature = res?.signature || res
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      })
+      return { success: true, signature }
+    } else if (typeof provider.signTransaction === 'function') {
+      const signed = await provider.signTransaction(transaction)
+      const rawTx = signed.serialize()
+      const signature = await connection.sendRawTransaction(rawTx)
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      })
+      return { success: true, signature }
+    } else {
+      throw new Error('Cüzdan işlem imzalamayı desteklemiyor.')
+    }
+  } catch (err: any) {
+    console.error('[SolanaWallet] Transaction send error:', err)
+    return { success: false, error: err?.message || 'Transaction failed.' }
   }
 }

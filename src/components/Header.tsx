@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, memo } from 'react'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { requestFullWalletConnect } from '../config/walletConfigStore'
-import { useAccount } from 'wagmi'
+import { useAccount, useSwitchChain } from 'wagmi'
 import {
   Wallet,
   ArrowRightLeft,
@@ -75,8 +74,12 @@ function Header({
   isRestoring,
   onOpenPortfolio,
 }: HeaderProps) {
-  const { isConnected: isEvmConnected } = useAccount()
+  const { isConnected: isEvmConnected, address: evmAddress, chain: evmChain, chainId: evmChainId } = useAccount()
+  const { switchChain, chains } = useSwitchChain()
   const isEvmWalletConnected = Boolean(isEvmConnected || (walletConnected && activeAuthSource === 'evm'))
+  const isUnsupportedNetwork = Boolean(
+    isEvmWalletConnected && evmChainId && chains.length > 0 && !chains.some((c) => c.id === evmChainId)
+  )
 
   const { solana, disconnectSolana, injective, disconnectInjective } = useMultiChainWallet()
 
@@ -542,6 +545,11 @@ function Header({
                 className="flex items-center gap-1 text-xs font-bold text-purple-200 hover:text-white transition cursor-pointer"
               >
                 <span>Sol: {solana.address.slice(0, 4)}...{solana.address.slice(-4)}</span>
+                {solana.balance?.sol && (
+                  <span className="text-[10px] text-purple-300/90 font-mono font-medium hidden sm:inline ml-0.5 px-1.5 py-0.2 rounded-full bg-purple-500/20 border border-purple-500/30">
+                    {solana.balance.isLoading ? '...' : `${solana.balance.sol} SOL`}
+                  </span>
+                )}
                 {copiedSol ? (
                   <span className="text-[10px] text-emerald-400 font-bold ml-0.5">✓</span>
                 ) : (
@@ -617,200 +625,167 @@ function Header({
             </div>
           )}
 
-          {/* Connect Wallet Button (RainbowKit Custom with Multi-Chain Modal Support) */}
-          {showOtherGroup && (
-            <ConnectButton.Custom>
-              {({
-                account,
-                chain,
-                openChainModal,
-                openConnectModal,
-                authenticationStatus,
-                mounted,
-              }) => {
-                const ready = mounted && authenticationStatus !== 'loading'
-                const connected =
-                  ready &&
-                  account &&
-                  chain &&
-                  (!authenticationStatus ||
-                    authenticationStatus === 'authenticated')
-
-                return (
-                  <div
-                    {...(!ready && {
-                      'aria-hidden': true,
-                      style: {
-                        opacity: 0,
-                        pointerEvents: 'none',
-                        userSelect: 'none',
-                      },
-                    })}
-                  >
-                    {(() => {
-                      if (!connected) {
-                        // If Solana or Injective is connected as the active other wallet, don't show another connect trigger
-                        if (isOtherActive && (solana.isConnected || injective.isConnected)) {
-                          return null
-                        }
-                        return (
-                          <button
-                            // P03: first click loads WalletConnect + Coinbase on demand,
-                            // then `DeferredConnectOpener` opens the modal with the
-                            // full list. Pre-connection only, so no session remounts.
-                            onClick={() => {
-                              void requestFullWalletConnect()
-                            }}
-                            type="button"
-                            className="ub-action-btn flex items-center justify-center gap-1.5 shrink-0 px-2.5 3xl:px-3.5 py-1.5"
-                            aria-label="Connect Wallet"
-                            title="Connect Wallet"
-                          >
-                            <Wallet className="w-3.5 h-3.5 shrink-0" />
-                            <span className="hidden 3xl:inline">Connect Wallet</span>
-                          </button>
-                        )
-                      }
-
-                      if (chain.unsupported) {
-                        return (
-                          <button
-                            onClick={openChainModal}
-                            type="button"
-                            className="ub-action-btn shrink-0 px-3 py-1.5"
-                            style={{
-                              background: 'rgba(239, 68, 68, 0.15)',
-                              borderColor: 'rgba(239, 68, 68, 0.4)',
-                              color: '#f87171',
-                            }}
-                            aria-label="Wrong network"
-                          >
-                            ⚠️ Wrong network
-                          </button>
-                        )
-                      }
-
-                      return (
-                        <div className={`relative shrink-0 ${isEvmMenuOpen ? 'z-[10005]' : ''}`} ref={evmMenuRef}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (onSelectActiveAuthSource) onSelectActiveAuthSource('evm')
-                              setIsEvmMenuOpen((prev) => !prev)
-                            }}
-                            className="ub-action-btn gap-2 transition-all duration-200 cursor-pointer select-none shrink-0"
-                          >
-                            <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain shrink-0" />
-                            <span className="max-w-[110px] truncate" style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>{account.displayName}</span>
-                            <ChevronDown
-                              size={12}
-                              className={`transition-transform duration-200 shrink-0 ${
-                                isEvmMenuOpen ? 'rotate-180 text-white' : 'opacity-70 text-slate-400'
-                              }`}
-                            />
-                          </button>
-
-                        {/* EVM Custom Dropdown Menu */}
-                        {isEvmMenuOpen && (
-                          <div
-                            className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in max-h-[calc(100vh-90px)] overflow-y-auto no-scrollbar"
-                            style={{
-                              background: 'rgba(13, 17, 28, 0.96)',
-                              border: '1px solid rgba(99, 102, 241, 0.25)',
-                              boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(99, 102, 241, 0.15)',
-                              zIndex: 10005,
-                            }}
-                          >
-                            {/* Portfolio Option */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsEvmMenuOpen(false)
-                                if (onOpenPortfolio) onOpenPortfolio()
-                              }}
-                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <PieChart size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
-                                <span className="font-semibold text-slate-100">Portfolio</span>
-                              </div>
-                            </button>
-
-                            {/* Switch Network */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsEvmMenuOpen(false)
-                                openChainModal()
-                              }}
-                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <Globe size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
-                                <span>Switch Network</span>
-                              </div>
-                            </button>
-
-                            {/* Copy Address */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (account.address) {
-                                  void copyToClipboard(account.address, setCopiedEvm, () => setIsEvmMenuOpen(false))
-                                }
-                              }}
-                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                {copiedEvm ? (
-                                  <Check size={14} className="text-emerald-400 shrink-0" />
-                                ) : (
-                                  <Copy size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
-                                )}
-                                <span>{copiedEvm ? 'Copied!' : 'Copy Address'}</span>
-                              </div>
-                            </button>
-
-                            {/* Explorer Link */}
-                            {account.address && (
-                              <a
-                                href={getExplorerAddressUrl(chain?.name || 'Arc_Testnet', account.address)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={() => setIsEvmMenuOpen(false)}
-                                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
-                              >
-                                <div className="flex items-center gap-2.5">
-                                  <ExternalLink size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
-                                  <span>View on Explorer</span>
-                                </div>
-                              </a>
-                            )}
-
-                            <div className="my-1 border-t border-white/[0.08]" />
-
-                            {/* Disconnect */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsEvmMenuOpen(false)
-                                if (onDisconnect) onDisconnect()
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all cursor-pointer group"
-                            >
-                              <LogOut size={14} className="text-rose-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                              <span>Disconnect</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
-                </div>
+          {/* Connect Wallet Button (Unified Multi-Chain Modal Support) */}
+          {showOtherGroup && (() => {
+            const effectiveAddress = evmAddress || (activeAuthSource === 'evm' ? walletAddress : '')
+            if (!isEvmWalletConnected || !effectiveAddress) {
+              // If Solana or Injective is connected as the active other wallet, don't show another connect trigger
+              if (isOtherActive && (solana.isConnected || injective.isConnected)) {
+                return null
+              }
+              return (
+                <button
+                  onClick={() => {
+                    void requestFullWalletConnect()
+                  }}
+                  type="button"
+                  className="ub-action-btn flex items-center justify-center gap-1.5 shrink-0 px-2.5 3xl:px-3.5 py-1.5 cursor-pointer"
+                  aria-label="Connect Wallet"
+                  title="Connect Wallet"
+                >
+                  <Wallet className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden 3xl:inline">Connect Wallet</span>
+                </button>
               )
-            }}
-          </ConnectButton.Custom>
-        )}
+            }
+
+            if (isUnsupportedNetwork) {
+              return (
+                <button
+                  onClick={() => switchChain?.({ chainId: arcTestnet.id })}
+                  type="button"
+                  className="ub-action-btn shrink-0 px-3 py-1.5 cursor-pointer"
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    borderColor: 'rgba(239, 68, 68, 0.4)',
+                    color: '#f87171',
+                  }}
+                  aria-label="Wrong network"
+                  title="Switch to Arc Testnet"
+                >
+                  ⚠️ Switch Network
+                </button>
+              )
+            }
+
+            return (
+              <div className={`relative shrink-0 ${isEvmMenuOpen ? 'z-[10005]' : ''}`} ref={evmMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onSelectActiveAuthSource) onSelectActiveAuthSource('evm')
+                    setIsEvmMenuOpen((prev) => !prev)
+                  }}
+                  className="ub-action-btn gap-2 transition-all duration-200 cursor-pointer select-none shrink-0"
+                >
+                  <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain shrink-0" />
+                  <span className="max-w-[110px] truncate" style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>
+                    {`${effectiveAddress.slice(0, 6)}...${effectiveAddress.slice(-4)}`}
+                  </span>
+                  <ChevronDown
+                    size={12}
+                    className={`transition-transform duration-200 shrink-0 ${
+                      isEvmMenuOpen ? 'rotate-180 text-white' : 'opacity-70 text-slate-400'
+                    }`}
+                  />
+                </button>
+
+                {/* EVM Custom Dropdown Menu */}
+                {isEvmMenuOpen && (
+                  <div
+                    className="absolute right-0 top-full mt-2 w-48 rounded-2xl p-1.5 z-[10005] transition-all duration-150 backdrop-blur-2xl shadow-2xl animate-fade-in max-h-[calc(100vh-90px)] overflow-y-auto no-scrollbar"
+                    style={{
+                      background: 'rgba(13, 17, 28, 0.96)',
+                      border: '1px solid rgba(99, 102, 241, 0.25)',
+                      boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 24px rgba(99, 102, 241, 0.15)',
+                      zIndex: 10005,
+                    }}
+                  >
+                    {/* Portfolio Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEvmMenuOpen(false)
+                        if (onOpenPortfolio) onOpenPortfolio()
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group mt-1"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <PieChart size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                        <span className="font-semibold text-slate-100">Portfolio</span>
+                      </div>
+                    </button>
+
+                    {/* Switch Network */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEvmMenuOpen(false)
+                        switchChain?.({ chainId: arcTestnet.id })
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Globe size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                        <span>Switch to Arc</span>
+                      </div>
+                    </button>
+
+                    {/* Copy Address */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (effectiveAddress) {
+                          void copyToClipboard(effectiveAddress, setCopiedEvm, () => setIsEvmMenuOpen(false))
+                        }
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        {copiedEvm ? (
+                          <Check size={14} className="text-emerald-400 shrink-0" />
+                        ) : (
+                          <Copy size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                        )}
+                        <span>{copiedEvm ? 'Copied!' : 'Copy Address'}</span>
+                      </div>
+                    </button>
+
+                    {/* Explorer Link */}
+                    {effectiveAddress && (
+                      <a
+                        href={getExplorerAddressUrl(evmChain?.name || 'Arc_Testnet', effectiveAddress)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setIsEvmMenuOpen(false)}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-white/[0.08] transition-all cursor-pointer group"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <ExternalLink size={14} className="text-slate-400 group-hover:text-indigo-400 transition-colors shrink-0" />
+                          <span>View on Explorer</span>
+                        </div>
+                      </a>
+                    )}
+
+                    <div className="my-1 border-t border-white/[0.08]" />
+
+                    {/* Disconnect */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEvmMenuOpen(false)
+                        if (onDisconnect) onDisconnect()
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all cursor-pointer group"
+                    >
+                      <LogOut size={14} className="text-rose-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                      <span>Disconnect</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
         </div>
       </div>

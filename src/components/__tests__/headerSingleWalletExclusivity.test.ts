@@ -5,8 +5,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 const mocks = vi.hoisted(() => ({
   account: { isConnected: false, address: undefined as string | undefined },
   multiChain: {
-    solana: { isConnected: false, address: '' },
+    solana: { isConnected: false, address: '', balance: { sol: '0.0000', usdc: '0.00', isLoading: false } },
     disconnectSolana: vi.fn(),
+    refreshSolanaBalance: vi.fn(),
     injective: { isConnected: false, address: '' },
     disconnectInjective: vi.fn(),
   },
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wagmi', () => ({
   useAccount: () => mocks.account,
+  useSwitchChain: () => ({ switchChain: vi.fn(), chains: [] }),
 }))
 
 vi.mock('../../hooks/useMultiChainWallet', () => ({
@@ -22,21 +24,6 @@ vi.mock('../../hooks/useMultiChainWallet', () => ({
 
 vi.mock('../../config/walletConfigStore', () => ({
   requestFullWalletConnect: vi.fn(),
-}))
-
-vi.mock('@rainbow-me/rainbowkit', () => ({
-  ConnectButton: {
-    Custom: ({ children }: any) => {
-      return children({
-        account: mocks.account.isConnected ? { displayName: '0x1234...5678', address: mocks.account.address } : undefined,
-        chain: { unsupported: false, name: 'Arc Testnet' },
-        openChainModal: vi.fn(),
-        openConnectModal: vi.fn(),
-        authenticationStatus: 'authenticated',
-        mounted: true,
-      })
-    },
-  },
 }))
 
 import Header from '../Header'

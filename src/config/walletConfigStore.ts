@@ -18,6 +18,7 @@ import {
 let activeConfig: Config = eagerConfig
 let configVersion = 0
 let pendingConnectOpen = 0
+let isModalOpen = false
 
 const listeners = new Set<() => void>()
 
@@ -29,6 +30,20 @@ function emit() {
       // A failing subscriber must never break the upgrade for others.
     }
   }
+}
+
+export function openWalletModal(): void {
+  isModalOpen = true
+  emit()
+}
+
+export function closeWalletModal(): void {
+  isModalOpen = false
+  emit()
+}
+
+export function getIsWalletModalOpen(): boolean {
+  return isModalOpen
 }
 
 export function subscribeWalletConfig(listener: () => void): () => void {
@@ -85,6 +100,7 @@ let upgradeInFlight: Promise<Config> | null = null
  * sole caller is the disconnected-state Connect button).
  */
 export async function requestFullWalletConnect(): Promise<void> {
+  openWalletModal()
   if (isFullWalletConfigActive()) {
     requestConnectOpen()
     return

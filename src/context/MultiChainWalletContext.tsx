@@ -42,6 +42,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       providerName: stored?.provider || 'phantom',
       isConnecting: false,
       error: null,
+      balance: { sol: '0.0000', usdc: '0.00', isLoading: false },
     }
   })
 
@@ -153,11 +154,38 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
   }, [solana.providerName])
 
   // ─────────────────────────────────────────────────────────────
-  // 4. SOLANA ACTIONS
+  // 4. SOLANA ACTIONS & BALANCES
   // ─────────────────────────────────────────────────────────────
+  const refreshSolanaBalance = useCallback(async () => {
+    if (!solana.address) return
+    setSolana((prev) => ({
+      ...prev,
+      balance: { ...prev.balance, isLoading: true },
+    }))
+    try {
+      const { fetchSolanaBalances } = await loadSolanaService()
+      const balances = await fetchSolanaBalances(solana.address)
+      setSolana((prev) => ({
+        ...prev,
+        balance: { sol: balances.sol, usdc: balances.usdc, isLoading: false },
+      }))
+    } catch {
+      setSolana((prev) => ({
+        ...prev,
+        balance: { ...prev.balance, isLoading: false },
+      }))
+    }
+  }, [solana.address])
+
+  useEffect(() => {
+    if (solana.isConnected && solana.address) {
+      void refreshSolanaBalance()
+    }
+  }, [solana.isConnected, solana.address, refreshSolanaBalance])
+
   const connectSolana = useCallback(async (provider: SolanaWalletProvider) => {
     setSolana((prev) => ({ ...prev, isConnecting: true, error: null }))
-    const { connectSolanaWallet } = await loadSolanaService()
+    const { connectSolanaWallet, fetchSolanaBalances } = await loadSolanaService()
     const res = await connectSolanaWallet(provider)
     if (res.success && res.address) {
       setSolana({
@@ -166,6 +194,19 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
         providerName: provider,
         isConnecting: false,
         error: null,
+        balance: { sol: '0.0000', usdc: '0.00', isLoading: true },
+      })
+      // Immediately fetch balances post-connection
+      fetchSolanaBalances(res.address).then((bal) => {
+        setSolana((prev) => ({
+          ...prev,
+          balance: { sol: bal.sol, usdc: bal.usdc, isLoading: false },
+        }))
+      }).catch(() => {
+        setSolana((prev) => ({
+          ...prev,
+          balance: { ...prev.balance, isLoading: false },
+        }))
       })
       return res
     } else {
@@ -192,6 +233,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       providerName: 'phantom',
       isConnecting: false,
       error: null,
+      balance: { sol: '0.0000', usdc: '0.00', isLoading: false },
     })
     clearAllAppInputs()
   }, [solana.providerName])
@@ -269,6 +311,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       connectSolana,
       disconnectSolana,
       isSolanaInstalled,
+      refreshSolanaBalance,
       injective,
       connectInjective,
       disconnectInjective,
@@ -280,6 +323,7 @@ export const MultiChainWalletProvider: React.FC<{ children: React.ReactNode }> =
       connectSolana,
       disconnectSolana,
       isSolanaInstalled,
+      refreshSolanaBalance,
       injective,
       connectInjective,
       disconnectInjective,

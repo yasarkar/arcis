@@ -1,7 +1,13 @@
 // src/types/multiChainWallet.ts
 // Multi-Chain Wallet Type Definitions for Solana, Injective / Cosmos, and EVM ecosystems
 
-export type SolanaWalletProvider = 'phantom' | 'solflare' | 'backpack' | 'okx' | 'unknown'
+export type SolanaWalletProvider = 'phantom' | 'solflare' | 'backpack' | 'okx' | 'coinbase' | 'trust' | 'unknown'
+
+export interface SolanaWalletBalance {
+  sol: string
+  usdc: string
+  isLoading: boolean
+}
 
 export interface SolanaWalletState {
   isConnected: boolean
@@ -9,6 +15,7 @@ export interface SolanaWalletState {
   providerName: SolanaWalletProvider
   isConnecting: boolean
   error: string | null
+  balance: SolanaWalletBalance
 }
 
 export type InjectiveWalletProvider = 'keplr' | 'leap' | 'cosmostation' | 'unknown'
@@ -28,6 +35,7 @@ export interface MultiChainWalletContextValue {
   disconnectSolana: () => void
   // P03: async because the wallet service module loads on demand.
   isSolanaInstalled: (provider: SolanaWalletProvider) => Promise<boolean>
+  refreshSolanaBalance: () => Promise<void>
 
   // Injective State & Actions
   injective: InjectiveWalletState

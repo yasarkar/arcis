@@ -323,7 +323,7 @@ export default function CircleAuthModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10010] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in overscroll-contain touch-none select-text"
+      className="fixed inset-0 z-[10010] flex items-center justify-center p-2 bg-black/75 backdrop-blur-md animate-fade-in overscroll-contain touch-none select-text"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isLoading && autoLoginPhase !== 'authenticating') {
           handleClose()
@@ -356,7 +356,7 @@ export default function CircleAuthModal({
           </div>
 
           {autoLoginPhase !== 'authenticating' && autoLoginPhase !== 'success' && !(isUcwConnected && ucwAddress) && (
-            <div className="space-y-2 mt-10">
+            <div className="space-y-1 mt-7.5">
               <h2 className="text-2xl text-slate-300 tracking-tight">
                 Sign up / Login
               </h2>
@@ -618,7 +618,7 @@ export default function CircleAuthModal({
             {/* ═════════════════════════════════════════════════════════ */}
             {/* 2. CONTINUE WITH STACK (PASSKEY & SOCIALS)                */}
             {/* ═════════════════════════════════════════════════════════ */}
-            <div className="space-y-2.5">
+            <div className="space-y-1.5">
               {/* Passkey (FaceID / TouchID) Option */}
               {!showPasskeyRegister ? (
                 <div className="space-y-1">
