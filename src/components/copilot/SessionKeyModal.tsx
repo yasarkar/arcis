@@ -18,9 +18,8 @@ import {
   Send,
   ShieldCheck,
   Trash2,
-  Wallet,
   X,
-  Zap,
+  Zap
 } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -286,6 +285,7 @@ export default function SessionKeyModal({
           if (transferFn) {
             const res = await transferFn({
               destinationAddress: pubKey,
+              recipient: pubKey,
               amount: String(toFund),
               tokenSymbol: 'USDC',
               blockchain: 'ARC-TESTNET',
