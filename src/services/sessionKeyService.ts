@@ -122,6 +122,23 @@ function dispatchSessionUpdateEvent(config: SessionKeyConfig, scope: SessionScop
   }
 }
 
+// Multi-tab cross-synchronization: when session or enclave storage changes in another tab,
+// notify listeners in this tab so UI and accounts stay synchronized.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (!e.key) return
+    if (
+      e.key.startsWith(MARKETPLACE_SESSION_STORAGE_PREFIX) ||
+      e.key.startsWith(COPILOT_SESSION_STORAGE_PREFIX)
+    ) {
+      const scope: SessionScope = e.key.startsWith(MARKETPLACE_SESSION_STORAGE_PREFIX) ? 'marketplace' : 'copilot'
+      const active = getActiveWalletForSession()
+      const conf = getSessionKeyConfig(active || undefined, scope)
+      dispatchSessionUpdateEvent(conf, scope)
+    }
+  })
+}
+
 function createInitialSessionConfig(walletKey: string, scope: SessionScope = 'copilot'): SessionKeyConfig {
   const msca = getStoredMscaAddress()
 
@@ -450,9 +467,13 @@ export function elevateSessionPerTxCap(newCap: number, walletAddress?: string, s
 /**
  * Revokes and cleans up session metadata for this wallet and scope, removing it from storage.
  */
-export function revokeSessionKey(walletAddress?: string, scope: SessionScope = 'copilot'): SessionKeyConfig {
+export function revokeSessionKey(
+  walletAddress?: string,
+  scope: SessionScope = 'copilot',
+  targetPublicKey?: string
+): SessionKeyConfig {
   const walletKey = resolveTargetWallet(walletAddress)
-  clearEphemeralSessionAccount(walletKey, scope)
+  clearEphemeralSessionAccount(walletKey, scope, targetPublicKey)
   const storageKey = getStorageKeyForWallet(walletKey, scope)
   try {
     if (typeof localStorage !== 'undefined') {

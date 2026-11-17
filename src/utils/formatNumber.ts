@@ -123,3 +123,87 @@ export function formatSubscriptZero(
 /** Alias for formatSubscriptZero */
 export const formatCompactCryptoAmount = formatSubscriptZero
 
+/**
+ * Formats token amounts for broadcast notification cards with consistent,
+ * human-friendly precision:
+ * - Stablecoins (USDC, EURC): exactly 2 decimals if >= 1 (e.g. 5 -> "5.00", 1250.5 -> "1,250.50"),
+ *   up to 4 decimals if < 1 (e.g. 0.0034 -> "0.0034", 0.5 -> "0.50").
+ * - High-value assets (BTC, cirBTC, ETH, WETH): 2 to 4 decimals (e.g. 0.00343834 -> "0.0034", 1 -> "1.00").
+ *   Amounts < 0.0001 are formatted as "< 0.0001".
+ * - LP tokens (af-USDC-...): up to 4 decimals (e.g. 14.839201 -> "14.8392").
+ * - Text strings or non-numeric inputs pass through unchanged.
+ */
+export function formatBroadcastAmount(
+  value: number | string | undefined | null,
+  symbol?: string
+): string {
+  if (value == null || value === '') return ''
+  const str = String(value).trim()
+  if (!str) return ''
+
+  // If input contains alphabetic characters and is not scientific notation (e.g. "10 USDC, 5 EURC" or "Yield"), pass through
+  const cleaned = str.replace(/,/g, '')
+  const numeric = Number(cleaned)
+  if (!Number.isFinite(numeric)) {
+    return str
+  }
+
+  if (numeric === 0) return '0.00'
+
+  const abs = Math.abs(numeric)
+  const isNegative = numeric < 0
+  const prefix = isNegative ? '-' : ''
+
+  const sym = (symbol || '').toUpperCase().trim()
+  const isHighValue = ['CIRBTC', 'BTC', 'WBTC', 'WETH', 'ETH'].includes(sym)
+  const isLp = sym.startsWith('AF-') || sym.startsWith('AF') || sym.includes('LP')
+  const isStable = ['USDC', 'EURC'].includes(sym) || (!sym && !isHighValue && !isLp)
+
+  // 1. High-Value Crypto (BTC, ETH)
+  if (isHighValue) {
+    if (abs < 0.0001) return '< 0.0001'
+    return `${prefix}${abs.toLocaleString('en-US', {
+      minimumFractionDigits: abs >= 1 ? 2 : 4,
+      maximumFractionDigits: 4,
+    })}`
+  }
+
+  // 2. LP Tokens
+  if (isLp) {
+    if (abs < 0.0001) return '< 0.0001'
+    return `${prefix}${abs.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    })}`
+  }
+
+  // 3. Stablecoins (USDC, EURC) & Default
+  if (isStable) {
+    if (abs >= 1) {
+      return `${prefix}${abs.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`
+    }
+    if (abs < 0.0001) return '< 0.0001'
+    return `${prefix}${abs.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    })}`
+  }
+
+  // 4. Other ecosystem tokens (e.g. S, OKB, XPL, PHRS)
+  if (abs >= 1) {
+    return `${prefix}${abs.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    })}`
+  }
+  if (abs < 0.0001) return '< 0.0001'
+  return `${prefix}${abs.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })}`
+}
+
+

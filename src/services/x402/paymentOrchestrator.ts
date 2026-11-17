@@ -138,7 +138,9 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
   }
   const payerKind: X402PayerKind = input.payer?.kind || 'external_eoa'
   const ucwSigner = payerKind === 'ucw_eoa' ? input.payer?.signTypedData : undefined
-  const sessionAccount = payerKind === 'session_eoa' ? getEphemeralSessionAccount(input.walletAddress, 'marketplace') : null
+  const sessionAccount = payerKind === 'session_eoa' 
+    ? (getEphemeralSessionAccount(input.walletAddress, 'marketplace') || getEphemeralSessionAccount(input.walletAddress, 'copilot')) 
+    : null
 
   let address = ''
   if (payerKind === 'session_eoa') {

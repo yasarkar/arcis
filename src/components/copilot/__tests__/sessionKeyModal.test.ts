@@ -195,8 +195,7 @@ describe('SessionKeyModal Centered Screen Overlay', () => {
     )
 
     expect(html).toContain('Save &amp; Fund (100 USDC)')
-    expect(html).toContain('Temporary Session Wallet')
-    expect(html).toContain('Vault Balance')
+    expect(html).toContain('SESSION ENCLAVE')
     expect(html).toContain('Autonomous Mode')
     expect(html).toContain('Zero-Popup')
   })

@@ -4,6 +4,7 @@
 // Creates and manages an ephemeral Session Enclave EOA in client memory.
 // Enables zero-click autonomous payments signed by the enclave key on Arc Testnet.
 import {
+  AlertTriangle,
   Check,
   CheckCircle2,
   Clock,
@@ -40,6 +41,7 @@ import {
 } from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
 import { formatErrorMessage, isUserCanceledError } from '../../utils/errorNormalizer'
+import { useBroadcast } from '../BroadcastNotification'
 
 function formatFriendlyFundingError(err: unknown): string {
   if (isUserCanceledError(err)) {
@@ -75,21 +77,24 @@ export default function SessionBudgetModal({
   ucwHandlers,
   onBudgetUpdated,
 }: SessionBudgetModalProps) {
+  const { addBroadcast, updateBroadcast } = useBroadcast()
   const [config, setConfig] = useState(() => getSessionKeyConfig(walletAddress, 'marketplace'))
   const [customBudget, setCustomBudget] = useState<string>('2.00')
   const [isCustomBudget, setIsCustomBudget] = useState<boolean>(false)
   const [selectedDuration, setSelectedDuration] = useState<number>(24)
   const [autoExecute, setAutoExecute] = useState<boolean>(() => {
     const initial = getSessionKeyConfig(walletAddress, 'marketplace')
-    return initial.autoExecute ?? true
+    return initial.autoExecute ?? false
   })
   const [copiedKey, setCopiedKey] = useState<boolean>(false)
   const [enclaveBalance, setEnclaveBalance] = useState<number>(0)
   const [isFunding, setIsFunding] = useState<boolean>(false)
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
+  const [resetSuccessNotice, setResetSuccessNotice] = useState<boolean>(false)
   const [isSweeping, setIsSweeping] = useState<boolean>(false)
   const [fundingStatus, setFundingStatus] = useState<string | null>(null)
+  const [showForceReset, setShowForceReset] = useState<boolean>(false)
 
   // Listen for marketplace session key updates
   useEffect(() => {
@@ -105,7 +110,7 @@ export default function SessionBudgetModal({
       } else {
         const fresh = getSessionKeyConfig(walletAddress, 'marketplace')
         setConfig(fresh)
-        setAutoExecute(fresh.autoExecute ?? true)
+        setAutoExecute(fresh.autoExecute ?? false)
       }
     }
     window.addEventListener(MARKETPLACE_SESSION_UPDATED_EVENT, handleUpdate)
@@ -134,9 +139,10 @@ export default function SessionBudgetModal({
   // Sync on modal open and query live enclave balance
   useEffect(() => {
     if (isOpen) {
+      setShowForceReset(false)
       const conf = getSessionKeyConfig(walletAddress, 'marketplace')
       setConfig(conf)
-      setAutoExecute(conf.autoExecute ?? true)
+      setAutoExecute(conf.autoExecute ?? false)
       const currentMax = conf.maxSpendUsdc || 2
       setCustomBudget(currentMax.toString())
       setIsCustomBudget(![1, 2, 5, 10].includes(currentMax))
@@ -190,20 +196,56 @@ export default function SessionBudgetModal({
 
     const pubKey = account?.address || config.sessionPublicKey
     if (!pubKey || !walletAddress) {
-      setFundingStatus('Error: Wallet address or temporary session wallet not available.')
+      const errMsg = 'Error: Wallet address or temporary session wallet not available.'
+      setFundingStatus(errMsg)
+      addBroadcast({
+        type: 'session',
+        title: 'Enclave Setup Failed',
+        status: 'failed',
+        badgeText: 'Failed',
+        message: errMsg,
+        details: {
+          sessionAction: 'fund',
+          network: 'Arc_Testnet',
+          sessionScope: 'marketplace',
+          budgetUsdc,
+        },
+      })
       return
     }
 
     const targetAmount = budgetUsdc
-    const amountToFund = enclaveBalance <= 0
+    const amountToFund = !isSessionActive || enclaveBalance <= 0
       ? targetAmount
       : Math.max(0, targetAmount - enclaveBalance)
+
+    let broadcastId: string | null = null
+    let fundingTxHash: string | undefined = undefined
 
     // 2. FUNDING TRANSACTION FIRST (if funding needed)
     if (amountToFund > 0) {
       setIsFunding(true)
       setFundingStatus(`Submitting transfer of ${amountToFund} USDC to temporary session wallet...`)
       soundService.play('pop')
+
+      broadcastId = addBroadcast({
+        type: 'session',
+        title: isSessionActive ? 'Updating Enclave Budget' : 'Funding Session Enclave',
+        status: 'pending',
+        badgeText: 'Transferring',
+        details: {
+          sessionAction: isSessionActive ? 'update' : 'fund',
+          amount: amountToFund.toFixed(2),
+          tokenSymbol: 'USDC',
+          network: 'Arc_Testnet',
+          enclaveAddress: pubKey,
+          userAddress: walletAddress,
+          durationHours,
+          budgetUsdc: targetAmount,
+          autoExecute,
+          sessionScope: 'marketplace',
+        },
+      })
 
       try {
         if (authSource === 'ucw') {
@@ -217,6 +259,27 @@ export default function SessionBudgetModal({
               blockchain: 'ARC-TESTNET',
             })
             if (!res?.success) throw new Error(res?.error || 'Circle UCW transfer failed')
+            if (res?.txHash) {
+              fundingTxHash = res.txHash
+              if (broadcastId) {
+                updateBroadcast(broadcastId, {
+                  badgeText: 'Confirming',
+                  details: {
+                    sessionAction: isSessionActive ? 'update' : 'fund',
+                    amount: amountToFund.toFixed(2),
+                    tokenSymbol: 'USDC',
+                    network: 'Arc_Testnet',
+                    enclaveAddress: pubKey,
+                    userAddress: walletAddress,
+                    durationHours,
+                    budgetUsdc: targetAmount,
+                    autoExecute,
+                    sessionScope: 'marketplace',
+                    txHash: res.txHash,
+                  },
+                })
+              }
+            }
           } else {
             throw new Error('Circle UCW transfer handler unavailable')
           }
@@ -235,6 +298,27 @@ export default function SessionBudgetModal({
             paymaster: true,
           })
           if (!res?.success) throw new Error(res?.error || 'Passkey smart account transfer failed')
+          if (res?.txHash) {
+            fundingTxHash = res.txHash
+            if (broadcastId) {
+              updateBroadcast(broadcastId, {
+                badgeText: 'Confirming',
+                details: {
+                  sessionAction: isSessionActive ? 'update' : 'fund',
+                  amount: amountToFund.toFixed(2),
+                  tokenSymbol: 'USDC',
+                  network: 'Arc_Testnet',
+                  enclaveAddress: pubKey,
+                  userAddress: walletAddress,
+                  durationHours,
+                  budgetUsdc: targetAmount,
+                  autoExecute,
+                  sessionScope: 'marketplace',
+                  txHash: res.txHash,
+                },
+              })
+            }
+          }
         } else {
           const effectiveProvider = provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
           if (effectiveProvider) {
@@ -251,7 +335,26 @@ export default function SessionBudgetModal({
                 args: [pubKey as Address, parseUnits(amountToFund.toString(), 6)],
               }),
             })
+            fundingTxHash = hash
             setFundingStatus('Waiting for transaction confirmation on Arc Testnet...')
+            if (broadcastId) {
+              updateBroadcast(broadcastId, {
+                badgeText: 'Confirming',
+                details: {
+                  sessionAction: isSessionActive ? 'update' : 'fund',
+                  amount: amountToFund.toFixed(2),
+                  tokenSymbol: 'USDC',
+                  network: 'Arc_Testnet',
+                  enclaveAddress: pubKey,
+                  userAddress: walletAddress,
+                  durationHours,
+                  budgetUsdc: targetAmount,
+                  autoExecute,
+                  sessionScope: 'marketplace',
+                  txHash: hash,
+                },
+              })
+            }
             const resilientClient = getResilientPublicClient('Arc_Testnet')
             await resilientClient.waitForTransactionReceipt({ hash, timeout: 30000 })
           } else {
@@ -264,8 +367,16 @@ export default function SessionBudgetModal({
       } catch (err: any) {
         soundService.play('error')
         const friendlyMsg = formatFriendlyFundingError(err)
+        const isCancel = isUserCanceledError(err)
         setFundingStatus(friendlyMsg)
         setIsFunding(false)
+        if (broadcastId) {
+          updateBroadcast(broadcastId, {
+            status: isCancel ? 'canceled' : 'failed',
+            badgeText: isCancel ? 'Canceled' : 'Failed',
+            message: friendlyMsg,
+          })
+        }
         setTimeout(() => setFundingStatus(null), 5000)
         return // STOP here! Do not activate if funding was rejected or failed
       } finally {
@@ -275,7 +386,33 @@ export default function SessionBudgetModal({
 
     // 3. ACTIVATION PHASE
     setIsSaving(true)
-    setFundingStatus('Activating session policy...')
+    const isResetOnly = isSessionActive && amountToFund <= 0
+    setFundingStatus(isResetOnly ? 'Resetting session time...' : 'Activating session policy...')
+
+    if (broadcastId) {
+      updateBroadcast(broadcastId, {
+        badgeText: 'Activating',
+        message: 'Funding confirmed on Arc Testnet. Activating session policy...',
+      })
+    } else if (!isResetOnly) {
+      broadcastId = addBroadcast({
+        type: 'session',
+        title: 'Updating Session Policy',
+        status: 'pending',
+        badgeText: 'Activating',
+        details: {
+          sessionAction: 'update',
+          budgetUsdc: targetAmount,
+          durationHours,
+          autoExecute,
+          enclaveAddress: pubKey,
+          userAddress: walletAddress,
+          network: 'Arc_Testnet',
+          sessionScope: 'marketplace',
+        },
+      })
+    }
+
     try {
       const updated = await activateSessionKey({
         userApproved: true,
@@ -289,22 +426,55 @@ export default function SessionBudgetModal({
         scope: 'marketplace',
       })
       setConfig(updated)
-      setAutoExecute(updated.autoExecute ?? true)
+      setAutoExecute(updated.autoExecute ?? false)
       if (onBudgetUpdated) onBudgetUpdated(targetAmount)
       soundService.play('success')
       setSavedSuccess(true)
-      setFundingStatus('Session successfully activated & funded!')
+      if (isResetOnly) {
+        setResetSuccessNotice(true)
+      }
+      setFundingStatus(isResetOnly ? 'Session time has been reset' : 'Session successfully activated & funded!')
+
+      if (broadcastId) {
+        updateBroadcast(broadcastId, {
+          status: 'success',
+          title: isSessionActive ? 'Session Budget Updated' : 'Session Activated & Funded',
+          badgeText: 'Success',
+          message: 'Autonomous Enclave is active with zero-popup authority on Arc Testnet.',
+          details: {
+            sessionAction: isSessionActive ? 'update' : 'fund',
+            amount: amountToFund > 0 ? amountToFund.toFixed(2) : undefined,
+            budgetUsdc: targetAmount,
+            durationHours,
+            autoExecute: updated.autoExecute ?? autoExecute,
+            enclaveAddress: updated.sessionPublicKey || pubKey,
+            userAddress: walletAddress,
+            network: 'Arc_Testnet',
+            sessionScope: 'marketplace',
+            txHash: fundingTxHash,
+          },
+        })
+      }
 
       const bal = await fetchEnclaveUsdcBalance(updated.sessionPublicKey)
       setEnclaveBalance(bal)
 
       setTimeout(() => {
         setSavedSuccess(false)
+        setResetSuccessNotice(false)
         setFundingStatus(null)
-      }, 2500)
+      }, 3000)
     } catch (err: any) {
       soundService.play('error')
-      setFundingStatus(`Activation failed: ${formatFriendlyFundingError(err)}`)
+      const friendlyMsg = formatFriendlyFundingError(err)
+      setFundingStatus(`Activation failed: ${friendlyMsg}`)
+      if (broadcastId) {
+        updateBroadcast(broadcastId, {
+          status: 'failed',
+          badgeText: 'Failed',
+          message: `Activation failed: ${friendlyMsg}`,
+        })
+      }
     } finally {
       setIsSaving(false)
     }
@@ -312,35 +482,122 @@ export default function SessionBudgetModal({
 
   const handleRevoke = async () => {
     soundService.play('pop')
-    if (enclaveBalance > 0 && walletAddress) {
-      setIsSweeping(true)
-      setFundingStatus('Sweeping remaining funds back to your wallet...')
-      try {
-        const sweepRes = await sweepEnclaveUsdc(walletAddress, walletAddress, 'marketplace')
-        if (sweepRes.success) {
-          soundService.play('success')
-          setEnclaveBalance(0)
-        } else {
-          soundService.play('error')
-          setFundingStatus(`Sweep failed: ${sweepRes.error || 'Transaction rejected'}`)
-          setIsSweeping(false)
-          return
-        }
-      } catch (err: any) {
-        console.error('Sweep before revoke failed', err)
-        soundService.play('error')
-        setFundingStatus(`Sweep error: ${err?.message || 'Sweep failed'}`)
-        setIsSweeping(false)
-        return
-      } finally {
-        setIsSweeping(false)
-      }
+    if (!walletAddress) {
+      setFundingStatus('Wallet address not available.')
+      return
     }
-    setFundingStatus(null)
-    const revoked = revokeSessionKey(walletAddress, 'marketplace')
+
+    const broadcastId = addBroadcast({
+      type: 'session',
+      title: 'Revoking Session Enclave',
+      status: 'pending',
+      badgeText: 'Sweeping',
+      details: {
+        sessionAction: 'sweep',
+        enclaveAddress: config.sessionPublicKey,
+        userAddress: walletAddress,
+        network: 'Arc_Testnet',
+        sessionScope: 'marketplace',
+      },
+    })
+
+    setIsSweeping(true)
+    setFundingStatus('Verifying on-chain enclave balance & sweeping funds back...')
+    try {
+      const sweepRes = await sweepEnclaveUsdc(walletAddress, walletAddress, 'marketplace', config.sessionPublicKey)
+      if (sweepRes.success) {
+        soundService.play('success')
+        setEnclaveBalance(0)
+        const hasSweptFunds = sweepRes.sweptAmountUsdc > 0
+        const sweptMsg = hasSweptFunds 
+          ? `Successfully swept ${sweepRes.sweptAmountUsdc.toFixed(2)} USDC back to your wallet!` 
+          : 'Session successfully revoked!'
+        setFundingStatus(sweptMsg)
+
+        updateBroadcast(broadcastId, {
+          status: 'success',
+          title: hasSweptFunds ? 'Enclave Funds Swept' : 'Session Revoked',
+          badgeText: 'Success',
+          details: {
+            sessionAction: 'sweep',
+            amount: hasSweptFunds ? sweepRes.sweptAmountUsdc.toFixed(2) : '0.00',
+            tokenSymbol: 'USDC',
+            enclaveAddress: config.sessionPublicKey,
+            userAddress: walletAddress,
+            network: 'Arc_Testnet',
+            sessionScope: 'marketplace',
+            txHash: sweepRes.txHash,
+          },
+          message: hasSweptFunds
+            ? `Successfully swept ${sweepRes.sweptAmountUsdc.toFixed(2)} USDC back to your wallet.`
+            : 'Session successfully revoked. No remaining balance to sweep.',
+        })
+
+        setTimeout(() => {
+          setFundingStatus(null)
+        }, 3500)
+      } else {
+        soundService.play('error')
+        const failMsg = `Sweep failed: ${sweepRes.error || 'Transaction rejected'}`
+        setFundingStatus(failMsg)
+        setIsSweeping(false)
+        setShowForceReset(true)
+
+        updateBroadcast(broadcastId, {
+          status: 'failed',
+          badgeText: 'Failed',
+          message: failMsg,
+        })
+        return
+      }
+    } catch (err: any) {
+      console.error('Sweep before revoke failed', err)
+      soundService.play('error')
+      const errMsg = `Sweep error: ${err?.message || 'Sweep failed'}`
+      setFundingStatus(errMsg)
+      setIsSweeping(false)
+      setShowForceReset(true)
+
+      updateBroadcast(broadcastId, {
+        status: 'failed',
+        badgeText: 'Failed',
+        message: errMsg,
+      })
+      return
+    } finally {
+      setIsSweeping(false)
+    }
+
+    setShowForceReset(false)
+    const revoked = revokeSessionKey(walletAddress, 'marketplace', config.sessionPublicKey)
     setConfig(revoked)
     setAutoExecute(revoked.autoExecute ?? false)
     setEnclaveBalance(0)
+  }
+
+  const handleForceReset = () => {
+    soundService.play('cancel')
+    const revoked = revokeSessionKey(walletAddress, 'marketplace', config.sessionPublicKey)
+    setConfig(revoked)
+    setAutoExecute(revoked.autoExecute ?? false)
+    setEnclaveBalance(0)
+    setFundingStatus(null)
+    setShowForceReset(false)
+
+    addBroadcast({
+      type: 'session',
+      title: 'Session Policy Reset',
+      status: 'canceled',
+      badgeText: 'Reset',
+      details: {
+        sessionAction: 'reset',
+        enclaveAddress: config.sessionPublicKey,
+        userAddress: walletAddress,
+        network: 'Arc_Testnet',
+        sessionScope: 'marketplace',
+      },
+      message: 'Local session policy was force-reset. Enclave key was cleared from memory.',
+    })
   }
 
   const handleToggleAuto = () => {
@@ -350,6 +607,24 @@ export default function SessionBudgetModal({
     if (isSessionActive) {
       const updated = toggleSessionAutoExecute(nextVal, walletAddress, 'marketplace')
       setConfig(updated)
+
+      addBroadcast({
+        type: 'session',
+        title: nextVal ? 'Autonomous Mode Enabled' : 'Autonomous Mode Disabled',
+        status: 'info',
+        badgeText: nextVal ? 'Zero-Popup' : 'Manual',
+        details: {
+          sessionAction: 'update',
+          autoExecute: nextVal,
+          enclaveAddress: config.sessionPublicKey,
+          userAddress: walletAddress,
+          network: 'Arc_Testnet',
+          sessionScope: 'marketplace',
+        },
+        message: nextVal
+          ? 'Authorized payments within caps execute without confirmation pop-ups.'
+          : 'Transactions will require manual confirmation prompts.',
+      })
     }
   }
 
@@ -360,7 +635,7 @@ export default function SessionBudgetModal({
   const isSessionActive = Boolean(config.isActive && !isExpired)
   const spentPercent = config.maxSpendUsdc > 0 ? Math.min(100, Math.round((config.spentUsdc / config.maxSpendUsdc) * 100)) : 0
   const targetBudget = parseFloat(customBudget) || 1.0
-  const amountToFund = enclaveBalance <= 0
+  const amountToFund = !isSessionActive || enclaveBalance <= 0
     ? targetBudget
     : Math.max(0, targetBudget - enclaveBalance)
 
@@ -794,11 +1069,34 @@ export default function SessionBudgetModal({
           </div>
 
           {fundingStatus && (
-            <div className="flex items-center justify-center gap-2 text-[12px] font-mono text-center my-3 animate-fade-in">
-              {(isFunding || isSaving) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />}
-              <span className={fundingStatus.includes('failed') || fundingStatus.includes('Error') ? 'text-rose-400' : fundingStatus.includes('cancelled') || fundingStatus.includes('canceled') ? 'text-amber-400' : 'text-indigo-300'}>
-                {fundingStatus}
-              </span>
+            <div className="space-y-2 my-3 animate-fade-in">
+              <div className="flex items-center justify-center gap-2 text-[12px] font-mono text-center">
+                {(isFunding || isSaving || isSweeping) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />}
+                {!isFunding && !isSaving && !isSweeping && (fundingStatus.includes('reset') || fundingStatus.includes('Reset') || fundingStatus.includes('Successfully') || fundingStatus.includes('successfully')) && (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                )}
+                <span className={fundingStatus.includes('failed') || fundingStatus.includes('Error') ? 'text-rose-400' : fundingStatus.includes('cancelled') || fundingStatus.includes('canceled') ? 'text-amber-400' : fundingStatus.includes('Successfully') || fundingStatus.includes('successfully') || fundingStatus.includes('reset') || fundingStatus.includes('Reset') ? 'text-emerald-400' : 'text-indigo-300'}>
+                  {fundingStatus}
+                </span>
+              </div>
+              {showForceReset && (
+                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-center space-y-2 animate-fade-in">
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-rose-300 font-semibold">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                    <span>Signing Key Not Found in Client Storage</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                    The ephemeral key for this session cannot be located in storage (likely created before multi-tab storage was enabled, or cleared). You can force-reset the local session policy to unlock this window and start fresh.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleForceReset}
+                    className="mt-1 px-4 py-1.5 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold font-mono transition cursor-pointer"
+                  >
+                    Force Reset Session Policy
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -809,19 +1107,10 @@ export default function SessionBudgetModal({
                 type="button"
                 onClick={handleRevoke}
                 disabled={isSweeping || isFunding || isSaving || !config.sessionPublicKey}
-                className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25"
+                className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSweeping ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
-                    <span>Sweeping Funds...</span>
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Revoke Session</span>
-                  </>
-                )}
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span>Revoke Session</span>
               </button>
             ) : (
               <div />
@@ -848,33 +1137,33 @@ export default function SessionBudgetModal({
               {savedSuccess ? (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Activated &amp; Funded!</span>
+                  <span>{resetSuccessNotice ? 'Session Updated!' : 'Activated &amp; Funded!'}</span>
                 </>
               ) : isFunding ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                  <span>Funding ({amountToFund > 0 ? amountToFund : targetBudget} USDC)...</span>
-                </>
-              ) : isSaving ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-                  <span>Activating Policy...</span>
-                </>
-              ) : (
-                <>
-                  {isSessionActive ? <RefreshCw className="w-3.5 h-3.5 text-white" /> : <Lock className="w-3.5 h-3.5 text-white" />}
-                  <span>
-                    {isSessionActive
-                      ? (amountToFund > 0 ? `UPDATE SESSION (+${amountToFund.toFixed(2)} USDC)` : 'UPDATE SESSION')
-                      : `ACTIVATE SESSION & FUND (${targetBudget} USDC)`}
-                  </span>
-                </>
-              )}
-            </button>
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                    <span>Funding ({amountToFund > 0 ? amountToFund : targetBudget} USDC)...</span>
+                  </>
+                ) : isSaving ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                    <span>Activating Policy...</span>
+                  </>
+                ) : (
+                  <>
+                    {isSessionActive ? <RefreshCw className="w-3.5 h-3.5 text-white" /> : <Lock className="w-3.5 h-3.5 text-white" />}
+                    <span>
+                      {isSessionActive
+                        ? (amountToFund > 0 ? `UPDATE SESSION (+${amountToFund.toFixed(2)} USDC)` : 'UPDATE SESSION')
+                        : `ACTIVATE SESSION & FUND (${targetBudget} USDC)`}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    </div>,
+      </div>,
     document.body
   )
 }

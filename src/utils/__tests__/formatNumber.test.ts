@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatPercent, formatUsdcAmount, formatSubscriptZero } from '../formatNumber'
+import { formatPercent, formatUsdcAmount, formatSubscriptZero, formatBroadcastAmount } from '../formatNumber'
 
 describe('formatUsdcAmount', () => {
   it('groups thousands and keeps two decimals', () => {
@@ -65,4 +65,50 @@ describe('formatSubscriptZero', () => {
     expect(formatSubscriptZero('')).toBe('—')
   })
 })
+
+describe('formatBroadcastAmount', () => {
+  it('formats stablecoins (USDC, EURC) with exactly 2 decimals when >= 1', () => {
+    expect(formatBroadcastAmount('5', 'USDC')).toBe('5.00')
+    expect(formatBroadcastAmount(5, 'USDC')).toBe('5.00')
+    expect(formatBroadcastAmount('1234.5', 'USDC')).toBe('1,234.50')
+    expect(formatBroadcastAmount('10.256', 'USDC')).toBe('10.26')
+    expect(formatBroadcastAmount('100', 'EURC')).toBe('100.00')
+    expect(formatBroadcastAmount('0', 'USDC')).toBe('0.00')
+  })
+
+  it('formats stablecoins < 1 with up to 4 decimals', () => {
+    expect(formatBroadcastAmount('0.5', 'USDC')).toBe('0.50')
+    expect(formatBroadcastAmount('0.0034', 'USDC')).toBe('0.0034')
+    expect(formatBroadcastAmount('0.003438', 'USDC')).toBe('0.0034')
+    expect(formatBroadcastAmount('0.00003', 'USDC')).toBe('< 0.0001')
+  })
+
+  it('formats high-value assets (cirBTC, WETH) with 4 decimals when < 1', () => {
+    expect(formatBroadcastAmount('0.003438343443', 'cirBTC')).toBe('0.0034')
+    expect(formatBroadcastAmount('0.003438343443', 'wETH')).toBe('0.0034')
+    expect(formatBroadcastAmount('0.003438343443', 'WETH')).toBe('0.0034')
+    expect(formatBroadcastAmount('0.05', 'cirBTC')).toBe('0.0500')
+    expect(formatBroadcastAmount('0.00002', 'cirBTC')).toBe('< 0.0001')
+  })
+
+  it('formats high-value assets >= 1 with 2 to 4 decimals', () => {
+    expect(formatBroadcastAmount('1', 'cirBTC')).toBe('1.00')
+    expect(formatBroadcastAmount('1.25', 'cirBTC')).toBe('1.25')
+    expect(formatBroadcastAmount('1.23456', 'wETH')).toBe('1.2346')
+  })
+
+  it('formats LP tokens with 2 to 4 decimals', () => {
+    expect(formatBroadcastAmount('14.839201', 'af-USDC-EURC')).toBe('14.8392')
+    expect(formatBroadcastAmount('5', 'af-USDC')).toBe('5.00')
+  })
+
+  it('preserves non-numeric strings and edge cases', () => {
+    expect(formatBroadcastAmount('10 USDC, 5 EURC', 'USDC')).toBe('10 USDC, 5 EURC')
+    expect(formatBroadcastAmount('Yield', 'USDC')).toBe('Yield')
+    expect(formatBroadcastAmount(null)).toBe('')
+    expect(formatBroadcastAmount(undefined)).toBe('')
+    expect(formatBroadcastAmount('')).toBe('')
+  })
+})
+
 

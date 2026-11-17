@@ -12,6 +12,7 @@ import {
   Layers,
   ArrowUpRightFromSquare,
   Sparkles,
+  Key,
 } from 'lucide-react'
 import { ChainIcon } from './common/ChainIcon'
 import UsdcIcon from '../assets/Token-Icon/USDC Token.svg'
@@ -26,9 +27,10 @@ import {
 } from '../config/chainMeta'
 import { ARCIS_POOLS } from '../config/poolsConfig'
 import { TOKEN_ICON_MAP, WethIcon } from '../config/tokenIcons'
+import { formatBroadcastAmount } from '../utils/formatNumber'
 
 export type BroadcastStatus = 'pending' | 'success' | 'failed' | 'canceled' | 'info'
-export type BroadcastType = 'send' | 'bridge' | 'swap' | 'deposit' | 'pool' | 'faucet' | 'system'
+export type BroadcastType = 'send' | 'bridge' | 'swap' | 'deposit' | 'pool' | 'faucet' | 'session' | 'system'
 
 export interface BroadcastDetails {
   // Common / Send
@@ -80,6 +82,16 @@ export interface BroadcastDetails {
   rewardAmount?: string
   isClaimAll?: boolean
 
+  // Session & Autonomous Enclave operations
+  sessionAction?: 'fund' | 'activate' | 'update' | 'revoke' | 'sweep' | 'reset'
+  enclaveAddress?: string
+  userAddress?: string
+  durationHours?: number
+  budgetUsdc?: number | string
+  spentUsdc?: number | string
+  autoExecute?: boolean
+  sessionScope?: 'marketplace' | 'copilot'
+
   // Legacy / Faucet fields
   isBridge?: boolean
   isFaucet?: boolean
@@ -112,7 +124,13 @@ const BroadcastContext = createContext<BroadcastContextType | undefined>(undefin
 export const useBroadcast = () => {
   const context = useContext(BroadcastContext)
   if (!context) {
-    throw new Error('useBroadcast must be used within a BroadcastProvider')
+    return {
+      broadcasts: [],
+      addBroadcast: () => '',
+      updateBroadcast: () => {},
+      removeBroadcast: () => {},
+      clearBroadcasts: () => {},
+    }
   }
   return context
 }
@@ -229,12 +247,76 @@ const getExplorerName = (network?: string) => {
   return 'Etherscan'
 }
 
+export function shortenAddress(address?: string, start = 6, end = 4): string {
+  if (!address) return ''
+  if (address.length <= start + end) return address
+  return `${address.slice(0, start)}...${address.slice(-end)}`
+}
+
+export function ExplorerAddressBadge({
+  address,
+  network,
+  label,
+  className = '',
+  showExternalIcon = true,
+}: {
+  address?: string
+  network?: string
+  label?: string
+  className?: string
+  showExternalIcon?: boolean
+}) {
+  if (!address) return null
+  const isEthAddress = Boolean(address.startsWith('0x') && address.length >= 10)
+  const isSolana = isSolanaChain(network)
+  const isRealAddress = isEthAddress || isSolana
+
+  const explorerUrl = isRealAddress ? getExplorerAddressLink(address, network) : '#'
+  const formattedAddress = shortenAddress(address, 6, 4)
+
+  if (!isRealAddress) {
+    return (
+      <span className={`font-mono text-[11px] text-white font-medium ${className}`} title={address}>
+        {label ? `${label} (${address})` : address}
+      </span>
+    )
+  }
+
+  return (
+    <a
+      href={explorerUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`group/addr inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-white hover:text-indigo-400 transition-colors duration-150 cursor-pointer no-underline ${className}`}
+      title={`View ${address} on ${getExplorerName(network)}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span className="text-white group-hover/addr:text-indigo-400 hover:text-indigo-400 transition-colors duration-150">
+        {label ? `${label} (${formattedAddress})` : formattedAddress}
+      </span>
+      {showExternalIcon && (
+        <ArrowUpRightFromSquare className="w-2.5 h-2.5 text-white group-hover/addr:text-indigo-400 group-hover/addr:translate-x-0.5 group-hover/addr:-translate-y-0.5 transition-all duration-200 shrink-0" />
+      )}
+    </a>
+  )
+}
+
 function inferBroadcastType(broadcast: BroadcastMessage): BroadcastType {
   if (broadcast.type) return broadcast.type
   const title = (broadcast.title || '').toLowerCase()
   const badge = (broadcast.badgeText || '').toLowerCase()
   const details = broadcast.details
 
+  if (
+    details?.sessionAction ||
+    details?.enclaveAddress ||
+    title.includes('session') ||
+    title.includes('enclave') ||
+    badge.includes('session') ||
+    badge.includes('enclave')
+  ) {
+    return 'session'
+  }
   if (details?.isFaucet || title.includes('faucet') || badge === 'faucet') return 'faucet'
   if (details?.isBridge || title.includes('bridg') || badge.includes('cctp')) return 'bridge'
   if (title.includes('swap') || badge.includes('swap') || badge.includes('swapped')) return 'swap'
@@ -270,7 +352,11 @@ export function BroadcastProvider({ children }: { children: React.ReactNode }) {
     setBroadcasts(prev =>
       prev.map(item => {
         if (item.id !== id) return item
-        const updated = { ...item, ...updates }
+        const updated = {
+          ...item,
+          ...updates,
+          details: updates.details ? { ...item.details, ...updates.details } : item.details,
+        }
         if (updates.status === 'success' || updates.status === 'failed' || updates.status === 'canceled') {
           updated.autoClose = updates.autoClose ?? true
           updated.autoCloseDelay = updates.autoCloseDelay ?? 5000
@@ -315,7 +401,7 @@ function BroadcastContainer({
   )
 }
 
-function BroadcastCard({
+export function BroadcastCard({
   broadcast,
   onRemove,
 }: {
@@ -530,6 +616,7 @@ function BroadcastCard({
       {opType === 'pool' && <PoolBroadcastContent details={details} status={status} />}
       {opType === 'deposit' && (details?.poolName ? <PoolBroadcastContent details={details} status={status} /> : <DepositBroadcastContent details={details} status={status} />)}
       {opType === 'faucet' && <FaucetBroadcastContent details={details} />}
+      {opType === 'session' && <SessionBroadcastContent details={details} status={status} />}
       {opType === 'system' && (details?.poolName ? <PoolBroadcastContent details={details} status={status} /> : <SystemBroadcastContent details={details} />)}
 
       {/* ERROR / EXPLANATION MESSAGE */}
@@ -611,12 +698,18 @@ function BroadcastCard({
           )
         }
 
-        if (isSuccess && (opType === 'bridge' || opType === 'send' || opType === 'swap')) {
+        if (
+          isSuccess &&
+          (opType === 'bridge' ||
+            opType === 'send' ||
+            opType === 'swap' ||
+            (opType === 'session' && Boolean(details?.amount && Number(details.amount) > 0)))
+        ) {
           const effectiveChain =
             details?.bridgeMode === 'gateway'
               ? (details?.destChain || explorerChain)
               : (details?.sourceChain || explorerChain)
-          const targetAddress = details?.recipient || (details as any)?.destinationAddress || (details as any)?.userAddress
+          const targetAddress = details?.recipient || (details as any)?.destinationAddress || (details as any)?.userAddress || details?.enclaveAddress
           const addressUrl = targetAddress ? getExplorerAddressLink(targetAddress, effectiveChain) : undefined
 
           return (
@@ -709,7 +802,7 @@ function SendBroadcastContent({ details }: { details?: BroadcastDetails }) {
           <div className="flex items-center gap-1.5 font-bold text-white">
             {sendAmount ? (
               <>
-                <span className="tabular-nums">{sendAmount}</span>
+                <span className="tabular-nums">{formatBroadcastAmount(sendAmount, tokenSym)}</span>
                 <span>{tokenSym}</span>
               </>
             ) : (
@@ -734,11 +827,7 @@ function SendBroadcastContent({ details }: { details?: BroadcastDetails }) {
             <Wallet className="w-3 h-3 text-slate-400" />
             To:
           </span>
-          <span className="font-mono text-xs text-white font-medium truncate" title={recipientAddr}>
-            {recipientAddr.length > 24
-              ? `${recipientAddr.slice(0, 14)}...${recipientAddr.slice(-10)}`
-              : recipientAddr}
-          </span>
+          <ExplorerAddressBadge address={recipientAddr} network={network} />
         </div>
       )}
 
@@ -785,7 +874,7 @@ function BridgeBroadcastContent({ details, status }: { details?: BroadcastDetail
               <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
             ) : null}
             <div className="flex items-center gap-1.5">
-              <span className="tabular-nums">{amount}</span>
+              <span className="tabular-nums">{formatBroadcastAmount(amount, tokenSym)}</span>
               <span>{tokenSym}</span>
             </div>
           </div>
@@ -869,7 +958,7 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
           <div className="flex items-center gap-1.5 font-bold text-white truncate">
             {fromAmount ? (
               <>
-                <span className="tabular-nums">{fromAmount}</span>
+                <span className="tabular-nums">{formatBroadcastAmount(fromAmount, fromSym)}</span>
                 <span>{fromSym}</span>
               </>
             ) : (
@@ -904,7 +993,7 @@ function SwapBroadcastContent({ details, status }: { details?: BroadcastDetails;
           <div className="flex items-center gap-1.5 font-bold text-white truncate">
             {toAmount ? (
               <>
-                <span className="tabular-nums">{toAmount}</span>
+                <span className="tabular-nums">{formatBroadcastAmount(toAmount, toSym)}</span>
                 <span>{toSym}</span>
               </>
             ) : (
@@ -1031,7 +1120,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
             {tokenIconSrc && (
               <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
             )}
-            <span className="tabular-nums">{amount}</span>
+            <span className="tabular-nums">{formatBroadcastAmount(amount, tokenSym)}</span>
             <span>{tokenSym}</span>
           </div>
         </div>
@@ -1042,13 +1131,13 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
             <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 min-w-0">
               <div className="flex items-center gap-1 font-bold text-white">
                 <img src={iconA} alt={symA} className="w-3.5 h-3.5 object-contain shrink-0" />
-                <span className="tabular-nums">{amountA}</span>
+                <span className="tabular-nums">{formatBroadcastAmount(amountA, symA)}</span>
                 <span className="text-[11px] text-slate-300 font-semibold">{symA}</span>
               </div>
               <span className="text-slate-500 font-bold text-xs">+</span>
               <div className="flex items-center gap-1 font-bold text-white">
                 <img src={iconB} alt={symB} className="w-3.5 h-3.5 object-contain shrink-0" />
-                <span className="tabular-nums">{amountB}</span>
+                <span className="tabular-nums">{formatBroadcastAmount(amountB, symB)}</span>
                 <span className="text-[11px] text-slate-300 font-semibold">{symB}</span>
               </div>
             </div>
@@ -1056,7 +1145,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
             <div className="flex items-center gap-1.5 bg-emerald-950/70 px-2.5 py-1 rounded-xl border border-emerald-500/35 text-emerald-300 font-bold shadow-sm">
               <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               <img src={UsdcIcon} alt="USDC" className="w-3.5 h-3.5 object-contain shrink-0" />
-              <span className="tabular-nums font-mono text-xs">+{amount || 'Yield'}</span>
+              <span className="tabular-nums font-mono text-xs">+{amount ? formatBroadcastAmount(amount, 'USDC') : 'Yield'}</span>
               <span className="text-[11px] text-emerald-200">USDC</span>
             </div>
           ) : (
@@ -1071,7 +1160,7 @@ function PoolBroadcastContent({ details, status }: { details?: BroadcastDetails;
               <div className="flex items-center gap-1 font-bold text-white">
                 {amount ? (
                   <>
-                    <span className="tabular-nums">{amount}</span>
+                    <span className="tabular-nums">{formatBroadcastAmount(amount, tokenSym)}</span>
                     <span>{tokenSym}</span>
                   </>
                 ) : (
@@ -1205,7 +1294,7 @@ function DepositBroadcastContent({ details, status }: { details?: BroadcastDetai
           <div className="flex items-center gap-1.5 font-bold text-white bg-slate-900/80 px-2 py-0.5 rounded-lg border border-slate-800">
             <img src={UsdcIcon} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
             <div className="flex items-center gap-1.5">
-              <span className="tabular-nums">{depositAmount}</span>
+              <span className="tabular-nums">{formatBroadcastAmount(depositAmount, tokenSym)}</span>
               <span>{tokenSym}</span>
             </div>
           </div>
@@ -1277,7 +1366,7 @@ function FaucetBroadcastContent({ details }: { details?: BroadcastDetails }) {
         {tokenSummary && (
           <div className="flex items-center gap-1.5 font-semibold text-xs text-blue-400">
             <img src={UsdcIcon} alt="Tokens" className="w-3.5 h-3.5 object-contain shrink-0" />
-            <span>{tokenSummary}</span>
+            <span>{formatBroadcastAmount(tokenSummary, 'USDC')}</span>
           </div>
         )}
       </div>
@@ -1296,7 +1385,133 @@ function FaucetBroadcastContent({ details }: { details?: BroadcastDetails }) {
 }
 
 /* ========================================================================== */
-/* 6. SYSTEM / FALLBACK TEMPLATE                                              */
+/* 6. SESSION & AUTONOMOUS ENCLAVE BROADCAST TEMPLATE                         */
+/* ========================================================================== */
+function SessionBroadcastContent({ details, status }: { details?: BroadcastDetails; status?: BroadcastStatus }) {
+  if (!details) return null
+
+  const isFailed = status === 'failed'
+  const isCanceled = status === 'canceled'
+  const isSuccess = status === 'success'
+
+  const sessionAction = details.sessionAction || 'activate'
+  const hasTransferAmount = Boolean(details.amount && Number(details.amount) > 0)
+  const isFundTransfer = (sessionAction === 'fund' || sessionAction === 'update') && hasTransferAmount
+  const isSweep = sessionAction === 'sweep'
+
+  // Non-transfer session updates (e.g. time reset with unchanged balance) do not show a broadcast notification
+  if (!isFundTransfer && !isSweep) {
+    return null
+  }
+
+  const amount = details.amount
+  const tokenSym = details.tokenSymbol || 'USDC'
+  const tokenIconSrc = details.tokenIcon || UsdcIcon
+  const network = details.network || 'Arc_Testnet'
+  const enclaveAddr = details.enclaveAddress || ''
+  const userAddr = details.userAddress || details.recipient || ''
+
+  return (
+    <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-2">
+      {/* Top Row: Amount Pill & Network Badge */}
+      <div className="flex items-center justify-between gap-2 text-xs">
+        {/* Left: Amount Badge */}
+        <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800">
+          <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
+          <div className="flex items-center gap-1.5 font-bold text-white">
+            <span className="tabular-nums font-mono">
+              {(() => {
+                const formatted = formatBroadcastAmount(amount, tokenSym)
+                return isSweep && Number(amount) > 0 ? `+${formatted}` : formatted
+              })()}
+            </span>
+            <span>{tokenSym}</span>
+          </div>
+        </div>
+
+        {/* Right: Network Badge */}
+        <div className="flex items-center gap-1.5 font-medium text-white bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 shrink-0">
+          <ChainIconBadge chain={network} size={14} />
+          <span className="truncate max-w-[180px] text-[11px] font-semibold">
+            {getChainDisplayName(network)}
+          </span>
+        </div>
+      </div>
+
+      {/* Center Matrix Card: Route */}
+      {isFundTransfer && enclaveAddr ? (
+        /* Funding Flow: Main Wallet ➔ Enclave EOA */
+        <div className="flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs border-slate-800 bg-slate-900/60">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Wallet className="w-3 h-3 text-slate-400 shrink-0" />
+            {userAddr && userAddr.startsWith('0x') ? (
+              <ExplorerAddressBadge address={userAddr} network={network} />
+            ) : (
+              <span className="font-semibold text-slate-300 truncate text-[11px]" title={userAddr || 'Main Wallet'}>
+                {userAddr ? shortenAddress(userAddr) : 'Main Wallet'}
+              </span>
+            )}
+          </div>
+
+          <div className="shrink-0 flex items-center justify-center px-1">
+            <ArrowRight
+              className={`w-3.5 h-3.5 ${
+                isCanceled
+                  ? 'text-amber-400'
+                  : isFailed
+                    ? 'text-rose-400'
+                    : isSuccess
+                      ? 'text-emerald-400'
+                      : 'text-cyan-400'
+              }`}
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 min-w-0 justify-end">
+            <Key className="w-3 h-3 text-slate-400 shrink-0" />
+            <ExplorerAddressBadge address={enclaveAddr} network={network} label="Enclave" />
+          </div>
+        </div>
+      ) : isSweep && enclaveAddr ? (
+        /* Sweep Flow: Enclave EOA ➔ Main Wallet */
+        <div className="flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs border-slate-800 bg-slate-900/60">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Key className="w-3 h-3 text-slate-400 shrink-0" />
+            <ExplorerAddressBadge address={enclaveAddr} network={network} label="Enclave" />
+          </div>
+
+          <div className="shrink-0 flex items-center justify-center px-1">
+            <ArrowRight
+              className={`w-3.5 h-3.5 ${
+                isCanceled
+                  ? 'text-amber-400'
+                  : isFailed
+                    ? 'text-rose-400'
+                    : isSuccess
+                      ? 'text-emerald-400'
+                      : 'text-cyan-400'
+              }`}
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 min-w-0 justify-end">
+            <Wallet className="w-3 h-3 text-slate-400 shrink-0" />
+            {userAddr && userAddr.startsWith('0x') ? (
+              <ExplorerAddressBadge address={userAddr} network={network} />
+            ) : (
+              <span className="font-semibold text-slate-300 truncate text-[11px]" title={userAddr || 'Main Wallet'}>
+                {userAddr ? shortenAddress(userAddr) : 'Main Wallet'}
+              </span>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/* ========================================================================== */
+/* 7. SYSTEM / FALLBACK TEMPLATE                                              */
 /* ========================================================================== */
 function SystemBroadcastContent({ details }: { details?: BroadcastDetails }) {
   if (!details) return null
