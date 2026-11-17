@@ -5,35 +5,56 @@
 // Enables zero-click autonomous payments signed by the enclave key on Arc Testnet.
 import {
   Check,
+  CheckCircle2,
   Clock,
   Copy,
   ExternalLink,
-  Flame,
   Loader2,
+  Lock,
   RefreshCw,
   ShieldCheck,
-  Wallet,
+  Trash2,
   X,
   Zap,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createWalletClient, custom, encodeFunctionData, parseUnits, type Address } from 'viem'
 import { arcTestnet } from '../../config/arcChain'
 import { ERC20_ABI, POOL_CONTRACTS } from '../../config/poolsConfig'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
-import { getStoredMscaAddress } from '../../services/modularWalletService'
+import { getStoredMscaAddress, sendModularUserOperation } from '../../services/modularWalletService'
+import { getResilientPublicClient } from '../../services/rpc'
 import {
   activateSessionKey,
   fetchEnclaveUsdcBalance,
+  generateEphemeralSessionAccount,
+  getEphemeralSessionAccount,
   getSessionKeyConfig,
   getSessionTimeRemaining,
+  MARKETPLACE_SESSION_UPDATED_EVENT,
   revokeSessionKey,
   SESSION_KEY_UPDATED_EVENT,
   sweepEnclaveUsdc,
   toggleSessionAutoExecute,
 } from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
+import { formatErrorMessage, isUserCanceledError } from '../../utils/errorNormalizer'
+
+function formatFriendlyFundingError(err: unknown): string {
+  if (isUserCanceledError(err)) {
+    return 'Transaction request was cancelled in your wallet. No funds were transferred.'
+  }
+  const friendly = formatErrorMessage(err)
+  if (friendly && !friendly.includes('Request Arguments') && friendly !== 'An unexpected error occurred. Please try again.') {
+    return `Funding failed: ${friendly}`
+  }
+  const short = (err as any)?.shortMessage
+  if (short && !short.includes('Request Arguments')) {
+    return `Funding failed: ${short}`
+  }
+  return 'Funding failed: Transaction could not be completed.'
+}
 
 interface SessionBudgetModalProps {
   isOpen: boolean
@@ -54,24 +75,27 @@ export default function SessionBudgetModal({
   ucwHandlers,
   onBudgetUpdated,
 }: SessionBudgetModalProps) {
-  const [config, setConfig] = useState(() => getSessionKeyConfig(walletAddress))
+  const [config, setConfig] = useState(() => getSessionKeyConfig(walletAddress, 'marketplace'))
   const [customBudget, setCustomBudget] = useState<string>('2.00')
   const [isCustomBudget, setIsCustomBudget] = useState<boolean>(false)
   const [selectedDuration, setSelectedDuration] = useState<number>(24)
   const [autoExecute, setAutoExecute] = useState<boolean>(() => {
-    const initial = getSessionKeyConfig(walletAddress)
+    const initial = getSessionKeyConfig(walletAddress, 'marketplace')
     return initial.autoExecute ?? true
   })
   const [copiedKey, setCopiedKey] = useState<boolean>(false)
   const [enclaveBalance, setEnclaveBalance] = useState<number>(0)
   const [isFunding, setIsFunding] = useState<boolean>(false)
+  const [isSaving, setIsSaving] = useState<boolean>(false)
+  const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
   const [isSweeping, setIsSweeping] = useState<boolean>(false)
   const [fundingStatus, setFundingStatus] = useState<string | null>(null)
 
-  // Listen for session key updates
+  // Listen for marketplace session key updates
   useEffect(() => {
     const handleUpdate = (e: any) => {
       if (e?.detail) {
+        if (e.detail.scope && e.detail.scope !== 'marketplace') return
         if (!e.detail.walletAddress || !walletAddress || e.detail.walletAddress.toLowerCase() === walletAddress.toLowerCase()) {
           setConfig(e.detail)
           if (typeof e.detail.autoExecute === 'boolean') {
@@ -79,13 +103,17 @@ export default function SessionBudgetModal({
           }
         }
       } else {
-        const fresh = getSessionKeyConfig(walletAddress)
+        const fresh = getSessionKeyConfig(walletAddress, 'marketplace')
         setConfig(fresh)
         setAutoExecute(fresh.autoExecute ?? true)
       }
     }
+    window.addEventListener(MARKETPLACE_SESSION_UPDATED_EVENT, handleUpdate)
     window.addEventListener(SESSION_KEY_UPDATED_EVENT, handleUpdate)
-    return () => window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleUpdate)
+    return () => {
+      window.removeEventListener(MARKETPLACE_SESSION_UPDATED_EVENT, handleUpdate)
+      window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleUpdate)
+    }
   }, [walletAddress])
 
   // Standard body scroll lock
@@ -106,7 +134,7 @@ export default function SessionBudgetModal({
   // Sync on modal open and query live enclave balance
   useEffect(() => {
     if (isOpen) {
-      const conf = getSessionKeyConfig(walletAddress)
+      const conf = getSessionKeyConfig(walletAddress, 'marketplace')
       setConfig(conf)
       setAutoExecute(conf.autoExecute ?? true)
       const currentMax = conf.maxSpendUsdc || 2
@@ -146,79 +174,139 @@ export default function SessionBudgetModal({
     setTimeout(() => setCopiedKey(false), 2000)
   }
 
-  const handleActivateNew = async (budgetUsdc: number, durationHours: number) => {
-    soundService.play('pop')
-    const updated = await activateSessionKey({
-      userApproved: true,
-      maxSpendUsdc: budgetUsdc,
-      durationHours,
-      autoExecute,
-      enableEnclave: true,
-      mscaAddress: walletAddress || getStoredMscaAddress() || undefined,
-      walletAddress,
-    })
-    setConfig(updated)
-    setAutoExecute(updated.autoExecute ?? true)
-    if (onBudgetUpdated) onBudgetUpdated(budgetUsdc)
-    soundService.play('success')
+  const handleActivateAndFund = async (budgetUsdc: number, durationHours: number) => {
+    if (isFunding || isSweeping || isSaving) return
 
-    // Query on-chain balance of the newly activated enclave address
-    if (updated.sessionPublicKey) {
+    // 1. Resolve or generate ephemeral account for marketplace scope
+    let account = getEphemeralSessionAccount(walletAddress, 'marketplace')
+    if (!account && walletAddress) {
+      try {
+        const gen = generateEphemeralSessionAccount(walletAddress, 'marketplace')
+        account = gen.account
+      } catch (genErr) {
+        console.error('Failed to generate ephemeral marketplace account:', genErr)
+      }
+    }
+
+    const pubKey = account?.address || config.sessionPublicKey
+    if (!pubKey || !walletAddress) {
+      setFundingStatus('Error: Wallet address or temporary session wallet not available.')
+      return
+    }
+
+    const targetAmount = budgetUsdc
+    const amountToFund = enclaveBalance <= 0
+      ? targetAmount
+      : Math.max(0, targetAmount - enclaveBalance)
+
+    // 2. FUNDING TRANSACTION FIRST (if funding needed)
+    if (amountToFund > 0) {
+      setIsFunding(true)
+      setFundingStatus(`Submitting transfer of ${amountToFund} USDC to temporary session wallet...`)
+      soundService.play('pop')
+
+      try {
+        if (authSource === 'ucw') {
+          const transferFn = ucwHandlers?.executeTransfer || ucwHandlers?.executeUcwTransfer
+          if (transferFn) {
+            const res = await transferFn({
+              destinationAddress: pubKey,
+              recipient: pubKey,
+              amount: String(amountToFund),
+              tokenSymbol: 'USDC',
+              blockchain: 'ARC-TESTNET',
+            })
+            if (!res?.success) throw new Error(res?.error || 'Circle UCW transfer failed')
+          } else {
+            throw new Error('Circle UCW transfer handler unavailable')
+          }
+        } else if (authSource === 'passkey') {
+          const res = await sendModularUserOperation({
+            calls: [
+              {
+                to: POOL_CONTRACTS.USDC as Address,
+                data: encodeFunctionData({
+                  abi: ERC20_ABI,
+                  functionName: 'transfer',
+                  args: [pubKey as Address, parseUnits(amountToFund.toString(), 6)],
+                }),
+              },
+            ],
+            paymaster: true,
+          })
+          if (!res?.success) throw new Error(res?.error || 'Passkey smart account transfer failed')
+        } else {
+          const effectiveProvider = provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
+          if (effectiveProvider) {
+            const walletClient = createWalletClient({
+              account: walletAddress as Address,
+              chain: arcTestnet,
+              transport: custom(effectiveProvider),
+            })
+            const hash = await walletClient.sendTransaction({
+              to: POOL_CONTRACTS.USDC as Address,
+              data: encodeFunctionData({
+                abi: ERC20_ABI,
+                functionName: 'transfer',
+                args: [pubKey as Address, parseUnits(amountToFund.toString(), 6)],
+              }),
+            })
+            setFundingStatus('Waiting for transaction confirmation on Arc Testnet...')
+            const resilientClient = getResilientPublicClient('Arc_Testnet')
+            await resilientClient.waitForTransactionReceipt({ hash, timeout: 30000 })
+          } else {
+            throw new Error('No connected wallet provider available for funding.')
+          }
+        }
+
+        const updatedBal = await fetchEnclaveUsdcBalance(pubKey)
+        setEnclaveBalance(updatedBal)
+      } catch (err: any) {
+        soundService.play('error')
+        const friendlyMsg = formatFriendlyFundingError(err)
+        setFundingStatus(friendlyMsg)
+        setIsFunding(false)
+        setTimeout(() => setFundingStatus(null), 5000)
+        return // STOP here! Do not activate if funding was rejected or failed
+      } finally {
+        setIsFunding(false)
+      }
+    }
+
+    // 3. ACTIVATION PHASE
+    setIsSaving(true)
+    setFundingStatus('Activating session policy...')
+    try {
+      const updated = await activateSessionKey({
+        userApproved: true,
+        maxSpendUsdc: targetAmount,
+        durationHours,
+        autoExecute,
+        enableEnclave: true,
+        allowedActions: ['ai_service'],
+        mscaAddress: walletAddress || getStoredMscaAddress() || undefined,
+        walletAddress,
+        scope: 'marketplace',
+      })
+      setConfig(updated)
+      setAutoExecute(updated.autoExecute ?? true)
+      if (onBudgetUpdated) onBudgetUpdated(targetAmount)
+      soundService.play('success')
+      setSavedSuccess(true)
+      setFundingStatus('Session successfully activated & funded!')
+
       const bal = await fetchEnclaveUsdcBalance(updated.sessionPublicKey)
       setEnclaveBalance(bal)
-    }
-  }
 
-  const handleFundEnclave = async () => {
-    if (!config.sessionPublicKey || !walletAddress) return
-    const amountNum = parseFloat(customBudget) || 1.0
-    if (amountNum <= 0) return
-
-    soundService.play('pop')
-    setIsFunding(true)
-    setFundingStatus('Submitting funding transaction...')
-
-    try {
-      if (authSource === 'ucw' && ucwHandlers?.executeUcwTransfer) {
-        const res = await ucwHandlers.executeUcwTransfer({
-          recipient: config.sessionPublicKey,
-          amount: amountNum,
-          tokenSymbol: 'USDC',
-        })
-        if (!res?.success) {
-          throw new Error(res?.error || 'Circle UCW transfer failed')
-        }
-      } else if (provider) {
-        const walletClient = createWalletClient({
-          account: walletAddress as Address,
-          chain: arcTestnet,
-          transport: custom(provider),
-        })
-        await walletClient.sendTransaction({
-          to: POOL_CONTRACTS.USDC as Address,
-          data: encodeFunctionData({
-            abi: ERC20_ABI,
-            functionName: 'transfer',
-            args: [config.sessionPublicKey as Address, parseUnits(amountNum.toString(), 6)],
-          }),
-        })
-      } else {
-        throw new Error('No connected wallet provider available for funding.')
-      }
-
-      soundService.play('success')
-      setFundingStatus('Funded successfully! Updating balance...')
-      setTimeout(async () => {
-        const bal = await fetchEnclaveUsdcBalance(config.sessionPublicKey)
-        setEnclaveBalance(bal)
-        setIsFunding(false)
+      setTimeout(() => {
+        setSavedSuccess(false)
         setFundingStatus(null)
       }, 2500)
     } catch (err: any) {
       soundService.play('error')
-      setFundingStatus(`Funding failed: ${err?.message || 'Transaction rejected'}`)
-      setIsFunding(false)
-      setTimeout(() => setFundingStatus(null), 4000)
+      setFundingStatus(`Activation failed: ${formatFriendlyFundingError(err)}`)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -226,16 +314,30 @@ export default function SessionBudgetModal({
     soundService.play('pop')
     if (enclaveBalance > 0 && walletAddress) {
       setIsSweeping(true)
+      setFundingStatus('Sweeping remaining funds back to your wallet...')
       try {
-        await sweepEnclaveUsdc(walletAddress, walletAddress)
-        soundService.play('success')
-      } catch (err) {
+        const sweepRes = await sweepEnclaveUsdc(walletAddress, walletAddress, 'marketplace')
+        if (sweepRes.success) {
+          soundService.play('success')
+          setEnclaveBalance(0)
+        } else {
+          soundService.play('error')
+          setFundingStatus(`Sweep failed: ${sweepRes.error || 'Transaction rejected'}`)
+          setIsSweeping(false)
+          return
+        }
+      } catch (err: any) {
         console.error('Sweep before revoke failed', err)
+        soundService.play('error')
+        setFundingStatus(`Sweep error: ${err?.message || 'Sweep failed'}`)
+        setIsSweeping(false)
+        return
       } finally {
         setIsSweeping(false)
       }
     }
-    const revoked = revokeSessionKey(walletAddress)
+    setFundingStatus(null)
+    const revoked = revokeSessionKey(walletAddress, 'marketplace')
     setConfig(revoked)
     setAutoExecute(revoked.autoExecute ?? false)
     setEnclaveBalance(0)
@@ -246,7 +348,7 @@ export default function SessionBudgetModal({
     const nextVal = !autoExecute
     setAutoExecute(nextVal)
     if (isSessionActive) {
-      const updated = toggleSessionAutoExecute(nextVal, walletAddress)
+      const updated = toggleSessionAutoExecute(nextVal, walletAddress, 'marketplace')
       setConfig(updated)
     }
   }
@@ -257,6 +359,10 @@ export default function SessionBudgetModal({
   const isExpired = Date.now() > config.expiresAt
   const isSessionActive = Boolean(config.isActive && !isExpired)
   const spentPercent = config.maxSpendUsdc > 0 ? Math.min(100, Math.round((config.spentUsdc / config.maxSpendUsdc) * 100)) : 0
+  const targetBudget = parseFloat(customBudget) || 1.0
+  const amountToFund = enclaveBalance <= 0
+    ? targetBudget
+    : Math.max(0, targetBudget - enclaveBalance)
 
   return createPortal(
     <div
@@ -344,9 +450,8 @@ export default function SessionBudgetModal({
           >
             {/* Header of HUD */}
             <div
-              className={`flex items-center justify-between gap-2 min-h-[15px] ${
-                isSessionActive ? 'pb-3.5 border-b border-white/[0.08]' : ''
-              }`}
+              className={`flex items-center justify-between gap-2 min-h-[15px] ${isSessionActive ? 'pb-3.5 border-b border-white/[0.08]' : ''
+                }`}
             >
               <div className="flex items-center gap-2">
                 {isSessionActive ? (
@@ -388,24 +493,24 @@ export default function SessionBudgetModal({
             {isSessionActive && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-4">
                 <div className="p-3.5 rounded-2xl bg-[rgba(14,17,29,0.7)] border border-white/[0.06] space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                  <span className="text-[12px] font-mono uppercase tracking-wider text-slate-400 block truncate">
                     REMAINING
                   </span>
                   <div
-                    className="text-lg sm:text-xl font-bold text-white tabular-nums flex items-baseline gap-1"
+                    className="text-lg sm:text-xl font-bold text-[var(--secondary-colors--sky-sync)] tabular-nums flex items-baseline gap-1"
                     style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                   >
-                    <span className="text-[var(--earned-green)]">{remainingUsdc.toFixed(2)}</span>{' '}
-                    <span className="text-xs text-[var(--color-brand-cyan)] font-mono font-normal">USDC</span>
+                    <span className="text-[var(--secondary-colors--sky-sync)]">{remainingUsdc.toFixed(2)}</span>{' '}
+                    <span className="text-xs text-slate-500 font-mono font-normal">USDC</span>
                   </div>
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-[rgba(14,17,29,0.7)] border border-white/[0.06] space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                  <span className="text-[12px] font-mono uppercase tracking-wider text-slate-400 block truncate">
                     TOTAL ENVELOPE
                   </span>
                   <div
-                    className="text-lg sm:text-xl font-bold text-white tabular-nums flex items-baseline gap-1"
+                    className="text-lg sm:text-xl font-bold text-[var(--secondary-colors--sky-sync)] tabular-nums flex items-baseline gap-1"
                     style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                   >
                     <span>{config.maxSpendUsdc.toFixed(2)}</span>{' '}
@@ -414,7 +519,7 @@ export default function SessionBudgetModal({
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-[rgba(14,17,29,0.7)] border border-white/[0.06] space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                  <span className="text-[12px] font-mono uppercase tracking-wider text-slate-400 block truncate">
                     SPENT VOLUME
                   </span>
                   <div
@@ -431,10 +536,10 @@ export default function SessionBudgetModal({
             {/* Glowing Budget Progress Bar: Only visible when an active session exists */}
             {isSessionActive && config.maxSpendUsdc > 0 && (
               <div className="space-y-2 pt-3.5">
-                <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-slate-400 tracking-wide uppercase text-[10px]">Envelope Consumption</span>
-                  <span className="text-slate-300 tabular-nums text-[11px]">
-                    <span className="text-[var(--earned-green)] font-semibold">
+                <div className="flex items-center justify-between text-[12px] font-mono">
+                  <span className="text-slate-400 tracking-wide uppercase text-[12px]">Envelope Usage</span>
+                  <span className="text-slate-500 tabular-nums text-[12px]">
+                    <span className="text-slate-300 font-semibold">
                       {Math.max(0, 100 - spentPercent)}%
                     </span>{' '}
                     available
@@ -442,26 +547,85 @@ export default function SessionBudgetModal({
                 </div>
 
                 <div
-                  className="relative h-2.5 w-full rounded-full bg-white/[0.06] overflow-hidden"
+                  className="relative h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden"
                   role="progressbar"
                   aria-label="Session envelope progress"
                   aria-valuemin={0}
                   aria-valuemax={config.maxSpendUsdc > 0 ? config.maxSpendUsdc : 1}
-                  aria-valuenow={config.spentUsdc}
+                  aria-valuenow={remainingUsdc}
                 >
                   <div
                     className="h-full rounded-full transition-all duration-700 ease-out"
                     style={{
-                      width: `${Math.min(100, Math.max(spentRatio > 0 ? 1 : 0, spentRatio * 100))}%`,
-                      background:
-                        'linear-gradient(90deg, var(--color-brand-accent) 0%, var(--purple-1) 50%, var(--earned-green) 100%)',
-                      boxShadow: spentRatio > 0 ? '0 0 16px rgba(152, 150, 255, 0.5)' : undefined,
+                      width: `${Math.min(100, Math.max(0, remainingRatio * 100))}%`,
+                      background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                      boxShadow: remainingRatio > 0 ? '0 0 12px rgba(152, 150, 255, 0.35)' : undefined,
                     }}
                   />
                 </div>
               </div>
             )}
           </div>
+
+          {/* Ephemeral Identity & Cryptographic Enclave Card - Only shown when session is active */}
+          {isSessionActive && config.sessionPublicKey && (
+            <div
+              className="p-5 rounded-[22px] border border-white/[0.08] space-y-3.5 relative overflow-hidden"
+              style={{ background: 'rgba(11, 14, 25, 0.75)' }}
+            >
+              {/* Enclave Header */}
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 font-mono text-[11px]">
+                  <span className="arc-eyebrow text-[11px] font-semibold tracking-wider text-white">
+                    SESSION ENCLAVE
+                  </span>
+                  {enclaveBalance > 0 ? (
+                    <span className="px-2.5 py-0.5 rounded-full border border-[var(--earned-green)]/30 bg-[var(--earned-green)]/10 text-[10px] font-mono uppercase text-[var(--earned-green)] flex items-center gap-1.5 shadow-[0_0_10px_rgba(1,208,98,0.2)]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--earned-green)] animate-pulse" />
+                      Active &amp; Funded
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-[10px] font-mono uppercase text-amber-400 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      Active (Exhausted)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Address Display Box */}
+              <div
+                className="flex items-center justify-between gap-2 p-3 rounded-xl border border-white/[0.08] font-mono text-xs"
+                style={{ background: 'rgba(8, 10, 18, 0.85)' }}
+              >
+                <span className="text-white truncate font-semibold tracking-wide">
+                  {config.sessionPublicKey}
+                </span>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={handleCopyAddress}
+                    className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                    title="Copy enclave public address"
+                  >
+                    {copiedKey ? <Check className="w-3.5 h-3.5 text-[var(--earned-green)]" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <a
+                    href={`https://testnet.arcscan.app/address/${config.sessionPublicKey}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-1.5 rounded-lg text-white/60 hover:text-[var(--secondary-colors--sky-sync)] hover:bg-white/10 transition"
+                    title="Inspect on ArcScan"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-white/45 leading-relaxed font-sans">
+                The ephemeral private key resides strictly in client memory. When revoked, remaining funds are automatically swept back to your wallet.
+              </p>
+            </div>
+          )}
 
           {/* Configuration Controls & Duration Stepper */}
           <div
@@ -498,11 +662,10 @@ export default function SessionBudgetModal({
                         setIsCustomBudget(false)
                         setCustomBudget(amt.toString())
                       }}
-                      className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
-                        isSelected
-                          ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
-                          : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
-                      }`}
+                      className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${isSelected
+                        ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                        : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
+                        }`}
                     >
                       {amt} USDC
                     </button>
@@ -514,11 +677,10 @@ export default function SessionBudgetModal({
                     soundService.play('pop')
                     setIsCustomBudget(true)
                   }}
-                  className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
-                    isCustomBudget
-                      ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
-                      : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
-                  }`}
+                  className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${isCustomBudget
+                    ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                    : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
+                    }`}
                 >
                   Custom
                 </button>
@@ -618,140 +780,36 @@ export default function SessionBudgetModal({
               </div>
 
               <div
-                className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 p-0.5 ${
-                  autoExecute
-                    ? 'bg-gradient-to-r from-[#9896ff] to-[#7c3aed]'
-                    : 'bg-white/[0.1]'
-                }`}
+                className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 p-0.5 ${autoExecute
+                  ? 'bg-gradient-to-r from-[#9896ff] to-[#7c3aed]'
+                  : 'bg-white/[0.1]'
+                  }`}
               >
                 <div
-                  className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                    autoExecute ? 'translate-x-4' : 'translate-x-0'
-                  }`}
+                  className={`w-4 h-4 rounded-full bg-white transition-transform ${autoExecute ? 'translate-x-4' : 'translate-x-0'
+                    }`}
                 />
               </div>
             </div>
           </div>
 
-          {/* Ephemeral Identity & Cryptographic Enclave Card */}
-          <div
-            className="p-5 rounded-[22px] border border-white/[0.08] space-y-3.5 relative overflow-hidden"
-            style={{ background: 'rgba(11, 14, 25, 0.75)' }}
-          >
-            {/* Enclave Header */}
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 font-mono text-[11px]">
-                <span className="arc-eyebrow text-[11px] font-semibold tracking-wider text-white">
-                  SESSION ENCLAVE
-                </span>
-                {!config.sessionPublicKey ? (
-                  <span className="px-2.5 py-0.5 rounded-full border border-white/10 bg-white/[0.04] text-[10px] font-mono uppercase text-white/45">
-                    Not Initialized
-                  </span>
-                ) : enclaveBalance > 0 ? (
-                  <span className="px-2.5 py-0.5 rounded-full border border-[var(--earned-green)]/30 bg-[var(--earned-green)]/10 text-[10px] font-mono uppercase text-[var(--earned-green)] flex items-center gap-1.5 shadow-[0_0_10px_rgba(1,208,98,0.2)]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--earned-green)] animate-pulse" />
-                    Active &amp; Funded
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-[10px] font-mono uppercase text-amber-400 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    Active (Unfunded)
-                  </span>
-                )}
-              </div>
-
-              {config.sessionPublicKey && (
-                <div className="text-[11px] font-mono text-[var(--secondary-colors--sky-sync)]">
-                  Balance:{' '}
-                  <strong className="text-white font-bold tabular-nums" style={{ fontFamily: 'var(--fonts--space-grotesk)' }}>
-                    {enclaveBalance.toFixed(2)} USDC
-                  </strong>
-                </div>
-              )}
-            </div>
-
-            {/* Address Display Box */}
-            <div
-              className="flex items-center justify-between gap-2 p-3 rounded-xl border border-white/[0.08] font-mono text-xs"
-              style={{ background: 'rgba(8, 10, 18, 0.85)' }}
-            >
-              <span
-                className={
-                  config.sessionPublicKey
-                    ? 'text-[var(--purple-1)] truncate font-semibold tracking-wide'
-                    : 'text-white/45 truncate'
-                }
-              >
-                {config.sessionPublicKey || 'No session enclave generated yet'}
+          {fundingStatus && (
+            <div className="flex items-center justify-center gap-2 text-[12px] font-mono text-center my-3 animate-fade-in">
+              {(isFunding || isSaving) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />}
+              <span className={fundingStatus.includes('failed') || fundingStatus.includes('Error') ? 'text-rose-400' : fundingStatus.includes('cancelled') || fundingStatus.includes('canceled') ? 'text-amber-400' : 'text-indigo-300'}>
+                {fundingStatus}
               </span>
-              {config.sessionPublicKey && (
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <button
-                    onClick={handleCopyAddress}
-                    className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
-                    title="Copy enclave public address"
-                  >
-                    {copiedKey ? <Check className="w-3.5 h-3.5 text-[var(--earned-green)]" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                  <a
-                    href={`https://testnet.arcscan.app/address/${config.sessionPublicKey}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-1.5 rounded-lg text-white/60 hover:text-[var(--secondary-colors--sky-sync)] hover:bg-white/10 transition"
-                    title="Inspect on ArcScan"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-              )}
             </div>
+          )}
 
-            {/* 1-Click Funding Button */}
-            {config.sessionPublicKey && walletAddress && (
-              <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleFundEnclave}
-                  disabled={isFunding || isSweeping}
-                  className="ub-action-btn ub-action-btn-primary py-2.5 px-4 text-xs font-mono font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isFunding ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Submitting Transfer...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Wallet className="w-3.5 h-3.5 text-[var(--purple-1)]" />
-                      <span>Deposit {customBudget} USDC to Enclave</span>
-                    </>
-                  )}
-                </button>
-
-                {fundingStatus && (
-                  <span className="text-[11px] font-mono text-[var(--secondary-colors--sky-sync)] text-center sm:text-right">
-                    {fundingStatus}
-                  </span>
-                )}
-              </div>
-            )}
-
-            <p className="text-[11px] text-white/45 leading-relaxed font-sans">
-              {config.sessionPublicKey
-                ? 'The ephemeral private key resides strictly in client memory. When revoked, remaining funds are automatically swept back to your wallet.'
-                : 'Session keys are gasless and autonomous. Activating the session derives an ephemeral enclave EOA for zero-click signing.'}
-            </p>
-          </div>
-
-          {/* Danger Zone: Revoke & Reset */}
+          {/* Action Row: Revoke (if active) & Activate/Update Session */}
           <div className="pt-2 flex items-center justify-between gap-3">
-            {isSessionActive || config.sessionPublicKey ? (
+            {isSessionActive && config.sessionPublicKey ? (
               <button
                 type="button"
                 onClick={handleRevoke}
-                disabled={isSweeping || isFunding || !config.sessionPublicKey}
-                className="text-xs text-rose-400 hover:text-rose-300 font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 px-4 py-2.5 rounded-full border border-rose-500/20 hover:border-rose-500/40 hover:bg-rose-500/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                disabled={isSweeping || isFunding || isSaving || !config.sessionPublicKey}
+                className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25"
               >
                 {isSweeping ? (
                   <>
@@ -760,8 +818,8 @@ export default function SessionBudgetModal({
                   </>
                 ) : (
                   <>
-                    <Flame className="w-3.5 h-3.5" />
-                    <span>REVOKE KEY {enclaveBalance > 0 ? `& SWEEP (${enclaveBalance.toFixed(2)} USDC)` : ''}</span>
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Revoke Session</span>
                   </>
                 )}
               </button>
@@ -771,15 +829,15 @@ export default function SessionBudgetModal({
 
             <button
               type="button"
-              onClick={() => handleActivateNew(parseFloat(customBudget) || 1.0, selectedDuration)}
-              disabled={isFunding || isSweeping}
-              className={`px-6 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center gap-2 select-none ${!(isFunding || isSweeping)
+              onClick={() => handleActivateAndFund(targetBudget, selectedDuration)}
+              disabled={isFunding || isSweeping || isSaving}
+              className={`px-6 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center gap-2 select-none ${!(isFunding || isSweeping || isSaving)
                 ? 'text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer'
                 : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
                 }`}
               style={{
                 fontFamily: 'var(--font-app)',
-                ...(!(isFunding || isSweeping)
+                ...(!(isFunding || isSweeping || isSaving)
                   ? {
                     background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
                     boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
@@ -787,8 +845,31 @@ export default function SessionBudgetModal({
                   : {}),
               }}
             >
-              <RefreshCw className="w-3.5 h-3.5 text-white" />
-              <span>{isSessionActive ? 'UPDATE SESSION' : 'ACTIVATE SESSION'}</span>
+              {savedSuccess ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Activated &amp; Funded!</span>
+                </>
+              ) : isFunding ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                  <span>Funding ({amountToFund > 0 ? amountToFund : targetBudget} USDC)...</span>
+                </>
+              ) : isSaving ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                  <span>Activating Policy...</span>
+                </>
+              ) : (
+                <>
+                  {isSessionActive ? <RefreshCw className="w-3.5 h-3.5 text-white" /> : <Lock className="w-3.5 h-3.5 text-white" />}
+                  <span>
+                    {isSessionActive
+                      ? (amountToFund > 0 ? `UPDATE SESSION (+${amountToFund.toFixed(2)} USDC)` : 'UPDATE SESSION')
+                      : `ACTIVATE SESSION & FUND (${targetBudget} USDC)`}
+                  </span>
+                </>
+              )}
             </button>
           </div>
         </div>

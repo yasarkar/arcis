@@ -35,6 +35,7 @@ import {
 } from '../../services/marketplaceHeroStats'
 import {
   getSessionKeyConfig,
+  MARKETPLACE_SESSION_UPDATED_EVENT,
   SESSION_KEY_UPDATED_EVENT
 } from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
@@ -201,16 +202,22 @@ export default function MarketplaceTab({
     return `${protocolFeeBps / 100}% of the ${volume} USDC gross settled volume, held by the protocol treasury until providers withdraw their net earnings.`
   }, [heroStats.protocolFeeUsdc, platformStats, protocolFeeBps])
 
-  // The autonomous authority is the Session Key, owned by sessionKeyService — the same state
-  // the copilot shows. This panel must never claim a capability the session key does not have.
+  // The autonomous authority is the Session Key, scoped specifically to 'marketplace'
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() =>
-    getSessionKeyConfig(walletAddress)
+    getSessionKeyConfig(walletAddress, 'marketplace')
   )
   useEffect(() => {
-    const syncSessionConfig = () => setSessionConfig(getSessionKeyConfig(walletAddress))
+    const syncSessionConfig = (e?: any) => {
+      if (e?.detail && e.detail.scope && e.detail.scope !== 'marketplace') return
+      setSessionConfig(getSessionKeyConfig(walletAddress, 'marketplace'))
+    }
     syncSessionConfig()
+    window.addEventListener(MARKETPLACE_SESSION_UPDATED_EVENT, syncSessionConfig)
     window.addEventListener(SESSION_KEY_UPDATED_EVENT, syncSessionConfig)
-    return () => window.removeEventListener(SESSION_KEY_UPDATED_EVENT, syncSessionConfig)
+    return () => {
+      window.removeEventListener(MARKETPLACE_SESSION_UPDATED_EVENT, syncSessionConfig)
+      window.removeEventListener(SESSION_KEY_UPDATED_EVENT, syncSessionConfig)
+    }
   }, [walletAddress])
 
   const sessionIsActive = sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt
@@ -400,21 +407,22 @@ export default function MarketplaceTab({
             {/* Compact Session Envelope (positioned directly above the 2x2 stat boxes) */}
             <div className="p-3 sm:p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-white/10 transition-all duration-300">
               <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
-                {/* Kalan Limit / Tüm Limit */}
-                <div className="flex flex-col min-w-0">
+                {/* Kalan Limit / Tüm Limit (Yalnızca aktif oturumda gösterilir) */}
+                <div className={`flex min-w-0 ${sessionIsActive ? 'flex-col' : 'items-center my-auto'}`}>
                   <span className="arc-eyebrow text-[10px] text-[var(--fp-4)]">Session Envelope</span>
-                  <div className="flex items-baseline gap-1.5 mt-0.5">
-                    <span
-                      className={`text-base sm:text-lg font-bold tabular-nums ${sessionIsActive ? 'text-white' : 'text-[var(--fp-3)]'
-                        }`}
-                      style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-                    >
-                      {sessionIsActive ? remainingUsdc.toFixed(2) : '0.00'}
-                    </span>
-                    <span className="text-xs text-[var(--fp-4)] font-mono">
-                      / {sessionIsActive ? effectiveMaxSpend.toFixed(2) : (sessionConfig.maxSpendUsdc ? sessionConfig.maxSpendUsdc.toFixed(2) : '0.00')} USDC
-                    </span>
-                  </div>
+                  {sessionIsActive && (
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span
+                        className="text-base sm:text-lg font-bold tabular-nums text-white"
+                        style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                      >
+                        {remainingUsdc.toFixed(2)}
+                      </span>
+                      <span className="text-xs text-[var(--fp-4)] font-mono">
+                        / {effectiveMaxSpend.toFixed(2)} USDC
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Kalan Süre, Active'lik Durumu & Ayarlar Butonu */}

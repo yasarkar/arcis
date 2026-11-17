@@ -95,4 +95,36 @@ describe('ArcCopilotDrawer Header & Dynamic Rotate-CCW Layer', () => {
     // Verify dynamic visual layer styling (cyber rounded-xl, gradient aura)
     expect(html).toContain('from-indigo-500/25')
   })
+
+  it('renders Session Budget value accurately in the header when session is active', () => {
+    const activeConfig: SessionKeyConfig = {
+      ...baseSessionConfig,
+      isActive: true,
+      maxSpendUsdc: 100,
+      spentUsdc: 25,
+      reservedUsdc: 0,
+      expiresAt: Date.now() + 3_600_000,
+    }
+
+    const html = renderToStaticMarkup(
+      React.createElement(ArcCopilotDrawer, {
+        isOpen: true,
+        onClose: () => {},
+        messages: [],
+        currentSteps: [],
+        isAnalyzing: false,
+        sessionConfig: activeConfig,
+        onSendMessage: async () => {},
+        onClearChat: () => {},
+        onActivateSession: async () => activeConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+        onExecuteInline: async () => {},
+      })
+    )
+
+    expect(html).toContain('Session Budget:')
+    // 100 - 25 = 75.00 USDC
+    expect(html).toContain('75.00 USDC')
+  })
 })

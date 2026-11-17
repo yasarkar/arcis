@@ -3,33 +3,70 @@
 // Engineered strictly according to DESIGN.md (Aave Luxury + Arc Blockchain High-Fi Obsidian)
 // Controls client-side execution boundaries, spend caps, and authorization scopes.
 
-import React, { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import {
-  X,
-  Zap,
-  Key,
-  CheckCircle2,
-  Trash2,
-  Lock,
-  Clock,
   AlertTriangle,
   ArrowLeftRight,
-  Landmark,
+  Check,
+  CheckCircle2,
+  Clock,
   Compass,
+  Copy,
+  ExternalLink,
+  Landmark,
+  Loader2,
+  Lock,
   Send,
   ShieldCheck,
+  Trash2,
+  Wallet,
+  X,
+  Zap,
 } from 'lucide-react'
-import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey'
-import { getSessionKeyConfig, getSessionTimeRemaining } from '../../services/sessionKeyService'
-import { soundService } from '../../services/soundService'
+import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { createWalletClient, custom, encodeFunctionData, parseUnits, type Address } from 'viem'
+import { arcTestnet } from '../../config/arcChain'
+import { ERC20_ABI, POOL_CONTRACTS } from '../../config/poolsConfig'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
+import { sendModularUserOperation } from '../../services/modularWalletService'
+import { getResilientPublicClient } from '../../services/rpc'
+import {
+  COPILOT_SESSION_UPDATED_EVENT,
+  SESSION_KEY_UPDATED_EVENT,
+  fetchEnclaveUsdcBalance,
+  generateEphemeralSessionAccount,
+  getEphemeralSessionAccount,
+  getSessionKeyConfig,
+  getSessionTimeRemaining,
+  sweepEnclaveUsdc,
+} from '../../services/sessionKeyService'
+import { soundService } from '../../services/soundService'
+import type { SessionActionType, SessionKeyConfig } from '../../types/sessionKey'
+import { formatErrorMessage, isUserCanceledError } from '../../utils/errorNormalizer'
+
+function formatFriendlyFundingError(err: unknown): string {
+  if (isUserCanceledError(err)) {
+    return 'Transaction request was cancelled in your wallet. No funds were transferred.'
+  }
+  const friendly = formatErrorMessage(err)
+  if (friendly && !friendly.includes('Request Arguments') && friendly !== 'An unexpected error occurred. Please try again.') {
+    return `Funding failed: ${friendly}`
+  }
+  const short = (err as any)?.shortMessage
+  if (short && !short.includes('Request Arguments')) {
+    return `Funding failed: ${short}`
+  }
+  return 'Funding failed: Transaction could not be completed.'
+}
 
 export interface SessionKeyModalProps {
   isOpen: boolean
   onClose: () => void
   sessionConfig: SessionKeyConfig
   walletAddress?: string
+  provider?: any
+  ucwHandlers?: any
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
   onActivateSession: (params: {
     /** Explicit user consent for this session. */
     userApproved: boolean
@@ -39,6 +76,8 @@ export interface SessionKeyModalProps {
     autoExecute?: boolean
     allowedActions?: SessionActionType[]
     walletAddress?: string
+    enableEnclave?: boolean
+    scope?: 'copilot' | 'marketplace'
   }) => Promise<SessionKeyConfig>
   onRevokeSession: () => void
   onToggleAutoExecute: (enabled: boolean) => void
@@ -50,11 +89,11 @@ const ACTION_OPTIONS: {
   description: string
   icon: React.ComponentType<{ className?: string }>
 }[] = [
-  { id: 'swap', label: 'Token Swap', description: 'Instant DEX trades', icon: ArrowLeftRight },
-  { id: 'deposit', label: 'Vault Deposit', description: 'Real-yield pools', icon: Landmark },
-  { id: 'bridge', label: 'Cross-Chain', description: 'CCTP & Gateway', icon: Compass },
-  { id: 'send', label: 'Direct Send', description: 'USDC transfers', icon: Send },
-]
+    { id: 'swap', label: 'Token Swap', description: 'Instant DEX trades', icon: ArrowLeftRight },
+    { id: 'deposit', label: 'Vault Deposit', description: 'Real-yield pools', icon: Landmark },
+    { id: 'bridge', label: 'Cross-Chain', description: 'CCTP & Gateway', icon: Compass },
+    { id: 'send', label: 'Direct Send', description: 'USDC transfers', icon: Send },
+  ]
 
 const SINGLE_TX_PRESETS: { label: string; ratio: number }[] = [
   { label: '10%', ratio: 0.1 },
@@ -68,6 +107,9 @@ export default function SessionKeyModal({
   onClose,
   sessionConfig,
   walletAddress,
+  provider,
+  ucwHandlers,
+  authSource,
   onActivateSession,
   onRevokeSession,
   onToggleAutoExecute,
@@ -80,7 +122,7 @@ export default function SessionKeyModal({
       ? sessionConfig.allowedActions
       : ['swap', 'deposit', 'bridge', 'send']
   )
-  const [autoExecute, setAutoExecute] = useState<boolean>(sessionConfig.autoExecute || false)
+  const [autoExecute, setAutoExecute] = useState<boolean>(sessionConfig.autoExecute ?? true)
   const [isCustomBudget, setIsCustomBudget] = useState<boolean>(false)
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
@@ -88,23 +130,74 @@ export default function SessionKeyModal({
   // Safety confirmation dialog shown before replacing an active session
   const [isConfirmOpen, setIsConfirmOpen] = useState<boolean>(false)
 
+  // Enclave session vault balance and funding states
+  const [enclaveBalance, setEnclaveBalance] = useState<number>(0)
+  const [ephemeralAddress, setEphemeralAddress] = useState<string>(
+    sessionConfig.isActive && sessionConfig.sessionPublicKey ? sessionConfig.sessionPublicKey : ''
+  )
+  const [copiedKey, setCopiedKey] = useState<boolean>(false)
+  const [isFunding, setIsFunding] = useState<boolean>(false)
+  const [fundingStatus, setFundingStatus] = useState<string | null>(null)
+  const [isSweeping, setIsSweeping] = useState<boolean>(false)
+
   // Standard body scroll lock
   useBodyScrollLock(isOpen)
 
-  // Sync state when sessionConfig or isOpen or walletAddress changes
+  // Sync state when sessionConfig or isOpen or walletAddress changes, or on session update events
   useEffect(() => {
-    if (isOpen) {
-      const fresh = getSessionKeyConfig(walletAddress)
+    if (!isOpen) return
+
+    const syncSessionState = () => {
+      const fresh = getSessionKeyConfig(walletAddress, 'copilot')
       setBudgetUsdc(fresh.maxSpendUsdc || 100)
       setMaxPerTx(fresh.maxPerTxUsdc || 50)
-      if (Array.isArray(fresh.allowedActions)) {
+      if (Array.isArray(fresh.allowedActions) && fresh.allowedActions.length > 0) {
         setAllowedActions(fresh.allowedActions)
+      } else {
+        setAllowedActions(['swap', 'deposit', 'bridge', 'send'])
       }
-      setAutoExecute(fresh.autoExecute || false)
+      setAutoExecute(fresh.autoExecute ?? true)
       setIsConfirmOpen(false)
       setIsCustomBudget(![25, 50, 100, 250].includes(fresh.maxSpendUsdc || 100))
+
+      const isFreshActive = Boolean(fresh.isActive && Date.now() <= fresh.expiresAt)
+      const isPropActive = Boolean(sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt)
+      const hasActiveSession = isFreshActive || isPropActive
+
+      const targetPub = hasActiveSession
+        ? fresh.sessionPublicKey || sessionConfig.sessionPublicKey || getEphemeralSessionAccount(walletAddress, 'copilot')?.address
+        : null
+
+      if (targetPub) {
+        setEphemeralAddress(targetPub)
+        fetchEnclaveUsdcBalance(targetPub)
+          .then((bal) => {
+            setEnclaveBalance(bal)
+          })
+          .catch(() => {
+            setEnclaveBalance(0)
+          })
+      } else {
+        setEphemeralAddress('')
+        setEnclaveBalance(0)
+      }
     }
-  }, [isOpen, walletAddress])
+
+    syncSessionState()
+
+    if (typeof window !== 'undefined') {
+      const handleEvent = (e: any) => {
+        if (e?.detail && e.detail.scope && e.detail.scope !== 'copilot') return
+        syncSessionState()
+      }
+      window.addEventListener(COPILOT_SESSION_UPDATED_EVENT, syncSessionState)
+      window.addEventListener(SESSION_KEY_UPDATED_EVENT, handleEvent)
+      return () => {
+        window.removeEventListener(COPILOT_SESSION_UPDATED_EVENT, syncSessionState)
+        window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleEvent)
+      }
+    }
+  }, [isOpen, walletAddress, sessionConfig])
 
   // Dismiss safety confirm if user tweaks any setting
   useEffect(() => {
@@ -131,7 +224,7 @@ export default function SessionKeyModal({
   useEffect(() => {
     if (!isOpen) return
     const updateCountdown = () => {
-      const fresh = getSessionKeyConfig(walletAddress)
+      const fresh = getSessionKeyConfig(walletAddress, 'copilot')
       const stats = getSessionTimeRemaining(fresh.expiresAt)
       setTimeRemainingText(stats.formatted)
     }
@@ -152,40 +245,197 @@ export default function SessionKeyModal({
 
   /** True when this wallet already has a live, non-expired autonomous session. */
   const hasOngoingSession = (): boolean => {
-    const fresh = getSessionKeyConfig(walletAddress)
+    const fresh = getSessionKeyConfig(walletAddress, 'copilot')
     return fresh.isActive && Date.now() < fresh.expiresAt
   }
 
   const performSave = async () => {
+    let account = getEphemeralSessionAccount(walletAddress, 'copilot')
+    if (!account && walletAddress) {
+      try {
+        const gen = generateEphemeralSessionAccount(walletAddress, 'copilot')
+        account = gen.account
+      } catch (genErr) {
+        console.error('Failed to generate ephemeral session account:', genErr)
+      }
+    }
+
+    const pubKey = account?.address || ephemeralAddress
+    if (pubKey) {
+      setEphemeralAddress(pubKey)
+    }
+
+    if (!pubKey || !walletAddress) {
+      setFundingStatus('Error: Wallet address or temporary session wallet not available.')
+      return
+    }
+
+    const targetAmount = Number(budgetUsdc)
+    const toFund = enclaveBalance <= 0
+      ? targetAmount
+      : Math.max(0, targetAmount - enclaveBalance)
+
+    // 1. FUNDING TRANSACTION FIRST (if funding needed)
+    if (toFund > 0) {
+      setIsFunding(true)
+      setFundingStatus(`Submitting transfer of ${toFund} USDC to temporary session wallet...`)
+      soundService.play('pop')
+      try {
+        if (authSource === 'ucw') {
+          const transferFn = ucwHandlers?.executeTransfer || ucwHandlers?.executeUcwTransfer
+          if (transferFn) {
+            const res = await transferFn({
+              destinationAddress: pubKey,
+              amount: String(toFund),
+              tokenSymbol: 'USDC',
+              blockchain: 'ARC-TESTNET',
+            })
+            if (!res?.success) throw new Error(res?.error || 'Circle UCW transfer failed')
+          } else {
+            throw new Error('Circle UCW transfer handler unavailable')
+          }
+        } else if (authSource === 'passkey') {
+          const res = await sendModularUserOperation({
+            calls: [
+              {
+                to: POOL_CONTRACTS.USDC as Address,
+                data: encodeFunctionData({
+                  abi: ERC20_ABI,
+                  functionName: 'transfer',
+                  args: [pubKey as Address, parseUnits(toFund.toString(), 6)],
+                }),
+              },
+            ],
+            paymaster: true,
+          })
+          if (!res?.success) throw new Error(res?.error || 'Passkey smart account transfer failed')
+        } else {
+          const effectiveProvider = provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
+          if (effectiveProvider) {
+            const walletClient = createWalletClient({
+              account: walletAddress as Address,
+              chain: arcTestnet,
+              transport: custom(effectiveProvider),
+            })
+            const hash = await walletClient.sendTransaction({
+              to: POOL_CONTRACTS.USDC as Address,
+              data: encodeFunctionData({
+                abi: ERC20_ABI,
+                functionName: 'transfer',
+                args: [pubKey as Address, parseUnits(toFund.toString(), 6)],
+              }),
+            })
+            setFundingStatus('Waiting for transaction confirmation on Arc Testnet...')
+            const publicClient = getResilientPublicClient('Arc_Testnet')
+            await publicClient.waitForTransactionReceipt({ hash, timeout: 30000 })
+          } else {
+            throw new Error('No connected wallet provider available for funding.')
+          }
+        }
+
+        const updatedBal = await fetchEnclaveUsdcBalance(pubKey)
+        setEnclaveBalance(updatedBal)
+      } catch (err: any) {
+        soundService.play('error')
+        const friendlyMsg = formatFriendlyFundingError(err)
+        setFundingStatus(friendlyMsg)
+        setIsFunding(false)
+        setTimeout(() => setFundingStatus(null), 5000)
+        return // STOP here! Do not activate if funding was rejected or failed
+      } finally {
+        setIsFunding(false)
+      }
+    }
+
+    // 2. ACTIVATION PHASE
     setIsSaving(true)
+    setFundingStatus('Activating session settings...')
     try {
       await onActivateSession({
         userApproved: true,
-        maxSpendUsdc: Number(budgetUsdc),
+        maxSpendUsdc: targetAmount,
         durationHours: Number(durationHours),
-        maxPerTxUsdc: Math.min(Number(maxPerTx), Number(budgetUsdc)),
-        autoExecute,
+        maxPerTxUsdc: Math.min(Number(maxPerTx), targetAmount),
+        autoExecute: true,
         allowedActions,
         walletAddress,
+        enableEnclave: true,
+        scope: 'copilot',
       })
-      if (autoExecute !== sessionConfig.autoExecute) {
-        onToggleAutoExecute(autoExecute)
-      }
+      onToggleAutoExecute(true)
       soundService.play('success')
       setSavedSuccess(true)
+      setFundingStatus('Session successfully activated & funded!')
+
       setTimeout(() => {
         setSavedSuccess(false)
+        setFundingStatus(null)
         onClose()
-      }, 500)
-    } catch {
+      }, 1200)
+    } catch (err: any) {
       soundService.play('error')
+      setFundingStatus(`Activation failed: ${formatFriendlyFundingError(err)}`)
     } finally {
       setIsSaving(false)
     }
   }
 
+  const handleSweepVault = async () => {
+    if (!walletAddress || enclaveBalance <= 0) return
+    setIsSweeping(true)
+    soundService.play('pop')
+    try {
+      const res = await sweepEnclaveUsdc(walletAddress, walletAddress, 'copilot')
+      if (res.success) {
+        soundService.play('success')
+        setEnclaveBalance(0)
+      } else {
+        soundService.play('error')
+      }
+    } catch (err) {
+      console.error('Sweep failed:', err)
+      soundService.play('error')
+    } finally {
+      setIsSweeping(false)
+    }
+  }
+
+  const handleRevokeClick = async () => {
+    soundService.play('cancel')
+    if (enclaveBalance > 0 && walletAddress) {
+      setIsSweeping(true)
+      setFundingStatus('Sweeping remaining funds back to your wallet...')
+      try {
+        const sweepRes = await sweepEnclaveUsdc(walletAddress, walletAddress, 'copilot')
+        if (sweepRes.success) {
+          soundService.play('success')
+          setEnclaveBalance(0)
+          setEphemeralAddress('')
+        } else {
+          soundService.play('error')
+          setFundingStatus(`Sweep failed: ${sweepRes.error || 'Transaction rejected'}`)
+          setIsSweeping(false)
+          return
+        }
+      } catch (err: any) {
+        console.error('Sweep before revoke failed:', err)
+        soundService.play('error')
+        setFundingStatus(formatFriendlyFundingError(err))
+        setIsSweeping(false)
+        return
+      } finally {
+        setIsSweeping(false)
+      }
+    }
+    setEphemeralAddress('')
+    setEnclaveBalance(0)
+    setIsConfirmOpen(false)
+    setFundingStatus(null)
+    onRevokeSession()
+  }
+
   const handleSaveClick = () => {
-    if (isSaving) return
+    if (isSaving || isFunding) return
     soundService.play('pop')
     if (hasOngoingSession()) {
       setIsConfirmOpen(true)
@@ -204,9 +454,16 @@ export default function SessionKeyModal({
   const reserved = Number(sessionConfig.reservedUsdc) || 0
   const perTx = Number(sessionConfig.maxPerTxUsdc) || 0
   const remainingBudget = Math.max(0, maxSpend - spent - reserved)
-  const spentPercent = maxSpend > 0 ? Math.min(100, Math.round((spent / maxSpend) * 100)) : 0
   const isExpired = Date.now() > sessionConfig.expiresAt
   const isSessionActive = Boolean(sessionConfig.isActive && !isExpired)
+
+  // Unified Remaining: Enclave balance is the real spendable amount for the session
+  const displayRemaining = isSessionActive
+    ? (enclaveBalance > 0 ? enclaveBalance : remainingBudget)
+    : 0
+
+  const spentPercent =
+    maxSpend > 0 ? Math.min(100, Math.round(((maxSpend - displayRemaining) / maxSpend) * 100)) : 0
   const visibleEnabledCount = ACTION_OPTIONS.filter((act) => allowedActions.includes(act.id)).length
   const minSliderVal = 5
   const maxSliderVal = Math.max(5, budgetUsdc)
@@ -215,6 +472,9 @@ export default function SessionKeyModal({
       ? Math.min(100, Math.max(0, ((maxPerTx - minSliderVal) / (maxSliderVal - minSliderVal)) * 100))
       : 100
   const capPercent = Math.round((maxPerTx / Math.max(1, budgetUsdc)) * 100)
+  const toFund = enclaveBalance <= 0
+    ? Number(budgetUsdc)
+    : Math.max(0, Number(budgetUsdc) - enclaveBalance)
 
   return createPortal(
     <div
@@ -225,7 +485,7 @@ export default function SessionKeyModal({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-lg rounded-[28px] overflow-hidden transition-all my-auto flex flex-col border border-white/[0.08] p-5 sm:p-6 space-y-4 sm:space-y-5 animate-scale-in max-h-[92vh] overflow-y-auto"
+        className="relative w-full max-w-lg rounded-[28px] overflow-hidden transition-all my-auto flex flex-col border border-white/[0.08] p-5 sm:p-6 pb-3 sm:pb-3.5 space-y-4 sm:space-y-5 animate-scale-in max-h-[88vh] overflow-y-auto"
         style={{
           background:
             'linear-gradient(145deg, rgba(22, 25, 42, 0.98) 0%, rgba(15, 17, 30, 0.99) 60%, rgba(9, 10, 18, 1) 100%)',
@@ -242,7 +502,7 @@ export default function SessionKeyModal({
         <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-[radial-gradient(circle,rgba(6,182,212,0.1)_0%,transparent_70%)] pointer-events-none" />
 
         {/* Modal Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/[0.06] relative z-10">
+        <div className="shrink-0 flex items-center justify-between pb-4 border-b border-white/[0.06] relative z-10">
           <div className="flex items-center gap-3">
             <div
               className="w-10 h-10 rounded-2xl flex items-center justify-center border transition-transform hover:scale-105 flex-shrink-0"
@@ -282,7 +542,7 @@ export default function SessionKeyModal({
 
         {/* Status Cockpit HUD Ribbon & Real-time Telemetry Matrix */}
         <div
-          className="p-4 sm:p-4.5 rounded-2xl border border-white/[0.08] relative space-y-3.5"
+          className="shrink-0 p-4 sm:p-4.5 rounded-2xl border border-white/[0.08] relative space-y-3.5"
           style={{
             background: 'linear-gradient(135deg, rgba(20, 25, 46, 0.85) 0%, rgba(12, 16, 32, 0.9) 100%)',
             boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 12px 32px -8px rgba(0, 0, 0, 0.6)',
@@ -290,9 +550,8 @@ export default function SessionKeyModal({
         >
           {/* Header of HUD */}
           <div
-            className={`flex items-center justify-between gap-2 min-h-[20px] ${
-              isSessionActive ? 'pb-3.5 border-b border-white/[0.08]' : ''
-            }`}
+            className={`flex items-center justify-between gap-2 min-h-[20px] ${isSessionActive ? 'pb-3.5 border-b border-white/[0.08]' : ''
+              }`}
           >
             <div className="flex items-center gap-2">
               {isSessionActive ? (
@@ -334,26 +593,26 @@ export default function SessionKeyModal({
           {isSessionActive && (
             <div className="grid grid-cols-3 gap-2 pt-0.5">
               <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
-                <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                <span className="text-[12px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
                   REMAINING
                 </span>
                 <div
                   className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
                   style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                 >
-                  <span className="text-[var(--earned-green)]">
-                    {remainingBudget.toFixed(2)}
+                  <span className="text-[var(--secondary-colors--sky-sync)]">
+                    {displayRemaining.toFixed(2)}
                   </span>
                   <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
                 </div>
               </div>
 
               <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
-                <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                <span className="text-[12px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
                   TOTAL CAP
                 </span>
                 <div
-                  className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
+                  className="text-sm sm:text-base font-bold text-[var(--secondary-colors--sky-sync)] tabular-nums flex items-baseline gap-1"
                   style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                 >
                   <span>{maxSpend.toFixed(2)}</span>
@@ -362,14 +621,14 @@ export default function SessionKeyModal({
               </div>
 
               <div className="p-2.5 sm:p-3 rounded-xl bg-[rgba(14,17,29,0.7)] border border-white/[0.05] space-y-0.5">
-                <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
+                <span className="text-[12px] sm:text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
                   PER-TX LIMIT
                 </span>
                 <div
                   className="text-sm sm:text-base font-bold text-white tabular-nums flex items-baseline gap-1"
                   style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                 >
-                  <span className="text-[var(--purple-1)]">{perTx.toFixed(2)}</span>
+                  <span className="text-[var(--secondary-colors--sky-sync)]">{perTx.toFixed(2)}</span>
                   <span className="text-[9px] text-slate-400 font-mono font-normal">USDC</span>
                 </div>
               </div>
@@ -379,12 +638,12 @@ export default function SessionKeyModal({
           {/* Glowing Budget Progress Bar */}
           {isSessionActive && maxSpend > 0 && (
             <div className="space-y-1 pt-0.5">
-              <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center justify-between text-[12px]">
                 <span className="text-slate-400 font-mono uppercase tracking-wider text-[10px]">
                   Envelope Usage
                 </span>
-                <span className="text-slate-300 font-mono text-[11px]">
-                  <span className="text-[var(--earned-green)] font-semibold tabular-nums">
+                <span className="text-slate-500 font-mono text-[11px]">
+                  <span className="text-slate-300 font-semibold tabular-nums">
                     {Math.max(0, 100 - spentPercent)}%
                   </span>{' '}
                   available
@@ -395,8 +654,8 @@ export default function SessionKeyModal({
                   className="h-full rounded-full transition-all duration-500"
                   style={{
                     width: `${Math.max(0, 100 - spentPercent)}%`,
-                    background: 'linear-gradient(90deg, #6366f1 0%, #9896ff 50%, #01d062 100%)',
-                    boxShadow: '0 0 10px rgba(1, 208, 98, 0.4)',
+                    background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                    boxShadow: '0 0 12px rgba(152, 150, 255, 0.35)',
                   }}
                 />
               </div>
@@ -404,8 +663,57 @@ export default function SessionKeyModal({
           )}
         </div>
 
+        {/* Temporary Session Wallet (Geçici Oturum Cüzdanı) Info Card - Only visible when an active session exists */}
+        {isSessionActive && ephemeralAddress && (
+          <div
+            className="shrink-0 p-3.5 sm:p-4 rounded-2xl border border-white/[0.08] space-y-2.5 relative overflow-hidden"
+            style={{
+              background: 'linear-gradient(135deg, rgba(16, 20, 36, 0.7) 0%, rgba(10, 12, 24, 0.8) 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+            }}
+          >
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <div className="min-w-0">
+                  <span className="arc-eyebrow text-[10px] sm:text-[11px] font-semibold tracking-wider text-slate-300 uppercase block truncate">
+                    SESSION ENCLAVE
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between font-mono text-[11px] p-2.5 rounded-xl bg-black/40 border border-white/[0.06]">
+              <span className="truncate text-slate-300 font-medium">
+                {ephemeralAddress}
+              </span>
+              <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(ephemeralAddress)
+                    soundService.play('pop')
+                    setCopiedKey(true)
+                    setTimeout(() => setCopiedKey(false), 2000)
+                  }}
+                  className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                >
+                  {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+                <a
+                  href={`https://testnet.arcscan.app/address/${ephemeralAddress}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-1 rounded-md text-slate-400 hover:text-[var(--secondary-colors--sky-sync)] hover:bg-white/10 transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Configuration Controls */}
-        <div className="space-y-4">
+        <div className="shrink-0 space-y-4 pt-1">
           {/* 1. Spend Cap Section */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -437,11 +745,10 @@ export default function SessionKeyModal({
                       setBudgetUsdc(amt)
                       if (maxPerTx > amt) setMaxPerTx(amt)
                     }}
-                    className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
-                      isSelected
-                        ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
-                        : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
-                    }`}
+                    className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${isSelected
+                      ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                      : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
+                      }`}
                   >
                     {amt} USDC
                   </button>
@@ -453,11 +760,10 @@ export default function SessionKeyModal({
                   soundService.play('pop')
                   setIsCustomBudget(true)
                 }}
-                className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
-                  isCustomBudget
-                    ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
-                    : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
-                }`}
+                className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${isCustomBudget
+                  ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                  : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
+                  }`}
               >
                 Custom
               </button>
@@ -522,11 +828,10 @@ export default function SessionKeyModal({
                       soundService.play('pop')
                       setDurationHours(hrs)
                     }}
-                    className={`py-2 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${
-                      isSelected
-                        ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
-                        : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
-                    }`}
+                    className={`py-2 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${isSelected
+                      ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                      : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.07] hover:border-white/[0.12]'
+                      }`}
                   >
                     {label}
                   </button>
@@ -638,11 +943,10 @@ export default function SessionKeyModal({
                         soundService.play('pop')
                         setMaxPerTx(targetVal)
                       }}
-                      className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer border ${
-                        isSelected
-                          ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.22)] shadow-[0_0_10px_rgba(152,150,255,0.3)]'
-                          : 'text-slate-400 border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.08] hover:text-slate-200'
-                      }`}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer border ${isSelected
+                        ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.22)] shadow-[0_0_10px_rgba(152,150,255,0.3)]'
+                        : 'text-slate-400 border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.08] hover:text-slate-200'
+                        }`}
                     >
                       {label}
                     </button>
@@ -675,18 +979,16 @@ export default function SessionKeyModal({
                       soundService.play('pop')
                       handleToggleAction(act.id)
                     }}
-                    className={`p-2.5 rounded-xl border transition-all duration-200 text-left flex items-start gap-2.5 cursor-pointer relative ${
-                      isChecked
-                        ? 'bg-[rgba(152,150,255,0.12)] border-[rgba(152,150,255,0.4)] shadow-[0_0_12px_rgba(152,150,255,0.15)] text-white'
-                        : 'bg-white/[0.02] border-white/[0.06] text-slate-400 opacity-60 hover:opacity-90'
-                    }`}
+                    className={`p-2.5 rounded-xl border transition-all duration-200 text-left flex items-start gap-2.5 cursor-pointer relative ${isChecked
+                      ? 'bg-[rgba(152,150,255,0.12)] border-[rgba(152,150,255,0.4)] shadow-[0_0_12px_rgba(152,150,255,0.15)] text-white'
+                      : 'bg-white/[0.02] border-white/[0.06] text-slate-400 opacity-60 hover:opacity-90'
+                      }`}
                   >
                     <div
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-                        isChecked
-                          ? 'bg-[rgba(152,150,255,0.25)] text-white'
-                          : 'bg-white/[0.04] text-slate-500'
-                      }`}
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${isChecked
+                        ? 'bg-[rgba(152,150,255,0.25)] text-white'
+                        : 'bg-white/[0.04] text-slate-500'
+                        }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
                     </div>
@@ -695,7 +997,7 @@ export default function SessionKeyModal({
                         <span className="text-xs font-semibold tracking-tight truncate">
                           {act.label}
                         </span>
-                
+
                       </div>
                       <p className="text-[10px] text-slate-400 truncate mt-0.5">
                         {act.description}
@@ -709,9 +1011,19 @@ export default function SessionKeyModal({
 
           {/* 5. Autonomous Zero-Popup Execution Toggle */}
           <div
+            role="switch"
+            aria-checked={autoExecute}
+            tabIndex={0}
             onClick={() => {
               soundService.play('pop')
               setAutoExecute(!autoExecute)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                soundService.play('pop')
+                setAutoExecute(!autoExecute)
+              }
             }}
             className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/[0.12] transition-all flex items-center justify-between gap-3 cursor-pointer select-none"
           >
@@ -722,7 +1034,7 @@ export default function SessionKeyModal({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-white truncate">Autonomous Mode</span>
-                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                     Zero-Popup
                   </span>
                 </div>
@@ -733,34 +1045,39 @@ export default function SessionKeyModal({
             </div>
 
             <div
-              className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 p-0.5 ${
-                autoExecute
-                  ? 'bg-gradient-to-r from-[#9896ff] to-[#7c3aed]'
-                  : 'bg-white/[0.1]'
-              }`}
+              className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 p-0.5 ${autoExecute
+                ? 'bg-gradient-to-r from-[#9896ff] to-[#7c3aed]'
+                : 'bg-white/[0.1]'
+                }`}
             >
               <div
-                className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                  autoExecute ? 'translate-x-4' : 'translate-x-0'
-                }`}
+                className={`w-4 h-4 rounded-full bg-white transition-transform ${autoExecute ? 'translate-x-4' : 'translate-x-0'
+                  }`}
               />
             </div>
           </div>
         </div>
 
+        {fundingStatus && (
+          <div className="flex items-center justify-center gap-2 text-[12px] font-mono text-center my-3 animate-fade-in">
+            {(isFunding || isSaving) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />}
+            <span className={fundingStatus.includes('failed') || fundingStatus.includes('Error') ? 'text-rose-400' : fundingStatus.includes('cancelled') || fundingStatus.includes('canceled') ? 'text-amber-400' : 'text-indigo-300'}>
+              {fundingStatus}
+            </span>
+          </div>
+        )}
+
         {/* Modal Actions Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-white/[0.06] relative z-10">
+        <div className="shrink-0 flex items-center justify-between pt-3 border-t border-white/[0.06] relative z-10">
           {isSessionActive ? (
             <button
               type="button"
-              onClick={() => {
-                soundService.play('cancel')
-                onRevokeSession()
-              }}
+              onClick={handleRevokeClick}
+              disabled={isSweeping}
               className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Revoke Session</span>
+              <span>{isSweeping ? 'Sweeping Funds...' : 'Revoke Session'}</span>
             </button>
           ) : (
             <div />
@@ -770,7 +1087,7 @@ export default function SessionKeyModal({
             <button
               type="button"
               onClick={handleSaveClick}
-              disabled={isSaving}
+              disabled={isSaving || isFunding}
               className="px-6 py-2.5 rounded-full text-white text-xs font-semibold tracking-wide transition cursor-pointer flex items-center gap-2 shadow-lg disabled:opacity-50 hover:brightness-110 hover:scale-[1.01] active:scale-[0.98]"
               style={{
                 fontFamily: 'var(--font-app)',
@@ -780,18 +1097,29 @@ export default function SessionKeyModal({
             >
               {savedSuccess ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4 text-white" />
-                  <span>Activated!</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Activated &amp; Funded!</span>
+                </>
+              ) : isFunding ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                  <span>Funding ({toFund > 0 ? toFund : budgetUsdc} USDC)...</span>
                 </>
               ) : isSaving ? (
                 <>
-                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Saving...</span>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                  <span>Activating Policy...</span>
                 </>
               ) : (
                 <>
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Save &amp; Activate</span>
+                  <span>
+                    {enclaveBalance <= 0
+                      ? `Save & Fund (${budgetUsdc} USDC)`
+                      : Number(budgetUsdc) > enclaveBalance
+                        ? `Save & Fund (+${(Number(budgetUsdc) - enclaveBalance).toFixed(0)} USDC)`
+                        : 'Save Settings'}
+                  </span>
                 </>
               )}
             </button>
@@ -812,7 +1140,7 @@ export default function SessionKeyModal({
             <div
               role="alertdialog"
               aria-label="Confirm updating the active session"
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 w-[90%] max-w-[22rem] rounded-2xl border p-4 sm:p-5 space-y-3.5 shadow-2xl animate-scale-in"
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 w-[90%] max-w-[24rem] rounded-2xl border p-4 sm:p-5 space-y-3.5 shadow-2xl animate-scale-in"
               style={{
                 background:
                   'linear-gradient(145deg, rgba(22, 25, 42, 0.98) 0%, rgba(12, 14, 24, 0.99) 100%)',
@@ -833,9 +1161,6 @@ export default function SessionKeyModal({
                   <AlertTriangle className="w-4 h-4 text-[var(--secondary-colors--blockstream-gold)]" />
                 </div>
                 <div className="space-y-0.5">
-                  <span className="arc-eyebrow text-[9px] text-[var(--secondary-colors--blockstream-gold)] font-mono font-semibold tracking-wider uppercase block">
-                    SECURITY SAFEGUARD
-                  </span>
                   <h4 className="text-sm font-bold text-white tracking-tight">
                     Replace Active Session?
                   </h4>

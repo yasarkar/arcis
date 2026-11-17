@@ -102,7 +102,7 @@ describe('SessionBudgetModal Inactive/Active State Parity with Ask Arco Session 
     expect(html).not.toContain('REMAINING')
     expect(html).not.toContain('TOTAL ENVELOPE')
     expect(html).not.toContain('SPENT VOLUME')
-    expect(html).not.toContain('Envelope Consumption')
+    expect(html).not.toContain('Envelope Usage')
   })
 
   it('renders REMAINING, TOTAL ENVELOPE, SPENT VOLUME and progress bar when session is active', () => {
@@ -124,7 +124,7 @@ describe('SessionBudgetModal Inactive/Active State Parity with Ask Arco Session 
     expect(html).toContain('REMAINING')
     expect(html).toContain('TOTAL ENVELOPE')
     expect(html).toContain('SPENT VOLUME')
-    expect(html).toContain('Envelope Consumption')
+    expect(html).toContain('Envelope Usage')
     expect(html).toContain('UPDATE SESSION')
   })
 
@@ -161,5 +161,18 @@ describe('SessionBudgetModal Inactive/Active State Parity with Ask Arco Session 
     expect(html).toContain('role="switch"')
     expect(html).toContain('aria-checked="true"')
     expect(html).toContain('Execute authorized transactions within caps without pop-up prompts')
+  })
+
+  it('renders unified ACTIVATE SESSION & FUND button in inactive state', () => {
+    vi.spyOn(sessionKeyService, 'getSessionKeyConfig').mockReturnValue(mockInactiveConfig)
+
+    const html = renderToStaticMarkup(
+      React.createElement(SessionBudgetModal, {
+        isOpen: true,
+        onClose: () => {},
+      })
+    )
+
+    expect(html).toContain('ACTIVATE SESSION &amp; FUND (2 USDC)')
   })
 })

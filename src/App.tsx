@@ -119,6 +119,15 @@ function CopilotHost({
           isAnalyzing={copilot.isAnalyzing}
           sessionConfig={copilot.sessionConfig}
           walletAddress={walletAddress || ucwAddress}
+          provider={connectedProvider}
+          ucwHandlers={{
+            executeUcwTransfer,
+            executeUcwContract,
+            pollChallengeTx: pollUcwChallengeTx,
+            signTypedData: executeUcwSignTypedData,
+            authSource: activeAuthSource,
+          }}
+          authSource={activeAuthSource}
           onSendMessage={copilot.executeQuery}
           onClearChat={copilot.clearChat}
           onActivateSession={copilot.activateSession}

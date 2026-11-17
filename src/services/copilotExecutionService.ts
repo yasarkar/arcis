@@ -167,7 +167,7 @@ export async function executeDirectCopilotAction(
     }),
   }
   try {
-    const config = getSessionKeyConfig(wallet)
+    const config = getSessionKeyConfig(wallet, 'copilot')
     if (!config.isActive) {
       // A revoke/reset does not make previously submitted principal disappear.
       if (config.reservedUsdc === Infinity || (typeof localStorage !== 'undefined' && outstandingSpendMicros(readSessionSpendLedger(wallet)) > 0)) throw new Error('Unresolved wallet budget reservations require reconciliation before another transaction.')
@@ -179,7 +179,7 @@ export async function executeDirectCopilotAction(
     const usd = actionType === 'send' || actionType === 'swap' ? await valueTokenAmountUsd(token, amount) : amount
     const fingerprint = JSON.stringify([actionType, token, data.toToken, data.amount, data.recipient || data.recipientAddress, data.fromChain, data.toChain, data.memo, data.slippageBps, data.minReceived])
     id = `${actionPayload.draftId || fingerprint}:${actionPayload.revision || 1}`
-    const prior = await admitSessionSpend(wallet, () => getSessionKeyConfig(wallet), { id, actionType, amountMicros: spendMicros(usd), fingerprint, action: actionPayload })
+    const prior = await admitSessionSpend(wallet, () => getSessionKeyConfig(wallet, 'copilot'), { id, actionType, amountMicros: spendMicros(usd), fingerprint, action: actionPayload })
     const pendingReceipt = (): InlineExecutionReceipt => ({ id: `rcpt_reservation_${id}`, actionType, title: 'Transaction Reserved — Reconciliation Required', status: 'PENDING', txHash: prior.txHash || '', userOpHash: prior.userOpHash, reservationId: id, reservationWallet: wallet, gasUsdc: 0, timestamp: Date.now(), settlementLatencyMs: Date.now() - started, errorMessage: 'This intent already holds budget; no second signer was called.' })
     if (prior.state === 'committed' || prior.state === 'released') return prior.receipt || failedActionReceipt(actionType, 'Intent Already Settled', 'Prepare a new draft to authorize a new transaction.', started)
     if (!await claimSessionSpend(wallet, id)) return await reconcileCopilotReservation(wallet, id) || prior.receipt || pendingReceipt()
@@ -265,7 +265,7 @@ async function executeCopilotActionUnreserved(
     )
   }
 
-  const sessionConfig = getSessionKeyConfig(activeWallet)
+  const sessionConfig = getSessionKeyConfig(activeWallet, 'copilot')
 
   const context: CopilotActionContext = {
     actionPayload,

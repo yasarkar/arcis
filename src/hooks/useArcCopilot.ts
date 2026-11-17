@@ -13,6 +13,7 @@ import {
   toggleSessionAutoExecute as toggleAutoExecuteService,
   verifySessionLimits,
   setActiveWalletForSession,
+  COPILOT_SESSION_UPDATED_EVENT,
   SESSION_KEY_UPDATED_EVENT,
 } from '../services/sessionKeyService'
 import { executeDirectCopilotAction, type CopilotUcwHandlers } from '../services/copilotExecutionService'
@@ -119,7 +120,7 @@ export function useArcCopilot(
   // Paid x402 calls: an injected EOA signs its own EIP-3009 authorization; a Circle Wallet
   // (created as an EOA) signs through Circle's typed-data challenge. Passkey/MSCA smart
   // accounts and session keys cannot produce such a signature, so they stay blocked.
-  const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress))
+  const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress, 'copilot'))
   const sessionEnclaveAccount = (sessionConfig.isActive && sessionConfig.sessionPublicKey)
     ? getEphemeralSessionAccount(walletAddress)
     : null
@@ -162,7 +163,7 @@ export function useArcCopilot(
       queryBusyRef.current = false
       setIsAnalyzing(false)
       pendingActionRef.current = null
-      setSessionConfig(getSessionKeyConfig(walletAddress))
+      setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
     }
   }, [walletAddress])
 
@@ -276,25 +277,28 @@ export function useArcCopilot(
 
   useEffect(() => {
     setActiveWalletForSession(walletAddress)
-    const fresh = getSessionKeyConfig(walletAddress)
+    const fresh = getSessionKeyConfig(walletAddress, 'copilot')
     setSessionConfig(fresh)
 
     const handleSessionUpdate = (e: any) => {
       if (e?.detail) {
+        if (e.detail.scope && e.detail.scope !== 'copilot') return
         if (!e.detail.walletAddress || !walletAddress || e.detail.walletAddress.toLowerCase() === walletAddress.toLowerCase()) {
           setSessionConfig(e.detail)
           triggerResumeIfPending(e.detail)
         }
       } else {
-        const updatedFresh = getSessionKeyConfig(walletAddress)
+        const updatedFresh = getSessionKeyConfig(walletAddress, 'copilot')
         setSessionConfig(updatedFresh)
         triggerResumeIfPending(updatedFresh)
       }
     }
 
     if (typeof window !== 'undefined') {
+      window.addEventListener(COPILOT_SESSION_UPDATED_EVENT, handleSessionUpdate)
       window.addEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
       return () => {
+        window.removeEventListener(COPILOT_SESSION_UPDATED_EVENT, handleSessionUpdate)
         window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
       }
     }
@@ -309,10 +313,13 @@ export function useArcCopilot(
     autoExecute?: boolean
     allowedActions?: SessionActionType[]
     walletAddress?: string
+    enableEnclave?: boolean
+    scope?: 'copilot' | 'marketplace'
   }) => {
     const updated = await activateSessionKeyService({
       ...params,
       walletAddress: params.walletAddress || walletAddress,
+      scope: params.scope || 'copilot',
     })
     setSessionConfig(updated)
     triggerResumeIfPending(updated)
@@ -320,13 +327,13 @@ export function useArcCopilot(
   }
 
   const revokeSession = () => {
-    const updated = revokeSessionKeyService(walletAddress)
+    const updated = revokeSessionKeyService(walletAddress, 'copilot')
     setSessionConfig(updated)
     return updated
   }
 
   const toggleAutoExecute = (enabled: boolean) => {
-    const updated = toggleAutoExecuteService(enabled, walletAddress)
+    const updated = toggleAutoExecuteService(enabled, walletAddress, 'copilot')
     setSessionConfig(updated)
     return updated
   }
@@ -341,7 +348,7 @@ export function useArcCopilot(
       actionPayload.draftId !== currentDraftRef.current.draftId ||
       actionPayload.revision !== currentDraftRef.current.revision)) return
 
-    const liveConfig = getSessionKeyConfig(walletAddress)
+    const liveConfig = getSessionKeyConfig(walletAddress, 'copilot')
     const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
 
     if (isTransactionalAction(actionPayload?.type)) {
@@ -441,7 +448,7 @@ export function useArcCopilot(
         )
       )
 
-      setSessionConfig(getSessionKeyConfig())
+      setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
     } catch (err: any) {
       const cleanErr = formatCopilotError(err)
       const dynamicActionType = normalizeActionType(actionPayload?.type)
@@ -488,7 +495,7 @@ export function useArcCopilot(
         currentDraftRef.current = action
       }
 
-      const liveConfig = getSessionKeyConfig(walletAddress)
+      const liveConfig = getSessionKeyConfig(walletAddress, 'copilot')
       const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
       const intent = classifyCopilotIntent(queryText)
       const isExplicitCommand = intent.kind === 'command' || intent.kind === 'correction'
@@ -567,7 +574,7 @@ export function useArcCopilot(
                   : msg
               )
             )
-            setSessionConfig(getSessionKeyConfig(walletAddress))
+            setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
           }).catch((err: any) => {
             // Autonomous execution can reject before producing a receipt (e.g. the user dismisses
             // the signature). Classify it so a deliberate cancellation is shown with the amber
@@ -596,7 +603,7 @@ export function useArcCopilot(
                   : msg
               )
             )
-            setSessionConfig(getSessionKeyConfig(walletAddress))
+            setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
           })
         } else {
           // Manual 1-click mode with active session limits

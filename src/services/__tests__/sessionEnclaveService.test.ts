@@ -51,5 +51,26 @@ describe('sessionEnclaveService', () => {
     const signature = await account.signTypedData(typedData)
     expect(signature).toMatch(/^0x[0-9a-fA-F]{130}$/)
   })
+
+  it('maintains strict isolation between copilot and marketplace scopes', () => {
+    clearEphemeralSessionAccount(TEST_WALLET, 'copilot')
+    clearEphemeralSessionAccount(TEST_WALLET, 'marketplace')
+
+    const copilotAccount = generateEphemeralSessionAccount(TEST_WALLET, 'copilot')
+    const marketplaceAccount = generateEphemeralSessionAccount(TEST_WALLET, 'marketplace')
+
+    expect(copilotAccount.sessionPublicKey.toLowerCase()).not.toBe(marketplaceAccount.sessionPublicKey.toLowerCase())
+
+    const retrievedCopilot = getEphemeralSessionAccount(TEST_WALLET, 'copilot')
+    const retrievedMarketplace = getEphemeralSessionAccount(TEST_WALLET, 'marketplace')
+
+    expect(retrievedCopilot?.address.toLowerCase()).toBe(copilotAccount.sessionPublicKey.toLowerCase())
+    expect(retrievedMarketplace?.address.toLowerCase()).toBe(marketplaceAccount.sessionPublicKey.toLowerCase())
+
+    // Clearing copilot must not clear marketplace
+    clearEphemeralSessionAccount(TEST_WALLET, 'copilot')
+    expect(getEphemeralSessionAccount(TEST_WALLET, 'copilot')).toBeNull()
+    expect(getEphemeralSessionAccount(TEST_WALLET, 'marketplace')?.address.toLowerCase()).toBe(marketplaceAccount.sessionPublicKey.toLowerCase())
+  })
 })
 

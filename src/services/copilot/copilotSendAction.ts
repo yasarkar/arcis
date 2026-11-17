@@ -1,4 +1,4 @@
-import { type Hex, encodeFunctionData } from 'viem'
+import { type Hex, encodeFunctionData, createWalletClient, http, type Address, parseUnits } from 'viem'
 import {
   COPILOT_SEND_DECIMALS,
   COPILOT_SEND_TOKENS,
@@ -8,7 +8,7 @@ import {
   validateSendAmount,
   WBTC_UNSUPPORTED_MESSAGE,
 } from '../../config/copilotTokens'
-import { ARC_TOKENS } from '../../config/arcChain'
+import { ARC_TOKENS, arcTestnet, ARC_METADATA } from '../../config/arcChain'
 import { numberToExactDecimal } from '../../utils/copilotAmount'
 import { resolveArcActualFeeUsdc } from '../arcGasService'
 import type { InlineExecutionReceipt } from '../../types/sessionKey'
@@ -16,16 +16,21 @@ import {
   verifySessionLimits,
   deductSessionSpend,
 } from '../sessionKeyService'
+import {
+  getEphemeralSessionAccount,
+  fetchEnclaveUsdcBalance,
+} from '../sessionEnclaveService'
 import { tokenAmountToUsd } from '../tokenPriceService'
 import { createViemAdapter, sendToken } from '../sendService'
 import {
   sendModularUserOperation,
   createModularUsdcTransferCall,
 } from '../modularWalletService'
-import { ERC20_ABI } from '../../config/poolsConfig'
+import { POOL_CONTRACTS, ERC20_ABI } from '../../config/poolsConfig'
 import { getExplorerTxUrl } from '../../config/sendConfig'
 import { addTransaction } from '../../utils/history'
 import { formatCopilotError, isUserCanceled } from '../../utils/errorUtils'
+import { logger } from '../../utils/logger'
 import {
   type CopilotActionContext,
   failedActionReceipt,
@@ -36,6 +41,8 @@ import {
   getVerifiedArcReceipt,
   verifyArcTokenTransferReceipt,
 } from './copilotCommon'
+
+const log = logger.createScope('copilotSendAction')
 
 export async function executeCopilotSendAction(
   context: CopilotActionContext,
@@ -106,24 +113,128 @@ export async function executeCopilotSendAction(
   }
 
   const normalizedAmount = amountCheck.normalized
-  const limitCheck = verifySessionLimits('send', tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
-  if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
-    if (onProgress) onProgress('failed')
-    return {
-      id: `rcpt_${Date.now()}`,
-      actionType: 'send',
-      title: `Transfer Failed: ${amount} ${tokenSymbol}`,
-      status: 'FAILED',
-      txHash: '',
-      fromToken: tokenSymbol,
-      amountIn: amount,
-      recipient,
-      gasUsdc: 0,
-      settlementLatencyMs: Date.now() - startTime,
-      timestamp: Date.now(),
-      errorMessage: limitCheck.reason || 'Session spending limit exceeded.',
+  const spendUsdc = tokenAmountToUsd(tokenSymbol, normalizedAmount)
+
+  // ── 0. AUTONOMOUS SESSION ENCLAVE DIRECT EXECUTION (ZERO-POPUP) ──
+  const ephemeralAccount = getEphemeralSessionAccount(activeWallet, 'copilot')
+  if (ephemeralAccount && tokenSymbol === 'USDC') {
+    const limitCheck = verifySessionLimits('send', spendUsdc, activeWallet, 'copilot')
+    if (limitCheck.allowed || budgetManaged) {
+      let enclaveBalance = 0
+      try {
+        enclaveBalance = await fetchEnclaveUsdcBalance(ephemeralAccount.address)
+      } catch (balErr) {
+        log.debug('Could not fetch enclave balance:', balErr)
+      }
+
+      if (enclaveBalance >= normalizedAmount) {
+      if (onProgress) onProgress('routing')
+      if (onProgress) onProgress('signing')
+      if (onProgress) onProgress('broadcasting')
+
+      try {
+        const walletClient = createWalletClient({
+          account: ephemeralAccount,
+          chain: arcTestnet,
+          transport: http(ARC_METADATA.rpcHttpUrl),
+        })
+
+        const realTxHash = await walletClient.sendTransaction({
+          to: POOL_CONTRACTS.USDC as Address,
+          data: encodeFunctionData({
+            abi: ERC20_ABI,
+            functionName: 'transfer',
+            args: [recipient as Address, parseUnits(numberToExactDecimal(normalizedAmount)!, 6)],
+          }),
+        })
+
+        onSubmission?.({ txHash: realTxHash, phase: 'spend' })
+        if (!isTransactionHash(realTxHash)) {
+          if (onProgress) onProgress('failed')
+          return failedActionReceipt('send', 'Transfer Not Confirmed', 'Ephemeral session key did not return a valid transaction hash.', startTime)
+        }
+
+        const receipt = await getVerifiedArcReceipt(realTxHash as Hex, 'Copilot autonomous enclave transfer')
+        if (!receipt) {
+          if (onProgress) onProgress('pending')
+          return {
+            id: `rcpt_pending_${Date.now()}`,
+            actionType: 'send',
+            title: 'Autonomous Transfer Submitted — Pending',
+            status: 'PENDING',
+            txHash: realTxHash,
+            fromToken: tokenSymbol,
+            amountIn: normalizedAmount,
+            recipient,
+            gasUsdc: 0,
+            settlementLatencyMs: Date.now() - startTime,
+            timestamp: Date.now(),
+          }
+        }
+
+        if (receipt.status !== 'success') {
+          if (onProgress) onProgress('failed')
+          return failedActionReceipt('send', 'Transfer Reverted', 'Autonomous transfer reverted on Arc Testnet.', startTime)
+        }
+
+        const transferProof = verifyArcTokenTransferReceipt(
+          receipt,
+          ARC_TOKENS.USDC,
+          recipient,
+          normalizedAmount,
+          6,
+          ephemeralAccount.address
+        )
+        if (!transferProof) {
+          if (onProgress) onProgress('failed')
+          return failedActionReceipt('send', 'Transfer Not Verified', 'Receipt did not contain a matching Transfer event from session enclave.', startTime)
+        }
+
+        const fee = await resolveArcActualFeeUsdc(realTxHash)
+        const durationMs = Date.now() - startTime
+        if (!budgetManaged) deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet, 'copilot')
+
+        addTransaction({
+          type: 'send',
+          txHash: realTxHash,
+          amount: numberToExactDecimal(normalizedAmount)!,
+          tokenSymbol: 'USDC',
+          sourceChain: 'Arc_Testnet',
+          recipient,
+          userAddress: activeWallet,
+          status: 'success',
+        })
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
+        }
+
+        if (onProgress) onProgress('confirmed')
+
+        return {
+          id: `rcpt_${Date.now()}`,
+          actionType: 'send',
+          title: 'Send Completed Successfully',
+          subtitle: 'Executed via Session Key (Zero-Popup)',
+          status: 'SUCCESS',
+          txHash: realTxHash,
+          fromToken: tokenSymbol,
+          amountIn: normalizedAmount,
+          recipient,
+          memo,
+          gasUsdc: fee.feeUsdc ?? 0,
+          actualGasUsdc: fee.feeUsdc,
+          baseFeeUsdc: fee.baseFeeUsdcExact,
+          priorityFeeUsdc: fee.priorityFeeUsdcExact,
+          settlementLatencyMs: durationMs,
+          timestamp: Date.now(),
+        }
+      } catch (enclaveErr: any) {
+        log.warn('Autonomous enclave send error, falling back to connected provider:', enclaveErr)
+      }
     }
   }
+}
 
   if (ucwHandlers?.authSource === 'ucw') {
     if (!ucwHandlers.executeUcwTransfer) {
@@ -185,7 +296,6 @@ export async function executeCopilotSendAction(
       return failedActionReceipt('send', 'Transfer Not Verified', 'The successful receipt contains no matching token Transfer event for this sender, recipient, token, and amount; no success history or session spend was recorded.', startTime)
     }
     const fee = await resolveArcActualFeeUsdc(transfer.txHash)
-    if (!budgetManaged) deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
     addTransaction({ type: 'send', txHash: transfer.txHash, amount: numberToExactDecimal(normalizedAmount)!, tokenSymbol, sourceChain: 'Arc_Testnet', recipient, userAddress: activeWallet, status: 'success' })
     if (onProgress) onProgress('confirmed')
     return {
@@ -250,7 +360,6 @@ export async function executeCopilotSendAction(
     }
     const fee = await resolveArcActualFeeUsdc(realTxHash)
     const durationMs = Date.now() - startTime
-    if (!budgetManaged) deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
 
     addTransaction({
       type: 'send',
@@ -347,8 +456,6 @@ export async function executeCopilotSendAction(
     }
     const fee = await resolveArcActualFeeUsdc(realTxHash)
     const durationMs = Date.now() - startTime
-
-    if (!budgetManaged) deductSessionSpend(tokenAmountToUsd(tokenSymbol, normalizedAmount), activeWallet)
 
     addTransaction({
       type: 'send',

@@ -25,7 +25,14 @@ import { EXPLORE_TOPIC_CATEGORIES, exploreTopicQuestions } from '../../hooks/use
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload } from '../../types/marketplace'
 import type { Recommendation } from '../../services/x402/nextActions'
 import type { SessionKeyConfig, SessionActionType } from '../../types/sessionKey'
-import { getSessionTimeRemaining } from '../../services/sessionKeyService'
+import {
+  getSessionTimeRemaining,
+  fetchEnclaveUsdcBalance,
+  getSessionKeyConfig,
+  COPILOT_SESSION_UPDATED_EVENT,
+  SESSION_KEY_UPDATED_EVENT,
+} from '../../services/sessionKeyService'
+import { getEphemeralSessionAccount } from '../../services/sessionEnclaveService'
 import { playSound, soundService } from '../../services/soundService'
 import { sanitizeCopilotHtml, stripCopilotHtml } from '../../utils/sanitizeCopilotHtml'
 import { classifyCopilotIntent } from '../../utils/copilotIntent'
@@ -52,6 +59,9 @@ interface ArcCopilotDrawerProps {
   isAnalyzing: boolean
   sessionConfig: SessionKeyConfig
   walletAddress?: string
+  provider?: any
+  ucwHandlers?: any
+  authSource?: 'passkey' | 'ucw' | 'evm' | null
   onSendMessage: (query: string) => Promise<void>
   onClearChat: () => void
   onActivateSession: (params: {
@@ -89,6 +99,9 @@ export default function ArcCopilotDrawer({
   isAnalyzing,
   sessionConfig,
   walletAddress,
+  provider,
+  ucwHandlers,
+  authSource,
   onSendMessage,
   onClearChat,
   onActivateSession,
@@ -132,6 +145,56 @@ export default function ArcCopilotDrawer({
     window.addEventListener(WALLET_SETTINGS_CHANGED_EVENT, handleSettingsChanged)
     return () => window.removeEventListener(WALLET_SETTINGS_CHANGED_EVENT, handleSettingsChanged)
   }, [walletAddress])
+
+  // Synchronize Enclave Vault balance for 100% parity with SessionKeyModal
+  const [enclaveBalance, setEnclaveBalance] = useState<number>(0)
+
+  useEffect(() => {
+    let cancelled = false
+    const updateEnclaveBal = () => {
+      const fresh = getSessionKeyConfig(walletAddress, 'copilot')
+      const targetPub =
+        fresh.sessionPublicKey ||
+        sessionConfig.sessionPublicKey ||
+        getEphemeralSessionAccount(walletAddress, 'copilot')?.address
+      if (targetPub) {
+        fetchEnclaveUsdcBalance(targetPub)
+          .then((bal) => {
+            if (!cancelled) setEnclaveBalance(bal)
+          })
+          .catch(() => {})
+      } else {
+        if (!cancelled) setEnclaveBalance(0)
+      }
+    }
+
+    updateEnclaveBal()
+
+    if (typeof window !== 'undefined') {
+      const handleEvent = (e: any) => {
+        if (e?.detail && e.detail.scope && e.detail.scope !== 'copilot') return
+        updateEnclaveBal()
+      }
+      window.addEventListener(COPILOT_SESSION_UPDATED_EVENT, updateEnclaveBal)
+      window.addEventListener(SESSION_KEY_UPDATED_EVENT, handleEvent)
+      return () => {
+        cancelled = true
+        window.removeEventListener(COPILOT_SESSION_UPDATED_EVENT, updateEnclaveBal)
+        window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleEvent)
+      }
+    }
+  }, [walletAddress, sessionConfig.sessionPublicKey, sessionConfig.isActive])
+
+  const maxSpend = Number(sessionConfig.maxSpendUsdc) || 0
+  const spent = Number(sessionConfig.spentUsdc) || 0
+  const reserved = Number(sessionConfig.reservedUsdc) || 0
+  const remainingBudget = Math.max(0, maxSpend - spent - reserved)
+  const isSessionActive = Boolean(sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt)
+  const displayRemaining = isSessionActive
+    ? enclaveBalance > 0
+      ? enclaveBalance
+      : remainingBudget
+    : 0
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -528,7 +591,7 @@ export default function ArcCopilotDrawer({
               <span>Session Budget:</span>
             </span>
             <span className="font-mono text-indigo-300 font-bold tabular-nums">
-              {Math.max(0, sessionConfig.maxSpendUsdc - sessionConfig.spentUsdc).toFixed(2)} USDC
+              {displayRemaining.toFixed(2)} USDC
             </span>
             <span className="text-[12px] text-slate-400 font-mono hidden sm:inline">
               ({getSessionTimeRemaining(sessionConfig.expiresAt).formatted})
@@ -963,6 +1026,9 @@ export default function ArcCopilotDrawer({
         onActivateSession={onActivateSession}
         onRevokeSession={onRevokeSession}
         onToggleAutoExecute={onToggleAutoExecute}
+        provider={provider}
+        ucwHandlers={ucwHandlers}
+        authSource={authSource}
       />
     </div>,
     document.body

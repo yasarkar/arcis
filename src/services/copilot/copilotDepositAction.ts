@@ -1,4 +1,4 @@
-import { type Hex, parseUnits, encodeFunctionData, decodeEventLog } from 'viem'
+import { type Hex, parseUnits, encodeFunctionData, decodeEventLog, createWalletClient, http, type Address } from 'viem'
 import {
   POOL_CONTRACTS,
   ERC20_ABI,
@@ -7,6 +7,7 @@ import {
   POOL_DEFAULT_SLIPPAGE_BPS,
   poolMinOut,
 } from '../../config/poolsConfig'
+import { arcTestnet, ARC_METADATA } from '../../config/arcChain'
 import { numberToExactDecimal } from '../../utils/copilotAmount'
 import { resolveArcActualFeeUsdc } from '../arcGasService'
 import { getResilientPublicClient } from '../rpc'
@@ -16,11 +17,16 @@ import {
   deductSessionSpend,
 } from '../sessionKeyService'
 import {
+  getEphemeralSessionAccount,
+  fetchEnclaveUsdcBalance,
+} from '../sessionEnclaveService'
+import {
   sendModularUserOperation,
   arcTestnetChain,
 } from '../modularWalletService'
 import { addTransaction } from '../../utils/history'
 import { formatCopilotError } from '../../utils/errorUtils'
+import { logger } from '../../utils/logger'
 import {
   type CopilotActionContext,
   failedActionReceipt,
@@ -28,6 +34,8 @@ import {
   isTransactionHash,
   getVerifiedArcReceipt,
 } from './copilotCommon'
+
+const log = logger.createScope('copilotDepositAction')
 
 export async function executeCopilotDepositAction(
   context: CopilotActionContext,
@@ -53,27 +61,159 @@ export async function executeCopilotDepositAction(
     return failedActionReceipt('deposit', 'Invalid Deposit Amount', 'Deposit amount must be greater than zero.', startTime)
   }
 
-  // Limit check
-  const limitCheck = verifySessionLimits('deposit', amount, activeWallet)
-  if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
-    if (onProgress) onProgress('failed')
-    return {
-      id: `rcpt_${Date.now()}`,
-      actionType: 'deposit',
-      title: `Deposit Failed: ${amount} USDC`,
-      status: 'FAILED',
-      txHash: '',
-      gasUsdc: 0,
-      settlementLatencyMs: Date.now() - startTime,
-      timestamp: Date.now(),
-      errorMessage: limitCheck.reason || 'Session limit exceeded.',
+  const resilientClient = getResilientPublicClient('Arc_Testnet')
+  const amountUnits = parseUnits(numberToExactDecimal(amount)!, 6)
+
+  // ── 0. AUTONOMOUS SESSION ENCLAVE EXECUTION (ZERO-POPUP) ──
+  const ephemeralAccount = getEphemeralSessionAccount(activeWallet, 'copilot')
+  if (ephemeralAccount) {
+    const limitCheck = verifySessionLimits('deposit', amount, activeWallet, 'copilot')
+    if (limitCheck.allowed || budgetManaged) {
+      let enclaveBalance = 0
+      try {
+        enclaveBalance = await fetchEnclaveUsdcBalance(ephemeralAccount.address)
+      } catch (balErr) {
+        log.debug('Could not fetch enclave balance:', balErr)
+      }
+
+      if (enclaveBalance >= amount) {
+      if (onProgress) onProgress('signing')
+      if (onProgress) onProgress('broadcasting')
+
+      try {
+        let enclaveGuardedDepositArgs: readonly [bigint, Hex, bigint] | null = null
+        if (POOL_VERSION_V4) {
+          try {
+            const expectedShares = (await resilientClient.readContract({
+              address: POOL_CONTRACTS.YIELD_VAULT,
+              abi: YIELD_VAULT_ABI,
+              functionName: 'previewDeposit',
+              args: [amountUnits],
+            })) as bigint
+            if (expectedShares > 0n) {
+              enclaveGuardedDepositArgs = [amountUnits, activeWallet as Hex, poolMinOut(expectedShares, POOL_DEFAULT_SLIPPAGE_BPS)]
+            }
+          } catch (previewErr) {
+            log.warn('Could not preview enclave deposit:', previewErr)
+          }
+        }
+
+        const walletClient = createWalletClient({
+          account: ephemeralAccount,
+          chain: arcTestnet,
+          transport: http(ARC_METADATA.rpcHttpUrl),
+        })
+
+        const allowance = (await resilientClient.readContract({
+          address: POOL_CONTRACTS.USDC,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [ephemeralAccount.address, POOL_CONTRACTS.YIELD_VAULT],
+        })) as bigint
+
+        if (allowance < amountUnits) {
+          const approveHash = await walletClient.sendTransaction({
+            to: POOL_CONTRACTS.USDC as Hex,
+            data: encodeFunctionData({
+              abi: ERC20_ABI,
+              functionName: 'approve',
+              args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits * 100n],
+            }),
+          })
+          onSubmission?.({ txHash: approveHash, phase: 'approval' })
+          await resilientClient.waitForTransactionReceipt({ hash: approveHash, timeout: 20000 })
+        }
+
+        const depositHash = await walletClient.sendTransaction({
+          to: POOL_CONTRACTS.YIELD_VAULT as Hex,
+          data: enclaveGuardedDepositArgs
+            ? encodeFunctionData({
+                abi: YIELD_VAULT_ABI,
+                functionName: 'depositWithMinShares',
+                args: enclaveGuardedDepositArgs,
+              })
+            : encodeFunctionData({
+                abi: YIELD_VAULT_ABI,
+                functionName: 'deposit',
+                args: [amountUnits, activeWallet as Hex],
+              }),
+        })
+
+        onSubmission?.({ txHash: depositHash, phase: 'spend' })
+        if (!isTransactionHash(depositHash)) {
+          if (onProgress) onProgress('failed')
+          return failedActionReceipt('deposit', 'Deposit Not Confirmed', 'Ephemeral session key did not return a valid transaction hash.', startTime)
+        }
+
+        const receipt = await getVerifiedArcReceipt(depositHash as Hex, 'Copilot autonomous deposit')
+        if (!receipt) {
+          if (onProgress) onProgress('pending')
+          return {
+            id: `rcpt_pending_${Date.now()}`,
+            actionType: 'deposit',
+            title: 'Autonomous Deposit Submitted — Pending',
+            status: 'PENDING',
+            txHash: depositHash,
+            amountIn: amount,
+            gasUsdc: 0,
+            settlementLatencyMs: Date.now() - startTime,
+            timestamp: Date.now(),
+          }
+        }
+
+        if (receipt.status !== 'success') {
+          if (onProgress) onProgress('failed')
+          return failedActionReceipt('deposit', 'Deposit Reverted', 'Autonomous vault deposit reverted on Arc Testnet.', startTime)
+        }
+
+        const fee = await resolveArcActualFeeUsdc(depositHash)
+        const durationMs = Date.now() - startTime
+
+        if (!budgetManaged) deductSessionSpend(amount, activeWallet, 'copilot')
+
+        addTransaction({
+          type: 'deposit',
+          txHash: depositHash,
+          amount: numberToExactDecimal(amount)!,
+          tokenSymbol: 'USDC',
+          sourceChain: 'Arc_Testnet',
+          recipient: POOL_CONTRACTS.YIELD_VAULT,
+          userAddress: activeWallet,
+          status: 'success',
+        })
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
+        }
+
+        if (onProgress) onProgress('confirmed')
+
+        return {
+          id: `rcpt_${Date.now()}`,
+          actionType: 'deposit',
+          title: 'Deposit Completed Successfully',
+          subtitle: 'Executed via Session Key (Zero-Popup)',
+          status: 'SUCCESS',
+          txHash: depositHash,
+          amountIn: amount,
+          apy,
+          gasUsdc: fee.feeUsdc ?? 0,
+          actualGasUsdc: fee.feeUsdc,
+          baseFeeUsdc: fee.baseFeeUsdcExact,
+          priorityFeeUsdc: fee.priorityFeeUsdcExact,
+          settlementLatencyMs: durationMs,
+          timestamp: Date.now(),
+        }
+      } catch (enclaveDepErr: any) {
+        log.warn('Autonomous enclave deposit error, falling back to connected provider:', enclaveDepErr)
+      }
     }
   }
+}
 
   if (onProgress) onProgress('routing')
 
   // Step 1: Verify the actual USDC ERC-20 balance on Arc Testnet via resilient RPC client
-  const resilientClient = getResilientPublicClient('Arc_Testnet')
   let onChainBalWei: bigint
   try {
     onChainBalWei = await resilientClient.readContract({
@@ -109,8 +249,6 @@ export async function executeCopilotDepositAction(
 
   let realTxHash = ''
   const effectiveProvider = provider || (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
-
-  const amountUnits = parseUnits(numberToExactDecimal(amount)!, 6)
 
   // H4: on V4 the vault deposit carries a min-shares guard so a share-price manipulation
   // between quote and execution reverts instead of silently minting fewer shares.
@@ -371,7 +509,6 @@ export async function executeCopilotDepositAction(
   }
   const fee = await resolveArcActualFeeUsdc(realTxHash)
   const durationMs = Date.now() - startTime
-  if (!budgetManaged) deductSessionSpend(amount, activeWallet)
 
   addTransaction({
     type: 'send',

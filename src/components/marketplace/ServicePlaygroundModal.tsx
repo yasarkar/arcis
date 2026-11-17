@@ -28,7 +28,11 @@ import {
   serviceTelemetryService,
   type ServiceTelemetryData,
 } from '../../services/serviceTelemetryService'
-import { getSessionKeyConfig, SESSION_KEY_UPDATED_EVENT } from '../../services/sessionKeyService'
+import {
+  getSessionKeyConfig,
+  MARKETPLACE_SESSION_UPDATED_EVENT,
+  SESSION_KEY_UPDATED_EVENT,
+} from '../../services/sessionKeyService'
 import { soundService } from '../../services/soundService'
 import type { SessionBudgetState } from '../../services/x402Client'
 import type { x402ExecutionResult, x402Service } from '../../types/marketplace'
@@ -1481,18 +1485,25 @@ export default function ServicePlaygroundModal({
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
-  // Session key authority for autonomous agent spending limits
+  // Session key authority for autonomous agent spending limits (scoped to 'marketplace')
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() =>
-    getSessionKeyConfig(walletAddress)
+    getSessionKeyConfig(walletAddress, 'marketplace')
   )
 
   // Standard body scroll lock
   useBodyScrollLock(isOpen)
   useEffect(() => {
-    const syncSessionConfig = () => setSessionConfig(getSessionKeyConfig(walletAddress))
+    const syncSessionConfig = (e?: any) => {
+      if (e?.detail && e.detail.scope && e.detail.scope !== 'marketplace') return
+      setSessionConfig(getSessionKeyConfig(walletAddress, 'marketplace'))
+    }
     syncSessionConfig()
+    window.addEventListener(MARKETPLACE_SESSION_UPDATED_EVENT, syncSessionConfig)
     window.addEventListener(SESSION_KEY_UPDATED_EVENT, syncSessionConfig)
-    return () => window.removeEventListener(SESSION_KEY_UPDATED_EVENT, syncSessionConfig)
+    return () => {
+      window.removeEventListener(MARKETPLACE_SESSION_UPDATED_EVENT, syncSessionConfig)
+      window.removeEventListener(SESSION_KEY_UPDATED_EVENT, syncSessionConfig)
+    }
   }, [walletAddress])
 
   const sessionIsActive = sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt

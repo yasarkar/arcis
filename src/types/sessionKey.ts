@@ -3,11 +3,14 @@
 
 export type SessionActionType = 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet' | 'ai_service'
 
+export type SessionScope = 'copilot' | 'marketplace'
+
 export interface SessionKeyConfig {
   sessionId: string
   sessionPublicKey: string
   ephemeralPrivateKey?: string
   walletAddress?: string // The owner wallet address this session is bound to
+  scope?: SessionScope // 'copilot' for Ask Arco DeFi, 'marketplace' for AI Services x402
   mscaAddress?: string // Linked Circle Modular Smart Account address if connected
   delegationType?: 'msca' | 'eoa' | 'headless'
   expiresAt: number // Timestamp in ms

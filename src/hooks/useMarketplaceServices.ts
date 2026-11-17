@@ -147,10 +147,10 @@ export function useMarketplaceServices(
     setIsExecuting(true)
     setExecutionResult(null)
     try {
-      // Check if an active Session Enclave is available for zero-click autonomous execution
-      const sessionConfig = getSessionKeyConfig(walletAddress)
+      // Check if an active Session Enclave is available for zero-click autonomous execution (scoped to 'marketplace')
+      const sessionConfig = getSessionKeyConfig(walletAddress, 'marketplace')
       const sessionAccount = (sessionConfig.isActive && sessionConfig.sessionPublicKey)
-        ? getEphemeralSessionAccount(walletAddress)
+        ? getEphemeralSessionAccount(walletAddress, 'marketplace')
         : null
 
       let effectivePayerKind: X402PayerKind = 'external_eoa'
@@ -184,7 +184,7 @@ export function useMarketplaceServices(
       if (result.success) {
         const cost = result.costUsdc > 0 ? result.costUsdc : service.pricing.priceUsdc
         if (cost > 0) {
-          deductSessionSpend(cost, walletAddress)
+          deductSessionSpend(cost, walletAddress, 'marketplace')
           deductSessionBudget(cost)
         }
         refreshSessionBudget()

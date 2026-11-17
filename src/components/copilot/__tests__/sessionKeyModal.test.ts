@@ -153,6 +153,7 @@ describe('SessionKeyModal Centered Screen Overlay', () => {
     expect(html).not.toContain('TOTAL CAP')
     expect(html).not.toContain('PER-TX LIMIT')
     expect(html).not.toContain('Revoke Session')
+    expect(html).not.toContain('Temporary Session Wallet')
   })
 
   it('renders REMAINING, TOTAL CAP, and PER-TX LIMIT telemetry strip when session is active', () => {
@@ -179,6 +180,25 @@ describe('SessionKeyModal Centered Screen Overlay', () => {
     expect(html).toContain('TOTAL CAP')
     expect(html).toContain('PER-TX LIMIT')
     expect(html).toContain('Revoke Session')
+  })
+
+  it('renders Save & Fund button with budget amount and Temporary Session Wallet card', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: mockConfig,
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('Save &amp; Fund (100 USDC)')
+    expect(html).toContain('Temporary Session Wallet')
+    expect(html).toContain('Vault Balance')
+    expect(html).toContain('Autonomous Mode')
+    expect(html).toContain('Zero-Popup')
   })
 })
 

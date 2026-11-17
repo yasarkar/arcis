@@ -17,37 +17,54 @@ import {
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { POOL_CONTRACTS, ERC20_ABI } from '../config/poolsConfig'
+import type { SessionScope } from '../types/sessionKey'
 import { logger } from '../utils/logger'
 
 const log = logger.createScope('sessionEnclaveService')
 
-const ENCLAVE_KEY_STORAGE_PREFIX = 'arcis_enclave_key_v1_'
+const ENCLAVE_KEY_STORAGE_PREFIX = 'arcis_enclave_key_v2_'
+const LEGACY_STORAGE_PREFIX = 'arcis_enclave_key_v1_'
 
-// In-memory cache of active ephemeral accounts mapped by normalized walletKey
+// In-memory cache of active ephemeral accounts mapped by scoped key (`scope:walletKey`)
 const inMemoryEnclaveAccounts: Map<string, PrivateKeyAccount> = new Map()
 
 /**
- * Normalizes wallet address or returns 'default'
+ * Normalizes wallet address and scope into an isolated cache key
  */
-function normalizeKey(walletAddress?: string | null): string {
-  if (!walletAddress || typeof walletAddress !== 'string') return 'default'
-  const trimmed = walletAddress.trim().toLowerCase()
-  return trimmed || 'default'
+function normalizeScopedKey(walletAddress?: string | null, scope: SessionScope = 'copilot'): { rawWallet: string; cacheKey: string } {
+  const rawWallet = (!walletAddress || typeof walletAddress !== 'string' || !walletAddress.trim())
+    ? 'default'
+    : walletAddress.trim().toLowerCase()
+  return {
+    rawWallet,
+    cacheKey: `${scope}:${rawWallet}`,
+  }
 }
 
-function getStorageKey(walletKey: string): string {
-  return `${ENCLAVE_KEY_STORAGE_PREFIX}${walletKey}`
+function getStorageKey(rawWallet: string, scope: SessionScope = 'copilot'): string {
+  return `${ENCLAVE_KEY_STORAGE_PREFIX}${scope}_${rawWallet}`
 }
 
 /**
- * Retrieves the ephemeral private key for a given wallet, if stored in sessionStorage
+ * Retrieves the ephemeral private key for a given wallet and scope from sessionStorage
  */
-function readStoredPrivateKey(walletKey: string): Hex | null {
+function readStoredPrivateKey(rawWallet: string, scope: SessionScope = 'copilot'): Hex | null {
   if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') return null
   try {
-    const raw = sessionStorage.getItem(getStorageKey(walletKey))
+    // 1. Scoped v2 key
+    const scopedKey = getStorageKey(rawWallet, scope)
+    const raw = sessionStorage.getItem(scopedKey)
     if (raw && /^0x[0-9a-fA-F]{64}$/.test(raw.trim())) {
       return raw.trim() as Hex
+    }
+
+    // 2. Fallback to legacy v1 key only for copilot scope
+    if (scope === 'copilot') {
+      const legacyKey = `${LEGACY_STORAGE_PREFIX}${rawWallet}`
+      const legacyRaw = sessionStorage.getItem(legacyKey)
+      if (legacyRaw && /^0x[0-9a-fA-F]{64}$/.test(legacyRaw.trim())) {
+        return legacyRaw.trim() as Hex
+      }
     }
   } catch (err) {
     log.debug('Failed to read ephemeral key from sessionStorage', err)
@@ -58,10 +75,10 @@ function readStoredPrivateKey(walletKey: string): Hex | null {
 /**
  * Persists the ephemeral private key in sessionStorage (never localStorage)
  */
-function persistPrivateKey(walletKey: string, privKey: Hex): void {
+function persistPrivateKey(rawWallet: string, privKey: Hex, scope: SessionScope = 'copilot'): void {
   if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') return
   try {
-    sessionStorage.setItem(getStorageKey(walletKey), privKey)
+    sessionStorage.setItem(getStorageKey(rawWallet, scope), privKey)
   } catch (err) {
     log.debug('Failed to persist ephemeral key in sessionStorage', err)
   }
@@ -70,35 +87,41 @@ function persistPrivateKey(walletKey: string, privKey: Hex): void {
 /**
  * Removes the ephemeral private key from sessionStorage
  */
-function removeStoredPrivateKey(walletKey: string): void {
+function removeStoredPrivateKey(rawWallet: string, scope: SessionScope = 'copilot'): void {
   if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') return
   try {
-    sessionStorage.removeItem(getStorageKey(walletKey))
+    sessionStorage.removeItem(getStorageKey(rawWallet, scope))
+    if (scope === 'copilot') {
+      sessionStorage.removeItem(`${LEGACY_STORAGE_PREFIX}${rawWallet}`)
+    }
   } catch (err) {
     log.debug('Failed to remove ephemeral key from sessionStorage', err)
   }
 }
 
 /**
- * Gets or recovers the PrivateKeyAccount for the given wallet session.
+ * Gets or recovers the PrivateKeyAccount for the given wallet session and scope.
  */
-export function getEphemeralSessionAccount(walletAddress?: string): PrivateKeyAccount | null {
-  const walletKey = normalizeKey(walletAddress)
+export function getEphemeralSessionAccount(
+  walletAddress?: string,
+  scope: SessionScope = 'copilot'
+): PrivateKeyAccount | null {
+  const { rawWallet, cacheKey } = normalizeScopedKey(walletAddress, scope)
 
   // 1. Check in-memory map
-  const cached = inMemoryEnclaveAccounts.get(walletKey)
+  const cached = inMemoryEnclaveAccounts.get(cacheKey)
   if (cached) return cached
 
   // 2. Re-hydrate from sessionStorage if available
-  const storedKey = readStoredPrivateKey(walletKey)
+  const storedKey = readStoredPrivateKey(rawWallet, scope)
   if (storedKey) {
     try {
       const account = privateKeyToAccount(storedKey)
-      inMemoryEnclaveAccounts.set(walletKey, account)
+      inMemoryEnclaveAccounts.set(cacheKey, account)
       return account
     } catch (err) {
       log.error('Failed to instantiate privateKeyToAccount from stored key', err)
-      removeStoredPrivateKey(walletKey)
+      removeStoredPrivateKey(rawWallet, scope)
     }
   }
 
@@ -106,20 +129,23 @@ export function getEphemeralSessionAccount(walletAddress?: string): PrivateKeyAc
 }
 
 /**
- * Generates a brand new ephemeral keypair and registers it for the wallet session.
+ * Generates a brand new ephemeral keypair and registers it for the wallet session and scope.
  */
-export function generateEphemeralSessionAccount(walletAddress?: string): {
+export function generateEphemeralSessionAccount(
+  walletAddress?: string,
+  scope: SessionScope = 'copilot'
+): {
   sessionPublicKey: Address
   account: PrivateKeyAccount
 } {
-  const walletKey = normalizeKey(walletAddress)
+  const { rawWallet, cacheKey } = normalizeScopedKey(walletAddress, scope)
   const privKey = generatePrivateKey()
   const account = privateKeyToAccount(privKey)
 
-  inMemoryEnclaveAccounts.set(walletKey, account)
-  persistPrivateKey(walletKey, privKey)
+  inMemoryEnclaveAccounts.set(cacheKey, account)
+  persistPrivateKey(rawWallet, privKey, scope)
 
-  log.info(`Generated ephemeral session account ${account.address} for wallet ${walletKey}`)
+  log.info(`Generated ephemeral ${scope} session account ${account.address} for wallet ${rawWallet}`)
 
   return {
     sessionPublicKey: account.address,
@@ -128,13 +154,16 @@ export function generateEphemeralSessionAccount(walletAddress?: string): {
 }
 
 /**
- * Clears the ephemeral session keypair from memory and sessionStorage.
+ * Clears the ephemeral session keypair from memory and sessionStorage for the specified scope.
  */
-export function clearEphemeralSessionAccount(walletAddress?: string): void {
-  const walletKey = normalizeKey(walletAddress)
-  inMemoryEnclaveAccounts.delete(walletKey)
-  removeStoredPrivateKey(walletKey)
-  log.info(`Cleared ephemeral session account for wallet ${walletKey}`)
+export function clearEphemeralSessionAccount(
+  walletAddress?: string,
+  scope: SessionScope = 'copilot'
+): void {
+  const { rawWallet, cacheKey } = normalizeScopedKey(walletAddress, scope)
+  inMemoryEnclaveAccounts.delete(cacheKey)
+  removeStoredPrivateKey(rawWallet, scope)
+  log.info(`Cleared ephemeral ${scope} session account for wallet ${rawWallet}`)
 }
 
 /**
@@ -175,13 +204,15 @@ export async function fetchEnclaveUsdcBalance(sessionPublicKey?: string): Promis
  */
 export async function sweepEnclaveUsdc(
   ownerAddress: string,
-  walletAddress?: string
+  walletAddress?: string,
+  scope: SessionScope = 'copilot'
 ): Promise<{ success: boolean; sweptAmountUsdc: number; txHash?: string; error?: string }> {
-  if (!isAddress(ownerAddress)) {
+  const normalizedOwner = ownerAddress?.trim().toLowerCase()
+  if (!normalizedOwner || !isAddress(normalizedOwner)) {
     return { success: false, sweptAmountUsdc: 0, error: 'Invalid owner address' }
   }
 
-  const account = getEphemeralSessionAccount(walletAddress)
+  const account = getEphemeralSessionAccount(walletAddress, scope)
   if (!account) {
     return { success: false, sweptAmountUsdc: 0, error: 'No active session enclave signer found in client memory' }
   }
@@ -212,7 +243,7 @@ export async function sweepEnclaveUsdc(
       data: encodeFunctionData({
         abi: ERC20_ABI,
         functionName: 'transfer',
-        args: [ownerAddress as Address, rawBalance],
+        args: [normalizedOwner as Address, rawBalance],
       }),
     })
 

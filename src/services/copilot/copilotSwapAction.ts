@@ -1,8 +1,9 @@
-import { type Hex, parseUnits, encodeFunctionData } from 'viem'
+import { type Hex, parseUnits, encodeFunctionData, createWalletClient, http, type Address } from 'viem'
 import {
   isUnsupportedCopilotToken,
   WBTC_UNSUPPORTED_MESSAGE,
 } from '../../config/copilotTokens'
+import { arcTestnet, ARC_METADATA } from '../../config/arcChain'
 import { numberToExactDecimal } from '../../utils/copilotAmount'
 import { resolveArcActualFeeUsdc } from '../arcGasService'
 import { getResilientPublicClient } from '../rpc'
@@ -11,6 +12,10 @@ import {
   verifySessionLimits,
   deductSessionSpend,
 } from '../sessionKeyService'
+import {
+  getEphemeralSessionAccount,
+  fetchEnclaveUsdcBalance,
+} from '../sessionEnclaveService'
 import { createViemAdapter } from '../sendService'
 import { getSwapEstimate, executeSwap, resolveArcNativeRoute } from '../swapService'
 import { walletSettingsService } from '../walletSettingsService'
@@ -25,6 +30,7 @@ import {
 import { getExplorerTxUrl } from '../../config/sendConfig'
 import { addTransaction } from '../../utils/history'
 import { formatCopilotError, isUserCanceled } from '../../utils/errorUtils'
+import { logger } from '../../utils/logger'
 import {
   type CopilotActionContext,
   failedActionReceipt,
@@ -34,6 +40,8 @@ import {
   valueTokenAmountUsd,
 } from './copilotCommon'
 import { verifyArcSwapReceipt } from './copilotReceiptVerifier'
+
+const log = logger.createScope('copilotSwapAction')
 
 export async function executeCopilotSwapAction(
   context: CopilotActionContext,
@@ -81,27 +89,184 @@ export async function executeCopilotSwapAction(
     return failedActionReceipt('swap', 'Unsupported Token', WBTC_UNSUPPORTED_MESSAGE, startTime)
   }
 
-  // Local caps are not chain-enforced and no session is active without module delegation.
   const spendUsdc = await valueTokenAmountUsd(fromTok, amountIn)
-  const limitCheck = verifySessionLimits('swap', spendUsdc, activeWallet)
-  if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
-    if (onProgress) onProgress('failed')
-    return {
-      id: `rcpt_${Date.now()}`,
-      actionType: 'swap',
-      title: `Swap Failed: ${amountIn} ${fromTok} ➔ ${toTok}`,
-      status: 'FAILED',
-      txHash: '',
-      fromToken: fromTok,
-      toToken: toTok,
-      amountIn,
-      amountOut: 0,
-      gasUsdc: 0,
-      settlementLatencyMs: Date.now() - startTime,
-      timestamp: Date.now(),
-      errorMessage: limitCheck.reason || 'Session limit check failed.',
+
+  // ─────────────────────────────────────────────────────────────
+  // 0. AUTONOMOUS SESSION ENCLAVE EXECUTION (ZERO-POPUP)
+  // ─────────────────────────────────────────────────────────────
+  const ephemeralAccount = getEphemeralSessionAccount(activeWallet, 'copilot')
+  if (ephemeralAccount && fromTok === 'USDC' && swapRoute) {
+    const limitCheck = verifySessionLimits('swap', spendUsdc, activeWallet, 'copilot')
+    if (limitCheck.allowed || budgetManaged) {
+      let enclaveBalance = 0
+      try {
+        enclaveBalance = await fetchEnclaveUsdcBalance(ephemeralAccount.address)
+      } catch (balErr) {
+        log.debug('Could not fetch enclave balance:', balErr)
+      }
+
+      if (enclaveBalance >= amountIn) {
+      if (onProgress) onProgress('routing')
+      if (onProgress) onProgress('signing')
+      if (onProgress) onProgress('broadcasting')
+
+      try {
+        const resilientClient = getResilientPublicClient('Arc_Testnet')
+        const walletClient = createWalletClient({
+          account: ephemeralAccount,
+          chain: arcTestnet,
+          transport: http(ARC_METADATA.rpcHttpUrl),
+        })
+
+        const amountInUnits = parseUnits(numberToExactDecimal(amountIn)!, swapRoute.decIn)
+        let quote: any
+        try {
+          quote = await getSwapEstimate({
+            fromChain: 'Arc_Testnet',
+            tokenIn: fromTok,
+            tokenOut: toTok,
+            amountIn: numberToExactDecimal(amountIn)!,
+            slippageBps,
+          })
+        } catch (quoteErr: any) {
+          log.warn('Could not fetch quote for enclave swap:', quoteErr)
+        }
+        const estimatedOutput = quote?.estimatedOutput || String(amountIn)
+        let minOutUnits: bigint
+        try {
+          minOutUnits = approvedSwapMinimum(data, swapRoute.decOut, estimatedOutput)
+        } catch {
+          minOutUnits = 0n
+        }
+
+        const allowance = (await resilientClient.readContract({
+          address: swapRoute.tokenInAddr as Hex,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [ephemeralAccount.address, swapRoute.poolAddress as Hex],
+        })) as bigint
+
+        if (allowance < amountInUnits) {
+          const approveHash = await walletClient.sendTransaction({
+            to: swapRoute.tokenInAddr as Hex,
+            data: encodeFunctionData({
+              abi: ERC20_ABI,
+              functionName: 'approve',
+              args: [swapRoute.poolAddress as Hex, amountInUnits * 100n],
+            }),
+          })
+          onSubmission?.({ txHash: approveHash, phase: 'approval' })
+          await resilientClient.waitForTransactionReceipt({ hash: approveHash, timeout: 20000 })
+        }
+
+        const swapHash = await walletClient.sendTransaction({
+          to: swapRoute.poolAddress as Hex,
+          data: encodeFunctionData({
+            abi: STABLE_SWAP_ABI,
+            ...buildPoolSwapCall(swapRoute.poolAddress, swapRoute.tokenInAddr, swapRoute.tokenOutAddr, amountInUnits, minOutUnits),
+          }),
+        })
+
+        onSubmission?.({ txHash: swapHash, phase: 'spend' })
+        if (!isTransactionHash(swapHash)) {
+          if (onProgress) onProgress('failed')
+          return failedActionReceipt('swap', 'Swap Not Confirmed', 'Autonomous session key did not return a valid transaction hash.', startTime)
+        }
+
+        const swapProof = await verifyArcSwapReceipt(swapHash, ephemeralAccount.address, fromTok, toTok, amountIn)
+        if (swapProof.status === 'unknown') {
+          if (onProgress) onProgress('pending')
+          return {
+            id: `rcpt_pending_${Date.now()}`,
+            actionType: 'swap',
+            title: 'Swap Submitted — Output Verification Pending',
+            status: 'PENDING',
+            txHash: swapHash,
+            fromToken: fromTok,
+            toToken: toTok,
+            amountIn,
+            gasUsdc: 0,
+            settlementLatencyMs: Date.now() - startTime,
+            timestamp: Date.now(),
+            errorMessage: 'A matching successful pool/router event has not been verified yet.',
+          }
+        }
+        if (swapProof.status === 'reverted') throw new Error('Autonomous swap reverted on Arc Testnet.')
+
+        // Forward output tokens to activeWallet so the user's primary wallet receives the swapped token
+        try {
+          const tokenOutContract = swapRoute.tokenOutAddr as Address
+          const outBal = (await resilientClient.readContract({
+            address: tokenOutContract,
+            abi: ERC20_ABI,
+            functionName: 'balanceOf',
+            args: [ephemeralAccount.address],
+          })) as bigint
+          if (outBal > 0n && activeWallet.toLowerCase() !== ephemeralAccount.address.toLowerCase()) {
+            await walletClient.sendTransaction({
+              to: tokenOutContract,
+              data: encodeFunctionData({
+                abi: ERC20_ABI,
+                functionName: 'transfer',
+                args: [activeWallet as Address, outBal],
+              }),
+            })
+          }
+        } catch (fwdErr) {
+          log.warn('Could not forward swapped tokenOut to activeWallet:', fwdErr)
+        }
+
+        const fee = await resolveArcActualFeeUsdc(swapHash)
+        const durationMs = Date.now() - startTime
+
+        if (!budgetManaged) deductSessionSpend(spendUsdc, activeWallet, 'copilot')
+
+        addTransaction({
+          type: 'swap',
+          txHash: swapHash,
+          amount: numberToExactDecimal(amountIn)!,
+          tokenSymbol: fromTok,
+          sourceChain: 'Arc_Testnet',
+          recipient: activeWallet,
+          userAddress: activeWallet,
+          status: 'success',
+          amountIn: numberToExactDecimal(amountIn)!,
+          amountOut: swapProof.amountOut.toString(),
+          tokenIn: fromTok,
+          tokenOut: toTok,
+        })
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('arcis_portfolio_updated'))
+        }
+
+        if (onProgress) onProgress('confirmed')
+
+        return {
+          id: `rcpt_${Date.now()}`,
+          actionType: 'swap',
+          title: 'Swap Completed Successfully',
+          subtitle: 'Executed via Session Key (Zero-Popup)',
+          status: 'SUCCESS',
+          txHash: swapHash,
+          fromToken: fromTok,
+          toToken: toTok,
+          amountIn,
+          amountOut: swapProof.amountOut,
+          rate: swapProof.amountOut / amountIn,
+          gasUsdc: fee.feeUsdc ?? 0,
+          actualGasUsdc: fee.feeUsdc,
+          baseFeeUsdc: fee.baseFeeUsdcExact,
+          priorityFeeUsdc: fee.priorityFeeUsdcExact,
+          settlementLatencyMs: durationMs,
+          timestamp: Date.now(),
+        }
+      } catch (enclaveSwapErr: any) {
+        log.warn('Autonomous enclave swap error, falling back to connected provider:', enclaveSwapErr)
+      }
     }
   }
+}
 
   // ─────────────────────────────────────────────────────────────
   // A. CIRCLE MODULAR WALLET & SESSION KEY EXECUTION
@@ -174,7 +339,6 @@ export async function executeCopilotSwapAction(
       }
       if (swapProof.status === 'reverted') throw new Error('Swap reverted on Arc Testnet.')
       const fee = await resolveArcActualFeeUsdc(hash)
-      if (!budgetManaged) deductSessionSpend(spendUsdc, activeWallet)
       addTransaction({ type: 'swap', txHash: hash, amount: numberToExactDecimal(amountIn)!, tokenSymbol: fromTok, sourceChain: 'Arc_Testnet', recipient: activeWallet, userAddress: activeWallet, status: 'success', amountIn: numberToExactDecimal(amountIn)!, amountOut: swapProof.amountOut.toString(), tokenIn: fromTok, tokenOut: toTok })
       if (onProgress) onProgress('confirmed')
       return {
@@ -227,6 +391,7 @@ export async function executeCopilotSwapAction(
     }
 
     const resilientClient = getResilientPublicClient('Arc_Testnet')
+
     let effectiveBalUnits = 0n
     try {
       // Every configured swap route consumes an ERC-20; Arc's native gas-token balance
@@ -306,9 +471,6 @@ export async function executeCopilotSwapAction(
     if (swapProof.status === 'reverted') throw new Error('Swap reverted on Arc Testnet.')
     const fee = await resolveArcActualFeeUsdc(realTxHash)
     const durationMs = Date.now() - startTime
-
-    // Deduct session spend
-    if (!budgetManaged) deductSessionSpend(spendUsdc, activeWallet)
 
     // Add to transaction history
     addTransaction({
@@ -476,9 +638,6 @@ export async function executeCopilotSwapAction(
       if (swapProof.status === 'reverted') throw new Error('Swap reverted on Arc Testnet.')
       const fee = await resolveArcActualFeeUsdc(realTxHash)
       const durationMs = Date.now() - startTime
-
-      // Deduct session budget
-      if (!budgetManaged) deductSessionSpend(spendUsdc, activeWallet)
 
       // Add real transaction to history & broadcast event
       addTransaction({

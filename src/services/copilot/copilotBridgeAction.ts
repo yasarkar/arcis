@@ -5,10 +5,6 @@ import { getExplorerTxUrl } from '../../config/sendConfig'
 import { addTransaction } from '../../utils/history'
 import { formatCopilotError, isUserCanceled } from '../../utils/errorUtils'
 import type { InlineExecutionReceipt } from '../../types/sessionKey'
-import {
-  verifySessionLimits,
-  deductSessionSpend,
-} from '../sessionKeyService'
 import { createViemAdapter } from '../sendService'
 import { executeBridge } from '../bridgeService'
 import { pollCctpDestinationTx } from '../bridgeUcwService'
@@ -75,25 +71,6 @@ export async function executeCopilotBridgeAction(
       `USDC cannot be bridged from ${fromDisplayName} to ${toDisplayName} in this app. No transaction was sent.`,
       startTime
     )
-  }
-
-  const limitCheck = verifySessionLimits('bridge', amount, activeWallet)
-  if (!budgetManaged && !limitCheck.allowed && sessionConfig.isActive) {
-    if (onProgress) onProgress('failed')
-    return {
-      id: `rcpt_${Date.now()}`,
-      actionType: 'bridge',
-      title: `Bridge Failed: ${amount} USDC`,
-      status: 'FAILED',
-      txHash: '',
-      fromChain: fromDisplayName,
-      toChain: toDisplayName,
-      amountIn: amount,
-      gasUsdc: 0,
-      settlementLatencyMs: Date.now() - startTime,
-      timestamp: Date.now(),
-      errorMessage: limitCheck.reason || 'Session limit exceeded.',
-    }
   }
 
   if (ucwHandlers?.authSource === 'ucw') {
@@ -282,8 +259,6 @@ export async function executeCopilotBridgeAction(
     // Determine explorer URL for confirmed destination mint.
     const explorerUrl = getExplorerTxUrl(destChainKey, realTxHash)
     const durationMs = Date.now() - startTime
-
-    if (!budgetManaged) deductSessionSpend(amount, activeWallet)
 
     addTransaction({
       type: 'bridge',
