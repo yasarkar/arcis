@@ -519,20 +519,16 @@ export default function ArcCopilotDrawer({
             aria-label="Ask Arco transaction settings"
             className="px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40 hover:shadow-indigo-500/10"
           >
-            <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
+            <SlidersHorizontal className="w-4 h-4 text-slate-400" />
           </button>
 
           {/* Session Settings */}
           <button
             onClick={() => setIsSessionKeyModalOpen(true)}
             aria-label="Session settings"
-            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
-              sessionConfig.isActive
-                ? 'bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-300 border-indigo-500/40 shadow-indigo-500/10'
-                : 'bg-[#161926]/80 hover:bg-[#1e2235] text-slate-400 border-white/[0.08]'
-            }`}
+            className="px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40 hover:shadow-indigo-500/10"
           >
-            <Settings className={`w-4 h-4 ${sessionConfig.isActive ? 'text-indigo-300' : 'text-slate-400'}`} />
+            <Settings className="w-4 h-4 text-slate-400" />
           </button>
 
           {/* Sound FX Mute/Unmute Toggle */}
@@ -575,9 +571,9 @@ export default function ArcCopilotDrawer({
           <button
             onClick={onClose}
             aria-label="Close copilot"
-            className="px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-400 hover:text-white border-white/[0.08] hover:border-white/[0.15]"
+            className="px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40 hover:shadow-indigo-500/10"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
       </div>
