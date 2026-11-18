@@ -130,11 +130,91 @@ describe('A02 hook draft lifecycle before any signer', () => {
     expect(lastMsg.content).toContain('Arcis Protocol is a next-generation decentralized capital')
     expect(lastMsg.content).not.toContain('No transaction prepared')
 
+    await query('How do I connect my wallet and get started with 0 ETH gas?')
+    const connectMsg = messages()[messages().length - 1]
+    expect(connectMsg.role).toBe('assistant')
+    expect(connectMsg.content).toContain('Connect Your Web3 Wallet')
+    expect(connectMsg.content).not.toContain('No transaction prepared')
+
+    await query('How do I bring USDC from Ethereum, Base, or Solana to Arc?')
+    const bridgeMsg = messages()[messages().length - 1]
+    expect(bridgeMsg.role).toBe('assistant')
+    expect(bridgeMsg.content).toContain('Circle Gateway')
+    expect(bridgeMsg.content).not.toContain('No transaction prepared')
+
+    await query('What core DeFi modules can I explore on Arcis?')
+    const modulesMsg = messages()[messages().length - 1]
+    expect(modulesMsg.role).toBe('assistant')
+    expect(modulesMsg.content).toContain('Smart DEX Router')
+    expect(modulesMsg.content).not.toContain('No transaction prepared')
+
+    await query('What can I do directly through Ask Arco copilot?')
+    const arcoMsg = messages()[messages().length - 1]
+    expect(arcoMsg.role).toBe('assistant')
+    expect(arcoMsg.content).toContain('autonomous DeFi copilot')
+    expect(arcoMsg.content).not.toContain('No transaction prepared')
+
     await query('Why does Arc L1 use USDC as the native gas token?')
     const whyMsg = messages()[messages().length - 1]
     expect(whyMsg.role).toBe('assistant')
     expect(whyMsg.content).toContain('native gas currency instead of ETH')
     expect(whyMsg.content).not.toContain('No transaction prepared')
+
+    // Swapping questions
+    await query('How do token swaps work on Arcis DEX router?')
+    const swapWorkMsg = messages()[messages().length - 1]
+    expect(swapWorkMsg.role).toBe('assistant')
+    expect(swapWorkMsg.content).toContain('Step-by-Step Swap Process')
+    expect(swapWorkMsg.actionPayload).toBeUndefined()
+
+    await query('Which tokens are supported for swapping on Arc L1?')
+    const tokensMsg = messages()[messages().length - 1]
+    expect(tokensMsg.role).toBe('assistant')
+    expect(tokensMsg.content).toContain('cirBTC')
+    expect(tokensMsg.actionPayload).toBeUndefined()
+
+    await query('What are the trading fees and gas costs for swaps on Arc?')
+    const feesMsg = messages()[messages().length - 1]
+    expect(feesMsg.role).toBe('assistant')
+    expect(feesMsg.content).toContain('Liquidity Provider (LP) Fee')
+    expect(feesMsg.actionPayload).toBeUndefined()
+
+    await query('How does split-routing protect large trades from slippage?')
+    const splitMsg = messages()[messages().length - 1]
+    expect(splitMsg.role).toBe('assistant')
+    expect(splitMsg.content).toContain('Multi-Pool Liquidity Scanning')
+    expect(splitMsg.actionPayload).toBeUndefined()
+
+    await query('How do I customize slippage tolerance and execute fast swaps via Ask Arco?')
+    const slipMsg = messages()[messages().length - 1]
+    expect(slipMsg.role).toBe('assistant')
+    expect(slipMsg.content).toContain('Set Slippage Tolerance')
+    expect(slipMsg.actionPayload).toBeUndefined()
+
+    // Yield & Pools questions
+    await query('How does the Real-Yield Vault (af-USDC) earn ~8.42% APY?')
+    const vaultApyMsg = messages()[messages().length - 1]
+    expect(vaultApyMsg.role).toBe('assistant')
+    expect(vaultApyMsg.content).toContain('Revenue Pillars')
+    expect(vaultApyMsg.actionPayload).toBeUndefined()
+
+    await query('What is af-USDC and are there any lockup periods or withdrawal fees?')
+    const afUsdcMsg = messages()[messages().length - 1]
+    expect(afUsdcMsg.role).toBe('assistant')
+    expect(afUsdcMsg.content).toContain('Zero Lockup Periods')
+    expect(afUsdcMsg.actionPayload).toBeUndefined()
+
+    await query('How do I deposit USDC to start earning streaming compound yield?')
+    const depMsg = messages()[messages().length - 1]
+    expect(depMsg.role).toBe('assistant')
+    expect(depMsg.content).toContain('How to Deposit')
+    expect(depMsg.actionPayload).toBeUndefined()
+
+    await query('How do the Yield options compare (Single-Sided Vault vs LP Pools)?')
+    const compareMsg = messages()[messages().length - 1]
+    expect(compareMsg.role).toBe('assistant')
+    expect(compareMsg.content).toContain('Zero Impermanent Loss')
+    expect(compareMsg.actionPayload).toBeUndefined()
   })
 
   it('processes /strategy command and portfolio analysis with chief strategist breakdown instead of no-transaction error', async () => {

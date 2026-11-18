@@ -4,6 +4,7 @@ import {
   ArrowRightLeft,
   ArrowUpRight,
   ArrowUpRightFromSquare,
+  Bot,
   Check,
   Coins,
   Copy,
@@ -11,6 +12,7 @@ import {
   Loader2,
   RotateCw,
   Settings,
+  Sparkles,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { getExplorerName, getExplorerTxUrl } from '../../config/sendConfig'
@@ -153,6 +155,7 @@ export default function InlineActionCard({
   onExecuteInline,
   onNavigateToTab,
   onOpenSessionSettings,
+  onOpenExecutionSettings,
   onCloseDrawer,
   onSendMessage,
   walletAddress,
@@ -683,6 +686,20 @@ export default function InlineActionCard({
                   value={
                     <span className="inline-flex items-center gap-1.5 select-text">
                       <span>{slippageBps === undefined ? 'Invalid — new quote required' : `${slippageBps / 100}%`}</span>
+                      {onOpenExecutionSettings && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onOpenExecutionSettings()
+                          }}
+                          aria-label="Slippage ayarını aç"
+                          title="Toleransı ve Gaz Ayarlarını Düzenle"
+                          className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition cursor-pointer"
+                        >
+                          <Settings className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </span>
                   }
                 />
@@ -1141,6 +1158,28 @@ export default function InlineActionCard({
           </div>
         )
       })()}
+
+      {/* 4.7 AI SERVICES MARKETPLACE ACTION CARD */}
+      {(actionPayload.type === 'ai-services' || actionPayload.type === 'marketplace') && (
+        <ActionCardShell
+          accentColor="indigo"
+          header={{
+            icon: <Bot className="w-4 h-4 text-indigo-400" />,
+            title: actionPayload.title || 'AI Services Marketplace',
+            subtitle: 'x402 Nanopayments • Autonomous Intelligence',
+          }}
+          primaryAction={{
+            label: actionPayload.title || 'Open AI Services Tab',
+            icon: <ArrowRight className="w-3.5 h-3.5 text-white" />,
+            onClick: () => {
+              if (onNavigateToTab) onNavigateToTab('ai-services')
+              onCloseDrawer()
+            },
+            gradient: 'hover:brightness-110 text-white shadow-indigo-500/20',
+            style: PRIMARY_ACTION_GRADIENT_STYLE,
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -11,6 +11,7 @@ export interface TopicQuestion {
 export interface TopicCategory {
   id: string
   label: string
+  icon?: string
   questions: TopicQuestion[]
 }
 
@@ -28,6 +29,7 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
   {
     id: 'getting-started',
     label: 'Getting Started',
+    icon: '🚀',
     questions: [
       {
         id: 'gs-1',
@@ -36,75 +38,72 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'gs-2',
-        title: 'How do I get testnet USDC & start without paying ETH gas?',
-        prompt: 'How do I get testnet USDC & start without paying ETH gas?',
+        title: 'How do I connect my wallet and get started with 0 ETH gas?',
+        prompt: 'How do I connect my wallet and get started with 0 ETH gas?',
       },
       {
         id: 'gs-3',
-        title: 'Why does Arc L1 use USDC as the native gas token?',
-        prompt: 'Why does Arc L1 use USDC as the native gas token?',
+        title: 'How do I bring USDC from Ethereum, Base, or Solana to Arc?',
+        prompt: 'How do I bring USDC from Ethereum, Base, or Solana to Arc?',
       },
       {
         id: 'gs-4',
-        title: 'What are the core features I can use on Arcis?',
-        prompt: 'What are the core features I can use on Arcis?',
+        title: 'What core DeFi modules can I explore on Arcis?',
+        prompt: 'What core DeFi modules can I explore on Arcis?',
       },
       {
         id: 'gs-5',
-        title: 'How does <500ms finality protect my trades from MEV & slippage?',
-        prompt: 'How does <500ms finality protect my trades from MEV & slippage?',
+        title: 'What can I do directly through Ask Arco copilot?',
+        prompt: 'What can I do directly through Ask Arco copilot?',
       },
     ],
   },
   {
     id: 'swapping',
     label: 'Swapping',
+    icon: '🔄',
     questions: [
       {
         id: 'sw-1',
-        title: 'How do token swaps work on Arcis?',
+        title: 'How do token swaps work on Arcis DEX router?',
         prompt: 'How do token swaps work on Arcis DEX router?',
       },
       {
         id: 'sw-2',
-        title: 'What are the trading fees and gas costs for swaps?',
-        prompt: 'What are the trading fees and gas costs for swaps on Arc?',
-      },
-      {
-        id: 'sw-3',
-        title: 'How does split-routing eliminate price impact & slippage?',
-        prompt: 'How does split-routing and concentrated liquidity reduce slippage on Arcis?',
-      },
-      {
-        id: 'sw-4',
         title: 'Which tokens can I swap on Arc L1?',
         prompt: 'Which tokens are supported for swapping on Arc L1?',
       },
       {
+        id: 'sw-3',
+        title: 'What are the trading fees and gas costs for swaps?',
+        prompt: 'What are the trading fees and gas costs for swaps on Arc?',
+      },
+      {
+        id: 'sw-4',
+        title: 'How does split-routing protect large trades from slippage?',
+        prompt: 'How does split-routing protect large trades from slippage?',
+      },
+      {
         id: 'sw-5',
-        title: 'How do gasless EIP-3009 swaps work with 0 gas in wallet?',
-        prompt: 'How do gasless EIP-3009 swaps work with 0 gas in wallet?',
+        title: 'How do I customize slippage tolerance and execute fast swaps via Ask Arco?',
+        prompt: 'How do I customize slippage tolerance and execute fast swaps via Ask Arco?',
       },
     ],
   },
   {
     id: 'liquidity',
     label: 'Yield & Pools',
+    icon: '🏦',
     questions: [
       {
-        id: 'lq-strategy',
-        title: 'Analyze my portfolio & propose optimal DeFi yield strategy',
-        prompt: 'Analyze my wallet portfolio and propose the optimal DeFi yield strategy.',
-      },
-      {
         id: 'lq-1',
-        title: 'How does the Real-Yield Vault (af-USDC) earn 8.42% APY?',
-        prompt: 'How does the Real-Yield Vault (af-USDC) earn 8.42% APY?',
+        title: 'How does the Real-Yield Vault (af-USDC) earn ~8.42% APY?',
+        prompt: 'How does the Real-Yield Vault (af-USDC) earn ~8.42% APY?',
       },
       {
         id: 'lq-2',
-        title: 'Where does the protocol yield come from (Zero Token Inflation)?',
-        prompt: 'Where does the protocol yield come from (Zero Token Inflation)?',
+        title: 'What is af-USDC and are there any lockup periods or withdrawal fees?',
+        prompt: 'What is af-USDC and are there any lockup periods or withdrawal fees?',
       },
       {
         id: 'lq-3',
@@ -113,19 +112,20 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'lq-4',
-        title: 'What is af-USDC and how do I redeem it back to USDC?',
-        prompt: 'What is af-USDC and how do I redeem it back to USDC?',
+        title: 'How do the Yield options compare (Single-Sided Vault vs LP Pools)?',
+        prompt: 'How do the Yield options compare (Single-Sided Vault vs LP Pools)?',
       },
       {
         id: 'lq-5',
-        title: 'How do the Yield & Pools vaults compare (USDC Vault, LP Pools & Gateway)?',
-        prompt: 'How do the Yield & Pools vaults compare (USDC Vault, LP Pools & Gateway)?',
+        title: 'Analyze my portfolio and propose the optimal DeFi yield strategy',
+        prompt: 'Analyze my wallet portfolio and propose the optimal DeFi yield strategy.',
       },
     ],
   },
   {
     id: 'ai-services',
     label: 'AI Services',
+    icon: '🤖',
     questions: [
       {
         id: 'arb-1',
@@ -174,8 +174,14 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
   },
   {
     id: 'send-payments',
-    label: 'Send & Bulk Payouts',
+    label: 'Send & Payments',
+    icon: '📤',
     questions: [
+      {
+        id: 'sp-1',
+        title: 'How do I send tokens on Arc L1 with sub-second finality?',
+        prompt: 'How do I send tokens on Arc L1 with sub-second finality?',
+      },
       {
         id: 'sp-2',
         title: 'What are transaction memos and why attach one when sending?',
@@ -201,6 +207,7 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
   {
     id: 'gateway',
     label: 'Circle Gateway',
+    icon: '🌐',
     questions: [
       {
         id: 'gw-1',
@@ -209,8 +216,8 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'gw-2',
-        title: 'Generate a live report of USDC inflows to Arc L1 (last 1 hour).',
-        prompt: 'Generate a live report of USDC inflows to Arc L1 (last 1 hour).',
+        title: 'How are cross-chain USDC inflows tracked on Arc L1?',
+        prompt: 'How are cross-chain USDC inflows tracked on Arc L1?',
       },
       {
         id: 'gw-3',
@@ -227,11 +234,18 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
         title: 'On which chains can I use my unified Gateway balance?',
         prompt: 'On which chains can I use my unified Gateway balance?',
       },
+      {
+        id: 'gw-6',
+        title: 'Generate a live report of USDC inflows to Arc L1 (last 1 hour).',
+        prompt: 'Generate a live report of USDC inflows to Arc L1 (last 1 hour).',
+        requiresWallet: true,
+      },
     ],
   },
   {
     id: 'security-faq',
     label: 'Security & FAQ',
+    icon: '🛡️',
     questions: [
       {
         id: 'faq-1',
@@ -420,12 +434,20 @@ export function isPureEducationalQuery(query: string): boolean {
   const faqKeywords = [
     'what is arcis',
     'unique on arc l1',
+    'connect my wallet and get started',
     'get testnet usdc',
     'start without paying eth gas',
-    'why does arc l1 use usdc',
-    'native gas token',
+    'bring usdc from ethereum',
+    'bring usdc from',
+    'bring usdc to arc',
+    'core defi modules',
     'core features i can use',
     'core features',
+    'what can i do directly through ask arco',
+    'what can i do directly through arco',
+    'ask arco copilot',
+    'why does arc l1 use usdc',
+    'native gas token',
     '500ms finality',
     'protect my trades',
     'how do token swaps work',
@@ -433,11 +455,15 @@ export function isPureEducationalQuery(query: string): boolean {
     'split-routing',
     'which tokens are supported',
     'which tokens can i swap',
+    'customize slippage tolerance',
+    'execute fast swaps',
     'gasless eip-3009 swaps',
     'sustainable 8.42% apy',
+    'real-yield vault',
     'protocol yield come from',
     'how do i deposit usdc',
     'what is af-usdc',
+    'yield options compare',
     'yield & pools vaults compare',
     'x402 nanopayments protocol work',
     'what is circle gateway',
@@ -446,6 +472,13 @@ export function isPureEducationalQuery(query: string): boolean {
     'what are transaction memos',
     'what fees does arcis charge',
     'how does gasless sending work',
+    'how do i send tokens on arc l1',
+    'send tokens on arc l1',
+    'send usdc or eurc on arc l1',
+    'how do i send usdc cross-chain',
+    'send usdc cross-chain from sepolia or base',
+    'cross-chain usdc inflows tracked',
+    'inflows tracked on arc l1',
     'prevent sandwich',
     'circle gateway unified balance safe',
     'smart contract wallet on arcis',
@@ -574,6 +607,10 @@ export function isActionOrStrategyIntent(query: string): boolean {
     p.includes('how does split-routing') ||
     p.includes('trading fees and gas costs') ||
     p.includes('which tokens can i swap') ||
+    p.includes('which tokens are supported') ||
+    p.includes('customize slippage tolerance') ||
+    p.includes('execute fast swaps') ||
+    p.includes('how do i customize slippage') ||
     p.includes('gasless eip-3009 swaps work')
 
   if (hasSwapVerb && !isPureSwapFaq) {
@@ -597,7 +634,10 @@ export function isActionOrStrategyIntent(query: string): boolean {
     p.includes('how does the real-yield vault') ||
     p.includes('where does the protocol yield come from') ||
     p.includes('how do i deposit usdc to start earning') ||
+    p.includes('what is af-usdc and are there any lockup') ||
     p.includes('what is af-usdc and how do i redeem') ||
+    p.includes('what is af-usdc') ||
+    p.includes('how do the yield options compare') ||
     p.includes('how do the yield & pools vaults compare')
 
   if (hasDepositVerb && !isPureDepositFaq) {
@@ -624,8 +664,13 @@ export function isActionOrStrategyIntent(query: string): boolean {
     p.includes('what is circle gateway and unified') ||
     p.includes('how does instant cross-chain transfer work') ||
     p.includes('deposit funds into gateway from sepolia') ||
+    p.includes('how do i bring usdc from') ||
+    p.includes('bring usdc from ethereum') ||
+    p.includes('bring usdc from') ||
     p.includes('supported chains') ||
-    p.includes('on which chains can i use')
+    p.includes('on which chains can i use') ||
+    p.includes('cross-chain usdc inflows tracked') ||
+    p.includes('inflows tracked on arc l1')
 
   if (hasBridgeVerb && !isPureBridgeFaq) {
     return true
@@ -644,7 +689,12 @@ export function isActionOrStrategyIntent(query: string): boolean {
   const isPureSendFaq =
     p.includes('what are transaction memos') ||
     p.includes('what fees does arcis charge') ||
-    p.includes('how does gasless sending work')
+    p.includes('how does gasless sending work') ||
+    p.includes('how do i send tokens on arc l1') ||
+    p.includes('send tokens on arc l1') ||
+    p.includes('send usdc or eurc on arc l1') ||
+    p.includes('how do i send usdc cross-chain') ||
+    p.includes('send usdc cross-chain from sepolia or base')
 
   if (hasSendVerb && !isPureSendFaq) {
     return true

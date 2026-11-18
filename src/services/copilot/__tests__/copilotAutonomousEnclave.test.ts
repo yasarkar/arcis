@@ -1,10 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { CopilotActionContext } from '../copilotCommon'
-import * as sessionKeyService from '../../sessionKeyService'
-import * as sessionEnclaveService from '../../sessionEnclaveService'
-import * as rpc from '../../rpc'
-import * as arcGasService from '../../arcGasService'
 import { type Hex } from 'viem'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import * as rpc from '../../rpc'
+import * as sessionEnclaveService from '../../sessionEnclaveService'
+import * as sessionKeyService from '../../sessionKeyService'
+import type { CopilotActionContext } from '../copilotCommon'
 
 const { mockSendTransaction } = vi.hoisted(() => ({
   mockSendTransaction: vi.fn(async () => '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
@@ -55,9 +54,9 @@ vi.mock('../copilotReceiptVerifier', () => ({
   })),
 }))
 
+import { executeCopilotDepositAction } from '../copilotDepositAction'
 import { executeCopilotSendAction } from '../copilotSendAction'
 import { executeCopilotSwapAction } from '../copilotSwapAction'
-import { executeCopilotDepositAction } from '../copilotDepositAction'
 
 describe('Copilot Autonomous Enclave Execution (Zero-Popup)', () => {
   const MOCK_WALLET = '0x1111111111111111111111111111111111111111'
@@ -118,6 +117,7 @@ describe('Copilot Autonomous Enclave Execution (Zero-Popup)', () => {
 
     // Mock getVerifiedArcReceipt to return success receipt with matching log
     const copilotCommon = await import('../copilotCommon')
+    vi.spyOn(copilotCommon, 'readArcSendBalance').mockResolvedValue(100n)
     vi.spyOn(copilotCommon, 'getVerifiedArcReceipt').mockResolvedValue({
       status: 'success',
       logs: [],
@@ -161,7 +161,7 @@ describe('Copilot Autonomous Enclave Execution (Zero-Popup)', () => {
     }
 
     const copilotCommon = await import('../copilotCommon')
-    vi.spyOn(copilotCommon, 'readArcSendBalance').mockResolvedValue(100)
+    vi.spyOn(copilotCommon, 'readArcSendBalance').mockResolvedValue(100n)
     vi.spyOn(copilotCommon, 'getVerifiedArcReceipt').mockResolvedValue({
       status: 'success',
       logs: [],
@@ -279,7 +279,7 @@ describe('Copilot Autonomous Enclave Execution (Zero-Popup)', () => {
     }
 
     const copilotCommon = await import('../copilotCommon')
-    vi.spyOn(copilotCommon, 'readArcSendBalance').mockResolvedValue(100)
+    vi.spyOn(copilotCommon, 'readArcSendBalance').mockResolvedValue(100n)
     vi.spyOn(copilotCommon, 'getVerifiedArcReceipt').mockResolvedValue({
       status: 'success',
       logs: [],

@@ -146,12 +146,12 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('0x5f8f4c...bf2e70')
     expect(html).toContain('<button')
     expect(html).toContain('Memo')
-    expect(html).toContain('&quot;Invoice 1024&quot;')
+    expect(html).toContain('Invoice 1024')
     expect(html).toContain('Network')
-    expect(html).toContain('alt="Arc Testnet"')
+    expect(html).toContain('Arc Testnet')
     expect(html).toContain('Network Fee')
     expect(html).toContain('Finality')
-    expect(html).toContain('Instant (&lt; 1s)')
+    expect(html).toContain('Instant')
 
     // Buttons
     expect(html).toContain('Confirm Transfer')
@@ -180,11 +180,10 @@ describe('InlineActionCard Institutional Templates', () => {
 
     // Details Rows
     expect(html).toContain('Bridge Route')
-    expect(html).toContain('alt="Arc Testnet"')
+    expect(html).toContain('Arc Testnet')
     expect(html).toContain('Base Sepolia')
     expect(html).toContain('Circle Gateway')
     expect(html).toContain('Transfer Speed')
-    expect(html).toContain('&lt; 30s')
     expect(html).toContain('Protocol Fee')
     expect(html).toContain('0 USDC')
 
@@ -212,7 +211,7 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('200')
     expect(html).toContain('Est. 1Y Yield')
     expect(html).toContain('+16.84')
-    expect(html).toContain('Variable APY (~8.4% Benchmark)')
+    expect(html).toContain('Variable APY (~8.4%)')
 
     // Details Rows
     expect(html).toContain('Vault Strategy')

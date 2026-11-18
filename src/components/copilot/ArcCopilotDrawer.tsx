@@ -822,7 +822,7 @@ export default function ArcCopilotDrawer({
                         onClick={() =>
                           setSelectedTopicId((prev) => (prev === topic.id ? null : topic.id))
                         }
-                        className={`px-3.5 py-1 rounded-full text-[11px] font-medium transition cursor-pointer shadow-sm active:scale-95 border ${isSelected
+                        className={`px-3 py-1 rounded-full text-[11px] font-medium transition cursor-pointer shadow-sm active:scale-95 border flex items-center gap-1 ${isSelected
                             ? 'text-white font-semibold border-white/20 shadow-md shadow-purple-500/25'
                             : 'bg-[#161926]/90 text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40'
                           }`}
@@ -835,7 +835,8 @@ export default function ArcCopilotDrawer({
                             : undefined
                         }
                       >
-                        {topic.label}
+                        {topic.icon && <span className="select-none text-xs">{topic.icon}</span>}
+                        <span>{topic.label}</span>
                       </button>
                     )
                   })}

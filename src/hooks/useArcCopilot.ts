@@ -1224,7 +1224,7 @@ It combines ultra-low latency execution, unified cross-chain liquidity, and an a
 <strong>Key Highlights:</strong>
 
 • <strong>Native USDC Gas Token:</strong>
-All transaction fees on Arc L1 are paid directly in USDC. There is no need to hold or manage volatile gas tokens like ETH.
+All transaction fees on Arc L1 are paid directly in USDC (~$0.005 per tx). There is no need to hold or manage volatile gas tokens like ETH.
 
 • <strong>Sub-Second Finality (&lt;500ms):</strong>
 Transactions settle and finalize in under 500 milliseconds on Arc L1, reducing execution latency and exposure window.
@@ -1232,15 +1232,16 @@ Transactions settle and finalize in under 500 milliseconds on Arc L1, reducing e
 • <strong>Circle Gateway Liquidity:</strong>
 Access your unified USDC balance across 13+ blockchains with instant spendability and streamlined cross-chain movement.
 
-• <strong>x402 AI Services Catalog:</strong>
-The catalog lists analytical services at configured rates. Paid client calls are currently disabled and fail closed until trusted settlement is configured.
-
 • <strong>Real-Yield Vault (af-USDC):</strong>
-Earn compounding real yield powered by protocol transaction fees; variable yields reflect live pool utilization and protocol volume.`,
+Deposit USDC into ERC-4626 tokenized vaults earning sustainable ~8.42% APY powered by organic protocol trading volume (zero token inflation).
+
+• <strong>x402 AI Services:</strong>
+Autonomous marketplace connecting AI agents and users with pay-per-call HTTP 402 services with instant micropayments via Circle User-Controlled Wallets.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
     } else if (
+      q.includes('connect my wallet and get started') ||
       q.includes('get testnet usdc') ||
       q.includes('start without paying eth gas') ||
       q.includes('connect my wallet')
@@ -1248,21 +1249,104 @@ Earn compounding real yield powered by protocol transaction fees; variable yield
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `Getting started on Arcis is instant, gas-abstracted, and free. You do not need any ETH or external native tokens.
+        content: `Getting started on Arcis is instant, non-custodial, and 100% gas-abstracted. You do not need any ETH or external native tokens.
 
-<strong>Step-by-Step Guide:</strong>
+<strong>Quick Start in 4 Steps:</strong>
 
 1. <strong>Connect Your Web3 Wallet:</strong>
-Click the Connect Wallet button at the top right. Supported wallets include MetaMask, Rabby, Rainbow, Coinbase Wallet, and WalletConnect.
+Click <strong>Connect Wallet</strong> in the top navigation. Supported wallets include browser injected EOAs (MetaMask, Rabby, Coinbase Wallet, Rainbow) as well as <strong>Circle User-Controlled Wallets (UCW)</strong> using email OTP or social passkey.
 
-2. <strong>Switch Network to Arc Testnet:</strong>
-Your wallet will automatically prompt you to connect to ${arcTestnet.name} (Chain ID: ${arcTestnet.id}, RPC: ${ARC_METADATA.rpcHttpUrl}).
+2. <strong>Switch to Arc Testnet:</strong>
+Your wallet will automatically prompt you to connect to <strong>Arc Testnet</strong> (Chain ID: <code>5042002</code>, RPC: <code>https://rpc.testnet.arc.network</code>).
 
-3. <strong>Fund Your Wallet:</strong>
-Transfer or bridge USDC to your connected wallet address on Arc Testnet to get started with zero native gas requirements.
+3. <strong>Get Testnet USDC:</strong>
+Ask me by typing <code>/faucet</code> or click <strong>Faucet</strong> in the top header. Because Arc L1 uses USDC as its native gas currency, your testnet USDC serves as both your trading capital and your transaction gas fee token (~$0.005 per swap).
 
-4. <strong>Start Trading and Earning:</strong>
-Your testnet USDC serves as both your trading balance and your gas fee token for all transactions.`,
+4. <strong>Execute Your First Action:</strong>
+You're all set! Try a quick swap with <code>/swap 10 USDC to EURC</code>, deposit into the <code>/vault</code>, or ask me for an optimal portfolio strategy.`,
+        timestamp: Date.now(),
+      }
+      addMessage(assistantMsg)
+    } else if (
+      q.includes('bring usdc from ethereum') ||
+      q.includes('bring usdc from') ||
+      q.includes('bring usdc to arc') ||
+      q.includes('transfer usdc from')
+    ) {
+      const assistantMsg: CopilotMessage = {
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Arcis provides two high-performance rails to bring USDC and other assets to Arc L1:
+
+<strong>1. Circle Gateway (Instant Unified Balance):</strong>
+• <strong>Zero Bridge Wait Time:</strong> Hold a unified USDC balance across Ethereum, Base, Arbitrum, Polygon, and Solana.
+• <strong>Burn &amp; Mint:</strong> Deposit on your source chain, and spend or mint instantly (&lt;500ms) on Arc L1 with cryptographic attestations.
+• Navigate to the <strong>Gateway</strong> tab or type <code>/gateway</code> to inspect and manage your unified cross-chain balance.
+
+<strong>2. Circle CCTP &amp; CCTP-X (Native Cross-Chain Transfers):</strong>
+• Move native USDC with 1:1 capital efficiency and zero slippage.
+• Also bridge <strong>EURC</strong>, <strong>wETH</strong>, and <strong>cirBTC</strong> natively between Arc Testnet and supported EVM testnets without wrapping risk.
+• Open the <strong>Bridge</strong> tab or type <code>/bridge</code> to initiate a cross-chain transfer.`,
+        timestamp: Date.now(),
+      }
+      addMessage(assistantMsg)
+    } else if (
+      q.includes('core defi modules') ||
+      q.includes('core features i can use on arcis') ||
+      q.includes('core features') ||
+      q.includes('main modules')
+    ) {
+      const assistantMsg: CopilotMessage = {
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Arcis delivers a comprehensive suite of high-performance DeFi modules designed for speed, capital efficiency, and autonomous intelligence:
+
+<strong>Core Ecosystem Modules:</strong>
+
+1. <strong>Smart DEX Router (Swap):</strong>
+Execute trades across ArcSwap V3 with multi-hop split routing, dynamic slippage protection, and sub-cent USDC gas fees.
+
+2. <strong>Real-Yield Vaults (Pools &amp; af-USDC):</strong>
+Deposit USDC into tokenized ERC-4626 vaults earning sustainable ~8.42% APY backed by protocol volume, not inflationary token printing.
+
+3. <strong>Bridge &amp; Gateway:</strong>
+Teleport USDC across 13+ ecosystems instantly via Circle Gateway, or bridge native EURC, cirBTC, and wETH via CCTP.
+
+4. <strong>x402 AI Services:</strong>
+Autonomous marketplace connecting AI agents and users with pay-per-call HTTP 402 services (portfolio risk scoring, DEX arbitrage scanners, and automated reporting).
+
+5. <strong>Send &amp; Payments:</strong>
+Gasless USDC transfers with custom transaction memos and real-time confirmation tracking.`,
+        timestamp: Date.now(),
+      }
+      addMessage(assistantMsg)
+    } else if (
+      q.includes('what can i do directly through ask arco') ||
+      q.includes('what can i do directly through arco') ||
+      q.includes('what can ask arco do') ||
+      q.includes('ask arco copilot')
+    ) {
+      const assistantMsg: CopilotMessage = {
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `I'm <strong>Arco</strong>, your autonomous DeFi copilot! Unlike ordinary informational chatbots, I can analyze live on-chain state and prepare executable transactions directly in this drawer.
+
+<strong>What You Can Do With Me:</strong>
+
+• <strong>Execute Transactions:</strong>
+Type natural commands like <em>"Swap 50 USDC for EURC"</em>, <em>"Deposit 100 USDC to af-USDC vault"</em>, or <em>"Send 10 USDC to 0x..."</em>. I calculate optimal routes and display interactive confirmation cards right here.
+
+• <strong>Slash Commands:</strong>
+Quickly trigger protocol actions with <code>/swap</code>, <code>/vault</code>, <code>/bridge</code>, <code>/faucet</code>, <code>/strategy</code>, <code>/settings</code>, or <code>/help</code>.
+
+• <strong>DeFi Intelligence &amp; Strategy:</strong>
+Ask <em>"Analyze my portfolio"</em> or <em>"Scan Arc DEX for arbitrage opportunities"</em> to get real-time risk scores and pool analytics.
+
+• <strong>x402 Autonomous Micro-Services:</strong>
+Run verified on-chain analytics reports (like Circle Gateway flow or portfolio exposure) settling instantly via HTTP 402 micropayments.
+
+• <strong>Execution Settings:</strong>
+Adjust your slippage tolerance (0.1% to 1.0%) and gas speed right from the top settings icon in this chat!`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1284,34 +1368,8 @@ Gas prices remain constant in dollar terms regardless of crypto market volatilit
 2. <strong>Single-Token Simplicity:</strong>
 Users and autonomous agents never have to maintain dual balances (one for gas and one for trading). A single USDC balance powers all swaps, liquidity provision, and gas payments.
 
-3. <strong>Predictable Native Gas Currency:</strong>
-Arc uses USDC as its native gas currency; this does not enable the currently disabled x402 client settlement flow.`,
-        timestamp: Date.now(),
-      }
-      addMessage(assistantMsg)
-    } else if (
-      q.includes('core features i can use on arcis') ||
-      q.includes('core features') ||
-      q.includes('main modules')
-    ) {
-      const assistantMsg: CopilotMessage = {
-        id: 'assistant-' + Date.now(),
-        role: 'assistant',
-        content: `Arcis delivers a comprehensive suite of high-performance DeFi modules:
-
-<strong>Core Ecosystem Modules:</strong>
-
-1. <strong>Smart DEX Router (Swap & Slippage):</strong>
-Execute large trades with multi-hop split routing across ArcSwap V3 and Aerodrome Arc with minimal price impact.
-
-2. <strong>Real-Yield Vaults (Pools & af-USDC):</strong>
-Deposit USDC into single-sided tokenized vaults earning 8.42% APY with continuous streaming yield.
-
-3. <strong>x402 AI Services Catalog:</strong>
-Browse the listed analytical services; paid execution is currently disabled pending trusted settlement configuration.
-
-4. <strong>Circle Gateway Liquidity Sweeper:</strong>
-Instantly consolidate and spend USDC balances located on Ethereum, Base, Arbitrum, Polygon, and Solana.`,
+3. <strong>Seamless Agent Micro-Transactions:</strong>
+Autonomous AI agents can execute micro-tasks and pay x402 HTTP 402 fees without complex multi-token bridging or gas wrapping.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1368,11 +1426,6 @@ Sign the transaction with your connected wallet. With Arc L1 sub-second finality
 4. <strong>Direct USDC Gas Settlement:</strong>
 All network fees (~$0.005 USDC) are paid directly in USDC with no need to maintain a separate ETH balance.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'trade',
-          title: '🔄 Open Swap Interface',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     } else if (
@@ -1388,13 +1441,10 @@ All network fees (~$0.005 USDC) are paid directly in USDC with no need to mainta
 <strong>Fee Architecture:</strong>
 
 • <strong>Liquidity Provider (LP) Fee:</strong>
-0.05% for correlated stablecoin pairs (USDC/EURC) and 0.30% for volatile asset pairs (USDC/WETH, USDC/WBTC).
+0.05% for correlated stablecoin pairs (USDC/EURC) and 0.30% for volatile asset pairs (USDC/cirBTC).
 
 • <strong>Arc L1 Gas Fee:</strong>
 A flat fee of approximately $0.005 USDC per transaction, deducted directly from your USDC balance.
-
-• <strong>x402 Fee Sharing:</strong>
-No x402 client calls are currently settled by this build, so no x402 query fee share is being generated here.
 
 • <strong>Zero Hidden Spreads:</strong>
 No opaque relayer markups or predatory MEV slippage tolerances are applied.`,
@@ -1402,6 +1452,7 @@ No opaque relayer markups or predatory MEV slippage tolerances are applied.`,
       }
       addMessage(assistantMsg)
     } else if (
+      q.includes('split-routing protect large trades') ||
       q.includes('split-routing eliminate price impact') ||
       q.includes('split-routing eliminate slippage') ||
       q.includes('how does split-routing')
@@ -1414,23 +1465,19 @@ No opaque relayer markups or predatory MEV slippage tolerances are applied.`,
 <strong>How Arcis Split-Routing Solves Slippage:</strong>
 
 1. <strong>Multi-Pool Liquidity Scanning:</strong>
-The router analyzes concentrated liquidity ticks on both ArcSwap V3 and Aerodrome Arc simultaneously.
+The router analyzes concentrated liquidity ticks on Arc L1 pools simultaneously.
 
 2. <strong>Dynamic Volume Splitting:</strong>
-For an order of 50,000 USDC, the engine might route 65% ($32,500) through ArcSwap V3 and 35% ($17,500) through Aerodrome Arc.
+For an order of 50,000 USDC, the engine might route 65% ($32,500) through Pool A and 35% ($17,500) through Pool B to keep execution within optimal price ticks.
 
 3. <strong>Compressed Slippage:</strong>
-By preventing liquidity exhaustion in any single pool, price impact is compressed from over 0.85% down to under 0.04%, saving hundreds of dollars per swap.`,
+By preventing liquidity exhaustion in any single pool, price impact is compressed from over 0.85% down to under 0.04%, saving capital per swap.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'trade',
-          title: '🔄 Open Swap Interface',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     } else if (
       q.includes('which tokens can i swap on arc l1') ||
+      q.includes('which tokens are supported') ||
       q.includes('which token pairs are supported') ||
       q.includes('token pairs are supported')
     ) {
@@ -1451,13 +1498,38 @@ Circle 100% Euro-backed stablecoin for FX settlement and zero-spread euro swaps.
 Circle Wrapped Bitcoin for premier digital store of value trading (there is no WBTC on Arc).
 
 • <strong>af-USDC:</strong>
-Arcis Real-Yield Vault interest-bearing share token earning 8.42% APY.`,
+Arcis Real-Yield Vault interest-bearing share token earning ~8.42% APY.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'trade',
-          title: '🔄 Open Swap Interface',
-          data: {},
-        },
+      }
+      addMessage(assistantMsg)
+    } else if (
+      q.includes('customize slippage tolerance') ||
+      q.includes('execute fast swaps') ||
+      q.includes('how do i customize slippage') ||
+      q.includes('fast swaps via ask arco')
+    ) {
+      const assistantMsg: CopilotMessage = {
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Ask Arco is an autonomous execution copilot designed to give you complete control over trade speed and slippage protection:
+
+<strong>How to Customize Slippage &amp; Execute Fast Swaps:</strong>
+
+1. <strong>Set Slippage Tolerance:</strong>
+Click the <strong>Settings (gear icon)</strong> in the top header of this drawer to choose your preferred slippage tolerance (<strong>0.1%</strong>, <strong>0.5%</strong>, or <strong>1.0%</strong>). You can also set your gas speed preset (Standard, Fast, Turbo).
+
+2. <strong>Natural Language Execution:</strong>
+Simply type your trade in chat:
+• <em>"Swap 25 USDC for EURC"</em>
+• <em>"Convert 100 USDC to cirBTC"</em>
+• <em>"Buy 50 EURC with USDC"</em>
+
+3. <strong>Instant Slash Command:</strong>
+Type <code>/swap</code> or <code>/swap 50 USDC to EURC</code> to launch an interactive trade confirmation card directly in this drawer.
+
+4. <strong>Review &amp; One-Click Confirm:</strong>
+Arco calculates the live pool quote, verifies minimum received tokens based on your slippage setting, and presents a confirmation card. Click <strong>Confirm Swap</strong> to settle in &lt;500ms!`,
+        timestamp: Date.now(),
       }
       addMessage(assistantMsg)
     } else if (
@@ -1478,15 +1550,18 @@ Arcis Real-Yield Vault interest-bearing share token earning 8.42% APY.`,
     // 3. YIELD & POOLS HANDLERS
     // ─────────────────────────────────────────────────────────────
     else if (
+      q.includes('earn ~8.42% apy') ||
       q.includes('earn 8.42% apy') ||
-      q.includes('real-yield vault (af-usdc)')
+      q.includes('8.42% apy') ||
+      q.includes('real-yield vault (af-usdc)') ||
+      q.includes('real-yield vault')
     ) {
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
         content: `The Arcis YieldVault (af-USDC) generates sustainable real yield compliant with ERC-4626 standards:
 
-<strong>Yield Composition (8.42% APY):</strong>
+<strong>Revenue Pillars &amp; Yield Composition (~8.42% APY):</strong>
 
 • <strong>Institutional Credit Demand (7.42% APY):</strong>
 Over-collateralized borrowing facilities provided to algorithmic market makers and liquidity routers on Arc L1.
@@ -1497,11 +1572,6 @@ A 1% protocol fee share collected from thousands of automated daily x402 AI agen
 • <strong>Streaming Auto-Compounding:</strong>
 Interest accrues on-chain every single second. As the pool expands, each af-USDC share token redeems for an increasing amount of underlying USDC.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'view_pool',
-          title: '🏦 Open Yield & Pools Tab',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     } else if (
@@ -1525,14 +1595,10 @@ You are never paid in temporary farm tokens that lose value over time. All retur
 3. <strong>Fully Transparent On-Chain Proof:</strong>
 Vault reserves, utilization rates, and streaming earnings are verifiable in real time directly on the ArcScan block explorer.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'view_pool',
-          title: '🏦 Open Yield & Pools Tab',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     } else if (
+      q.includes('deposit usdc to start earning') ||
       q.includes('deposit usdc to start earning streaming') ||
       q.includes('how do i deposit usdc')
     ) {
@@ -1541,10 +1607,10 @@ Vault reserves, utilization rates, and streaming earnings are verifiable in real
         role: 'assistant',
         content: `Depositing USDC into the YieldVault:
 
-<strong>Step-by-Step Guide:</strong>
+<strong>How to Deposit (Step-by-Step Guide):</strong>
 
 1. <strong>Open Pools & Yield Tab:</strong>
-Click the action button below to navigate to the YieldVault dashboard.
+Navigate to the Pools & Yield tab in the top navigation.
 
 2. <strong>Enter Allocation Amount:</strong>
 Specify the amount of USDC you want to deposit (e.g. 1,000 USDC).
@@ -1555,15 +1621,12 @@ Click Deposit & Earn. Your wallet signs the transaction with sub-second finality
 4. <strong>Receive af-USDC Shares:</strong>
 Your wallet instantly receives af-USDC interest-bearing tokens. Real-yield rewards begin streaming second by second immediately.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'view_pool',
-          title: '🏦 Open Yield & Pools Tab',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     } else if (
+      q.includes('lockup periods or withdrawal fees') ||
       q.includes('what is af-usdc and how do i redeem') ||
+      q.includes('what is af-usdc') ||
       q.includes('af-usdc')
     ) {
       const assistantMsg: CopilotMessage = {
@@ -1579,19 +1642,16 @@ af-USDC represents your exact proportional ownership of the total liquidity pool
 • <strong>Continuous Price Growth:</strong>
 The exchange rate (USDC per af-USDC) moves only upward as interest flows into the vault ($1.0000 ➔ $1.0842).
 
-• <strong>Instant Zero-Penalty Redemption:</strong>
-You can redeem af-USDC for the underlying principal and all earned yield at any time with no lockup periods or withdrawal penalties.`,
+• <strong>Zero Lockup Periods:</strong>
+Your capital is never locked. You can redeem af-USDC for the underlying principal and all earned yield at any time with zero withdrawal penalties.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'view_pool',
-          title: '🏦 Open Yield & Pools Tab',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     }
       else if (
-        q.includes('vaults compare')
+        q.includes('yield options compare') ||
+        q.includes('vaults compare') ||
+        q.includes('single-sided vault vs lp pools')
       ) {
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
@@ -1599,7 +1659,7 @@ You can redeem af-USDC for the underlying principal and all earned yield at any 
           content: `Comparing Arcis's Yield & Pools:
 
 • <strong>USDC Real-Yield Vault (8.42% APY):</strong>
-Single-asset USDC deposit earning institutional borrower interest + protocol fees. Zero impermanent loss — the flagship 'set & forget' option.
+Single-asset USDC deposit earning institutional borrower interest + protocol fees. <strong>Zero Impermanent Loss</strong> — the flagship 'set & forget' option.
 
 • <strong>Gateway Cross-Chain Settlement Pool (7.25% APR):</strong>
 USDC routed through Circle Gateway earns routing yield while staying instantly spendable across 13 chains.
@@ -1612,11 +1672,6 @@ Volatile BTC pair with the highest yield but Medium impermanent-loss risk.
 
 Use the Yield Calculator in the Pools tab to simulate compounding before you deposit.`,
           timestamp: Date.now(),
-          actionPayload: {
-            type: 'view_pool',
-            title: '🏦 Open Yield & Pools Tab',
-            data: {},
-          },
         }
         addMessage(assistantMsg)
       }
@@ -1838,17 +1893,41 @@ A provider can integrate an HTTP 402 payment challenge and register a service ma
 
 These are catalog entries. Paid testnet calls require an external EOA or Circle Wallet and Circle Gateway configuration; a successful facilitator acceptance is still pending provider reconciliation, not a chain receipt. Open the AI Services tab to inspect the catalog.`,
           timestamp: Date.now(),
-          actionPayload: {
-            type: 'ai-services',
-            title: '🤖 Open AI Services Tab',
-            data: {},
-          },
         }
         addMessage(assistantMsg)
       }
 
-      // ─────────────── 4B. SEND & BULK PAYOUTS HANDLERS ───────────────
-      else if (q.includes('transaction memos')) {
+      // ─────────────── 4B. SEND & PAYMENTS HANDLERS ───────────────
+      else if (
+        q.includes('send tokens on arc l1') ||
+        q.includes('how do i send tokens') ||
+        (q.includes('sub-second finality') && q.includes('send'))
+      ) {
+        const assistantMsg: CopilotMessage = {
+          id: 'assistant-' + Date.now(),
+          role: 'assistant',
+          content: `Sending Tokens on Arc L1:
+
+<strong>Instant, Predictable Token Transfers:</strong>
+
+• <strong>Sub-Second Finality (&lt;500ms):</strong>
+Transactions settle deterministically in under 500 milliseconds on Arc L1, giving you instant confirmation with zero waiting.
+
+• <strong>Multi-Token Support:</strong>
+Send native <strong>USDC</strong>, <strong>EURC</strong>, or <strong>cirBTC</strong> directly to any Arc L1 address.
+
+• <strong>Native USDC Gas (~$0.005):</strong>
+All transaction fees are deducted directly in USDC. You never need to acquire or hold volatile ETH just to send tokens.
+
+• <strong>Custom Transaction Memos:</strong>
+Attach categorized on-chain metadata (Invoice, Freelance, Payroll, AI Agent, Tip, Split Bill) via Arc Memo smart contracts.
+
+• <strong>Speed Tiers:</strong>
+Choose between Standard (Eco, 0 platform fee), Fast (0.005 USDC), and Turbo (0.010 USDC) priority queues.`,
+          timestamp: Date.now(),
+        }
+        addMessage(assistantMsg)
+      } else if (q.includes('transaction memos')) {
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
@@ -1865,11 +1944,6 @@ The memo wraps your transfer using CallFrom so the recipient sees your real wall
 
 Use the Send tab and pick a preset (Invoice, Freelance, Payroll, AI Agent, API Fee, Order, Subscription, Split Bill, Tip) to attach a memo.`,
           timestamp: Date.now(),
-          actionPayload: {
-            type: 'send',
-            title: '📤 Open Send Tab (Memos)',
-            data: {},
-          },
         }
         addMessage(assistantMsg)
       } else if (q.includes('fees does arcis charge')) {
@@ -1886,11 +1960,6 @@ Use the Send tab and pick a preset (Invoice, Freelance, Payroll, AI Agent, API F
 
 All network gas is paid directly in USDC — no ETH wallet balance is ever required. 90% of protocol fees go to the Arcis Treasury and 10% supports the Arc ecosystem.`,
           timestamp: Date.now(),
-          actionPayload: {
-            type: 'send',
-            title: '📤 Open Send Tab (Speed Tiers)',
-            data: {},
-          },
         }
         addMessage(assistantMsg)
       } else if (q.includes('gasless sending')) {
@@ -1910,11 +1979,35 @@ Sponsorship depends on server configuration and a valid confirmed transaction; a
 
 Check whether the Send form explicitly enables a relayer path before signing. Otherwise use a standard wallet transfer and review its fee.`,
           timestamp: Date.now(),
-          actionPayload: {
-            type: 'send',
-            title: '📤 Open Send Tab (Gasless)',
-            data: {},
-          },
+        }
+        addMessage(assistantMsg)
+      } else if (
+        q.includes('send usdc cross-chain') ||
+        q.includes('sepolia or base via the gateway') ||
+        (q.includes('cross-chain') && q.includes('gateway') && q.includes('send'))
+      ) {
+        const assistantMsg: CopilotMessage = {
+          id: 'assistant-' + Date.now(),
+          role: 'assistant',
+          content: `Cross-Chain Transfers via Circle Gateway:
+
+<strong>Unified Cross-Chain Sending:</strong>
+
+• <strong>Instant Spendability (&lt;500ms):</strong>
+Circle Gateway abstracts multi-chain bridging into atomic deposit, burn, and mint operations with sub-second finality.
+
+• <strong>Supported Destination Chains:</strong>
+Send USDC directly to Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia, Polygon Amoy, Avalanche Fuji, Optimism Sepolia, and Solana Devnet.
+
+• <strong>1:1 Capital Efficiency:</strong>
+Transfers use authentic native Circle USDC without wrapped tokens (wUSDC) or bridge slippage.
+
+• <strong>How to Execute:</strong>
+1. Open the <strong>Send</strong> tab.
+2. Toggle the destination chain selector to your desired network (e.g. Base or Sepolia).
+3. Enter recipient address and USDC amount.
+4. Confirm to execute instant cross-chain settlement!`,
+          timestamp: Date.now(),
         }
         addMessage(assistantMsg)
       }
@@ -1943,14 +2036,52 @@ Replaces traditional 15-to-30 minute bridge delays with instant cryptographic de
 • <strong>Maximized Capital Efficiency:</strong>
 Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very next block.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'bridge',
-          title: '🌉 Open Bridge Tab',
-          data: {},
-        },
+      }
+      addMessage(assistantMsg)
+    } else if (
+      q.includes('how are cross-chain usdc inflows tracked') ||
+      q.includes('inflows tracked on arc l1')
+    ) {
+      const assistantMsg: CopilotMessage = {
+        id: 'assistant-' + Date.now(),
+        role: 'assistant',
+        content: `Tracking Cross-Chain Inflows on Arc L1:
+
+<strong>On-Chain Flow Verification:</strong>
+
+• <strong>Circle Gateway Event Indexing:</strong>
+Arcis monitors real-time <code>AttestationUsed</code> and <code>GatewayBurned</code> smart contract events emitted on Arc L1.
+
+• <strong>Net Inflow Velocity:</strong>
+Calculates institutional deposit velocity, burn volumes, and cross-chain net liquidity migration into Arc L1 across 1-hour and 24-hour windows.
+
+• <strong>Real-Time Transparency:</strong>
+Every cross-chain transfer generates cryptographic attestations verifiable on the ArcScan block explorer.
+
+• <strong>Automated Flow Reports:</strong>
+You can trigger the <strong>Cross-Chain Gateway Flow Indexer</strong> agent directly through Ask Arco to generate an institutional flow report with your connected wallet.`,
+        timestamp: Date.now(),
       }
       addMessage(assistantMsg)
     } else if (isGatewayFlowReportQuery(q)) {
+      if (!paidCallKind) {
+        addMessage({
+          id: 'assistant-' + Date.now(),
+          role: 'assistant',
+          content: `The <strong>Cross-Chain Gateway Flow Indexer</strong> is an institutional on-chain intelligence service ($0.003 USDC per query).
+
+To run this query live against the Arc L1 RPC:
+• <strong>Connect an EOA Wallet:</strong> Connect MetaMask, Rabby, or a Circle User-Controlled Wallet (UCW).
+• <strong>Fund Gateway Balance:</strong> Ensure your Circle Gateway account holds at least 0.003 USDC on Arc Testnet.
+
+Once connected, ask me again or open the AI Services tab to run the live report!`,
+          timestamp: Date.now(),
+        })
+        setIsAnalyzing(false)
+        setCurrentSteps([])
+        return
+      }
+
       const s = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-cross-chain-gateway-flow-indexer')!
       steps.push({
         stepNumber: 1,
@@ -1963,9 +2094,7 @@ Deposit USDC on Base or Ethereum and spend it immediately on Arc L1 in the very 
       })
       setCurrentSteps([...steps])
 
-      const r = paidCallKind
-        ? await executeX402Call(s, { timeWindow: '1h' }, walletAddress, provider, paidCallKind, paidCallSigner)
-        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      const r = await executeX402Call(s, { timeWindow: '1h' }, walletAddress, provider, paidCallKind, paidCallSigner)
       const settlementVerified = hasVerifiedX402Settlement(r)
       const paymentAccepted = r.payment?.status === 'settlement_pending' && r.success
       const serviceAvailable = isSuccessfulX402ServiceResult(r)
@@ -2024,11 +2153,6 @@ The attestation is submitted to Arc L1, minting genuine native USDC into your re
 3. <strong>Zero Liquidity Risk:</strong>
 No wrapped tokens (wUSDC) or risky lock-and-mint pools are involved. You always hold authentic Circle USDC.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'bridge',
-          title: '🌉 Open Bridge Tab',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     } else if (
@@ -2043,7 +2167,7 @@ No wrapped tokens (wUSDC) or risky lock-and-mint pools are involved. You always 
 <strong>Step-by-Step Instructions:</strong>
 
 1. <strong>Open Bridge Tab:</strong>
-Click the action button below to access the Gateway interface.
+Navigate to the Bridge tab in the top navigation.
 
 2. <strong>Select Origin Network:</strong>
 Choose Ethereum Sepolia, Base, or Arbitrum as your source chain.
@@ -2054,11 +2178,6 @@ Specify the amount of USDC you want to bridge into Arc L1.
 4. <strong>Confirm Deposit:</strong>
 Approve and confirm. Your unified USDC balance becomes available on Arc L1 in under 500 milliseconds.`,
         timestamp: Date.now(),
-        actionPayload: {
-          type: 'bridge',
-          title: '🌉 Open Bridge Tab',
-          data: {},
-        },
       }
       addMessage(assistantMsg)
     }
@@ -2083,11 +2202,6 @@ Move or spend liquidity across any network in under 500 ms with zero bridge conf
 
 Use the Send or Bridge tab to move your unified balance between chains.`,
           timestamp: Date.now(),
-          actionPayload: {
-            type: 'send',
-            title: '📤 Open Send / Bridge Tab',
-            data: {},
-          },
         }
         addMessage(assistantMsg)
       }
