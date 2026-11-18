@@ -86,10 +86,12 @@ interface ArcCopilotDrawerProps {
   onNavigateToTab?: (tab: string) => void
 }
 
-const DEFAULT_WIDTH = 720
+const DEFAULT_WIDTH = 880
 const DEFAULT_HEIGHT = 800
 const MIN_WIDTH = 480
 const MIN_HEIGHT = 720
+const MAX_WIDTH = 1100
+const MAX_HEIGHT = 920
 
 export default function ArcCopilotDrawer({
   isOpen,
@@ -311,7 +313,7 @@ export default function ArcCopilotDrawer({
   // Resizable window state (width and height)
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>(() => {
     try {
-      const saved = localStorage.getItem('arcis_window_size_v2')
+      const saved = localStorage.getItem('arcis_window_size_v3')
       if (saved) {
         const parsed = JSON.parse(saved)
         return {
@@ -322,7 +324,15 @@ export default function ArcCopilotDrawer({
     } catch (e) {
       console.error(e)
     }
-    return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT }
+    const safeWidth =
+      typeof window !== 'undefined' && window.innerWidth
+        ? Math.max(MIN_WIDTH, Math.min(window.innerWidth - 48, DEFAULT_WIDTH))
+        : DEFAULT_WIDTH
+    const safeHeight =
+      typeof window !== 'undefined' && window.innerHeight
+        ? Math.max(MIN_HEIGHT, Math.min(window.innerHeight - 120, DEFAULT_HEIGHT))
+        : DEFAULT_HEIGHT
+    return { width: safeWidth, height: safeHeight }
   })
 
   // Dragging state for top-left corner
@@ -358,8 +368,8 @@ export default function ArcCopilotDrawer({
       const deltaX = dragStartRef.current.startX - e.clientX // moving left increases width
       const deltaY = dragStartRef.current.startY - e.clientY // moving up increases height
 
-      const maxW = Math.min(850, window.innerWidth - 48)
-      const maxH = Math.min(900, window.innerHeight - 120)
+      const maxW = Math.min(MAX_WIDTH, window.innerWidth - 48)
+      const maxH = Math.min(MAX_HEIGHT, window.innerHeight - 120)
 
       const newWidth = Math.max(MIN_WIDTH, Math.min(maxW, dragStartRef.current.startW + deltaX))
       const newHeight = Math.max(MIN_HEIGHT, Math.min(maxH, dragStartRef.current.startH + deltaY))
@@ -373,7 +383,7 @@ export default function ArcCopilotDrawer({
     if (isDragging) {
       setIsDragging(false)
       try {
-        localStorage.setItem('arcis_window_size_v2', JSON.stringify(windowSize))
+        localStorage.setItem('arcis_window_size_v3', JSON.stringify(windowSize))
       } catch (err) {
         // Cosmetic write: the drawer keeps its current size and only loses the remembered one, so the
         // failure is logged at warn level with that consequence instead of being swallowed.

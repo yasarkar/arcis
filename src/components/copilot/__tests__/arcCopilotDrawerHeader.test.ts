@@ -127,4 +127,26 @@ describe('ArcCopilotDrawer Header & Dynamic Rotate-CCW Layer', () => {
     // 100 - 25 = 75.00 USDC
     expect(html).toContain('75.00 USDC')
   })
+
+  it('renders with increased initial default width (880px) on initial opening', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ArcCopilotDrawer, {
+        isOpen: true,
+        onClose: () => {},
+        messages: [],
+        currentSteps: [],
+        isAnalyzing: false,
+        sessionConfig: baseSessionConfig,
+        onSendMessage: async () => {},
+        onClearChat: () => {},
+        onActivateSession: async () => baseSessionConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+        onExecuteInline: async () => {},
+      })
+    )
+
+    // Verify initial width is 880px
+    expect(html).toContain('width:880px')
+  })
 })
