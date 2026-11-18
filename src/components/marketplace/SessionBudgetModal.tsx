@@ -93,7 +93,6 @@ export default function SessionBudgetModal({
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
   const [resetSuccessNotice, setResetSuccessNotice] = useState<boolean>(false)
   const [isSweeping, setIsSweeping] = useState<boolean>(false)
-  const [fundingStatus, setFundingStatus] = useState<string | null>(null)
   const [showForceReset, setShowForceReset] = useState<boolean>(false)
 
   // Listen for marketplace session key updates
@@ -197,7 +196,6 @@ export default function SessionBudgetModal({
     const pubKey = account?.address || config.sessionPublicKey
     if (!pubKey || !walletAddress) {
       const errMsg = 'Error: Wallet address or temporary session wallet not available.'
-      setFundingStatus(errMsg)
       addBroadcast({
         type: 'session',
         title: 'Enclave Setup Failed',
@@ -225,7 +223,6 @@ export default function SessionBudgetModal({
     // 2. FUNDING TRANSACTION FIRST (if funding needed)
     if (amountToFund > 0) {
       setIsFunding(true)
-      setFundingStatus(`Submitting transfer of ${amountToFund} USDC to temporary session wallet...`)
       soundService.play('pop')
 
       broadcastId = addBroadcast({
@@ -336,7 +333,6 @@ export default function SessionBudgetModal({
               }),
             })
             fundingTxHash = hash
-            setFundingStatus('Waiting for transaction confirmation on Arc Testnet...')
             if (broadcastId) {
               updateBroadcast(broadcastId, {
                 badgeText: 'Confirming',
@@ -368,7 +364,6 @@ export default function SessionBudgetModal({
         soundService.play('error')
         const friendlyMsg = formatFriendlyFundingError(err)
         const isCancel = isUserCanceledError(err)
-        setFundingStatus(friendlyMsg)
         setIsFunding(false)
         if (broadcastId) {
           updateBroadcast(broadcastId, {
@@ -377,7 +372,6 @@ export default function SessionBudgetModal({
             message: friendlyMsg,
           })
         }
-        setTimeout(() => setFundingStatus(null), 5000)
         return // STOP here! Do not activate if funding was rejected or failed
       } finally {
         setIsFunding(false)
@@ -387,17 +381,16 @@ export default function SessionBudgetModal({
     // 3. ACTIVATION PHASE
     setIsSaving(true)
     const isResetOnly = isSessionActive && amountToFund <= 0
-    setFundingStatus(isResetOnly ? 'Resetting session time...' : 'Activating session policy...')
 
     if (broadcastId) {
       updateBroadcast(broadcastId, {
         badgeText: 'Activating',
         message: 'Funding confirmed on Arc Testnet. Activating session policy...',
       })
-    } else if (!isResetOnly) {
+    } else {
       broadcastId = addBroadcast({
         type: 'session',
-        title: 'Updating Session Policy',
+        title: isResetOnly ? 'Updating Session Policy' : 'Activating Session Policy',
         status: 'pending',
         badgeText: 'Activating',
         details: {
@@ -433,14 +426,15 @@ export default function SessionBudgetModal({
       if (isResetOnly) {
         setResetSuccessNotice(true)
       }
-      setFundingStatus(isResetOnly ? 'Session time has been reset' : 'Session successfully activated & funded!')
 
       if (broadcastId) {
         updateBroadcast(broadcastId, {
           status: 'success',
-          title: isSessionActive ? 'Session Budget Updated' : 'Session Activated & Funded',
+          title: isResetOnly ? 'Session Policy Updated' : (isSessionActive ? 'Session Budget Updated' : 'Session Activated & Funded'),
           badgeText: 'Success',
-          message: 'Autonomous Enclave is active with zero-popup authority on Arc Testnet.',
+          message: isResetOnly
+            ? 'Session duration and policy have been reset on Arc Testnet.'
+            : 'Autonomous Enclave is active with zero-popup authority on Arc Testnet.',
           details: {
             sessionAction: isSessionActive ? 'update' : 'fund',
             amount: amountToFund > 0 ? amountToFund.toFixed(2) : undefined,
@@ -462,12 +456,10 @@ export default function SessionBudgetModal({
       setTimeout(() => {
         setSavedSuccess(false)
         setResetSuccessNotice(false)
-        setFundingStatus(null)
       }, 3000)
     } catch (err: any) {
       soundService.play('error')
       const friendlyMsg = formatFriendlyFundingError(err)
-      setFundingStatus(`Activation failed: ${friendlyMsg}`)
       if (broadcastId) {
         updateBroadcast(broadcastId, {
           status: 'failed',
@@ -483,7 +475,18 @@ export default function SessionBudgetModal({
   const handleRevoke = async () => {
     soundService.play('pop')
     if (!walletAddress) {
-      setFundingStatus('Wallet address not available.')
+      addBroadcast({
+        type: 'session',
+        title: 'Revocation Failed',
+        status: 'failed',
+        badgeText: 'Failed',
+        message: 'Wallet address not available.',
+        details: {
+          sessionAction: 'sweep',
+          network: 'Arc_Testnet',
+          sessionScope: 'marketplace',
+        },
+      })
       return
     }
 
@@ -502,17 +505,12 @@ export default function SessionBudgetModal({
     })
 
     setIsSweeping(true)
-    setFundingStatus('Verifying on-chain enclave balance & sweeping funds back...')
     try {
       const sweepRes = await sweepEnclaveUsdc(walletAddress, walletAddress, 'marketplace', config.sessionPublicKey)
       if (sweepRes.success) {
         soundService.play('success')
         setEnclaveBalance(0)
         const hasSweptFunds = sweepRes.sweptAmountUsdc > 0
-        const sweptMsg = hasSweptFunds 
-          ? `Successfully swept ${sweepRes.sweptAmountUsdc.toFixed(2)} USDC back to your wallet!` 
-          : 'Session successfully revoked!'
-        setFundingStatus(sweptMsg)
 
         updateBroadcast(broadcastId, {
           status: 'success',
@@ -532,14 +530,9 @@ export default function SessionBudgetModal({
             ? `Successfully swept ${sweepRes.sweptAmountUsdc.toFixed(2)} USDC back to your wallet.`
             : 'Session successfully revoked. No remaining balance to sweep.',
         })
-
-        setTimeout(() => {
-          setFundingStatus(null)
-        }, 3500)
       } else {
         soundService.play('error')
         const failMsg = `Sweep failed: ${sweepRes.error || 'Transaction rejected'}`
-        setFundingStatus(failMsg)
         setIsSweeping(false)
         setShowForceReset(true)
 
@@ -554,7 +547,6 @@ export default function SessionBudgetModal({
       console.error('Sweep before revoke failed', err)
       soundService.play('error')
       const errMsg = `Sweep error: ${err?.message || 'Sweep failed'}`
-      setFundingStatus(errMsg)
       setIsSweeping(false)
       setShowForceReset(true)
 
@@ -581,7 +573,6 @@ export default function SessionBudgetModal({
     setConfig(revoked)
     setAutoExecute(revoked.autoExecute ?? false)
     setEnclaveBalance(0)
-    setFundingStatus(null)
     setShowForceReset(false)
 
     addBroadcast({
@@ -1068,35 +1059,22 @@ export default function SessionBudgetModal({
             </div>
           </div>
 
-          {fundingStatus && (
-            <div className="space-y-2 my-3 animate-fade-in">
-              <div className="flex items-center justify-center gap-2 text-[12px] font-mono text-center">
-                {(isFunding || isSaving || isSweeping) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />}
-                {!isFunding && !isSaving && !isSweeping && (fundingStatus.includes('reset') || fundingStatus.includes('Reset') || fundingStatus.includes('Successfully') || fundingStatus.includes('successfully')) && (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                )}
-                <span className={fundingStatus.includes('failed') || fundingStatus.includes('Error') ? 'text-rose-400' : fundingStatus.includes('cancelled') || fundingStatus.includes('canceled') ? 'text-amber-400' : fundingStatus.includes('Successfully') || fundingStatus.includes('successfully') || fundingStatus.includes('reset') || fundingStatus.includes('Reset') ? 'text-emerald-400' : 'text-indigo-300'}>
-                  {fundingStatus}
-                </span>
+          {showForceReset && (
+            <div className="p-3.5 my-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-center space-y-2 animate-fade-in">
+              <div className="flex items-center justify-center gap-1.5 text-xs text-rose-300 font-semibold">
+                <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                <span>Signing Key Not Found in Client Storage</span>
               </div>
-              {showForceReset && (
-                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-center space-y-2 animate-fade-in">
-                  <div className="flex items-center justify-center gap-1.5 text-xs text-rose-300 font-semibold">
-                    <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-                    <span>Signing Key Not Found in Client Storage</span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
-                    The ephemeral key for this session cannot be located in storage (likely created before multi-tab storage was enabled, or cleared). You can force-reset the local session policy to unlock this window and start fresh.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleForceReset}
-                    className="mt-1 px-4 py-1.5 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold font-mono transition cursor-pointer"
-                  >
-                    Force Reset Session Policy
-                  </button>
-                </div>
-              )}
+              <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                The ephemeral key for this session cannot be located in storage (likely created before multi-tab storage was enabled, or cleared). You can force-reset the local session policy to unlock this window and start fresh.
+              </p>
+              <button
+                type="button"
+                onClick={handleForceReset}
+                className="mt-1 px-4 py-1.5 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold font-mono transition cursor-pointer"
+              >
+                Force Reset Session Policy
+              </button>
             </div>
           )}
 

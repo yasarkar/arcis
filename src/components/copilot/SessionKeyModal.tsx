@@ -138,7 +138,6 @@ export default function SessionKeyModal({
   )
   const [copiedKey, setCopiedKey] = useState<boolean>(false)
   const [isFunding, setIsFunding] = useState<boolean>(false)
-  const [fundingStatus, setFundingStatus] = useState<string | null>(null)
   const [isSweeping, setIsSweeping] = useState<boolean>(false)
   const [showForceReset, setShowForceReset] = useState<boolean>(false)
 
@@ -269,7 +268,6 @@ export default function SessionKeyModal({
 
     if (!pubKey || !walletAddress) {
       const errMsg = 'Error: Wallet address or temporary session wallet not available.'
-      setFundingStatus(errMsg)
       addBroadcast({
         type: 'session',
         title: 'Enclave Setup Failed',
@@ -296,7 +294,6 @@ export default function SessionKeyModal({
     // 1. FUNDING TRANSACTION FIRST (if funding needed)
     if (toFund > 0) {
       setIsFunding(true)
-      setFundingStatus(`Submitting transfer of ${toFund} USDC to temporary session wallet...`)
       soundService.play('pop')
 
       broadcastId = addBroadcast({
@@ -407,7 +404,6 @@ export default function SessionKeyModal({
               }),
             })
             fundingTxHash = hash
-            setFundingStatus('Waiting for transaction confirmation on Arc Testnet...')
             if (broadcastId) {
               updateBroadcast(broadcastId, {
                 badgeText: 'Confirming',
@@ -439,7 +435,6 @@ export default function SessionKeyModal({
         soundService.play('error')
         const friendlyMsg = formatFriendlyFundingError(err)
         const isCancel = isUserCanceledError(err)
-        setFundingStatus(friendlyMsg)
         setIsFunding(false)
         if (broadcastId) {
           updateBroadcast(broadcastId, {
@@ -448,7 +443,6 @@ export default function SessionKeyModal({
             message: friendlyMsg,
           })
         }
-        setTimeout(() => setFundingStatus(null), 5000)
         return // STOP here! Do not activate if funding was rejected or failed
       } finally {
         setIsFunding(false)
@@ -457,7 +451,6 @@ export default function SessionKeyModal({
 
     // 2. ACTIVATION PHASE
     setIsSaving(true)
-    setFundingStatus('Activating session settings...')
     if (broadcastId) {
       updateBroadcast(broadcastId, {
         badgeText: 'Activating',
@@ -502,7 +495,6 @@ export default function SessionKeyModal({
       onToggleAutoExecute(autoExecute)
       soundService.play('success')
       setSavedSuccess(true)
-      setFundingStatus('Session successfully activated & funded!')
 
       if (broadcastId) {
         updateBroadcast(broadcastId, {
@@ -527,12 +519,10 @@ export default function SessionKeyModal({
 
       setTimeout(() => {
         setSavedSuccess(false)
-        setFundingStatus(null)
       }, 2500)
     } catch (err: any) {
       soundService.play('error')
       const friendlyMsg = formatFriendlyFundingError(err)
-      setFundingStatus(`Activation failed: ${friendlyMsg}`)
       if (broadcastId) {
         updateBroadcast(broadcastId, {
           status: 'failed',
@@ -613,89 +603,93 @@ export default function SessionKeyModal({
   const handleRevokeClick = async () => {
     soundService.play('cancel')
     const targetPubKey = ephemeralAddress || sessionConfig?.sessionPublicKey
-    if (walletAddress) {
-      const broadcastId = addBroadcast({
+    if (!walletAddress) {
+      addBroadcast({
         type: 'session',
-        title: 'Revoking Session Enclave',
-        status: 'pending',
-        badgeText: 'Sweeping',
+        title: 'Revocation Failed',
+        status: 'failed',
+        badgeText: 'Failed',
+        message: 'Wallet address not available.',
         details: {
           sessionAction: 'sweep',
-          enclaveAddress: targetPubKey,
-          userAddress: walletAddress,
           network: 'Arc_Testnet',
           sessionScope: 'copilot',
         },
       })
+      return
+    }
 
-      setIsSweeping(true)
-      setFundingStatus('Verifying on-chain enclave balance & sweeping funds back...')
-      try {
-        const sweepRes = await sweepEnclaveUsdc(walletAddress, walletAddress, 'copilot', targetPubKey)
-        if (sweepRes.success) {
-          soundService.play('success')
-          setEnclaveBalance(0)
-          setEphemeralAddress('')
-          const hasSweptFunds = sweepRes.sweptAmountUsdc > 0
-          const sweptMsg = hasSweptFunds 
-            ? `Successfully swept ${sweepRes.sweptAmountUsdc.toFixed(2)} USDC back to your wallet!` 
-            : 'Session successfully revoked!'
-          setFundingStatus(sweptMsg)
+    const broadcastId = addBroadcast({
+      type: 'session',
+      title: 'Revoking Session Enclave',
+      status: 'pending',
+      badgeText: 'Sweeping',
+      details: {
+        sessionAction: 'sweep',
+        enclaveAddress: targetPubKey,
+        userAddress: walletAddress,
+        network: 'Arc_Testnet',
+        sessionScope: 'copilot',
+      },
+    })
 
-          updateBroadcast(broadcastId, {
-            status: 'success',
-            title: hasSweptFunds ? 'Enclave Funds Swept' : 'Session Revoked',
-            badgeText: 'Success',
-            details: {
-              sessionAction: 'sweep',
-              amount: hasSweptFunds ? sweepRes.sweptAmountUsdc.toFixed(2) : '0.00',
-              tokenSymbol: 'USDC',
-              enclaveAddress: targetPubKey,
-              userAddress: walletAddress,
-              network: 'Arc_Testnet',
-              sessionScope: 'copilot',
-              txHash: sweepRes.txHash,
-            },
-            message: hasSweptFunds
-              ? `Successfully swept ${sweepRes.sweptAmountUsdc.toFixed(2)} USDC back to your wallet.`
-              : 'Session successfully revoked. No remaining balance to sweep.',
-          })
+    setIsSweeping(true)
+    try {
+      const sweepRes = await sweepEnclaveUsdc(walletAddress, walletAddress, 'copilot', targetPubKey)
+      if (sweepRes.success) {
+        soundService.play('success')
+        setEnclaveBalance(0)
+        setEphemeralAddress('')
+        const hasSweptFunds = sweepRes.sweptAmountUsdc > 0
 
-          setTimeout(() => {
-            setFundingStatus(null)
-          }, 3500)
-        } else {
-          soundService.play('error')
-          const failMsg = `Sweep failed: ${sweepRes.error || 'Transaction rejected'}`
-          setFundingStatus(failMsg)
-          setIsSweeping(false)
-          setShowForceReset(true)
-
-          updateBroadcast(broadcastId, {
-            status: 'failed',
-            badgeText: 'Failed',
-            message: failMsg,
-          })
-          return
-        }
-      } catch (err: any) {
-        console.error('Sweep before revoke failed:', err)
+        updateBroadcast(broadcastId, {
+          status: 'success',
+          title: hasSweptFunds ? 'Enclave Funds Swept' : 'Session Revoked',
+          badgeText: 'Success',
+          details: {
+            sessionAction: 'sweep',
+            amount: hasSweptFunds ? sweepRes.sweptAmountUsdc.toFixed(2) : '0.00',
+            tokenSymbol: 'USDC',
+            enclaveAddress: targetPubKey,
+            userAddress: walletAddress,
+            network: 'Arc_Testnet',
+            sessionScope: 'copilot',
+            txHash: sweepRes.txHash,
+          },
+          message: hasSweptFunds
+            ? `Successfully swept ${sweepRes.sweptAmountUsdc.toFixed(2)} USDC back to your wallet.`
+            : 'Session successfully revoked. No remaining balance to sweep.',
+        })
+      } else {
         soundService.play('error')
-        const friendlyMsg = formatFriendlyFundingError(err)
-        setFundingStatus(friendlyMsg)
+        const failMsg = `Sweep failed: ${sweepRes.error || 'Transaction rejected'}`
         setIsSweeping(false)
         setShowForceReset(true)
 
         updateBroadcast(broadcastId, {
           status: 'failed',
           badgeText: 'Failed',
-          message: friendlyMsg,
+          message: failMsg,
         })
         return
-      } finally {
-        setIsSweeping(false)
       }
+    } catch (err: any) {
+      console.error('Sweep before revoke failed:', err)
+      soundService.play('error')
+      const friendlyMsg = formatFriendlyFundingError(err)
+      setIsSweeping(false)
+      setShowForceReset(true)
+
+      updateBroadcast(broadcastId, {
+        status: 'failed',
+        badgeText: 'Failed',
+        message: friendlyMsg,
+      })
+      return
+    } finally {
+      setIsSweeping(false)
     }
+
     setEphemeralAddress('')
     setEnclaveBalance(0)
     setIsConfirmOpen(false)
@@ -709,7 +703,6 @@ export default function SessionKeyModal({
     setEphemeralAddress('')
     setEnclaveBalance(0)
     setIsConfirmOpen(false)
-    setFundingStatus(null)
     setShowForceReset(false)
     onRevokeSession()
 
@@ -1393,32 +1386,22 @@ export default function SessionKeyModal({
           </div>
         </div>
 
-        {fundingStatus && (
-          <div className="space-y-2 my-3 animate-fade-in">
-            <div className="flex items-center justify-center gap-2 text-[12px] font-mono text-center">
-              {(isFunding || isSaving || isSweeping) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--secondary-colors--sky-sync)] flex-shrink-0" />}
-              <span className={fundingStatus.includes('failed') || fundingStatus.includes('Error') ? 'text-rose-400' : fundingStatus.includes('cancelled') || fundingStatus.includes('canceled') ? 'text-amber-400' : fundingStatus.includes('Successfully') || fundingStatus.includes('successfully') ? 'text-emerald-400' : 'text-indigo-300'}>
-                {fundingStatus}
-              </span>
+        {showForceReset && (
+          <div className="p-3.5 my-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-center space-y-2 animate-fade-in">
+            <div className="flex items-center justify-center gap-1.5 text-xs text-rose-300 font-semibold">
+              <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              <span>Signing Key Not Found in Client Storage</span>
             </div>
-            {showForceReset && (
-              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-center space-y-2 animate-fade-in">
-                <div className="flex items-center justify-center gap-1.5 text-xs text-rose-300 font-semibold">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-                  <span>Signing Key Not Found in Client Storage</span>
-                </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
-                  The ephemeral key for this session cannot be located in storage (likely created before multi-tab storage was enabled, or cleared). You can force-reset the local session policy to unlock this window and start fresh.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleForceReset}
-                  className="mt-1 px-4 py-1.5 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold font-mono transition cursor-pointer"
-                >
-                  Force Reset Session Policy
-                </button>
-              </div>
-            )}
+            <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+              The ephemeral key for this session cannot be located in storage (likely created before multi-tab storage was enabled, or cleared). You can force-reset the local session policy to unlock this window and start fresh.
+            </p>
+            <button
+              type="button"
+              onClick={handleForceReset}
+              className="mt-1 px-4 py-1.5 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold font-mono transition cursor-pointer"
+            >
+              Force Reset Session Policy
+            </button>
           </div>
         )}
 

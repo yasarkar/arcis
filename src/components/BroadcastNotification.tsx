@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   X,
   Loader2,
@@ -389,9 +390,13 @@ function BroadcastContainer({
 }) {
   if (broadcasts.length === 0) return null
 
-  return (
+  const content = (
     <div
-      className="fixed bottom-6 left-6 z-[9999] flex flex-col-reverse gap-3 w-[calc(100vw-3rem)] sm:w-[460px] md:w-[480px] lg:w-[500px] max-w-[500px] pointer-events-none"
+      aria-live="polite"
+      aria-atomic="false"
+      role="region"
+      aria-label="Transaction and broadcast notifications"
+      className="fixed bottom-6 left-6 z-[100000] flex flex-col-reverse gap-3 w-[calc(100vw-3rem)] sm:w-[460px] md:w-[480px] lg:w-[500px] max-w-[500px] pointer-events-none"
       style={{ fontFamily: 'var(--fonts--dm-sans, sans-serif)' }}
     >
       {broadcasts.map(broadcast => (
@@ -399,6 +404,12 @@ function BroadcastContainer({
       ))}
     </div>
   )
+
+  if (typeof document !== 'undefined' && document.body) {
+    return createPortal(content, document.body)
+  }
+
+  return content
 }
 
 export function BroadcastCard({
@@ -1398,9 +1409,10 @@ function SessionBroadcastContent({ details, status }: { details?: BroadcastDetai
   const hasTransferAmount = Boolean(details.amount && Number(details.amount) > 0)
   const isFundTransfer = (sessionAction === 'fund' || sessionAction === 'update') && hasTransferAmount
   const isSweep = sessionAction === 'sweep'
+  const isPolicyUpdate = sessionAction === 'update' && !hasTransferAmount
 
-  // Non-transfer session updates (e.g. time reset with unchanged balance) do not show a broadcast notification
-  if (!isFundTransfer && !isSweep) {
+  // Only fund transfer, sweep, or policy updates show session broadcast content
+  if (!isFundTransfer && !isSweep && !isPolicyUpdate) {
     return null
   }
 
@@ -1413,99 +1425,127 @@ function SessionBroadcastContent({ details, status }: { details?: BroadcastDetai
 
   return (
     <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-2">
-      {/* Top Row: Amount Pill & Network Badge */}
-      <div className="flex items-center justify-between gap-2 text-xs">
-        {/* Left: Amount Badge */}
-        <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800">
-          <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
-          <div className="flex items-center gap-1.5 font-bold text-white">
-            <span className="tabular-nums font-mono">
-              {(() => {
-                const formatted = formatBroadcastAmount(amount, tokenSym)
-                return isSweep && Number(amount) > 0 ? `+${formatted}` : formatted
-              })()}
+      {isPolicyUpdate ? (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs font-mono">
+          {details.durationHours !== undefined && (
+            <span className="px-2 py-0.5 rounded-lg bg-slate-900/80 border border-slate-800 text-slate-300">
+              {details.durationHours >= 24 ? `${Math.round(details.durationHours / 24)}d` : `${details.durationHours}h`}
             </span>
-            <span>{tokenSym}</span>
-          </div>
+          )}
+          {details.autoExecute !== undefined && (
+            <span className="px-2 py-0.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-semibold">
+              {details.autoExecute ? 'Zero-Popup' : 'Manual'}
+            </span>
+          )}
+          {details.sessionScope && (
+            <span className="px-2 py-0.5 rounded-lg bg-slate-900/80 border border-slate-800 text-slate-300">
+              {details.sessionScope === 'marketplace' ? 'x402 AI Services' : 'Copilot'}
+            </span>
+          )}
+          {enclaveAddr && (
+            <div className="flex items-center gap-1.5 bg-slate-900/80 px-2 py-0.5 rounded-lg border border-slate-800 text-xs">
+              <Key className="w-3 h-3 text-slate-400 shrink-0" />
+              <ExplorerAddressBadge address={enclaveAddr} network={network} />
+            </div>
+          )}
         </div>
+      ) : (
+        <>
+          {/* Top Row: Amount Pill & Network Badge */}
+          <div className="flex items-center justify-between gap-2 text-xs">
+            {/* Left: Amount Badge */}
+            <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800">
+              <img src={tokenIconSrc} alt={tokenSym} className="w-3.5 h-3.5 object-contain shrink-0" />
+              <div className="flex items-center gap-1.5 font-bold text-white">
+                <span className="tabular-nums font-mono">
+                  {(() => {
+                    const formatted = formatBroadcastAmount(amount, tokenSym)
+                    return isSweep && Number(amount) > 0 ? `+${formatted}` : formatted
+                  })()}
+                </span>
+                <span>{tokenSym}</span>
+              </div>
+            </div>
 
-        {/* Right: Network Badge */}
-        <div className="flex items-center gap-1.5 font-medium text-white bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 shrink-0">
-          <ChainIconBadge chain={network} size={14} />
-          <span className="truncate max-w-[180px] text-[11px] font-semibold">
-            {getChainDisplayName(network)}
-          </span>
-        </div>
-      </div>
-
-      {/* Center Matrix Card: Route */}
-      {isFundTransfer && enclaveAddr ? (
-        /* Funding Flow: Main Wallet ➔ Enclave EOA */
-        <div className="flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs border-slate-800 bg-slate-900/60">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Wallet className="w-3 h-3 text-slate-400 shrink-0" />
-            {userAddr && userAddr.startsWith('0x') ? (
-              <ExplorerAddressBadge address={userAddr} network={network} />
-            ) : (
-              <span className="font-semibold text-slate-300 truncate text-[11px]" title={userAddr || 'Main Wallet'}>
-                {userAddr ? shortenAddress(userAddr) : 'Main Wallet'}
+            {/* Right: Network Badge */}
+            <div className="flex items-center gap-1.5 font-medium text-white bg-slate-900/80 px-2.5 py-1 rounded-xl border border-slate-800 shrink-0">
+              <ChainIconBadge chain={network} size={14} />
+              <span className="truncate max-w-[180px] text-[11px] font-semibold">
+                {getChainDisplayName(network)}
               </span>
-            )}
+            </div>
           </div>
 
-          <div className="shrink-0 flex items-center justify-center px-1">
-            <ArrowRight
-              className={`w-3.5 h-3.5 ${
-                isCanceled
-                  ? 'text-amber-400'
-                  : isFailed
-                    ? 'text-rose-400'
-                    : isSuccess
-                      ? 'text-emerald-400'
-                      : 'text-cyan-400'
-              }`}
-            />
-          </div>
+          {/* Center Matrix Card: Route */}
+          {isFundTransfer && enclaveAddr ? (
+            /* Funding Flow: Main Wallet ➔ Enclave EOA */
+            <div className="flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs border-slate-800 bg-slate-900/60">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Wallet className="w-3 h-3 text-slate-400 shrink-0" />
+                {userAddr && userAddr.startsWith('0x') ? (
+                  <ExplorerAddressBadge address={userAddr} network={network} />
+                ) : (
+                  <span className="font-semibold text-slate-300 truncate text-[11px]" title={userAddr || 'Main Wallet'}>
+                    {userAddr ? shortenAddress(userAddr) : 'Main Wallet'}
+                  </span>
+                )}
+              </div>
 
-          <div className="flex items-center gap-1.5 min-w-0 justify-end">
-            <Key className="w-3 h-3 text-slate-400 shrink-0" />
-            <ExplorerAddressBadge address={enclaveAddr} network={network} label="Enclave" />
-          </div>
-        </div>
-      ) : isSweep && enclaveAddr ? (
-        /* Sweep Flow: Enclave EOA ➔ Main Wallet */
-        <div className="flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs border-slate-800 bg-slate-900/60">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Key className="w-3 h-3 text-slate-400 shrink-0" />
-            <ExplorerAddressBadge address={enclaveAddr} network={network} label="Enclave" />
-          </div>
+              <div className="shrink-0 flex items-center justify-center px-1">
+                <ArrowRight
+                  className={`w-3.5 h-3.5 ${
+                    isCanceled
+                      ? 'text-amber-400'
+                      : isFailed
+                        ? 'text-rose-400'
+                        : isSuccess
+                          ? 'text-emerald-400'
+                          : 'text-cyan-400'
+                  }`}
+                />
+              </div>
 
-          <div className="shrink-0 flex items-center justify-center px-1">
-            <ArrowRight
-              className={`w-3.5 h-3.5 ${
-                isCanceled
-                  ? 'text-amber-400'
-                  : isFailed
-                    ? 'text-rose-400'
-                    : isSuccess
-                      ? 'text-emerald-400'
-                      : 'text-cyan-400'
-              }`}
-            />
-          </div>
+              <div className="flex items-center gap-1.5 min-w-0 justify-end">
+                <Key className="w-3 h-3 text-slate-400 shrink-0" />
+                <ExplorerAddressBadge address={enclaveAddr} network={network} label="Enclave" />
+              </div>
+            </div>
+          ) : isSweep && enclaveAddr ? (
+            /* Sweep Flow: Enclave EOA ➔ Main Wallet */
+            <div className="flex items-center justify-between gap-1.5 p-2 rounded-xl border text-xs border-slate-800 bg-slate-900/60">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Key className="w-3 h-3 text-slate-400 shrink-0" />
+                <ExplorerAddressBadge address={enclaveAddr} network={network} label="Enclave" />
+              </div>
 
-          <div className="flex items-center gap-1.5 min-w-0 justify-end">
-            <Wallet className="w-3 h-3 text-slate-400 shrink-0" />
-            {userAddr && userAddr.startsWith('0x') ? (
-              <ExplorerAddressBadge address={userAddr} network={network} />
-            ) : (
-              <span className="font-semibold text-slate-300 truncate text-[11px]" title={userAddr || 'Main Wallet'}>
-                {userAddr ? shortenAddress(userAddr) : 'Main Wallet'}
-              </span>
-            )}
-          </div>
-        </div>
-      ) : null}
+              <div className="shrink-0 flex items-center justify-center px-1">
+                <ArrowRight
+                  className={`w-3.5 h-3.5 ${
+                    isCanceled
+                      ? 'text-amber-400'
+                      : isFailed
+                        ? 'text-rose-400'
+                        : isSuccess
+                          ? 'text-emerald-400'
+                          : 'text-cyan-400'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 min-w-0 justify-end">
+                <Wallet className="w-3 h-3 text-slate-400 shrink-0" />
+                {userAddr && userAddr.startsWith('0x') ? (
+                  <ExplorerAddressBadge address={userAddr} network={network} />
+                ) : (
+                  <span className="font-semibold text-slate-300 truncate text-[11px]" title={userAddr || 'Main Wallet'}>
+                    {userAddr ? shortenAddress(userAddr) : 'Main Wallet'}
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   )
 }
