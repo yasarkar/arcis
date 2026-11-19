@@ -14,6 +14,7 @@ import {
   type UserOpCall,
 } from '../services/modularWalletService'
 import { checkPasskeySupport, parsePasskeyError } from '../utils/passkeyErrorUtils'
+import { setLastAuthMethod } from '../utils/lastAuthMethod'
 
 export interface ModularWalletState {
   isPasskeyConnected: boolean
@@ -72,6 +73,7 @@ export function useModularWallet(): ModularWalletState {
       if (res.success && res.smartAccountAddress) {
         setMscaAddress(res.smartAccountAddress)
         setUsername(nameInput)
+        setLastAuthMethod('passkey')
         setIsLoading(false)
         return { success: true, address: res.smartAccountAddress }
       } else {
@@ -99,6 +101,7 @@ export function useModularWallet(): ModularWalletState {
       if (res.success && res.smartAccountAddress) {
         setMscaAddress(res.smartAccountAddress)
         setUsername(getStoredUsername() || 'Passkey User')
+        setLastAuthMethod('passkey')
         setIsLoading(false)
         return { success: true, address: res.smartAccountAddress }
       } else {

@@ -10,7 +10,7 @@ export const WALLET_SETTINGS_STORAGE_PREFIX = 'arcis_wallet_settings_v1_'
 export const WALLET_SETTINGS_CHANGED_EVENT = 'arcis_wallet_settings_changed'
 
 const VALID_SPEED_TIERS: ReadonlySet<SpeedTier> = new Set(['standard', 'fast', 'turbo'])
-const VALID_SLIPPAGE_PRESETS: ReadonlySet<SlippagePreset> = new Set(['0.1', '0.5', '1.0', 'custom'])
+const VALID_SLIPPAGE_PRESETS: ReadonlySet<SlippagePreset> = new Set(['0.1', '0.5', '1.0', '2.0', 'custom'])
 
 function getStorage(): Storage | null {
   if (typeof window !== 'undefined' && window.localStorage) {

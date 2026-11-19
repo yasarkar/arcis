@@ -266,11 +266,25 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
         fontFamily: 'var(--font-app)',
       }}
     >
+      {/* Top Ambient Light Accent */}
+      <div
+        className="pointer-events-none absolute -top-24 -right-16 w-60 h-60 rounded-full blur-3xl opacity-20"
+        style={{
+          background: 'radial-gradient(circle, rgba(152, 150, 255, 0.35) 0%, rgba(124, 58, 237, 0.15) 60%, transparent 80%)',
+        }}
+      />
+
       {/* Top Header Row: Timeframe Switcher & Live TVL Badge */}
       <div className="relative z-10 flex items-center justify-between pb-2 shrink-0">
         {/* Subtle Label / Breadcrumb + Live TVL Indicator */}
         <div className="flex items-center gap-2 sm:gap-2.5">
-          <span className="w-2 h-2 rounded-full bg-[var(--earned-green)] animate-pulse" />
+          <span
+            className="w-2 h-2 rounded-full animate-pulse"
+            style={{
+              background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+              boxShadow: '0 0 8px rgba(152, 150, 255, 0.6)',
+            }}
+          />
           <span className="text-xs font-medium text-[var(--fp-4)] tracking-wide">
             Live Protocol Liquidity Stream
           </span>
@@ -312,16 +326,22 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
           onMouseLeave={handleMouseLeave}
         >
           <defs>
-            {/* Rich Emerald / Green Gradient Area */}
-            <linearGradient id="tvlGreenGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#01d062" stopOpacity="0.32" />
-              <stop offset="60%" stopColor="#01d062" stopOpacity="0.08" />
-              <stop offset="100%" stopColor="#01d062" stopOpacity="0.00" />
+            {/* Linear Gradient for Stroke Line (135deg: #9896ff -> #7c3aed) */}
+            <linearGradient id="tvlStrokeGradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#9896ff" />
+              <stop offset="100%" stopColor="#7c3aed" />
             </linearGradient>
 
-            {/* Crosshair Dash Style */}
-            <filter id="glowGreen" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#01d062" floodOpacity="0.8" />
+            {/* Gradient Area Fill in #9896ff -> #7c3aed Tones with Opacity Falloff */}
+            <linearGradient id="tvlAreaGradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#9896ff" stopOpacity="0.36" />
+              <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.14" />
+              <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.00" />
+            </linearGradient>
+
+            {/* Crosshair Glow Filter in Accent Tones */}
+            <filter id="glowPurple" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#9896ff" floodOpacity="0.85" />
             </filter>
           </defs>
 
@@ -354,17 +374,17 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
           {areaPath && (
             <path
               d={areaPath}
-              fill="url(#tvlGreenGradient)"
+              fill="url(#tvlAreaGradient)"
               className="transition-all duration-300"
             />
           )}
 
-          {/* Smooth Green Stroke Line */}
+          {/* Smooth Gradient Stroke Line */}
           {linePath && (
             <path
               d={linePath}
               fill="none"
-              stroke="#01d062"
+              stroke="url(#tvlStrokeGradient)"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -395,10 +415,10 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
                 cx={latestPtCoord.x}
                 cy={latestPtCoord.y}
                 r="4.5"
-                fill="#01d062"
+                fill="#9896ff"
                 stroke="#ffffff"
                 strokeWidth="2"
-                filter="url(#glowGreen)"
+                filter="url(#glowPurple)"
                 className="animate-pulse"
               />
             </g>
@@ -418,15 +438,15 @@ export const PoolsTvlChartCard: React.FC<PoolsTvlChartCardProps> = ({
                 strokeWidth="1.2"
               />
 
-              {/* Glowing Green Dot on Curve */}
+              {/* Glowing Dot on Curve */}
               <circle
                 cx={activePtCoord.x}
                 cy={activePtCoord.y}
                 r="5.5"
-                fill="#01d062"
+                fill="#7c3aed"
                 stroke="#ffffff"
                 strokeWidth="2.5"
-                filter="url(#glowGreen)"
+                filter="url(#glowPurple)"
               />
             </g>
           )}

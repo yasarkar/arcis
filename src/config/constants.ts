@@ -134,6 +134,7 @@ export const STORAGE_KEYS = {
   PASSKEY_CREDENTIAL: 'arcis_passkey_credential',
   PASSKEY_USERNAME: 'arcis_passkey_username',
   PASSKEY_MSCA_ADDRESS: 'arcis_passkey_msca_address',
+  AUTH_LAST_METHOD: 'arcis_last_auth_method',
   UCW_USER_TOKEN: 'arc_ucw_user_token',
   UCW_ADDRESS: 'arc_ucw_address',
   UCW_ENCRYPTION_KEY: 'arc_ucw_encryption_key',

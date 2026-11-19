@@ -181,9 +181,17 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
                   type="button"
                   onClick={() => handleSelectPreset(preset)}
                   className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${selectedType === preset
-                      ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm shadow-indigo-500/10'
+                      ? 'text-white border border-[rgba(152,150,255,0.6)] shadow-sm'
                       : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
                     }`}
+                  style={
+                    selectedType === preset
+                      ? {
+                          background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                          boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+                        }
+                      : undefined
+                  }
                 >
                   {preset}%
                 </button>
@@ -192,9 +200,17 @@ export const CopilotSettingsModal: React.FC<CopilotSettingsModalProps> = ({
                 type="button"
                 onClick={handleToggleCustom}
                 className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${selectedType === 'custom'
-                    ? 'text-white bg-indigo-500/20 border border-indigo-500/40 shadow-sm shadow-indigo-500/10'
+                    ? 'text-white border border-[rgba(152,150,255,0.6)] shadow-sm'
                     : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'
                   }`}
+                style={
+                  selectedType === 'custom'
+                    ? {
+                        background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                        boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+                      }
+                    : undefined
+                }
               >
                 Custom
               </button>

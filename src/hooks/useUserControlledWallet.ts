@@ -3,6 +3,7 @@ import { getSocialProviderInfo } from '../config/socialAuthConfig';
 import { normalizeCircleBlockchain } from '../utils/circleBlockchain';
 import { isRealTxHash } from '../utils/ucwTxHash';
 import { prepareCircleTypedData } from '../services/ucwTypedData';
+import { setLastAuthMethod } from '../utils/lastAuthMethod';
 
 export interface UcwWalletInfo {
   id: string;
@@ -408,6 +409,9 @@ export function useUserControlledWallet() {
             setAuthPhase('success');
             localStorage.setItem('arc_ucw_address', walletAddr);
             localStorage.setItem('arc_ucw_auth_method', savedMethod);
+            if (savedMethod === 'google' || savedMethod === 'apple' || savedMethod === 'facebook' || savedMethod === 'email') {
+              setLastAuthMethod(savedMethod);
+            }
             setIsLoading(false);
             setOtpStep('input');
           } else {

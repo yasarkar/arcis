@@ -27,6 +27,26 @@ import {
   removeSavedAuthEmail,
   clearAllSavedAuthEmails,
 } from '../utils/savedAuthEmails'
+import {
+  getLastAuthMethod,
+  setLastAuthMethod,
+  type AuthLoginMethod,
+} from '../utils/lastAuthMethod'
+
+function LastUsedBadge({ pill = false }: { pill?: boolean }) {
+  return (
+    <span
+      className={`absolute -top-2.5 ${pill ? 'right-6' : 'right-4'} pointer-events-none z-10 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-bold tracking-wider uppercase text-white select-none flex items-center backdrop-blur-md animate-fade-in shadow-md`}
+      style={{
+        background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+        boxShadow: '0 2px 14px rgba(152, 150, 255, 0.45)',
+        border: '1px solid rgba(255, 255, 255, 0.25)',
+      }}
+    >
+      LAST USED
+    </span>
+  )
+}
 
 interface CircleAuthModalProps {
   isOpen: boolean
@@ -81,6 +101,7 @@ export default function CircleAuthModal({
   const [autoLoginAddress, setAutoLoginAddress] = useState<string>('')
   const [savedEmails, setSavedEmails] = useState<string[]>([])
   const [showSavedDropdown, setShowSavedDropdown] = useState(false)
+  const [lastUsedMethod, setLastUsedMethod] = useState<AuthLoginMethod | null>(() => getLastAuthMethod())
 
   const emailInputRef = useRef<HTMLInputElement>(null)
   const savedDropdownRef = useRef<HTMLDivElement>(null)
@@ -101,9 +122,14 @@ export default function CircleAuthModal({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Auto-close modal when UCW wallet successfully connects
+  // Auto-close modal when UCW wallet successfully connects & persist last used method
   useEffect(() => {
     if (isOpen && isUcwConnected && ucwAddress) {
+      const savedMethod = (localStorage.getItem('arc_ucw_auth_method') as AuthLoginMethod) || 'email'
+      if (savedMethod) {
+        setLastAuthMethod(savedMethod)
+        setLastUsedMethod(savedMethod)
+      }
       const timer = setTimeout(() => {
         handleClose()
       }, 1400)
@@ -134,12 +160,13 @@ export default function CircleAuthModal({
     setShowSavedDropdown(false)
   })
 
-  // Reset modal state on open/reopen & load saved emails
+  // Reset modal state on open/reopen & load saved emails and last used auth method
   useEffect(() => {
     if (isOpen) {
       setStatusMessage(null)
       const stored = getSavedAuthEmails()
       setSavedEmails(stored)
+      setLastUsedMethod(getLastAuthMethod())
       setEmail('')
       setPasskeyName('')
       setShowPasskeyRegister(false)
@@ -161,6 +188,8 @@ export default function CircleAuthModal({
     onLoginPasskey().then((res) => {
       if (cancelled) return
       if (res.success && res.address) {
+        setLastAuthMethod('passkey')
+        setLastUsedMethod('passkey')
         setAutoLoginAddress(res.address)
         setAutoLoginPhase('success')
         setTimeout(() => {
@@ -222,6 +251,8 @@ export default function CircleAuthModal({
     setStatusMessage({ text: 'Initiating biometric verification (FaceID / TouchID)...' })
     const res = await onLoginPasskey()
     if (res.success && res.address) {
+      setLastAuthMethod('passkey')
+      setLastUsedMethod('passkey')
       setStatusMessage({
         text: `Passkey Smart Account connected: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`,
         isSuccess: true,
@@ -241,6 +272,8 @@ export default function CircleAuthModal({
     setStatusMessage({ text: 'Creating biometric Passkey & Circle Smart Account...' })
     const res = await onRegisterPasskey(uname)
     if (res.success && res.address) {
+      setLastAuthMethod('passkey')
+      setLastUsedMethod('passkey')
       setStatusMessage({
         text: `Circle Smart Account created: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`,
         isSuccess: true,
@@ -305,6 +338,10 @@ export default function CircleAuthModal({
     setStatusMessage({ text: `Initiating ${info.name} login...` })
     const res = await onLoginSocial(provider)
     if (res.success) {
+      if (res.address) {
+        setLastAuthMethod(provider)
+        setLastUsedMethod(provider)
+      }
       setStatusMessage({
         text: res.address
           ? `Connected via social login: ${res.address.slice(0, 6)}...${res.address.slice(-4)}`
@@ -576,36 +613,39 @@ export default function CircleAuthModal({
                 </p>
               </div>
 
-              <button
-                type="submit"
-                disabled={isLoading}
-                className={`w-full py-3.5 px-6 rounded-full font-semibold text-xs sm:text-sm tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none uppercase ${
-                  !isLoading
-                    ? 'text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer'
-                    : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
-                }`}
-                style={{
-                  fontFamily: 'var(--font-app)',
-                  ...(!isLoading
-                    ? {
-                        background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                        boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
-                      }
-                    : {}),
-                }}
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                    <span>SENDING CODE...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>CONTINUE</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-white" />
-                  </>
-                )}
-              </button>
+              <div className="relative">
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className={`w-full py-3.5 px-6 rounded-full font-semibold text-xs sm:text-sm tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none uppercase ${
+                    !isLoading
+                      ? 'text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer'
+                      : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+                  }`}
+                  style={{
+                    fontFamily: 'var(--font-app)',
+                    ...(!isLoading
+                      ? {
+                          background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                          boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+                        }
+                      : {}),
+                  }}
+                >
+                  {isLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      <span>SENDING CODE...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>CONTINUE</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-white" />
+                    </>
+                  )}
+                </button>
+                {lastUsedMethod === 'email' && <LastUsedBadge pill />}
+              </div>
             </form>
 
             {/* Divider Line: or */}
@@ -618,11 +658,11 @@ export default function CircleAuthModal({
             {/* ═════════════════════════════════════════════════════════ */}
             {/* 2. CONTINUE WITH STACK (PASSKEY & SOCIALS)                */}
             {/* ═════════════════════════════════════════════════════════ */}
-            <div className="space-y-1.5">
+            <div className="space-y-3">
               {/* Passkey (FaceID / TouchID) Option */}
               {!showPasskeyRegister ? (
                 <div className="space-y-1">
-                  <div className="flex justify-end px-1 pb-0.5">
+                  <div className="flex justify-end px-1 pb-1">
                     <button
                       type="button"
                       onClick={() => setShowPasskeyRegister(true)}
@@ -631,17 +671,24 @@ export default function CircleAuthModal({
                       Create new Passkey
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handlePasskeyLogin}
-                    disabled={isLoading}
-                    className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
-                  >
-                    <div className="w-5 h-5 flex items-center justify-center text-cyan-400 mr-3 shrink-0">
-                      <Fingerprint className="w-5 h-5" />
-                    </div>
-                    <span className="flex-1 text-center pr-5">Continue with Passkey</span>
-                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={handlePasskeyLogin}
+                      disabled={isLoading}
+                      className={`w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border ${
+                        lastUsedMethod === 'passkey'
+                          ? 'border-[#9896ff]/50 shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                          : 'border-white/[0.08]'
+                      } text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm`}
+                    >
+                      <div className="w-5 h-5 flex items-center justify-center text-cyan-400 mr-3 shrink-0">
+                        <Fingerprint className="w-5 h-5" />
+                      </div>
+                      <span className="flex-1 text-center pr-5">Continue with Passkey</span>
+                    </button>
+                    {lastUsedMethod === 'passkey' && <LastUsedBadge />}
+                  </div>
                 </div>
               ) : (
                 <div className="p-3.5 rounded-2xl bg-white/[0.03] space-y-2.5 animate-fade-in">
@@ -698,17 +745,24 @@ export default function CircleAuthModal({
               )}
 
               {/* Google */}
-              <button
-                type="button"
-                onClick={() => handleSocialClick('google')}
-                disabled={isLoading}
-                className="w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm"
-              >
-                <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
-                  <img src={googleLogo} alt="Google" className="w-5 h-5 object-contain" />
-                </div>
-                <span className="flex-1 text-center pr-5">Continue with Google</span>
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => handleSocialClick('google')}
+                  disabled={isLoading}
+                  className={`w-full rounded-2xl py-3 px-4 flex items-center bg-white/[0.04] hover:bg-white/[0.08] border ${
+                    lastUsedMethod === 'google'
+                      ? 'border-[#9896ff]/50 shadow-[0_0_16px_rgba(152,150,255,0.25)]'
+                      : 'border-white/[0.08]'
+                  } text-white text-xm font-semibold transition-all cursor-pointer group shadow-sm`}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center mr-3 shrink-0">
+                    <img src={googleLogo} alt="Google" className="w-5 h-5 object-contain" />
+                  </div>
+                  <span className="flex-1 text-center pr-5">Continue with Google</span>
+                </button>
+                {lastUsedMethod === 'google' && <LastUsedBadge />}
+              </div>
 
               {/* Apple (Disabled & Blurred) */}
               <button

@@ -1,6 +1,6 @@
 import { SpeedTier } from '../config/feeTiers'
 
-export type SlippagePreset = '0.1' | '0.5' | '1.0' | 'custom'
+export type SlippagePreset = '0.1' | '0.5' | '1.0' | '2.0' | 'custom'
 
 export interface WalletTransactionSettings {
   // Transaction Settings (SendModal)

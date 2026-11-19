@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import {
@@ -10,6 +10,7 @@ import {
   ArrowRightLeft,
   Check,
   AlertCircle,
+  AlertTriangle,
   Sliders,
   Wallet,
 } from 'lucide-react'
@@ -17,7 +18,7 @@ import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import EurcIcon from '../../assets/Token-Icon/EURC Token.svg'
 import CirBtcIcon from '../../assets/Token-Icon/cirBTC Token.svg'
 import { WethIcon } from '../../config/tokenIcons'
-import { POOL_VERSION_V4, type PoolConfig } from '../../config/poolsConfig'
+import { POOL_VERSION_V4, POOL_MAX_SLIPPAGE_BPS, POOL_MIN_SLIPPAGE_BPS, type PoolConfig } from '../../config/poolsConfig'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import { useLiveTokenPrices } from '../../hooks/useLiveTokenPrices'
 import {
@@ -215,14 +216,105 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
   // Wallet-scoped transaction settings (isolated per connected wallet)
   const { settings: walletSettings, updateSettings: updateWalletSettings } = useWalletSettings(walletAddress)
 
-  // Slippage tolerance
-  const [slippage, setSlippage] = useState<number>(walletSettings.poolSlippage || 2.0)
+  // Slippage tolerance & Custom settings
+  const [selectedSlippageType, setSelectedSlippageType] = useState<'0.5' | '1.0' | '2.0' | 'custom'>(() => {
+    if (walletSettings.poolSlippageType === 'custom') return 'custom'
+    if (walletSettings.poolSlippageType === '0.5' || walletSettings.poolSlippageType === '1.0' || walletSettings.poolSlippageType === '2.0') {
+      return walletSettings.poolSlippageType
+    }
+    const val = Number(walletSettings.poolSlippage)
+    if (val === 0.5) return '0.5'
+    if (val === 1 || val === 1.0) return '1.0'
+    if (val === 2 || val === 2.0) return '2.0'
+    return 'custom'
+  })
+  const [customSlippage, setCustomSlippage] = useState<string>(() => {
+    if (walletSettings.poolCustomSlippage) return walletSettings.poolCustomSlippage
+    const val = Number(walletSettings.poolSlippage)
+    if (![0.5, 1, 2].includes(val) && walletSettings.poolSlippage) {
+      return String(walletSettings.poolSlippage)
+    }
+    return ''
+  })
+  const [slippage, setSlippage] = useState<number>(walletSettings.poolSlippage || 0.5)
   const [showSlippageModal, setShowSlippageModal] = useState<boolean>(false)
+  const slippageDropdownRef = useRef<HTMLDivElement>(null)
 
   // Sync slippage when connected wallet settings change
   useEffect(() => {
-    setSlippage(walletSettings.poolSlippage || 2.0)
-  }, [walletSettings.poolSlippage])
+    if (walletSettings.poolSlippageType === 'custom') {
+      setSelectedSlippageType('custom')
+      if (walletSettings.poolCustomSlippage) {
+        setCustomSlippage(walletSettings.poolCustomSlippage)
+      }
+    } else if (
+      walletSettings.poolSlippageType === '0.5' ||
+      walletSettings.poolSlippageType === '1.0' ||
+      walletSettings.poolSlippageType === '2.0'
+    ) {
+      setSelectedSlippageType(walletSettings.poolSlippageType)
+      setCustomSlippage('')
+    } else {
+      const val = Number(walletSettings.poolSlippage)
+      if (val === 0.5) {
+        setSelectedSlippageType('0.5')
+        setCustomSlippage('')
+      } else if (val === 1 || val === 1.0) {
+        setSelectedSlippageType('1.0')
+        setCustomSlippage('')
+      } else if (val === 2 || val === 2.0) {
+        setSelectedSlippageType('2.0')
+        setCustomSlippage('')
+      } else {
+        setSelectedSlippageType('custom')
+        setCustomSlippage(String(walletSettings.poolSlippage || ''))
+      }
+    }
+    setSlippage(walletSettings.poolSlippage || 0.5)
+  }, [walletSettings.poolSlippage, walletSettings.poolSlippageType, walletSettings.poolCustomSlippage])
+
+  // Dismiss slippage dropdown when clicking outside
+  useEffect(() => {
+    if (!showSlippageModal) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (slippageDropdownRef.current && !slippageDropdownRef.current.contains(e.target as Node)) {
+        setShowSlippageModal(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showSlippageModal])
+
+  const handleSelectPreset = (type: '0.5' | '1.0' | '2.0') => {
+    const num = parseFloat(type)
+    setSelectedSlippageType(type)
+    setSlippage(num)
+    setCustomSlippage('')
+    updateWalletSettings({ poolSlippage: num, poolSlippageType: type, poolCustomSlippage: '' })
+  }
+
+  const handleSelectCustom = () => {
+    setSelectedSlippageType('custom')
+    const parsed = parseFloat(customSlippage)
+    if (!isNaN(parsed) && parsed > 0) {
+      const clamped = Math.min(parsed, POOL_MAX_SLIPPAGE_BPS / 100)
+      setSlippage(clamped)
+      updateWalletSettings({ poolSlippage: clamped, poolSlippageType: 'custom', poolCustomSlippage })
+    } else {
+      updateWalletSettings({ poolSlippageType: 'custom' })
+    }
+  }
+
+  const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    setCustomSlippage(val)
+    const parsed = parseFloat(val)
+    if (!isNaN(parsed) && parsed > 0) {
+      const clamped = Math.min(parsed, POOL_MAX_SLIPPAGE_BPS / 100)
+      setSlippage(clamped)
+      updateWalletSettings({ poolSlippage: clamped, poolSlippageType: 'custom', poolCustomSlippage: val })
+    }
+  }
 
   // Loading & submission state
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
@@ -777,36 +869,107 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
                   <button
                     type="button"
                     onClick={() => setShowSlippageModal(!showSlippageModal)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-medium text-white/80 hover:text-white transition-colors cursor-pointer border border-white/[0.06]"
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer border ${
+                      showSlippageModal
+                        ? 'bg-indigo-500/20 text-white border-indigo-500/40 shadow-sm'
+                        : 'bg-white/[0.05] hover:bg-white/[0.1] text-white/80 hover:text-white border-white/[0.06]'
+                    }`}
                   >
-                    <Sliders size={12} className="text-white/60" />
-                    <span>{slippage}%</span>
+                    <Sliders size={12} className={showSlippageModal ? 'text-indigo-300' : 'text-white/60'} />
+                    <span className="font-mono">{slippage.toFixed(1)}%</span>
                   </button>
 
                   {/* Slippage Dropdown */}
                   {showSlippageModal && (
-                    <div className="absolute right-0 top-8 z-30 p-2.5 rounded-xl bg-[#141727] border border-white/10 shadow-xl w-44 space-y-2">
-                      <p className="text-[11px] text-[var(--fp-4)]">Slippage Tolerance</p>
-                      <div className="flex gap-1.5">
-                        {[0.5, 1.0, 2.0].map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() => {
-                              setSlippage(s)
-                              updateWalletSettings({ poolSlippage: s })
-                              setShowSlippageModal(false)
-                            }}
-                            className={`flex-1 py-1 rounded-lg text-xs font-semibold ${
-                              slippage === s
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-white/[0.06] text-white/70 hover:bg-white/[0.1]'
-                            }`}
-                          >
-                            {s}%
-                          </button>
-                        ))}
+                    <div
+                      ref={slippageDropdownRef}
+                      className="absolute right-0 top-9 z-30 p-3 rounded-2xl bg-[#0f1223]/95 backdrop-blur-xl border border-white/10 shadow-[0_16px_40px_-8px_rgba(0,0,0,0.8),0_0_24px_rgba(152,150,255,0.15)] w-64 space-y-2.5 animate-in fade-in zoom-in-95 duration-150"
+                    >
+                      <div className="pb-1 border-b border-white/[0.06]">
+                        <p className="text-[10.5px] font-mono uppercase tracking-wider text-white/60 font-semibold">
+                          Slippage Tolerance
+                        </p>
                       </div>
+
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {(['0.5', '1.0', '2.0'] as const).map((s) => {
+                          const isSelected = selectedSlippageType === s
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => handleSelectPreset(s)}
+                              className={`py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-center ${
+                                !isSelected
+                                  ? 'bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white border border-white/[0.08]'
+                                  : ''
+                              }`}
+                              style={
+                                isSelected
+                                  ? {
+                                      background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                                      boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+                                      border: '1px solid rgba(152, 150, 255, 0.6)',
+                                      color: '#ffffff',
+                                    }
+                                  : undefined
+                              }
+                            >
+                              {s}%
+                            </button>
+                          )
+                        })}
+
+                        <button
+                          type="button"
+                          onClick={handleSelectCustom}
+                          className={`py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-center ${
+                            selectedSlippageType !== 'custom'
+                              ? 'bg-white/[0.05] hover:bg-white/[0.1] text-white/70 hover:text-white border border-white/[0.08]'
+                              : ''
+                          }`}
+                          style={
+                            selectedSlippageType === 'custom'
+                              ? {
+                                  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                                  boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+                                  border: '1px solid rgba(152, 150, 255, 0.6)',
+                                  color: '#ffffff',
+                                }
+                              : undefined
+                          }
+                        >
+                          Custom
+                        </button>
+                      </div>
+
+                      {selectedSlippageType === 'custom' && (
+                        <div className="space-y-1.5 pt-1 animate-in fade-in duration-150">
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min={POOL_MIN_SLIPPAGE_BPS / 100}
+                              max={POOL_MAX_SLIPPAGE_BPS / 100}
+                              placeholder="e.g. 1.5"
+                              value={customSlippage}
+                              onChange={handleCustomChange}
+                              autoFocus
+                              className="w-full rounded-xl px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none transition-all pr-7 bg-white/[0.05] border border-indigo-500/40 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400/40 font-mono"
+                            />
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-white/50">
+                              %
+                            </span>
+                          </div>
+
+                          {slippage > 1.5 && (
+                            <div className="flex items-center gap-1.5 text-[10.5px] text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2 rounded-xl">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                              <span>High slippage may result in unfavorable execution.</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
