@@ -532,6 +532,9 @@ export default function ArcCopilotDrawer({
             className="px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm bg-[#161926]/80 hover:bg-[#1e2235] text-slate-300 hover:text-white border-white/[0.08] hover:border-indigo-500/40 hover:shadow-indigo-500/10"
           >
             <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+            <span className="text-[10px] font-mono text-indigo-300 font-semibold bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded-md">
+              {copilotSlippage.toFixed(1)}%
+            </span>
           </button>
 
           {/* Session Settings */}

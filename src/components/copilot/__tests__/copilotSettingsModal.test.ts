@@ -55,7 +55,7 @@ describe('CopilotSettingsModal & Ask Arco Execution Settings', () => {
     expect(html).toContain('0.1%')
     expect(html).toContain('0.5%')
     expect(html).toContain('Custom')
-    expect(html).toContain('GAS &amp; EXECUTION SPEED')
+    expect(html).toContain('SPEED &amp; NETWORK PRIORITY')
     expect(html).toContain('Save Preferences')
   })
 

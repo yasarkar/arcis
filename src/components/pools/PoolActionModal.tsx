@@ -39,6 +39,7 @@ import { useGatewayBalance } from '../../hooks/useGatewayBalance'
 import { useLiveTokenPrices } from '../../hooks/useLiveTokenPrices'
 import type { UserPoolPosition } from '../../hooks/usePoolsData'
 import { useWalletSettings } from '../../hooks/useWalletSettings'
+import type { SlippagePreset } from '../../types/walletSettings'
 import { ensureNetwork } from '../../services/chainSwitchService'
 import { formatWalletError, isUserCanceled } from '../../utils/errorUtils'
 import {
@@ -208,7 +209,7 @@ export default function PoolActionModal({
   // Slippage & Settings
   const [slippage, setSlippage] = useState<number>(walletSettings.poolSlippage)
   const [showSettings, setShowSettings] = useState<boolean>(false)
-  const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>(
+  const [selectedSlippageType, setSelectedSlippageType] = useState<SlippagePreset>(
     walletSettings.poolSlippageType
   )
   const [customSlippage, setCustomSlippage] = useState<string>(walletSettings.poolCustomSlippage || '')

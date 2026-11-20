@@ -299,7 +299,7 @@ export const ConcentratedLiquidityModal: React.FC<ConcentratedLiquidityModalProp
     if (!isNaN(parsed) && parsed > 0) {
       const clamped = Math.min(parsed, POOL_MAX_SLIPPAGE_BPS / 100)
       setSlippage(clamped)
-      updateWalletSettings({ poolSlippage: clamped, poolSlippageType: 'custom', poolCustomSlippage })
+      updateWalletSettings({ poolSlippage: clamped, poolSlippageType: 'custom', poolCustomSlippage: customSlippage })
     } else {
       updateWalletSettings({ poolSlippageType: 'custom' })
     }

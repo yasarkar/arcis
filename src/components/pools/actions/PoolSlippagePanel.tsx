@@ -1,13 +1,14 @@
 import React from 'react'
 import { SlidersHorizontal, AlertTriangle } from 'lucide-react'
 import { POOL_MAX_SLIPPAGE_BPS } from '../../../config/poolsConfig'
+import type { SlippagePreset } from '../../../types/walletSettings'
 
 interface PoolSlippagePanelProps {
   showSettings: boolean
   slippage: number
-  selectedSlippageType: '0.1' | '0.5' | '1.0' | 'custom'
+  selectedSlippageType: SlippagePreset
   customSlippage: string
-  onSelectSlippageType: (type: '0.1' | '0.5' | '1.0' | 'custom') => void
+  onSelectSlippageType: (type: SlippagePreset) => void
   onChangeCustomSlippage: (val: string) => void
 }
 

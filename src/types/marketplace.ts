@@ -111,6 +111,7 @@ export type CopilotActionType =
   | 'bridge'
   | 'send'
   | 'ai-services'
+  | 'marketplace'
   | 'interactive_swap'
   | 'interactive_deposit'
   | 'interactive_bridge'

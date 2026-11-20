@@ -4,15 +4,16 @@ import { Settings, X, AlertTriangle, Save } from 'lucide-react'
 import { SpeedFeeSelector } from '../common/SpeedFeeSelector'
 import type { SpeedTier } from '../../config/feeTiers'
 import { POOL_MAX_SLIPPAGE_BPS } from '../../config/poolsConfig'
+import type { SlippagePreset } from '../../types/walletSettings'
 
 export interface SwapSettingsModalProps {
   isOpen: boolean
   onClose: () => void
   slippageTolerance: number
-  selectedSlippageType: '0.1' | '0.5' | '1.0' | 'custom'
+  selectedSlippageType: SlippagePreset
   customSlippage: string
   isHighSlippageWarning: boolean
-  onSelectPreset: (type: '0.1' | '0.5' | '1.0') => void
+  onSelectPreset: (type: '0.1' | '0.5' | '1.0' | '2.0') => void
   onToggleCustom: () => void
   onChangeCustom: (e: React.ChangeEvent<HTMLInputElement>) => void
   speedTier: SpeedTier
@@ -87,13 +88,13 @@ export const SwapSettingsModal: React.FC<SwapSettingsModalProps> = ({
           </div>
 
           <div className="p-2 rounded-2xl mt-2 space-y-2">
-            <div className="grid grid-cols-4 gap-2">
-              {(['0.1', '0.5', '1.0'] as const).map((type) => (
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+              {(['0.1', '0.5', '1.0', '2.0'] as const).map((type) => (
                 <button
                   key={type}
                   type="button"
                   onClick={() => onSelectPreset(type)}
-                  className={`py-2 px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
+                  className={`py-2 px-1.5 sm:px-2.5 rounded-xl text-xs font-semibold transition-all text-center cursor-pointer ${
                     selectedSlippageType === type
                       ? 'text-white border border-[rgba(152,150,255,0.6)] shadow-sm'
                       : 'text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06]'

@@ -62,6 +62,7 @@ import { useLiveTokenPrices, formatFiatEstimate } from '../hooks/useLiveTokenPri
 import { Tooltip } from './common/Tooltip'
 import { saveRecipient } from '../utils/recentRecipients'
 import { logger } from '../utils/logger'
+import type { SlippagePreset } from '../types/walletSettings'
 import { SwapSettingsModal, SwapAlerts, type PendingSwapState } from './swap'
 import { buildSwapBreakdown, fetchSwapActuals } from '../services/swap'
 
@@ -161,12 +162,12 @@ export default function SwapModal({
 
   // Settings & Slippage
   const [showSettings, setShowSettings] = useState(false)
-  const [selectedSlippageType, setSelectedSlippageType] = useState<'0.1' | '0.5' | '1.0' | 'custom'>(
+  const [selectedSlippageType, setSelectedSlippageType] = useState<SlippagePreset>(
     walletSettings.swapSlippageType
   )
 
   useBodyScrollLock(showSettings || (!isInline && isOpen))
-  const lastPresetSlippageRef = useRef<'0.1' | '0.5' | '1.0'>(
+  const lastPresetSlippageRef = useRef<'0.1' | '0.5' | '1.0' | '2.0'>(
     walletSettings.swapSlippageType === 'custom' ? '0.5' : walletSettings.swapSlippageType
   )
   const [customSlippage, setCustomSlippage] = useState(walletSettings.swapCustomSlippage || '')
@@ -192,7 +193,7 @@ export default function SwapModal({
     [updateWalletSettings]
   )
 
-  const handleSlippagePreset = (type: '0.1' | '0.5' | '1.0') => {
+  const handleSlippagePreset = (type: '0.1' | '0.5' | '1.0' | '2.0') => {
     lastPresetSlippageRef.current = type
     setSelectedSlippageType(type)
     setCustomSlippage('')
