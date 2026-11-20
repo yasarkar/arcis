@@ -662,11 +662,11 @@ export default function CircleAuthModal({
               {/* Passkey (FaceID / TouchID) Option */}
               {!showPasskeyRegister ? (
                 <div className="space-y-1">
-                  <div className="flex justify-end px-1 pb-1">
+                  <div className="flex justify-start w-full px-1 pb-1">
                     <button
                       type="button"
                       onClick={() => setShowPasskeyRegister(true)}
-                      className="text-[11px] text-slate-400 hover:text-cyan-400 transition cursor-pointer"
+                      className="text-[11px] text-slate-400 hover-brand-gradient-text transition-all cursor-pointer font-medium"
                     >
                       Create new Passkey
                     </button>

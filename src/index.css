@@ -68,6 +68,16 @@
   -webkit-text-fill-color: transparent;
 }
 
+.hover-brand-gradient-text {
+  transition: all 0.2s ease;
+}
+
+.hover-brand-gradient-text:hover {
+  background: linear-gradient(135deg, #9896ff 0%, #7c3aed 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 /* Crypto Raindrop Shower Animation for 13 Chains card */
 @keyframes cryptoRainDrop {
   0% {
