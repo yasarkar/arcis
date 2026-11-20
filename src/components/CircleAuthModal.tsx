@@ -307,6 +307,10 @@ export default function CircleAuthModal({
       const updated = saveAuthEmail(email)
       setSavedEmails(updated)
       setShowSavedDropdown(false)
+      setStatusMessage({
+        text: 'Verification code sent! Please check your email and enter the code in Circle’s secure prompt window.',
+        isSuccess: true,
+      })
       // Keep modal open with prompt to enter code in Circle's window; auto-close will trigger upon wallet connection
       if (setOtpStep) setOtpStep('verify')
     } else {
@@ -524,7 +528,12 @@ export default function CircleAuthModal({
                       borderStyle: 'solid',
                       borderColor: isDropdownOpen
                         ? 'rgba(99, 102, 241, 0.35)'
-                        : 'rgba(255, 255, 255, 0.1)',
+                        : lastUsedMethod === 'email'
+                          ? 'rgba(152, 150, 255, 0.5)'
+                          : 'rgba(255, 255, 255, 0.1)',
+                      boxShadow: lastUsedMethod === 'email' && !isDropdownOpen
+                        ? '0 0 16px rgba(152, 150, 255, 0.25)'
+                        : undefined,
                     }}
                   />
                   <Mail className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -606,6 +615,8 @@ export default function CircleAuthModal({
                       </div>
                     </div>
                   )}
+
+                  {lastUsedMethod === 'email' && <LastUsedBadge />}
                 </div>
 
                 <p className="text-[12px] text-slate-400 mt-1.5">
@@ -644,7 +655,6 @@ export default function CircleAuthModal({
                     </>
                   )}
                 </button>
-                {lastUsedMethod === 'email' && <LastUsedBadge pill />}
               </div>
             </form>
 
