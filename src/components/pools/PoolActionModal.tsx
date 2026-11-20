@@ -171,7 +171,9 @@ export default function PoolActionModal({
     setIsSwitchingNetwork(true)
     setErrorMsg(null)
     try {
-      const provider = (await connector?.getProvider()) as any
+      const provider = typeof (connector as any)?.getProvider === 'function'
+        ? ((await (connector as any).getProvider()) as any)
+        : ((window as any)?.ethereum ?? null)
       const res = await ensureNetwork(effectiveSourceDef, provider)
       if (!res.success && !res.isCanceled) {
         setErrorMsg(res.error || `Failed to switch to ${effectiveSourceDef.name}`)

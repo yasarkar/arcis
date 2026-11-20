@@ -164,7 +164,9 @@ export default function ArcCopilotDrawer({
           .then((bal) => {
             if (!cancelled) setEnclaveBalance(bal)
           })
-          .catch(() => {})
+          .catch((err) => {
+            console.debug('[ArcCopilotDrawer] Failed to fetch enclave USDC balance:', err)
+          })
       } else {
         if (!cancelled) setEnclaveBalance(0)
       }

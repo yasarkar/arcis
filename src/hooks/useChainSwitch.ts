@@ -56,7 +56,9 @@ export function useChainSwitch() {
         }
 
         if (!switched) {
-          const provider = (await connector?.getProvider()) as any
+          const provider = typeof (connector as any)?.getProvider === 'function'
+            ? ((await (connector as any).getProvider()) as any)
+            : ((window as any)?.ethereum ?? null)
           const result = await ensureNetwork(chain, provider)
           if (!result.success) {
             return result

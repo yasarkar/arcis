@@ -229,7 +229,9 @@ export default function DepositPanel({
     setDepositError(null)
     setIsCanceledError(false)
     try {
-      const provider = await connector?.getProvider()
+      const provider = typeof (connector as any)?.getProvider === 'function'
+        ? await (connector as any).getProvider()
+        : (window as any)?.ethereum
       const res = await ensureNetwork(targetChainDef, provider)
       if (!res.success) {
         if (res.isCanceled) {
@@ -302,7 +304,9 @@ export default function DepositPanel({
     // If the wallet's RPC is down (e.g. rate-limit, circuit breaker), prompt to repair with verified RPCs.
     if (activeAuthSource === 'evm' && targetChainDef) {
       try {
-        const provider = await connector?.getProvider()
+        const provider = typeof (connector as any)?.getProvider === 'function'
+          ? await (connector as any).getProvider()
+          : (window as any)?.ethereum
         const rpcCheck = await ensureHealthyWalletRpc(targetChainDef, provider)
         if (!rpcCheck.success) {
           if (rpcCheck.isCanceled) {
@@ -424,7 +428,9 @@ export default function DepositPanel({
         }
       } else if (connector) {
         // ── STANDARD EVM / WAGMI DEPOSIT (MetaMask, Rainbow) ─────────
-        const provider = await connector.getProvider()
+        const provider = typeof (connector as any)?.getProvider === 'function'
+          ? await (connector as any).getProvider()
+          : (window as any)?.ethereum
         const result = await depositToGateway(
           provider,
           depositChain,

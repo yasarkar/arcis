@@ -350,7 +350,9 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
       if (evmChainId && evmChainId !== arcActiveChain.id) {
         void (async () => {
           try {
-            const provider = (await activeConnector?.getProvider()) as any
+            const provider = typeof (activeConnector as any)?.getProvider === 'function'
+              ? ((await (activeConnector as any).getProvider()) as any)
+              : ((window as any)?.ethereum ?? null)
             await ensureArcNetwork(provider)
           } catch (err) {
             console.warn('[UnifiedWalletModal] Auto-switch to Arc Network skipped or declined:', err)
@@ -380,7 +382,9 @@ export const UnifiedWalletModal: React.FC<UnifiedWalletModalProps> = ({
           const connectedChainId = data?.chainId || evmChainId
           if (connectedChainId && connectedChainId !== arcActiveChain.id) {
             try {
-              const provider = (await connector.getProvider()) as any
+              const provider = typeof (connector as any)?.getProvider === 'function'
+                ? ((await (connector as any).getProvider()) as any)
+                : ((window as any)?.ethereum ?? null)
               await ensureArcNetwork(provider)
             } catch (err) {
               console.warn('[UnifiedWalletModal] Auto-switch to Arc Network skipped or declined:', err)

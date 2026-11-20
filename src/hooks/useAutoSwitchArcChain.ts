@@ -59,7 +59,9 @@ export function useAutoSwitchArcChain() {
     }
 
     try {
-      const provider = (await connector?.getProvider()) as any
+      const provider = typeof (connector as any)?.getProvider === 'function'
+        ? ((await (connector as any).getProvider()) as any)
+        : ((window as any)?.ethereum ?? null)
       const res = await ensureArcNetwork(provider)
       return { success: res.success, error: res.error }
     } catch (err: any) {
@@ -119,7 +121,9 @@ export function useAutoSwitchArcChain() {
     // 1000ms delay to let wallet connection settle before prompting token registration
     const tokenTimer = setTimeout(async () => {
       try {
-        const provider = (await connector?.getProvider()) as any
+        const provider = typeof (connector as any)?.getProvider === 'function'
+          ? ((await (connector as any).getProvider()) as any)
+          : ((window as any)?.ethereum ?? null)
         await watchArcToken('USDC', provider)
         hasAttemptedTokenWatch.current = true
       } catch (err) {

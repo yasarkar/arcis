@@ -238,20 +238,25 @@ export default function App() {
 
   useEffect(() => {
     let active = true
-    if (connector) {
-      connector
+    if (connector && typeof (connector as any).getProvider === 'function') {
+      ;(connector as any)
         .getProvider()
-        .then((p) => {
+        .then((p: any) => {
           if (active) setConnectedProvider(p)
         })
-        .catch(console.error)
+        .catch((err: any) => {
+          console.warn('[App] Failed to get provider from connector:', err)
+          if (active) setConnectedProvider(typeof window !== 'undefined' ? (window as any).ethereum : null)
+        })
+    } else if (typeof window !== 'undefined' && (window as any).ethereum && isConnected) {
+      setConnectedProvider((window as any).ethereum)
     } else {
       setConnectedProvider(null)
     }
     return () => {
       active = false
     }
-  }, [connector])
+  }, [connector, isConnected])
 
   // Dynamic Active Wallet Resolution (Passkey vs UCW vs EVM)
   const [preferredAuthSource, setPreferredAuthSource] = useState<'passkey' | 'ucw' | 'evm' | null>(null)
