@@ -283,6 +283,18 @@ export function useUserControlledWallet() {
 
   // Circle Official Authentication Completion Callback (for Social & Email OTP)
   const onLoginComplete = useCallback(async (err: unknown, result: unknown) => {
+    // Clean up ephemeral OAuth redirect device tokens
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('arc_ucw_oauth_dt');
+        sessionStorage.removeItem('arc_ucw_oauth_dek');
+        localStorage.removeItem('arc_ucw_oauth_dt');
+        localStorage.removeItem('arc_ucw_oauth_dek');
+      } catch {
+        // Storage access fallback
+      }
+    }
+
     if (err) {
       console.error("[Circle UCW] Auth Callback Error:", err);
       const userFriendlyMsg = parseCircleAuthError(err);
@@ -449,11 +461,28 @@ export function useUserControlledWallet() {
       try {
         const { W3SSdk } = await import('@circle-fin/w3s-pw-web-sdk');
 
-        // From this tab's memory: a device token is a credential and is never
-        // written to browser storage. A reload re-authenticates (which is what
-        // refreshing a device token is for), so no restore path is needed here.
-        const storedDeviceToken = ucwSessionDeviceToken;
-        const storedDeviceEncryptionKey = ucwSessionDeviceEncryptionKey;
+        // Device tokens must survive the OAuth redirect (Google/Facebook/Apple).
+        // Check in-memory first, then sessionStorage / localStorage fallback.
+        let storedDeviceToken = ucwSessionDeviceToken;
+        let storedDeviceEncryptionKey = ucwSessionDeviceEncryptionKey;
+        if (typeof window !== 'undefined') {
+          try {
+            if (!storedDeviceToken) {
+              storedDeviceToken =
+                sessionStorage.getItem('arc_ucw_oauth_dt') ||
+                localStorage.getItem('arc_ucw_oauth_dt') ||
+                '';
+            }
+            if (!storedDeviceEncryptionKey) {
+              storedDeviceEncryptionKey =
+                sessionStorage.getItem('arc_ucw_oauth_dek') ||
+                localStorage.getItem('arc_ucw_oauth_dek') ||
+                '';
+            }
+          } catch {
+            // Storage access fallback
+          }
+        }
 
         const sdk = new W3SSdk(
           {
@@ -493,18 +522,28 @@ export function useUserControlledWallet() {
           setDeviceId(cachedDeviceId);
         }
 
-        // Establish session with Circle iframe via getDeviceId with timeout guard
-        try {
-          const timeoutPromise = new Promise<string>((_, reject) =>
-            setTimeout(() => reject(new Error('Iframe handshake timeout (check Brave Shields / AdBlock)')), 7000)
-          );
-          const dId = await Promise.race([sdk.getDeviceId(), timeoutPromise]);
-          if (dId) {
-            setDeviceId(dId);
-            localStorage.setItem('arc_ucw_device_id', dId);
+        // Establish session with Circle iframe via getDeviceId ONLY if we don't have a cached deviceId
+        // AND no social login callback is currently processing in the URL hash.
+        // Calling getDeviceId() while an OAuth verification iframe is running destroys the verification iframe!
+        const isOAuthCallback = typeof window !== 'undefined' && Boolean(
+          window.location.hash.includes('id_token') ||
+          window.location.hash.includes('access_token') ||
+          localStorage.getItem('socialLoginProvider')
+        );
+
+        if (!cachedDeviceId && !isOAuthCallback && typeof sdk.getDeviceId === 'function') {
+          try {
+            const timeoutPromise = new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error('Iframe handshake timeout (check Brave Shields / AdBlock)')), 5000)
+            );
+            const dId = await Promise.race([sdk.getDeviceId(), timeoutPromise]);
+            if (dId) {
+              setDeviceId(dId);
+              localStorage.setItem('arc_ucw_device_id', dId);
+            }
+          } catch (devErr: any) {
+            console.warn("[Circle UCW] Note on getDeviceId handshake:", devErr?.message || devErr);
           }
-        } catch (devErr: any) {
-          console.warn("[Circle UCW] Note on getDeviceId handshake:", devErr?.message || devErr);
         }
 
         return sdk;
@@ -877,8 +916,19 @@ export function useUserControlledWallet() {
         throw new Error(data.error || 'Failed to create social device token');
       }
 
-      // Device tokens for post-OAuth redirect restoration: kept in memory for this
-      // tab and mirrored into the httpOnly session cookie, never in storage.
+      // Device tokens for post-OAuth redirect restoration:
+      // Must be kept across the OAuth redirect navigation and wiped once auth completes.
+      if (typeof window !== 'undefined') {
+        try {
+          sessionStorage.setItem('arc_ucw_oauth_dt', data.deviceToken);
+          sessionStorage.setItem('arc_ucw_oauth_dek', data.deviceEncryptionKey);
+          localStorage.setItem('arc_ucw_oauth_dt', data.deviceToken);
+          localStorage.setItem('arc_ucw_oauth_dek', data.deviceEncryptionKey);
+        } catch {
+          // Fallback if storage access is restricted
+        }
+      }
+
       ucwSessionDeviceToken = data.deviceToken;
       ucwSessionDeviceEncryptionKey = data.deviceEncryptionKey;
       void persistUcwSession({
@@ -1424,6 +1474,16 @@ export function useUserControlledWallet() {
     localStorage.removeItem('arc_ucw_encryption_key');
     localStorage.removeItem('arc_ucw_auth_method');
     localStorage.removeItem('arc_ucw_token_expires_at');
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('arc_ucw_oauth_dt');
+        sessionStorage.removeItem('arc_ucw_oauth_dek');
+        localStorage.removeItem('arc_ucw_oauth_dt');
+        localStorage.removeItem('arc_ucw_oauth_dek');
+      } catch {
+        // Storage access fallback
+      }
+    }
     ucwSessionUserToken = '';
     // Drop the server session too, so a signed-out tab cannot keep acting for the
     // wallet through the cookie alone.

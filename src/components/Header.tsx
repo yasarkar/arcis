@@ -27,6 +27,7 @@ import { arcTestnet } from '../config/arcChain'
 import { getExplorerAddressUrl } from '../config/sendConfig'
 import { useMultiChainWallet } from '../hooks/useMultiChainWallet'
 import { prefetchHistory } from '../utils/history'
+import { formatDisplayAddress } from '../utils/address'
 
 type TabType = 'home' | 'unified' | 'send' | 'swap' | 'bridge' | 'pools' | 'ai-services' | 'history'
 
@@ -304,13 +305,13 @@ function Header({
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('passkey')
                   setIsPasskeyMenuOpen((prev) => !prev)
                 }}
-                className="ub-action-btn primary w-auto max-w-[160px] shrink-0"
+                className="ub-action-btn primary w-auto shrink-0 px-3 py-1.5"
               >
                 <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
                   <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
                 </div>
-                <span className="text-xs font-semibold tracking-wide text-white font-mono truncate">
-                  {mscaAddress.slice(0, 6)}...{mscaAddress.slice(-4)}
+                <span className="text-xs font-semibold tracking-wide text-white font-mono whitespace-nowrap">
+                  {formatDisplayAddress(mscaAddress)}
                 </span>
                 <ChevronDown
                   size={12}
@@ -406,13 +407,13 @@ function Header({
                   if (onSelectActiveAuthSource) onSelectActiveAuthSource('ucw')
                   setIsCircleMenuOpen((prev) => !prev)
                 }}
-                className="ub-action-btn primary w-auto max-w-[160px] shrink-0"
+                className="ub-action-btn primary w-auto shrink-0 px-3 py-1.5"
               >
                 <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
                   <img src={circleTokenIcon} alt="Circle" className="w-full h-full object-cover" />
                 </div>
-                <span className="text-xs font-semibold tracking-wide text-white font-mono truncate">
-                  {ucwAddress.slice(0, 6)}...{ucwAddress.slice(-4)}
+                <span className="text-xs font-semibold tracking-wide text-white font-mono whitespace-nowrap">
+                  {formatDisplayAddress(ucwAddress)}
                 </span>
                 <ChevronDown
                   size={12}
@@ -652,11 +653,11 @@ function Header({
                     if (onSelectActiveAuthSource) onSelectActiveAuthSource('evm')
                     setIsEvmMenuOpen((prev) => !prev)
                   }}
-                  className="ub-action-btn gap-2 transition-all duration-200 cursor-pointer select-none shrink-0"
+                  className="ub-action-btn gap-2 transition-all duration-200 cursor-pointer select-none shrink-0 px-3 py-1.5"
                 >
                   <img src={walletIcon} alt="Wallet Icon" className="w-4 h-4 object-contain shrink-0" />
-                  <span className="max-w-[110px] truncate" style={{ fontFamily: 'var(--font-app)', fontWeight: 600 }}>
-                    {`${effectiveAddress.slice(0, 6)}...${effectiveAddress.slice(-4)}`}
+                  <span className="text-xs font-semibold tracking-wide text-white font-mono whitespace-nowrap">
+                    {formatDisplayAddress(effectiveAddress)}
                   </span>
                   <ChevronDown
                     size={12}
