@@ -7,7 +7,7 @@ import { formatCopilotError, isUserCanceled } from '../../utils/errorUtils'
 import type { InlineExecutionReceipt } from '../../types/sessionKey'
 import { createViemAdapter } from '../sendService'
 import { executeBridge } from '../bridgeService'
-import { pollCctpDestinationTx } from '../bridgeUcwService'
+import { pollCctpDestinationTx, executeUcwBridgeTransfer } from '../bridgeUcwService'
 import {
   type CopilotActionContext,
   failedActionReceipt,
@@ -79,8 +79,7 @@ export async function executeCopilotBridgeAction(
       return failedActionReceipt('bridge', 'Circle UCW Bridge Unavailable', 'UCW bridge requires its contract challenge handler and an Arc Testnet source chain; no fallback signer was used.', startTime)
     }
     try {
-      const ucwBridge = await import('../bridgeUcwService')
-      const result = await ucwBridge.executeUcwBridgeTransfer({
+      const result = await executeUcwBridgeTransfer({
         amount: numberToExactDecimal(amount)!, sourceChain: sourceChainKey, destChain: destChainKey,
         recipientAddress: bridgeRecipient, connectedAddress: activeWallet,
         executeUcwContract: ucwHandlers.executeUcwContract,

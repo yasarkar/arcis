@@ -18,11 +18,11 @@ import type {
 import {
   getStoredSolanaWallet,
   clearStoredSolanaWallet,
-} from '../services/solanaWalletService'
+} from '../services/solanaWalletStorage'
 import {
   getStoredInjectiveWallet,
   clearStoredInjectiveWallet,
-} from '../services/injectiveWalletService'
+} from '../services/injectiveWalletStorage'
 
 const loadSolanaService = () => import('../services/solanaWalletService')
 const loadInjectiveService = () => import('../services/injectiveWalletService')

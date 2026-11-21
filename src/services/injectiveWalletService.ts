@@ -3,22 +3,24 @@
 
 import type { InjectiveWalletProvider } from '../types/multiChainWallet'
 
-const STORAGE_KEYS = {
-  ADDRESS: 'arcis_injective_wallet_address',
-  PROVIDER: 'arcis_injective_wallet_provider',
-  LEGACY_ADDRESS: 'arcis_injective_wallet_address',
-  LEGACY_PROVIDER: 'arcis_injective_wallet_provider',
+import {
+  INJECTIVE_STORAGE_KEYS,
+  INJECTIVE_WALLET_INSTALL_URLS,
+  getStoredInjectiveWallet,
+  saveStoredInjectiveWallet,
+  clearStoredInjectiveWallet,
+} from './injectiveWalletStorage'
+
+export {
+  INJECTIVE_STORAGE_KEYS,
+  INJECTIVE_WALLET_INSTALL_URLS,
+  getStoredInjectiveWallet,
+  saveStoredInjectiveWallet,
+  clearStoredInjectiveWallet,
 }
 
 export const INJECTIVE_TESTNET_CHAIN_ID = 'injective-888'
 export const INJECTIVE_MAINNET_CHAIN_ID = 'injective-1'
-
-export const INJECTIVE_WALLET_INSTALL_URLS: Record<InjectiveWalletProvider, string> = {
-  keplr: 'https://www.keplr.app/download',
-  leap: 'https://www.leapwallet.io/download',
-  cosmostation: 'https://cosmostation.io/wallet',
-  unknown: 'https://injective.com/ecosystem',
-}
 
 // Injective Testnet chain configuration for Keplr experimentalSuggestChain
 export const INJECTIVE_TESTNET_CHAIN_INFO = {
@@ -95,42 +97,6 @@ export function getInjectiveProvider(providerType: InjectiveWalletProvider): any
 
 export function isInjectiveWalletInstalled(providerType: InjectiveWalletProvider): boolean {
   return Boolean(getInjectiveProvider(providerType))
-}
-
-export function getStoredInjectiveWallet(): { address: string; provider: InjectiveWalletProvider } | null {
-  try {
-    const address = localStorage.getItem(STORAGE_KEYS.ADDRESS) || localStorage.getItem(STORAGE_KEYS.LEGACY_ADDRESS)
-    const provider =
-      (localStorage.getItem(STORAGE_KEYS.PROVIDER) as InjectiveWalletProvider) ||
-      (localStorage.getItem(STORAGE_KEYS.LEGACY_PROVIDER) as InjectiveWalletProvider) ||
-      'keplr'
-    if (address) {
-      return { address, provider }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-export function saveStoredInjectiveWallet(address: string, provider: InjectiveWalletProvider): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.ADDRESS, address)
-    localStorage.setItem(STORAGE_KEYS.PROVIDER, provider)
-  } catch {
-    // quota error
-  }
-}
-
-export function clearStoredInjectiveWallet(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEYS.ADDRESS)
-    localStorage.removeItem(STORAGE_KEYS.PROVIDER)
-    localStorage.removeItem(STORAGE_KEYS.LEGACY_ADDRESS)
-    localStorage.removeItem(STORAGE_KEYS.LEGACY_PROVIDER)
-  } catch {
-    // ignore
-  }
 }
 
 export async function connectInjectiveWallet(

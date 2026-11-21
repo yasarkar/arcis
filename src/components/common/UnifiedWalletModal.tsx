@@ -11,7 +11,7 @@ import {
 import { useMultiChainWallet } from '../../hooks/useMultiChainWallet'
 import {
   SOLANA_WALLET_INSTALL_URLS,
-} from '../../services/solanaWalletService'
+} from '../../services/solanaWalletStorage'
 import type { SolanaWalletProvider } from '../../types/multiChainWallet'
 import { isUserCanceledError } from '../../utils/errorNormalizer'
 import { PinnedNetworkIcon } from './PinnedIcons'

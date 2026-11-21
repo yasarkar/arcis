@@ -1,6 +1,5 @@
 # Ignore development, test and contract files
 contracts
-scripts
 .agents
 .freebuff
 *.log

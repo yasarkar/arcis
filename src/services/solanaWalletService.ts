@@ -2,19 +2,20 @@
 import type { SolanaWalletProvider } from '../types/multiChainWallet'
 export type { SolanaWalletProvider }
 
-const STORAGE_KEYS = {
-  ADDRESS: 'arcis_solana_wallet_address',
-  PROVIDER: 'arcis_solana_wallet_provider',
-}
+import {
+  SOLANA_STORAGE_KEYS,
+  SOLANA_WALLET_INSTALL_URLS,
+  getStoredSolanaWallet,
+  saveStoredSolanaWallet,
+  clearStoredSolanaWallet,
+} from './solanaWalletStorage'
 
-export const SOLANA_WALLET_INSTALL_URLS: Record<SolanaWalletProvider, string> = {
-  phantom: 'https://phantom.app/download',
-  solflare: 'https://solflare.com/download',
-  backpack: 'https://backpack.app/download',
-  okx: 'https://www.okx.com/web3',
-  coinbase: 'https://www.coinbase.com/wallet',
-  trust: 'https://trustwallet.com/download',
-  unknown: 'https://solana.com/ecosystem/explore?categories=wallet',
+export {
+  SOLANA_STORAGE_KEYS,
+  SOLANA_WALLET_INSTALL_URLS,
+  getStoredSolanaWallet,
+  saveStoredSolanaWallet,
+  clearStoredSolanaWallet,
 }
 
 export function getSolanaProvider(providerType: SolanaWalletProvider): any | null {
@@ -63,37 +64,6 @@ export function getSolanaProvider(providerType: SolanaWalletProvider): any | nul
 
 export function isSolanaWalletInstalled(providerType: SolanaWalletProvider): boolean {
   return Boolean(getSolanaProvider(providerType))
-}
-
-export function getStoredSolanaWallet(): { address: string; provider: SolanaWalletProvider } | null {
-  try {
-    const address = localStorage.getItem(STORAGE_KEYS.ADDRESS)
-    const provider = (localStorage.getItem(STORAGE_KEYS.PROVIDER) as SolanaWalletProvider) || 'phantom'
-    if (address) {
-      return { address, provider }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-export function saveStoredSolanaWallet(address: string, provider: SolanaWalletProvider): void {
-  try {
-    localStorage.setItem(STORAGE_KEYS.ADDRESS, address)
-    localStorage.setItem(STORAGE_KEYS.PROVIDER, provider)
-  } catch {
-    // quota error
-  }
-}
-
-export function clearStoredSolanaWallet(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEYS.ADDRESS)
-    localStorage.removeItem(STORAGE_KEYS.PROVIDER)
-  } catch {
-    // ignore
-  }
 }
 
 export async function connectSolanaWallet(
