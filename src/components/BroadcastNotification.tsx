@@ -230,22 +230,22 @@ const getExplorerAddressLink = (address?: string, network?: string) => {
 
 const getExplorerName = (network?: string) => {
   const net = (network || '').toLowerCase().replace(/_/g, '-')
-  if (net.includes('arc')) return 'Arcscan'
-  if (net.includes('base')) return 'Basescan'
-  if (net.includes('arbitrum')) return 'Arbiscan'
-  if (net.includes('optimism')) return 'OP Etherscan'
-  if (net.includes('polygon') || net.includes('amoy')) return 'Polygonscan'
+  if (net.includes('arc')) return 'ArcScan'
+  if (net.includes('base')) return 'BaseScan'
+  if (net.includes('arbitrum')) return 'ArbiScan'
+  if (net.includes('optimism')) return 'OP EtherScan'
+  if (net.includes('polygon') || net.includes('amoy')) return 'PolygonScan'
   if (net.includes('avalanche') || net.includes('fuji')) return 'Snowtrace'
   if (net.includes('monad')) return 'Monad Explorer'
   if (net.includes('hyper')) return 'HyperEVM'
   if (net.includes('sei')) return 'Seitrace'
   if (net.includes('ink')) return 'Ink Explorer'
   if (net.includes('plume')) return 'Plume Explorer'
-  if (net.includes('sonic')) return 'Sonicscan'
+  if (net.includes('sonic')) return 'SonicScan'
   if (net.includes('unichain')) return 'Unichain Explorer'
-  if (net.includes('world')) return 'Worldscan'
-  if (net.includes('linea')) return 'Lineascan'
-  return 'Etherscan'
+  if (net.includes('world')) return 'WorldScan'
+  if (net.includes('linea')) return 'LineaScan'
+  return 'EtherScan'
 }
 
 export function shortenAddress(address?: string, start = 6, end = 4): string {
