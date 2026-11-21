@@ -373,17 +373,56 @@ describe('generateLiveServiceData — arbitrage sentinel', () => {
     expect(JSON.stringify(withoutTimestamp(data))).not.toMatch(/0\.994|LOW_MEV_THREAT|0x522faf9a/)
   })
 
-  it('keeps a non-USDC pair out of the USDC-notional spread', async () => {
-    state.prices = { EURC: 1.1, WETH: 3000 }
-    state.reserves = { reserveA: usdc(500_000), reserveB: 100n * 10n ** 18n }
+  it('prices non-USDC cross-pairs (EURC/WETH) accurately using oraclePriceB / oraclePriceA', async () => {
+    // EURC = $1.10, WETH = $3,300 -> oracleRate = 3300 / 1.10 = 3000 EURC per WETH
+    // Pool has 330,000 EURC and 100 WETH -> poolRate = 3300 EURC per WETH
+    // Spread = |3000 - 3300| / 3300 = 9.091%
+    state.prices = { EURC: 1.1, WETH: 3300 }
+    state.reserves = { reserveA: usdc(330_000), reserveB: 100n * 10n ** 18n }
 
     const { data } = await generateLiveServiceData(arbitrageSentinelManifest, {
       pair: 'EURC/WETH',
       tradeSizeUsdc: 25_000,
     })
 
-    // The spread, trade size and profit are all USDC-denominated, so a pool with no USDC
-    // side stays out of this service; MEV Shield is the surface that values it.
+    expect(data.status).toBe('OPPORTUNITY_DETECTED')
+    expect(data.pair).toBe('EURC/WETH')
+    expect(data.bestRoute.grossSpreadPct).toBeCloseTo(9.091, 2)
+    expect(data.scannedPools).toHaveLength(1)
+    expect(data.scannedPools[0].quoteUnit).toBe('EURC per WETH')
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('ARBITRAGE_OPPORTUNITY')
+  })
+
+  it('scans all 6 Arc pools in parallel when pair is ALL_POOLS and ranks by net spread', async () => {
+    state.prices = { USDC: 1, EURC: 1.1, WETH: 3000, cirBTC: 90000 }
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: usdc(900_000) }
+
+    const { data } = await generateLiveServiceData(arbitrageSentinelManifest, {
+      pair: 'ALL_POOLS',
+      tradeSizeUsdc: 25_000,
+      minNetProfitPct: 0.35,
+    })
+
+    expect(data.pair).toBe('ALL_POOLS')
+    expect(data.poolsScannedCount).toBe(6)
+    expect(data.poolsMeasuredCount).toBe(6)
+    expect(data.scannedPools).toHaveLength(6)
+    // Sorted descending by netProfitPct
+    for (let i = 1; i < data.scannedPools.length; i++) {
+      expect(data.scannedPools[i - 1].netProfitPct).toBeGreaterThanOrEqual(data.scannedPools[i].netProfitPct)
+    }
+    expect(data.bestRoute.pair).toBe(data.scannedPools[0].pair)
+  })
+
+  it('refuses an unknown pair that has no deployed Arc pool', async () => {
+    state.prices = { EURC: 1.1, DAI: 1.0 }
+    state.reserves = { reserveA: usdc(500_000), reserveB: usdc(500_000) }
+
+    const { data } = await generateLiveServiceData(arbitrageSentinelManifest, {
+      pair: 'EURC/DAI',
+      tradeSizeUsdc: 25_000,
+    })
+
     expect(data.status).toBe('UNAVAILABLE')
     expect(data.unavailable).toContain('active Arc L1 DEX pool for requested pair')
     expect(data.bestRoute).toBeUndefined()
@@ -488,6 +527,85 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.status).toBe('ROUTE_OPTIMIZED')
     expect(data.flashReserveDepthUsdc).toBeNull()
     expect(data.depthPool).toBeNull()
+  })
+
+  it('measures reserve/sandwich exposure and recommends batch splitting when trade exceeds 5% of pool reserve', async () => {
+    state.prices = { USDC: 1, EURC: 1.1 }
+    // Pool holds 1,000,000 USDC; trade is 100,000 USDC = 10% of reserve (> 5% threshold -> 4 batches)
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: usdc(900_000) }
+    vi.mocked(getSwapEstimate).mockResolvedValue({
+      estimatedOutput: '90000',
+      rate: '0.9',
+      stopLimit: '89500',
+      fees: [],
+    } as any)
+
+    const { data, actionablePayload } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'USDC',
+      toToken: 'EURC',
+      amount: 100_000,
+      slippageTolerancePct: 0.4,
+    })
+
+    expect(data.status).toBe('ROUTE_OPTIMIZED')
+    expect(data.tradeReserveExposurePct).toBe(10)
+    expect(data.sandwichRiskLevel).toBe('HIGH')
+    expect(data.executionSizing.recommendedBatchCount).toBe(4)
+    expect(data.executionSizing.perBatchInputAmount).toBe(25_000)
+    expect(data.executionSizing.suggestedMaxSlippagePct).toBe(0.4)
+    expect(data.executionSizing.advisoryOnly).toBe(true)
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('HIGH_RESERVE_SANDWICH_EXPOSURE')
+    expect(actionablePayload?.type).toBe('swap')
+    expect(actionablePayload?.details.amountIn).toBe(100_000)
+  })
+
+  it('compares direct vs 2-hop routes and selects the route with higher real output', async () => {
+    const { resolveArcNativeRoute } = await import('../swapService')
+    vi.mocked(resolveArcNativeRoute).mockImplementation((a: string, b: string) => {
+      const key = [a.toUpperCase(), b.toUpperCase()].sort().join('/')
+      const pools: Record<string, string> = {
+        'EURC/WETH': '0x00000000000000000000000000000000000000e1',
+        'EURC/USDC': '0x00000000000000000000000000000000000000d1',
+        'USDC/WETH': '0x00000000000000000000000000000000000000f1',
+      }
+      return pools[key] ? ({ poolAddress: pools[key] } as any) : null
+    })
+    state.prices = { USDC: 1, EURC: 1.1, WETH: 3000 }
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: 500n * 10n ** 18n }
+
+    vi.mocked(getSwapEstimate).mockImplementation(async (params: any) => {
+      const pair = `${params.tokenIn.toUpperCase()}->${params.tokenOut.toUpperCase()}`
+      if (pair === 'EURC->WETH') return { estimatedOutput: '10.0', rate: '0.000333', stopLimit: '9.9', fees: [] } as any
+      if (pair === 'EURC->USDC') return { estimatedOutput: '33000', rate: '1.1', stopLimit: '32800', fees: [] } as any
+      if (pair === 'USDC->WETH') return { estimatedOutput: '11.0', rate: '0.000333', stopLimit: '10.9', fees: [] } as any
+      throw new Error('no route')
+    })
+
+    const { data } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'EURC',
+      toToken: 'WETH',
+      amount: 30_000,
+    })
+
+    expect(data.status).toBe('ROUTE_OPTIMIZED')
+    expect(data.recommendedHops).toBe(2)
+    expect(data.recommendedPath).toBe('EURC → USDC → WETH')
+    expect(data.twoHopOutputGainPct).toBeCloseTo(10, 2)
+    expect(data.routeComparison).toHaveLength(2)
+    expect(data.routeComparison[0].recommended).toBe(true)
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('TWO_HOP_ROUTE_ADVANTAGE')
+  })
+
+  it('refuses identical source and destination tokens', async () => {
+    const { data, actionablePayload } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'USDC',
+      toToken: 'USDC',
+      amount: 1000,
+    })
+
+    expect(data.status).toBe('UNAVAILABLE')
+    expect(actionablePayload).toBeUndefined()
+    expect(data.riskRegister[0].id).toBe('INVALID_TRADE_PARAMS')
   })
 })
 

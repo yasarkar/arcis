@@ -11,12 +11,12 @@ import {
 
 export const slippageOptimizerManifest: ServiceManifest = {
   id: 'arc-deep-liquidity-slippage-optimizer',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Smart Trade & Execution Advisor',
-  tagline: 'Check Pool Depth, Price Impact & Execution Sizing Before You Swap',
+  tagline: 'Compare Direct vs 2-Hop Routes, Reserve Exposure & Batch Sizing Before You Swap',
   category: 'Liquidity & Routing',
   engine: 'native',
-  description: 'Reads live Arc L1 pool reserves and computes price impact and effective execution price before you submit a trade, helping you size orders against real liquidity.',
+  description: 'Compares direct and 2-hop routes across all 6 Arc L1 V4 pools, measures pool reserve exposure (sandwich risk), and recommends optimal batch sizing before you submit a swap.',
   listing: {
     kind: 'official',
     ownerAddress: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
@@ -30,8 +30,8 @@ export const slippageOptimizerManifest: ServiceManifest = {
   },
   pricing: {
     model: 'per_call',
-    priceUsdc: 0.002,
-    maxAmountUsdc: 0.002,
+    priceUsdc: 0.003,
+    maxAmountUsdc: 0.003,
     protocolFeeBps: 50,
   },
   accepts: [
@@ -40,7 +40,7 @@ export const slippageOptimizerManifest: ServiceManifest = {
       network: X402_NETWORKS.CAIP2_ARC_TESTNET,
       asset: ARC_TESTNET_TOKENS.USDC,
       payTo: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',
-      amount: '2000',
+      amount: '3000',
       maxTimeoutSeconds: CIRCLE_BATCHING_METADATA.MAX_TIMEOUT_SECONDS,
       extra: {
         name: CIRCLE_BATCHING_METADATA.NAME,
@@ -59,9 +59,10 @@ export const slippageOptimizerManifest: ServiceManifest = {
     additionalProperties: false,
     required: ['fromToken', 'toToken', 'amount'],
     properties: {
-      fromToken: { type: 'string' },
-      toToken: { type: 'string' },
-      amount: { type: 'number', minimum: 1 },
+      fromToken: { type: 'string', enum: ['USDC', 'EURC', 'WETH', 'cirBTC'] },
+      toToken: { type: 'string', enum: ['USDC', 'EURC', 'WETH', 'cirBTC'] },
+      amount: { type: 'number', minimum: 0.0001 },
+      slippageTolerancePct: { type: 'number', minimum: 0.01, maximum: 5 },
     },
   },
   ui: {
@@ -99,8 +100,16 @@ export const slippageOptimizerManifest: ServiceManifest = {
         label: 'Amount',
         type: 'number',
         defaultValue: 50000,
-        description: 'Token amount to swap.',
+        description: 'Token amount to evaluate across direct and 2-hop pools.',
         required: true,
+      },
+      {
+        name: 'slippageTolerancePct',
+        label: 'Max Slippage Tolerance (%)',
+        type: 'number',
+        defaultValue: 0.5,
+        description: 'Maximum slippage tolerance used in the advisory execution sizing check.',
+        required: false,
       },
     ],
   },
@@ -109,28 +118,30 @@ export const slippageOptimizerManifest: ServiceManifest = {
       fromToken: 'USDC',
       toToken: 'WETH',
       amount: 50000,
-      maxSplitParts: 3,
+      slippageTolerancePct: 0.5,
     },
     response: {
       status: 'ROUTE_OPTIMIZED',
-      inputAmount: '50000 USDC',
+      inputAmount: '50,000 USDC',
       expectedOutput: '17.5842 WETH',
-      effectiveExecutionPrice: 2843.46,
+      recommendedPath: 'USDC → WETH',
+      recommendedHops: 1,
+      effectiveExecutionPrice: 0.000352,
       overallPriceImpactPct: 0.042,
-      // Real pool depth; null when the reserve read fails (the response then reports
-      // status 'UNAVAILABLE' with no quote rather than a substituted estimate).
-      flashReserveDepthUsdc: 14200000,
+      tradeReserveExposurePct: 3.57,
+      sandwichRiskLevel: 'MODERATE',
+      flashReserveDepthUsdc: 1400000,
     },
   },
   sla: {
-    p95LatencyMs: 95,
+    p95LatencyMs: 250,
     uptimePct: 99.95,
     successRate: 99.95,
   },
   healthcheckUrl: '/api/x402/health/arc-deep-liquidity-slippage-optimizer',
   agentPrompts: [
-    'Find the optimal multi-hop route for 50,000 USDC to WETH',
-    'Calculate slippage across Arc pools',
+    'Compare direct vs 2-hop swap route and reserve risk for 50,000 USDC to WETH',
+    'Check slippage and batch sizing before executing a large Arc swap',
   ],
-  tags: ['Liquidity', 'Slippage', 'Multi-Hop', 'Smart-Routing'],
+  tags: ['Trade-Advisor', 'Multi-Hop', 'Slippage', 'Reserve-Risk'],
 }

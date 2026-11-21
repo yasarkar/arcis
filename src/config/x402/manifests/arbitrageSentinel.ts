@@ -11,12 +11,12 @@ import {
 
 export const arbitrageSentinelManifest: ServiceManifest = {
   id: 'arc-cross-dex-arbitrage-sentinel',
-  version: '1.0.0',
-  name: 'Pool Spread & Mispricing Scanner',
-  tagline: 'Compare Arc Pool Prices Against Live Market Oracles After Gas',
+  version: '1.1.0',
+  name: 'All-Pools Spread & Mispricing Scanner',
+  tagline: 'Scan All 6 Live Arc Pools Against Market Oracles & Rank Net Spreads After Gas',
   category: 'Arbitrage',
   engine: 'native',
-  description: 'Compares live Arc L1 pool rates with external market oracle prices and calculates gross spread and net difference after Arc USDC gas costs.',
+  description: 'Scans all 6 Arc L1 V4 pools in parallel (or a single selected pair), compares live reserve ratios against external market oracles, and ranks net spreads after Arc USDC gas costs.',
   listing: {
     kind: 'official',
     ownerAddress: '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A',
@@ -61,7 +61,7 @@ export const arbitrageSentinelManifest: ServiceManifest = {
     properties: {
       pair: {
         type: 'string',
-        enum: ['USDC/EURC', 'USDC/WETH', 'USDC/cirBTC'],
+        enum: ['ALL_POOLS', 'USDC/EURC', 'USDC/WETH', 'USDC/cirBTC', 'EURC/WETH', 'EURC/cirBTC', 'cirBTC/WETH'],
       },
       tradeSizeUsdc: { type: 'number', minimum: 100 },
       minNetProfitPct: { type: 'number', minimum: 0 },
@@ -71,54 +71,59 @@ export const arbitrageSentinelManifest: ServiceManifest = {
     form: [
       {
         name: 'pair',
-        label: 'Token Pair',
+        label: 'Pools to Scan',
         type: 'select',
-        defaultValue: 'USDC/EURC',
+        defaultValue: 'ALL_POOLS',
         options: [
+          { label: 'All 6 Arc Pools (Recommended)', value: 'ALL_POOLS' },
           { label: 'USDC / EURC (StableSwap)', value: 'USDC/EURC' },
-          { label: 'USDC / WETH (Volatile Pool)', value: 'USDC/WETH' },
+          { label: 'USDC / WETH (Constant Product)', value: 'USDC/WETH' },
           { label: 'USDC / cirBTC (Constant Product)', value: 'USDC/cirBTC' },
+          { label: 'EURC / WETH (Cross-Pair)', value: 'EURC/WETH' },
+          { label: 'EURC / cirBTC (Cross-Pair)', value: 'EURC/cirBTC' },
+          { label: 'cirBTC / WETH (Bluechip Pair)', value: 'cirBTC/WETH' },
         ],
-        description: 'Primary liquidity pair to scan on Arc L1.',
+        description: 'Scan all 6 deployed Arc L1 V4 pools at once or focus on a single pair.',
         required: true,
       },
       {
         name: 'tradeSizeUsdc',
-        label: 'Trade Capital (USDC)',
+        label: 'Notional Size (USDC)',
         type: 'number',
         defaultValue: 25000,
-        description: 'Simulated swap trade volume.',
+        description: 'Reference USDC notional volume for net spread calculation.',
         required: true,
       },
       {
         name: 'minNetProfitPct',
-        label: 'Min. Net Profit Threshold (%)',
+        label: 'Min. Net Spread Threshold (%)',
         type: 'number',
         defaultValue: 0.35,
-        description: 'Filter opportunities exceeding this net profit margin.',
+        description: 'Highlight pools whose net spread after Arc gas exceeds this hurdle.',
         required: false,
       },
     ],
   },
   examples: {
     request: {
-      pair: 'USDC/EURC',
+      pair: 'ALL_POOLS',
       tradeSizeUsdc: 25000,
       minNetProfitPct: 0.35,
-      includeGasCostEstimate: true,
     },
-    // Every figure comes from the on-chain pool reserves, the live oracle prices and Arc's
-    // gas price for the requested trade size. If one of those reads fails the response is
-    // { status: 'UNAVAILABLE', unavailable: [...], reason: [...] } with no numbers at all.
     response: {
       status: 'OPPORTUNITY_DETECTED',
       timestamp: 1760000000000,
-      pair: 'USDC/EURC',
+      pair: 'ALL_POOLS',
+      bestPair: 'USDC/EURC',
+      poolsScannedCount: 6,
+      poolsMeasuredCount: 6,
+      opportunitiesCount: 1,
       liveOraclePrices: { USDC: 1, EURC: 1.082 },
       bestRoute: {
+        pair: 'USDC/EURC',
         buyDex: 'Arcis StableSwap V3 Pool',
         buyPriceUsdc: 1.082,
-        sellDex: 'External Oracle / Gateway Bridge',
+        sellDex: 'External Market Oracle (Reference)',
         sellPriceUsdc: 1.091,
         grossSpreadPct: 0.832,
         recommendedTradeSize: 25000,
@@ -129,14 +134,14 @@ export const arbitrageSentinelManifest: ServiceManifest = {
     },
   },
   sla: {
-    p95LatencyMs: 125,
+    p95LatencyMs: 280,
     uptimePct: 99.9,
     successRate: 99.9,
   },
   healthcheckUrl: '/api/x402/health/arc-cross-dex-arbitrage-sentinel',
   agentPrompts: [
-    'Scan DEX pools for USDC/EURC stable arbitrage',
-    'Calculate net profit after Arc gas fees for 25k USDC arb',
+    'Scan all 6 Arc pools for the widest price divergence against market oracles',
+    'Rank Arc DEX pool spreads after USDC gas for a $25,000 trade size',
   ],
-  tags: ['Arbitrage', 'DEX-Spreads', 'Alpha', 'Flash-Exec'],
+  tags: ['All-Pools', 'Spreads', 'Mispricing', 'Oracle-Check'],
 }

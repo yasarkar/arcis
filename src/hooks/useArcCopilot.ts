@@ -1770,7 +1770,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       steps[0].resultSummary = r1.payment?.status === 'settlement_pending' ? 'Gateway accepted payment; provider settlement remains pending reconciliation.' : 'Settlement receipt verified; paid service data returned.'
       setCurrentSteps([...steps])
 
-      // Step 2: Pool Spread & Mispricing Scanner
+      // Step 2: All-Pools Spread & Mispricing Scanner
       steps.push({
         stepNumber: 2,
         serviceId: s2.id,
@@ -1778,12 +1778,12 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
         status: 'executing',
         costUsdc: 0,
         durationMs: 0,
-        detail: 'Calculating Arc pool vs external oracle spread and net difference after gas...',
+        detail: 'Scanning all 6 Arc pools against live external oracles and Arc gas...',
       })
       setCurrentSteps([...steps])
 
       const r2 = paidCallKind
-        ? await executeX402Call(s2, { pair: 'USDC/WETH', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, paidCallKind, paidCallSigner)
+        ? await executeX402Call(s2, { pair: 'ALL_POOLS', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, paidCallKind, paidCallSigner)
         : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
       if (!isSuccessfulX402ServiceResult(r2)) {
         finishFailedStep(steps[1], r2)
@@ -1827,8 +1827,8 @@ This is advisory analysis only; no trade or relayer protection was executed.`
 
 <strong>Listed Official Services (7 Active):</strong>
 
-1. <strong>Smart Trade & Execution Advisor:</strong> $0.002 USDC/call — pool depth, price impact, and execution sizing before a swap.
-2. <strong>Pool Spread & Mispricing Scanner:</strong> $0.005 USDC/call — live Arc pool rate vs external oracle spread after USDC gas.
+1. <strong>Smart Trade & Execution Advisor:</strong> $0.003 USDC/call — direct vs 2-hop routing, pool reserve exposure, and batch sizing before a swap.
+2. <strong>All-Pools Spread & Mispricing Scanner:</strong> $0.005 USDC/call — scans all 6 Arc pools against live market oracles after USDC gas.
 3. <strong>Bridge & Gateway Cost Optimizer:</strong> $0.003 USDC/call — live Circle Gateway vs CCTP fee comparison before bridging.
 4. <strong>Arc Yield & Pool Analytics:</strong> $0.002 USDC/call — live ERC-4626 USDC Yield Vault TVL and share price.
 5. <strong>Portfolio & DeFi Health Auditor:</strong> $0.004 USDC/call — multi-chain wallet & Gateway concentration and exposure audit.
@@ -1862,8 +1862,8 @@ A provider can integrate an HTTP 402 payment challenge and register a service ma
           role: 'assistant',
           content: `Choosing an x402 AI service (7 active official services on Arc Testnet):
 
-• <strong>Before a swap (impact & sizing):</strong> Smart Trade & Execution Advisor ($0.002/call).
-• <strong>Pool vs oracle price spread:</strong> Pool Spread & Mispricing Scanner ($0.005/call).
+• <strong>Before a swap (routes, impact & sizing):</strong> Smart Trade & Execution Advisor ($0.003/call).
+• <strong>All 6 pools vs oracle price spread:</strong> All-Pools Spread & Mispricing Scanner ($0.005/call).
 • <strong>Before bridging (Gateway vs CCTP):</strong> Bridge & Gateway Cost Optimizer ($0.003/call).
 • <strong>Vault TVL & share price check:</strong> Arc Yield & Pool Analytics ($0.002/call).
 • <strong>Wallet risk & concentration audit:</strong> Portfolio & DeFi Health Auditor ($0.004/call).

@@ -1,25 +1,16 @@
 // src/services/aiServicesDataProvider.ts
-// Live On-Chain Intelligence Engine for Arcis AI Services
-// Uses real Arc Testnet DEX pool reserves, Curve AMM mathematics,
-// live token price oracles, and dynamic Arc L1 gas metrics.
+// Live On-Chain Intelligence Dispatcher for Arcis AI Services
+// Delegates each official x402 service to its single-owner on-chain module.
 
-import { formatUnits, type Address } from 'viem'
 import type { x402Service, ActionableSignalPayload } from '../types/marketplace.js'
-import {
-  POOL_CONTRACTS,
-  STABLE_SWAP_ABI,
-} from '../config/poolsConfig.js'
-import { getLiveTokenPrices, normalizeTokenSymbol } from './tokenPriceService.js'
-import { getSwapEstimate, resolveArcNativeRoute } from './swapService.js'
-import { getArcPublicClient, resilientReadContract } from './rpc/index.js'
-import { estimateArcGasCostUsdc } from './arcGasService.js'
 import { readVaultAnalytics } from './x402/vaultAnalytics.js'
 import { readPortfolioRisk } from './x402/portfolioRisk.js'
 import { scoutGatewayRoutes, type RouteScoutUrgency } from './x402/gatewayRouteScout.js'
 import { readVaultYieldReport } from './x402/vaultYieldReport.js'
+import { analyzeTradeExecution } from './x402/tradeExecutionAdvisor.js'
+import { scanArcPoolSpreads } from './x402/poolSpreadScanner.js'
 import {
   buildGatewayFlowServiceData,
-  formatUsdcOrUnavailable,
   readGatewayFlow,
   type GatewayFlowWindow,
 } from './gatewayFlowIndexer.js'
@@ -27,228 +18,6 @@ import {
 export interface GeneratedServiceData {
   data: Record<string, any>
   actionablePayload?: ActionableSignalPayload
-}
-
-/**
- * Reads live reserves from the Arc Testnet StableSwap pool (USDC / EURC).
- * Returns null when the on-chain read fails — never a substituted reserve figure.
- */
-async function fetchStablePoolReserves(): Promise<{ reserveA: bigint; reserveB: bigint } | null> {
-  try {
-    const client = getArcPublicClient()
-    const [rA, rB] = await Promise.all([
-      resilientReadContract(client, {
-        address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
-        abi: STABLE_SWAP_ABI,
-        functionName: 'reserveA',
-      }),
-      resilientReadContract(client, {
-        address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
-        abi: STABLE_SWAP_ABI,
-        functionName: 'reserveB',
-      }),
-    ])
-    return { reserveA: rA, reserveB: rB }
-  } catch (err) {
-    console.warn('[aiServicesDataProvider] On-chain stable reserves unavailable:', err)
-    return null
-  }
-}
-
-export interface ArbitragePoolMeta {
-  address: Address
-  dexName: string
-  decA: number
-  decB: number
-  symbolA: string
-  symbolB: string
-}
-
-/**
- * Resolves the Arc Testnet pool that actually holds the pair. Symbols always follow the
- * on-chain ordering of the pool (symbolA is the contract's tokenA), so a reversed input
- * cannot re-label a reserve.
- */
-export function resolveDexPoolMeta(tokenA: string, tokenB: string): ArbitragePoolMeta | null {
-  const normA = normalizeTokenSymbol(tokenA)
-  const normB = normalizeTokenSymbol(tokenB)
-
-  if ((normA === 'USDC' && normB === 'EURC') || (normA === 'EURC' && normB === 'USDC')) {
-    return {
-      address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
-      dexName: 'Arcis StableSwap V3 Pool',
-      decA: 6,
-      decB: 6,
-      symbolA: 'USDC',
-      symbolB: 'EURC',
-    }
-  }
-
-  if (
-    (normA === 'USDC' && (normB === 'CIRBTC' || normB === 'BTC' || normB === 'WBTC')) ||
-    ((normA === 'CIRBTC' || normA === 'BTC' || normA === 'WBTC') && normB === 'USDC')
-  ) {
-    return {
-      address: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL as Address,
-      dexName: 'Arcis Constant Product Pool (cirBTC)',
-      decA: 6,
-      decB: 8,
-      symbolA: 'USDC',
-      symbolB: 'cirBTC',
-    }
-  }
-
-  if (
-    (normA === 'USDC' && normB === 'WETH') ||
-    (normA === 'WETH' && normB === 'USDC')
-  ) {
-    const wethPool = POOL_CONTRACTS.WETH_POOL
-    if (!wethPool || wethPool === '0x0000000000000000000000000000000000000000') return null
-    return {
-      address: wethPool as Address,
-      dexName: 'Arcis WETH Pool',
-      decA: 6,
-      decB: 18,
-      symbolA: 'USDC',
-      symbolB: 'WETH',
-    }
-  }
-
-  // EURC / WETH: ConstantProductPoolEurcWethV4 stores EURC as tokenA (6 decimals) and
-  // WETH as tokenB (18 decimals). This pool has no USDC side, so its depth has to be
-  // valued in USDC before it can be compared with a USDC-notional trade.
-  if (
-    (normA === 'EURC' && normB === 'WETH') ||
-    (normA === 'WETH' && normB === 'EURC')
-  ) {
-    const eurcWethPool = POOL_CONTRACTS.EURC_WETH_POOL
-    if (!eurcWethPool || eurcWethPool === '0x0000000000000000000000000000000000000000') return null
-    return {
-      address: eurcWethPool as Address,
-      dexName: 'Arcis EURC/WETH Pool',
-      decA: 6,
-      decB: 18,
-      symbolA: 'EURC',
-      symbolB: 'WETH',
-    }
-  }
-
-  if (
-    (normA === 'EURC' && normB === 'CIRBTC') ||
-    (normA === 'CIRBTC' && normB === 'EURC')
-  ) {
-    const eurcCirBtcPool = POOL_CONTRACTS.EURC_CIRBTC_POOL
-    if (!eurcCirBtcPool || eurcCirBtcPool === '0x0000000000000000000000000000000000000000') return null
-    return {
-      address: eurcCirBtcPool as Address,
-      dexName: 'Arcis EURC/cirBTC Pool',
-      decA: 6,
-      decB: 8,
-      symbolA: 'EURC',
-      symbolB: 'cirBTC',
-    }
-  }
-
-  if (
-    (normA === 'CIRBTC' && normB === 'WETH') ||
-    (normA === 'WETH' && normB === 'CIRBTC')
-  ) {
-    const cirBtcWethPool = POOL_CONTRACTS.CIRBTC_WETH_POOL
-    if (!cirBtcWethPool || cirBtcWethPool === '0x0000000000000000000000000000000000000000') return null
-    return {
-      address: cirBtcWethPool as Address,
-      dexName: 'Arcis cirBTC/WETH Pool',
-      decA: 8,
-      decB: 18,
-      symbolA: 'cirBTC',
-      symbolB: 'WETH',
-    }
-  }
-
-  return null
-}
-
-/**
- * Pool resolution for the arbitrage sentinel, which prices a USDC-notional spread: only
- * pools with a USDC side are in scope there. MEV Shield accepts any resolved pool.
- */
-function resolveArbitragePoolMeta(tokenA: string, tokenB: string): ArbitragePoolMeta | null {
-  const meta = resolveDexPoolMeta(tokenA, tokenB)
-  return meta && (meta.symbolA === 'USDC' || meta.symbolB === 'USDC') ? meta : null
-}
-
-export interface PoolDepthUsdc {
-  /** USDC value of the reserve the exposure is measured against; null when unpriceable. */
-  reserveUsdc: number | null
-  /**
-   * 'usdc-side'     — the trade sells USDC, so the pool's own USDC reserve is the depth.
-   * 'token-in-side' — the trade sells another token (EURC, WETH, cirBTC), so that token's
-   *                   reserve is valued in USDC: it is the side the trade drains.
-   */
-  basis: 'usdc-side' | 'token-in-side'
-  /** USD prices used for the valuation, keyed by pool symbol; empty when USDC is sold. */
-  prices: Record<string, number>
-  /** Symbols with no usable price; non-empty means reserveUsdc is null. */
-  missingPrices: string[]
-}
-
-/**
- * Expresses, in USDC, the reserve of the token the trade sells into the pool.
- *
- * The sold side is the side the trade drains, so it is the depth the exposure has to be
- * measured against: a WETH sale into USDC/WETH moves the WETH reserve, and a EURC sale into
- * EURC/WETH moves the EURC reserve. USDC needs no price (it is the numeraire); any other
- * token is valued with its live oracle price, and a missing price leaves the depth unknown
- * instead of substituting a default one.
- */
-export function valuePoolDepthInUsdc(
-  meta: ArbitragePoolMeta,
-  reserves: { reserveA: bigint; reserveB: bigint },
-  livePrices: Record<string, number>,
-  soldSymbol: string
-): PoolDepthUsdc {
-  const isTokenA = soldSymbol === meta.symbolA
-  const soldAmount = Number(
-    formatUnits(isTokenA ? reserves.reserveA : reserves.reserveB, isTokenA ? meta.decA : meta.decB)
-  )
-
-  if (soldSymbol === 'USDC') {
-    return { reserveUsdc: soldAmount, basis: 'usdc-side', prices: {}, missingPrices: [] }
-  }
-
-  const price = livePrices[soldSymbol]
-  if (price === undefined || !(price > 0)) {
-    return { reserveUsdc: null, basis: 'token-in-side', prices: {}, missingPrices: [soldSymbol] }
-  }
-
-  return {
-    reserveUsdc: soldAmount * price,
-    basis: 'token-in-side',
-    prices: { [soldSymbol]: price },
-    missingPrices: [],
-  }
-}
-
-async function fetchPairReserves(poolAddress: Address): Promise<{ reserveA: bigint; reserveB: bigint } | null> {
-  try {
-    const client = getArcPublicClient()
-    const [rA, rB] = await Promise.all([
-      resilientReadContract(client, {
-        address: poolAddress,
-        abi: STABLE_SWAP_ABI,
-        functionName: 'reserveA',
-      }),
-      resilientReadContract(client, {
-        address: poolAddress,
-        abi: STABLE_SWAP_ABI,
-        functionName: 'reserveB',
-      }),
-    ])
-    return { reserveA: rA, reserveB: rB }
-  } catch (err) {
-    console.warn(`[aiServicesDataProvider] On-chain pool reserves unavailable for ${poolAddress}:`, err)
-    return null
-  }
 }
 
 /**
@@ -261,320 +30,26 @@ export async function generateLiveServiceData(
   const now = Date.now()
 
   // ─────────────────────────────────────────────────────────────
-  // 1. ARC CROSS-DEX ARBITRAGE SENTINEL
+  // 1. ALL-POOLS SPREAD & MISPRICING SCANNER
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-cross-dex-arbitrage-sentinel') {
-    const pair = inputPayload.pair || 'USDC/EURC'
-    const tradeSize = Number(inputPayload.tradeSizeUsdc) || 25000
-    const minNetProfitPct = Number(inputPayload.minNetProfitPct) || 0.1
-
-    const tokens = pair.split('/')
-    const tokenA = normalizeTokenSymbol(tokens[0] || 'USDC')
-    const tokenB = normalizeTokenSymbol(tokens[1] || 'EURC')
-
-    const poolMeta = resolveArbitragePoolMeta(tokenA, tokenB)
-    if (!poolMeta) {
-      return {
-        data: {
-          status: 'UNAVAILABLE',
-          timestamp: now,
-          pair,
-          unavailable: ['active Arc L1 DEX pool for requested pair'],
-          reason: `Spread not computed: no active DEX liquidity pool exists on Arc Testnet for pair ${pair}.`,
-          liveOraclePrices: {},
-          onChainReserves: null,
-          riskRegister: [
-            {
-              id: 'ARBITRAGE_READ_UNAVAILABLE',
-              category: 'DATA_QUALITY',
-              severity: 'HIGH',
-              title: 'Pool Unavailable on Arc DEX',
-              finding: `No active DEX liquidity pool exists on Arc Testnet for pair ${pair}.`,
-              evidence: { pair },
-              threshold: 'A deployed pool contract is required.',
-              remediation: 'Select a pair with an active Arc L1 DEX pool.',
-            },
-          ],
-        },
-      }
-    }
-
-    // Fetch live market prices from real oracles (CoinGecko/Binance/Redis cache)
-    const livePrices = await getLiveTokenPrices()
-
-    // Unquoted tokens stay unknown: no made-up price is substituted for a missing oracle quote.
-    const oraclePriceA = livePrices[tokenA]
-    const oraclePriceB = livePrices[tokenB]
-    const oracleMarketRate =
-      oraclePriceA !== undefined && oraclePriceB !== undefined && oraclePriceB > 0
-        ? tokenA === 'USDC'
-          ? oraclePriceB
-          : oraclePriceA / oraclePriceB
-        : null
-
-    // Fetch genuine Arc Testnet DEX reserves for this pool
-    const reserves =
-      poolMeta.address === POOL_CONTRACTS.STABLE_SWAP_POOL
-        ? await fetchStablePoolReserves()
-        : await fetchPairReserves(poolMeta.address)
-
-    const poolRate =
-      reserves && reserves.reserveB > 0n
-        ? Number(formatUnits(reserves.reserveA, poolMeta.decA)) /
-          Number(formatUnits(reserves.reserveB, poolMeta.decB))
-        : null
-
-    // Calculate dynamic gas on Arc L1 (USDC Native Gas)
-    const gasUsdc = await estimateArcGasCostUsdc(120_000n)
-
-    // Every input to the spread is a real read. If one of them is missing, the answer says so
-    // instead of quoting a spread, a confidence score or a profit that nobody measured.
-    if (!reserves || oracleMarketRate === null || poolRate === null || gasUsdc === null) {
-      const unavailable = [
-        oracleMarketRate === null && 'external oracle price for the pair',
-        poolRate === null &&
-          (poolMeta.symbolB === 'EURC'
-            ? 'on-chain StableSwap pool reserves'
-            : 'on-chain DEX pool reserves'),
-        gasUsdc === null && 'Arc L1 gas price',
-      ].filter((value): value is string => typeof value === 'string')
-
-      return {
-        data: {
-          status: 'UNAVAILABLE',
-          timestamp: now,
-          pair,
-          unavailable,
-          reason: `Spread not computed: could not read ${unavailable.join(', ')}.`,
-          liveOraclePrices: { [tokenA]: oraclePriceA ?? null, [tokenB]: oraclePriceB ?? null },
-          onChainReserves: reserves
-            ? {
-                pool: poolMeta.address,
-                reserveUSDC: Number(formatUnits(reserves.reserveA, poolMeta.decA)),
-                ...(poolMeta.symbolB === 'EURC'
-                  ? { reserveEURC: Number(formatUnits(reserves.reserveB, poolMeta.decB)) }
-                  : poolMeta.symbolB === 'cirBTC'
-                    ? { reserveCirBTC: Number(formatUnits(reserves.reserveB, poolMeta.decB)) }
-                    : { reserveWETH: Number(formatUnits(reserves.reserveB, poolMeta.decB)) }),
-              }
-            : null,
-          riskRegister: [
-            {
-              id: 'ARBITRAGE_READ_UNAVAILABLE',
-              category: 'DATA_QUALITY',
-              severity: 'HIGH',
-              title: 'Arbitrage Read Unavailable',
-              finding: `Could not read ${unavailable.join(', ')}.`,
-              evidence: { pair, unavailable },
-              threshold: 'Reserves, oracle rates, and gas price must return.',
-              remediation: 'Retry the query once nodes and oracle feeds respond.',
-            },
-          ],
-        },
-      }
-    }
-
-    // Real mathematical spread between Arc Pool Rate and Oracle External Rate
-    const rawSpread = Math.abs(oracleMarketRate - poolRate) / poolRate
-    const spreadPct = Number((rawSpread * 100).toFixed(3))
-
-    // Calculate gross and net profit based on genuine trade size and spread
-    const grossProfit = Number((tradeSize * (spreadPct / 100)).toFixed(2))
-    const netProfit = Number(Math.max(0, grossProfit - gasUsdc).toFixed(2))
-    const netProfitPct = Number(((netProfit / tradeSize) * 100).toFixed(3))
-    const isProfitable = netProfitPct >= minNetProfitPct
-
-    const buyPrice = Number(Math.min(poolRate, oracleMarketRate).toFixed(4))
-    const sellPrice = Number(Math.max(poolRate, oracleMarketRate).toFixed(4))
-
-    const riskRegister = [
-      isProfitable
-        ? {
-            id: 'ARBITRAGE_OPPORTUNITY',
-            category: 'OPPORTUNITY',
-            severity: 'INFO',
-            title: `Cross-DEX Arbitrage Spread (${spreadPct}%)`,
-            finding: `Discovered a ${spreadPct}% price discrepancy on ${pair} generating est. $${netProfit} USDC net profit (${netProfitPct}%) after $${gasUsdc} USDC gas.`,
-            evidence: {
-              pair,
-              spreadPct,
-              netProfitUsdc: netProfit,
-              netProfitPct,
-              grossProfitUsdc: grossProfit,
-              gasUsdc,
-              buyPrice,
-              sellPrice,
-            },
-            threshold: `Net profit >= ${minNetProfitPct}% minimum hurdle rate.`,
-            remediation: 'Execute swap on Arc DEX to capture spread divergence.',
-          }
-        : {
-            id: 'SPREAD_BELOW_THRESHOLD',
-            category: 'MARKET_STRUCTURE',
-            severity: 'LOW',
-            title: 'Arbitrage Spread Below Hurdle Rate',
-            finding: `The measured ${spreadPct}% spread yields $${netProfit} USDC net profit (${netProfitPct}%), which is below the ${minNetProfitPct}% profit threshold.`,
-            evidence: { pair, spreadPct, netProfitUsdc: netProfit, minNetProfitPct },
-            threshold: `Net profit must exceed ${minNetProfitPct}%.`,
-            remediation: 'Monitor the pair until price divergence widens beyond transaction fee hurdles.',
-          },
-    ]
-
-    const data = {
-      status: isProfitable ? 'OPPORTUNITY_DETECTED' : 'SPREAD_BELOW_THRESHOLD',
-      timestamp: now,
-      pair,
-      liveOraclePrices: {
-        [tokenA]: oraclePriceA,
-        [tokenB]: oraclePriceB,
-      },
-      bestRoute: {
-        buyDex: poolMeta.dexName,
-        buyPriceUsdc: buyPrice,
-        sellDex: 'External Oracle / Gateway Bridge',
-        sellPriceUsdc: sellPrice,
-        grossSpreadPct: spreadPct,
-        recommendedTradeSize: tradeSize,
-        estimatedGasCostUsdc: gasUsdc,
-        netProfitUsdc: netProfit,
-        netProfitPct: netProfitPct,
-      },
-      onChainReserves: {
-        pool: poolMeta.address,
-        reserveUSDC: Number(formatUnits(reserves.reserveA, poolMeta.decA)),
-        ...(poolMeta.symbolB === 'EURC'
-          ? { reserveEURC: Number(formatUnits(reserves.reserveB, poolMeta.decB)) }
-          : poolMeta.symbolB === 'cirBTC'
-            ? { reserveCirBTC: Number(formatUnits(reserves.reserveB, poolMeta.decB)) }
-            : { reserveWETH: Number(formatUnits(reserves.reserveB, poolMeta.decB)) }),
-      },
-      targetContracts: {
-        pool: poolMeta.address,
-        stableSwapPool: POOL_CONTRACTS.STABLE_SWAP_POOL,
-        router: POOL_CONTRACTS.ARCIS_SWAP_ROUTER,
-      },
-      riskRegister,
-    }
-
-    return { data }
+    return await scanArcPoolSpreads({
+      pair: inputPayload.pair,
+      tradeSizeUsdc: inputPayload.tradeSizeUsdc,
+      minNetProfitPct: inputPayload.minNetProfitPct,
+    })
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 2. DEEP LIQUIDITY DEPTH & SLIPPAGE OPTIMIZER
+  // 2. SMART TRADE & EXECUTION ADVISOR (DIRECT VS 2-HOP + RESERVE RISK)
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-deep-liquidity-slippage-optimizer') {
-    const amount = Number(inputPayload.amount) || 50000
-    const fromToken = (inputPayload.fromToken || 'USDC').toUpperCase()
-    const toToken = (inputPayload.toToken || 'EURC').toUpperCase()
-
-    // Query real DEX estimate using swapService and Curve StableSwap mathematics
-    let expectedOutputNum: number | null = null
-    let effectiveExecutionPrice: number | null = null
-    let priceImpactPct: number | null = null
-
-    try {
-      const quote = await getSwapEstimate({
-        fromChain: 'Arc_Testnet',
-        toChain: 'Arc_Testnet',
-        tokenIn: fromToken,
-        tokenOut: toToken,
-        amountIn: amount.toString(),
-        sourceAdapter: null,
-      })
-
-      expectedOutputNum = parseFloat(quote.estimatedOutput)
-      effectiveExecutionPrice = parseFloat(quote.rate)
-
-      // Price impact against the live oracle benchmark; unknown when either side is unquoted
-      const livePrices = await getLiveTokenPrices()
-      const spotFrom = livePrices[normalizeTokenSymbol(fromToken)]
-      const spotTo = livePrices[normalizeTokenSymbol(toToken)]
-      const benchmarkRate =
-        spotFrom !== undefined && spotTo !== undefined && spotTo > 0 ? spotFrom / spotTo : null
-      priceImpactPct =
-        benchmarkRate !== null && benchmarkRate > 0
-          ? Number(((Math.abs(benchmarkRate - effectiveExecutionPrice) / benchmarkRate) * 100).toFixed(3))
-          : null
-    } catch (err) {
-      console.warn('[aiServicesDataProvider] Live swap quote unavailable:', err)
-    }
-
-    // Read the reserves of the pool the quote was actually taken from. Reporting the
-    // StableSwap pool's depth for a USDC/WETH or USDC/cirBTC request would describe a
-    // different market, so a pair without a resolvable pool gets no depth figure.
-    const route = resolveArcNativeRoute(fromToken, toToken)
-    const routeReserves = route ? await fetchPairReserves(route.poolAddress) : null
-    const hasUsdcSide = fromToken === 'USDC' || toToken === 'USDC'
-    const totalReserveDepth =
-      routeReserves && hasUsdcSide ? Math.round(Number(formatUnits(routeReserves.reserveA, 6))) : null
-    const depthPool = route ? route.poolAddress : null
-
-    // No quoted route and no computed price impact means there is no answer to give here.
-    if (expectedOutputNum === null || effectiveExecutionPrice === null || priceImpactPct === null) {
-      return {
-        data: {
-          status: 'UNAVAILABLE',
-          inputAmount: `${amount} ${fromToken}`,
-          unavailable: ['live DEX swap quote and/or its oracle benchmark'],
-          reason: 'Route not optimised: the live quote or its oracle benchmark could not be read.',
-          flashReserveDepthUsdc: totalReserveDepth,
-          depthPool,
-          riskRegister: [
-            {
-              id: 'SLIPPAGE_QUOTE_UNAVAILABLE',
-              category: 'DATA_QUALITY',
-              severity: 'HIGH',
-              title: 'Swap Slippage Route Unavailable',
-              finding: 'The live DEX quote or oracle benchmark could not be retrieved from the network.',
-              evidence: { fromToken, toToken, amount },
-              threshold: 'Live swap router and oracle benchmark required.',
-              remediation: 'Verify network connectivity and ensure pool liquidity is deployed.',
-            },
-          ],
-        },
-      }
-    }
-
-    const isHighImpact = priceImpactPct >= 1.0
-    const riskRegister = [
-      {
-        id: isHighImpact ? 'HIGH_SLIPPAGE_RISK' : 'OPTIMAL_SLIPPAGE_ROUTE',
-        category: isHighImpact ? 'EXECUTION_RISK' : 'OPPORTUNITY',
-        severity: isHighImpact ? 'MEDIUM' : 'INFO',
-        title: isHighImpact
-          ? `Elevated Price Impact (${priceImpactPct}%)`
-          : `Optimized Swap Route (${priceImpactPct}% impact)`,
-        finding: isHighImpact
-          ? `Swapping ${amount.toLocaleString()} ${fromToken} causes ${priceImpactPct}% price impact against the benchmark rate.`
-          : `Optimal route identified for ${amount.toLocaleString()} ${fromToken} ➔ ${expectedOutputNum.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${toToken} with low ${priceImpactPct}% price impact.`,
-        evidence: {
-          fromToken,
-          toToken,
-          amount,
-          expectedOutputNum,
-          effectiveExecutionPrice,
-          priceImpactPct,
-          totalReserveDepth,
-        },
-        threshold: 'Price impact evaluated against 1.0% institutional threshold.',
-        remediation: isHighImpact
-          ? 'Consider splitting your trade into smaller batches to reduce market impact.'
-          : 'Execute swap through Arcis DEX Router at the verified rate.',
-      },
-    ]
-
-    const data = {
-      status: 'ROUTE_OPTIMIZED',
-      inputAmount: `${amount.toLocaleString()} ${fromToken}`,
-      expectedOutput: `${expectedOutputNum.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ${toToken}`,
-      effectiveExecutionPrice,
-      overallPriceImpactPct: priceImpactPct,
-      flashReserveDepthUsdc: totalReserveDepth,
-      depthPool,
-      riskRegister,
-    }
-
-    return { data }
+    return await analyzeTradeExecution({
+      fromToken: inputPayload.fromToken,
+      toToken: inputPayload.toToken,
+      amount: inputPayload.amount,
+      slippageTolerancePct: inputPayload.slippageTolerancePct,
+    })
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -586,8 +61,6 @@ export async function generateLiveServiceData(
       requestedWindow === '24h' || requestedWindow === '7d' ? requestedWindow : '1h'
 
     // Real read: Circle Gateway AttestationUsed / GatewayBurned logs on Arc L1.
-    // `gatewayFlowIndexer` owns both the fetch and the payload mapping; when the read
-    // yields nothing or fails, the figures stay unavailable with the time of the attempt.
     const flow = await readGatewayFlow(timeWindow)
     const data = buildGatewayFlowServiceData(flow)
 
@@ -595,15 +68,13 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 6. GATEWAY FEE & ROUTE SCOUT
+  // 4. BRIDGE & GATEWAY COST OPTIMIZER
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-gateway-fee-route-scout') {
     const amountUsdc = Number(inputPayload.amountUsdc)
     const destinationChain = String(inputPayload.destinationChain || 'Ethereum_Sepolia')
     const urgency: RouteScoutUrgency = inputPayload.urgency === 'fast' ? 'fast' : 'standard'
 
-    // Circle Gateway's fee and Circle's CCTP fee quote, compared for this exact route.
-    // `gatewayRouteScout` owns both quotes and leaves a rail null when its source fails.
     const quote = await scoutGatewayRoutes({ amountUsdc, destinationChain, urgency })
 
     const riskRegister: any[] = []
@@ -657,7 +128,7 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 7. YIELD VAULT ANALYTICS
+  // 5. ARC YIELD & POOL ANALYTICS
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-yield-vault-analytics') {
     const analytics = await readVaultAnalytics({ windowDays: inputPayload.windowDays })
@@ -666,7 +137,7 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 8. PORTFOLIO RISK & EXPOSURE
+  // 6. PORTFOLIO & DEFI HEALTH AUDITOR
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-portfolio-risk-exposure') {
     const address = String(inputPayload.address || '').trim()
@@ -678,7 +149,7 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 9. VAULT YIELD REPORT (llm, Reporting & Tax)
+  // 7. YIELD & POSITION STATEMENT (AI)
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-vault-yield-tax-report') {
     const address = String(inputPayload.address || '').trim()
@@ -688,7 +159,7 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 11. CUSTOM / COMMUNITY REGISTERED SERVICE FALLBACK
+  // 8. CUSTOM / COMMUNITY REGISTERED SERVICE FALLBACK
   // ─────────────────────────────────────────────────────────────
   return {
     data: {

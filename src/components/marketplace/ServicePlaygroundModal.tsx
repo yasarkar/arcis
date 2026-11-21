@@ -832,6 +832,12 @@ export function VisualDataDashboard({
   const holdings: any[] = sortByValue(Array.isArray(view.holdings) ? view.holdings : [])
   const chainExposure: any[] = sortByValue(Array.isArray(view.chainExposure) ? view.chainExposure : [])
   const routes: any[] = Array.isArray(view.routes) ? view.routes : []
+  const routeComparison: any[] = Array.isArray(data.routeComparison) ? data.routeComparison : []
+  const scannedPools: any[] = Array.isArray(data.scannedPools) ? data.scannedPools : []
+  const executionSizing: Record<string, any> | null =
+    data.executionSizing && typeof data.executionSizing === 'object' && !Array.isArray(data.executionSizing)
+      ? (data.executionSizing as Record<string, any>)
+      : null
   const recommendations: string[] = Array.isArray(view.recommendations) ? view.recommendations : []
 
   const [copiedAddress, setCopiedAddress] = useState(false)
@@ -997,6 +1003,110 @@ export function VisualDataDashboard({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Route comparison & execution sizing (Smart Trade & Execution Advisor) */}
+          {(routeComparison.length > 0 || executionSizing) && (
+            <div
+              className="rounded-2xl border border-white/[0.08] p-4 space-y-3"
+              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
+            >
+              <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">
+                ROUTE COMPARISON & EXECUTION SIZING
+              </span>
+              {routeComparison.length > 0 && (
+                <div className="space-y-2">
+                  {routeComparison.map((route: any, idx: number) => (
+                    <div
+                      key={route.path || idx}
+                      className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
+                        route.recommended
+                          ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
+                          : 'bg-white/[0.025] border-white/[0.05]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs font-semibold text-white font-mono">{route.path}</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-white/60">
+                          {route.hops === 2 ? '2-Hop' : 'Direct'}
+                        </span>
+                        {route.recommended && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
+                            BEST OUTPUT
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono text-white/70 tabular-nums">
+                        <span>Out: <strong className="text-white">{Number(route.expectedOutput).toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong></span>
+                        {typeof route.priceImpactPct === 'number' && (
+                          <span>Impact: <strong className={route.priceImpactPct >= 1 ? 'text-amber-300' : 'text-[var(--earned-green)]'}>{route.priceImpactPct}%</strong></span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {executionSizing && (
+                <div className="p-3 rounded-xl bg-white/[0.025] border border-white/[0.06] space-y-1.5">
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-mono text-white/70 tabular-nums">
+                    <span>Batches: <strong className="text-white">{executionSizing.recommendedBatchCount}×</strong></span>
+                    <span>Per batch: <strong className="text-white">{Number(executionSizing.perBatchInputAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong></span>
+                    <span>Max slippage: <strong className="text-white">{executionSizing.suggestedMaxSlippagePct}%</strong></span>
+                    {typeof executionSizing.estimatedTotalGasUsdc === 'number' && (
+                      <span>Est. gas: <strong className="text-white">${executionSizing.estimatedTotalGasUsdc} USDC</strong></span>
+                    )}
+                  </div>
+                  {typeof executionSizing.note === 'string' && (
+                    <p className="text-[10px] font-mono text-white/45 leading-relaxed">{executionSizing.note}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Scanned Pools Table (All-Pools Spread & Mispricing Scanner) */}
+          {scannedPools.length > 0 && (
+            <div
+              className="rounded-2xl border border-white/[0.08] overflow-hidden"
+              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
+            >
+              <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[11px] font-mono font-semibold text-white/60">
+                <span>SCANNED ARC POOLS ({scannedPools.length})</span>
+                <span className="text-[10px] text-white/40">RANKED BY NET SPREAD</span>
+              </div>
+              <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
+                {scannedPools.map((pool: any) => (
+                  <div
+                    key={pool.pair}
+                    className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
+                      pool.meetsThreshold
+                        ? 'bg-[var(--earned-green)]/[0.05] border-[var(--earned-green)]/25'
+                        : 'bg-white/[0.025] border-white/[0.05]'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white font-mono">{pool.pair}</span>
+                        {pool.meetsThreshold && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
+                            ABOVE HURDLE
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-mono text-white/45 block mt-0.5">
+                        Pool: {pool.poolRate} · Oracle: {pool.oracleRate} ({pool.quoteUnit})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums">
+                      <span className="text-white/70">Spread: <strong className="text-white">{pool.grossSpreadPct}%</strong></span>
+                      <span className={pool.meetsThreshold ? 'text-[var(--earned-green)] font-bold' : 'text-white/60'}>
+                        Net: ${pool.netProfitUsdc} ({pool.netProfitPct}%)
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
