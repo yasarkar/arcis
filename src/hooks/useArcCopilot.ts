@@ -34,6 +34,12 @@ import type { SessionKeyConfig, SessionActionType } from '../types/sessionKey'
 import { formatCopilotError, canceledActionTitle } from '../utils/errorUtils'
 import { formatX402FailureNote } from '../utils/x402FailureDiagnosis'
 import { classifyCopilotIntent, copilotActionIntent, invalidateCopilotDrafts } from '../utils/copilotIntent'
+import {
+  WALLET_SETTINGS_CHANGED_EVENT,
+  normalizeWalletAddressKey,
+  walletSettingsService,
+} from '../services/walletSettingsService'
+import { syncDraftWithExecutionSettings } from '../services/copilot/copilotDraftSync'
 
 function normalizeActionType(type?: CopilotActionType | string): SessionActionType {
   if (!type) return 'send'
@@ -143,10 +149,12 @@ export function useArcCopilot(
   const queryAbortRef = useRef<AbortController | null>(null)
   // Separate from network generations: protects cards that are still being streamed.
   const draftGenerationRef = useRef(0)
+  const settingsSyncSeqRef = useRef(0)
   const currentDraftRef = useRef<CopilotActionPayload | null>(null)
 
   const invalidateDrafts = () => {
     draftGenerationRef.current += 1
+    settingsSyncSeqRef.current += 1
     currentDraftRef.current = null
     pendingActionRef.current = null
     setMessages(invalidateCopilotDrafts)
@@ -255,6 +263,17 @@ export function useArcCopilot(
   const triggerResumeIfPending = useCallback((activeConfig: SessionKeyConfig) => {
     if (activeConfig.isActive && Date.now() <= activeConfig.expiresAt && pendingActionRef.current) {
       const pending = pendingActionRef.current
+      const pendingType = normalizeActionType(pending.type)
+      const pendingAmount = Number(pending.data?.amount) || 0
+      const pendingToken =
+        pendingType === 'swap'
+          ? String(pending.data?.fromToken || 'USDC')
+          : pendingType === 'send'
+            ? String(pending.data?.tokenSymbol || pending.data?.token || 'USDC')
+            : 'USDC'
+      const limitCheck = verifySessionLimits(pendingType, tokenAmountToUsd(pendingToken, pendingAmount), walletAddress)
+      if (!limitCheck.allowed) return
+
       pendingActionRef.current = null
       const pendingName =
         pending.type.includes('swap') || pending.type === 'trade'
@@ -274,7 +293,72 @@ export function useArcCopilot(
       }
       addMessage(resumeMsg)
     }
-  }, [])
+  }, [walletAddress])
+
+  const syncActiveDraftWithSession = useCallback((activeConfig: SessionKeyConfig) => {
+    if (pendingActionRef.current) return
+    const activeDraft = currentDraftRef.current
+    if (!activeDraft || !isTransactionalAction(activeDraft.type)) return
+
+    const isSessionActive = activeConfig.isActive && Date.now() <= activeConfig.expiresAt
+    const actionType = normalizeActionType(activeDraft.type)
+    const amount = Number(activeDraft.data?.amount) || 0
+    const tokenForLimit =
+      actionType === 'swap'
+        ? String(activeDraft.data?.fromToken || 'USDC')
+        : actionType === 'send'
+          ? String(activeDraft.data?.tokenSymbol || activeDraft.data?.token || 'USDC')
+          : 'USDC'
+
+    if (!isSessionActive) {
+      setMessages(invalidateCopilotDrafts)
+      pendingActionRef.current = activeDraft
+      const blockedMsg: CopilotMessage = {
+        id: 'assistant-session-req-' + Date.now(),
+        role: 'assistant',
+        content: `⚠️ Active session required to execute this transaction. Please set up your Session Settings first.`,
+        timestamp: Date.now(),
+        actionPayload: {
+          type: 'configure_session',
+          title: 'Set Up Session Settings',
+          data: {
+            pendingAction: activeDraft,
+            reason: 'Active session required',
+            actionType,
+          },
+        },
+      }
+      addMessage(blockedMsg)
+      return
+    }
+
+    const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
+    if (!check.allowed) {
+      setMessages(invalidateCopilotDrafts)
+      pendingActionRef.current = activeDraft
+      const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)
+      const reasonMsg = check.reason?.includes('not authorized')
+        ? `The "${actionName}" operation is not allowed for this active session. Please check your session settings to grant permission for ${actionName}s.`
+        : `${check.reason} Please adjust your session budget or limits in the Session Settings.`
+
+      const limitMsg: CopilotMessage = {
+        id: 'assistant-session-limit-' + Date.now(),
+        role: 'assistant',
+        content: `⚠️ ${reasonMsg}`,
+        timestamp: Date.now(),
+        actionPayload: {
+          type: 'configure_session',
+          title: 'Open Session Settings',
+          data: {
+            pendingAction: activeDraft,
+            reason: reasonMsg,
+            actionType,
+          },
+        },
+      }
+      addMessage(limitMsg)
+    }
+  }, [walletAddress])
 
   useEffect(() => {
     setActiveWalletForSession(walletAddress)
@@ -286,12 +370,20 @@ export function useArcCopilot(
         if (e.detail.scope && e.detail.scope !== 'copilot') return
         if (!e.detail.walletAddress || !walletAddress || e.detail.walletAddress.toLowerCase() === walletAddress.toLowerCase()) {
           setSessionConfig(e.detail)
-          triggerResumeIfPending(e.detail)
+          if (pendingActionRef.current) {
+            triggerResumeIfPending(e.detail)
+          } else {
+            syncActiveDraftWithSession(e.detail)
+          }
         }
       } else {
         const updatedFresh = getSessionKeyConfig(walletAddress, 'copilot')
         setSessionConfig(updatedFresh)
-        triggerResumeIfPending(updatedFresh)
+        if (pendingActionRef.current) {
+          triggerResumeIfPending(updatedFresh)
+        } else {
+          syncActiveDraftWithSession(updatedFresh)
+        }
       }
     }
 
@@ -303,7 +395,78 @@ export function useArcCopilot(
         window.removeEventListener(SESSION_KEY_UPDATED_EVENT, handleSessionUpdate)
       }
     }
-  }, [isOpen, walletAddress, triggerResumeIfPending])
+  }, [isOpen, walletAddress, triggerResumeIfPending, syncActiveDraftWithSession])
+
+  // Real-time sync of active Confirm cards when Ask Arco execution settings (slippage / gas speed tier) change.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleWalletSettingsChanged = (e: Event) => {
+      const detail = (e as CustomEvent<{ walletAddress?: string }>).detail
+      if (
+        detail?.walletAddress &&
+        normalizeWalletAddressKey(detail.walletAddress) !== normalizeWalletAddressKey(walletAddress)
+      ) {
+        return
+      }
+
+      const activeDraft = currentDraftRef.current
+      if (!activeDraft || !isTransactionalAction(activeDraft.type)) return
+
+      const seq = ++settingsSyncSeqRef.current
+      const targetDraftId = activeDraft.draftId
+      const targetRevision = activeDraft.revision
+      const copilotSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
+      const copilotSpeedTier = walletSettingsService.getCopilotSpeedTier(walletAddress)
+
+      void syncDraftWithExecutionSettings(
+        activeDraft,
+        { copilotSlippage, copilotSpeedTier },
+        walletAddress
+      ).then((updatedDraft) => {
+        if (!updatedDraft) return
+        if (seq !== settingsSyncSeqRef.current) return
+        if (
+          !currentDraftRef.current ||
+          currentDraftRef.current.draftId !== targetDraftId ||
+          currentDraftRef.current.revision !== targetRevision
+        ) {
+          return
+        }
+
+        currentDraftRef.current = updatedDraft
+        if (
+          pendingActionRef.current &&
+          pendingActionRef.current.draftId === targetDraftId &&
+          pendingActionRef.current.revision === targetRevision
+        ) {
+          pendingActionRef.current = updatedDraft
+        }
+
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.receipt || msg.isExecutingInline || !msg.actionPayload) return msg
+            if (
+              targetDraftId !== undefined &&
+              (msg.actionPayload.draftId !== targetDraftId ||
+                msg.actionPayload.revision !== targetRevision)
+            ) {
+              return msg
+            }
+            if (targetDraftId === undefined && msg.actionPayload !== activeDraft) {
+              return msg
+            }
+            return { ...msg, actionPayload: updatedDraft }
+          })
+        )
+      })
+    }
+
+    window.addEventListener(WALLET_SETTINGS_CHANGED_EVENT, handleWalletSettingsChanged)
+    return () => {
+      window.removeEventListener(WALLET_SETTINGS_CHANGED_EVENT, handleWalletSettingsChanged)
+    }
+  }, [walletAddress])
 
   const activateSession = async (params: {
     /** Explicit user consent for this session; without it the session stays inactive. */
@@ -450,6 +613,9 @@ export function useArcCopilot(
         )
       )
 
+      if (receipt.status === 'SUCCESS' || receipt.status === 'PENDING') {
+        currentDraftRef.current = null
+      }
       setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
     } catch (err: any) {
       const cleanErr = formatCopilotError(err)

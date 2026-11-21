@@ -797,7 +797,13 @@ export default function InlineActionCard({
                 />
                 <DetailRow
                   label="Network Fee"
-                  value="~0.00053 USDC"
+                  value={
+                    data.estimatedFeeUsdc
+                      ? String(data.estimatedFeeUsdc).startsWith('~')
+                        ? String(data.estimatedFeeUsdc)
+                        : `~${data.estimatedFeeUsdc} USDC`
+                      : '~0.00053 USDC'
+                  }
                   valueClassName="text-slate-200"
                 />
               </>
