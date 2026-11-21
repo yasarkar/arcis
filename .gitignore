@@ -31,6 +31,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Editor & OS files
+*.tsbuildinfo
 .DS_Store
 *.suo
 *.ntvs*
