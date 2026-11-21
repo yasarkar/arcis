@@ -1,9 +1,14 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useAccount, useDisconnect } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUserControlledWallet } from './hooks/useUserControlledWallet'
 import { useModularWallet } from './hooks/useModularWallet'
 import { clearAllAppInputs } from './utils/inputClearer'
+import {
+  wrapSafeEip1193Provider,
+  wrapSafeEvmConnector,
+  type SafeEip1193Provider,
+} from './utils/safeEip1193Provider'
 import HomePage from './components/home/HomePage'
 import Header from './components/Header'
 import Footer from './components/Footer'
@@ -140,7 +145,8 @@ export default function App() {
   
   const { address, isConnected, connector } = useAccount()
   const { disconnect } = useDisconnect()
-  const [connectedProvider, setConnectedProvider] = useState<any>(null)
+  const [connectedProvider, setConnectedProvider] = useState<SafeEip1193Provider | null>(null)
+  const safeConnector = useMemo(() => wrapSafeEvmConnector(connector), [connector])
 
   // 1. Circle Modular Wallets (WebAuthn Passkey + MSCA) Integration
   const {
@@ -187,14 +193,18 @@ export default function App() {
       ;(connector as any)
         .getProvider()
         .then((p: any) => {
-          if (active) setConnectedProvider(p)
+          if (active) setConnectedProvider(wrapSafeEip1193Provider(p))
         })
         .catch((err: any) => {
           console.warn('[App] Failed to get provider from connector:', err)
-          if (active) setConnectedProvider(typeof window !== 'undefined' ? (window as any).ethereum : null)
+          if (active) {
+            setConnectedProvider(
+              wrapSafeEip1193Provider(typeof window !== 'undefined' ? (window as any).ethereum : null)
+            )
+          }
         })
     } else if (typeof window !== 'undefined' && (window as any).ethereum && isConnected) {
-      setConnectedProvider((window as any).ethereum)
+      setConnectedProvider(wrapSafeEip1193Provider((window as any).ethereum))
     } else {
       setConnectedProvider(null)
     }
@@ -421,7 +431,7 @@ export default function App() {
             {activeTab === 'unified' && (
               <div className="flex-1 flex flex-col min-h-[calc(100vh-80px)]">
                 <UnifiedBalance
-                  connector={connector}
+                  connector={safeConnector}
                   connectedAddress={walletAddress}
                   walletConnected={walletConnected}
                   activeAuthSource={activeAuthSource}
