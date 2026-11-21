@@ -126,8 +126,8 @@ export const gatewayIndexerManifest: ServiceManifest = {
   },
   healthcheckUrl: '/api/x402/health/arc-cross-chain-gateway-flow-indexer',
   agentPrompts: [
-    'Track institutional USDC flows into Arc over the last 24 hours',
-    'Which chain is bridging the most liquidity to Arc right now?',
+    'Track live USDC inflows and outflows on Arc over the last 24 hours',
+    'Which connected chains are sending the most USDC liquidity to Arc right now?',
   ],
-  tags: ['Gateway', 'Cross-Chain', 'Whale-Alert', 'USDC-Flow'],
+  tags: ['Gateway', 'USDC-Flows', 'On-Chain-Logs', 'Cross-Chain'],
 }

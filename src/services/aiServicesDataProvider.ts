@@ -71,11 +71,12 @@ export async function generateLiveServiceData(
   // 4. BRIDGE & GATEWAY COST OPTIMIZER
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-gateway-fee-route-scout') {
+    const token = inputPayload.token ? String(inputPayload.token) : 'USDC'
     const amountUsdc = Number(inputPayload.amountUsdc)
     const destinationChain = String(inputPayload.destinationChain || 'Ethereum_Sepolia')
     const urgency: RouteScoutUrgency = inputPayload.urgency === 'fast' ? 'fast' : 'standard'
 
-    const quote = await scoutGatewayRoutes({ amountUsdc, destinationChain, urgency })
+    const quote = await scoutGatewayRoutes({ token, amountUsdc, destinationChain, urgency })
 
     const riskRegister: any[] = []
     if (quote.status === 'UNAVAILABLE') {
@@ -85,31 +86,45 @@ export async function generateLiveServiceData(
         severity: 'HIGH',
         title: 'Bridge Route Quote Unavailable',
         finding: quote.reason || 'The requested destination chain cannot be quoted on live bridge rails.',
-        evidence: { destinationChain, amountUsdc, unavailable: quote.unavailable },
-        threshold: 'Valid destination domain and live pricing required.',
-        remediation: 'Select a supported Circle Gateway or CCTP chain on Arc Testnet.',
+        evidence: { token: quote.token, destinationChain, amountUsdc, unavailable: quote.unavailable },
+        threshold: 'Supported token/chain pair and live pricing required.',
+        remediation:
+          quote.supportedDestinations.length > 0
+            ? `Select a supported destination for ${quote.token}: ${quote.supportedDestinations.map((c) => c.replace(/_/g, ' ')).join(', ')}.`
+            : 'Select a supported Circle Gateway or CCTP chain on Arc Testnet.',
       })
     } else if (quote.recommendedRail) {
-      const railName = quote.recommendedRail === 'gateway' ? 'Circle Gateway' : 'CCTP'
+      const railName =
+        quote.recommendedRail === 'gateway'
+          ? 'Circle Gateway'
+          : quote.recommendedRail === 'cctpx'
+            ? 'CCTP-X'
+            : 'CCTP v2'
       riskRegister.push({
         id: 'ROUTE_RECOMMENDATION',
         category: 'MARKET_STRUCTURE',
         severity: 'INFO',
-        title: `${railName} Optimal Route`,
+        title: `${railName} Optimal Route (${quote.token})`,
         finding:
           quote.savingsUsdc !== null && quote.savingsUsdc > 0
-            ? `${railName} saves ${quote.savingsUsdc} USDC compared to alternative rails for transferring ${quote.amountUsdc} USDC to ${destinationChain}.`
-            : `${railName} is the verified route for transferring ${quote.amountUsdc} USDC to ${destinationChain}.`,
+            ? `${railName} saves ${quote.savingsUsdc} USDC compared to alternative rails for transferring ${quote.amount} ${quote.token} to ${destinationChain}.`
+            : quote.recommendedRail === 'cctpx'
+              ? `${railName} routes ${quote.amount} ${quote.token} to ${destinationChain} with 0 token haircut (relayer fee ${quote.cctp.feeUsdc} USDC paid in native Arc gas).`
+              : `${railName} is the verified route for transferring ${quote.amount} ${quote.token} to ${destinationChain}.`,
         evidence: {
+          token: quote.token,
           recommendedRail: quote.recommendedRail,
           savingsUsdc: quote.savingsUsdc,
-          amountUsdc: quote.amountUsdc,
+          amount: quote.amount,
           destinationChain,
           gatewayFeeUsdc: quote.gateway.totalCostUsdc,
           cctpFeeUsdc: quote.cctp.totalCostUsdc,
         },
-        threshold: 'Direct comparison between Gateway 0.005% transfer fee and CCTP forwarder quote.',
-        remediation: `Bridge transfer via ${railName} directly to ${destinationChain}.`,
+        threshold:
+          quote.token === 'USDC'
+            ? 'Direct comparison between Gateway 0.005% transfer fee and CCTP v2 forwarder quote.'
+            : `Live ${railName} quote verified against Arc Testnet bridgeRouteMatrix.`,
+        remediation: `Proceed via ${railName} to transfer ${quote.token} to ${destinationChain.replace(/_/g, ' ')}.`,
       })
     } else if (quote.status === 'PARTIAL') {
       riskRegister.push({
@@ -118,7 +133,7 @@ export async function generateLiveServiceData(
         severity: 'MEDIUM',
         title: 'Single Rail Quoted',
         finding: 'Only one bridge rail returned pricing; cross-rail comparison is withheld to prevent false precision.',
-        evidence: { destinationChain, amountUsdc, gatewayAvailable: quote.gateway.available, cctpAvailable: quote.cctp.available },
+        evidence: { token: quote.token, destinationChain, amountUsdc, gatewayAvailable: quote.gateway.available, cctpAvailable: quote.cctp.available },
         threshold: 'Both rails must return before savings are claimed.',
         remediation: 'Review individual rail fee before initiating bridge transfer.',
       })

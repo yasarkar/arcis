@@ -1832,7 +1832,7 @@ This is advisory analysis only; no trade or relayer protection was executed.`
 
 1. <strong>Smart Trade & Execution Advisor:</strong> $0.003 USDC/call — direct vs 2-hop routing, pool reserve exposure, and batch sizing before a swap.
 2. <strong>All-Pools Spread & Mispricing Scanner:</strong> $0.005 USDC/call — scans all 6 Arc pools against live market oracles after USDC gas.
-3. <strong>Bridge & Gateway Cost Optimizer:</strong> $0.003 USDC/call — live Circle Gateway vs CCTP fee comparison before bridging.
+3. <strong>Bridge & Gateway Cost Optimizer:</strong> $0.003 USDC/call — live Circle Gateway, CCTP v2 and CCTP-X fee comparison for USDC, EURC, wETH and cirBTC.
 4. <strong>Arc Yield & Pool Opportunity Finder:</strong> $0.002 USDC/call — live TVL, 24h volume, fee tiers and wallet matching across all 6 Arc pools + ERC-4626 vault.
 5. <strong>Full Portfolio & DeFi Health Auditor:</strong> $0.004 USDC/call — audits wallet tokens, ERC-4626 vault shares, all 6 Arc LP pools, multi-chain gas, and Gateway USDC.
 6. <strong>Yield, LP Fees & Position Statement (AI):</strong> $0.012 USDC/call — vault principal, accrued yield, and all 6 LP pool fees with AI summary & CSV/JSON export.
@@ -1867,7 +1867,7 @@ A provider can integrate an HTTP 402 payment challenge and register a service ma
 
 • <strong>Before a swap (routes, impact & sizing):</strong> Smart Trade & Execution Advisor ($0.003/call).
 • <strong>All 6 pools vs oracle price spread:</strong> All-Pools Spread & Mispricing Scanner ($0.005/call).
-• <strong>Before bridging (Gateway vs CCTP):</strong> Bridge & Gateway Cost Optimizer ($0.003/call).
+• <strong>Before bridging (USDC, EURC, wETH, cirBTC fees):</strong> Bridge & Gateway Cost Optimizer ($0.003/call).
 • <strong>Compare all 6 pools & vault yield opportunities:</strong> Arc Yield & Pool Opportunity Finder ($0.002/call).
 • <strong>Full wallet, LP & Vault risk audit:</strong> Full Portfolio & DeFi Health Auditor ($0.004/call).
 • <strong>AI-narrated yield & LP fees statement (CSV/JSON):</strong> Yield, LP Fees & Position Statement (AI) ($0.012/call).

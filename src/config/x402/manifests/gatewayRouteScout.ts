@@ -14,13 +14,13 @@ const PROVIDER_ADDRESS = '0x522fAf9A91c41c443c66765030741e4AaCe147D0'
 
 export const gatewayRouteScoutManifest: ServiceManifest = {
   id: 'arc-gateway-fee-route-scout',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Bridge & Gateway Cost Optimizer',
-  tagline: 'Compare Circle Gateway and CCTP Fees Before You Bridge',
+  tagline: 'Compare Circle Gateway, CCTP v2 & CCTP-X Fees for USDC, EURC, wETH & cirBTC',
   category: 'Cross-Chain Gateway',
   engine: 'native',
   description:
-    'Quotes Circle Gateway and CCTP forwarding rails side by side on Arc Testnet so you can pick the lowest-cost transfer route before bridging.',
+    'Quotes Circle Gateway, CCTP v2 forwarding, and CCTP-X relayer fees across supported Arc Testnet routes for USDC, EURC, wETH, and cirBTC so you pick the lowest-cost rail before bridging.',
   listing: {
     kind: 'official',
     ownerAddress: PROVIDER_ADDRESS,
@@ -63,7 +63,8 @@ export const gatewayRouteScoutManifest: ServiceManifest = {
     additionalProperties: false,
     required: ['amountUsdc', 'destinationChain', 'urgency'],
     properties: {
-      amountUsdc: { type: 'number', minimum: 1 },
+      token: { type: 'string', enum: ['USDC', 'EURC', 'wETH', 'cirBTC'] },
+      amountUsdc: { type: 'number', minimum: 0.0001 },
       destinationChain: { type: 'string', enum: [...ROUTE_SCOUT_DESTINATIONS] },
       urgency: { type: 'string', enum: ['standard', 'fast'] },
     },
@@ -71,11 +72,25 @@ export const gatewayRouteScoutManifest: ServiceManifest = {
   ui: {
     form: [
       {
+        name: 'token',
+        label: 'Asset to Bridge',
+        type: 'select',
+        defaultValue: 'USDC',
+        options: [
+          { label: 'USDC (Gateway + CCTP v2)', value: 'USDC' },
+          { label: 'EURC (CCTP v2 — Sepolia, Base, Fuji)', value: 'EURC' },
+          { label: 'wETH (CCTP-X — Ethereum Sepolia)', value: 'wETH' },
+          { label: 'cirBTC (CCTP-X — Ethereum Sepolia)', value: 'cirBTC' },
+        ],
+        description: 'Token to quote from Arc Testnet. Gateway applies to USDC only; non-USDC tokens use CCTP v2 or CCTP-X.',
+        required: false,
+      },
+      {
         name: 'amountUsdc',
-        label: 'Amount to Bridge (USDC)',
+        label: 'Amount to Bridge',
         type: 'number',
         defaultValue: 100,
-        description: 'Amount the recipient should receive on the destination chain.',
+        description: 'Amount of the selected token to bridge from Arc Testnet.',
         required: true,
       },
       {
@@ -84,7 +99,7 @@ export const gatewayRouteScoutManifest: ServiceManifest = {
         type: 'select',
         defaultValue: 'Ethereum_Sepolia',
         options: ROUTE_SCOUT_DESTINATIONS.map((chain) => ({ label: chain.replace(/_/g, ' '), value: chain })),
-        description: 'Circle Gateway and CCTP destination to quote.',
+        description: 'Destination chain to quote. Non-USDC routes follow Circle’s live testnet registry.',
         required: true,
       },
       {
@@ -96,13 +111,14 @@ export const gatewayRouteScoutManifest: ServiceManifest = {
           { label: 'Standard finality', value: 'standard' },
           { label: 'Fast (CCTP fast fee)', value: 'fast' },
         ],
-        description: 'CCTP finality threshold to price; Gateway has a single transfer fee.',
+        description: 'Finality tier for CCTP / CCTP-X quotes; Gateway has a single 0.005% fee.',
         required: true,
       },
     ],
   },
   examples: {
     request: {
+      token: 'USDC',
       amountUsdc: 100,
       destinationChain: 'Base_Sepolia',
       urgency: 'standard',

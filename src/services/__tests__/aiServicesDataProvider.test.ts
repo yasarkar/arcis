@@ -44,6 +44,11 @@ const state = vi.hoisted(() => ({
     minimumFeeBps: number
     forwardFeeSubunits: bigint
   } | null,
+  cctpxQuote: null as {
+    feeAmount: string
+    nativeSymbol: string
+    speed: 'FAST' | 'SLOW'
+  } | null,
   gatewayBalances: null as { token: string; balances: Array<{ domain: number; depositor: string; balance: string }> } | null,
 }))
 
@@ -87,6 +92,13 @@ vi.mock('../rpc', () => ({
 
 vi.mock('../bridgeUcwService', () => ({
   fetchCctpForwardQuote: vi.fn(async () => state.cctpQuote),
+}))
+
+vi.mock('../x402/cctpxQuoteClient', () => ({
+  quoteCctpxRelayerFee: vi.fn(async () => {
+    if (!state.cctpxQuote) throw new Error('cctpx quote unavailable')
+    return state.cctpxQuote
+  }),
 }))
 
 vi.mock('../gatewayService', () => ({
@@ -674,6 +686,68 @@ describe('generateLiveServiceData — gateway fee & route scout', () => {
     expect(data.gateway.feeUsdc).toBeNull()
     expect(data.cctp.feeUsdc).toBeNull()
     expect(data.reason).toContain('not a Circle Gateway destination')
+  })
+
+  it('quotes EURC over CCTP v2 on supported routes and refuses unsupported EURC destinations', async () => {
+    state.cctpQuote = { finalityThreshold: 2000, minimumFeeBps: 1, forwardFeeSubunits: 40_000n }
+
+    const supported = await generateLiveServiceData(gatewayRouteScoutManifest, {
+      token: 'EURC',
+      amountUsdc: 200,
+      destinationChain: 'Base_Sepolia',
+      urgency: 'standard',
+    })
+    expect(supported.data.status).toBe('QUOTE_READY')
+    expect(supported.data.token).toBe('EURC')
+    expect(supported.data.recommendedRail).toBe('cctp')
+    expect(supported.data.gateway.available).toBe(false)
+    expect(supported.data.cctp.available).toBe(true)
+    expect(supported.data.cctp.mechanism).toBe('cctp-v2')
+    expect(supported.data.cctp.feeUsdc).toBe(0.06) // 0.02 protocol + 0.04 forward
+
+    // Polygon Amoy does not support EURC in bridgeRouteMatrix
+    const unsupported = await generateLiveServiceData(gatewayRouteScoutManifest, {
+      token: 'EURC',
+      amountUsdc: 200,
+      destinationChain: 'Polygon_Amoy_Testnet',
+      urgency: 'standard',
+    })
+    expect(unsupported.data.status).toBe('UNAVAILABLE')
+    expect(unsupported.data.recommendedRail).toBeNull()
+    expect(unsupported.data.supportedDestinations).toEqual(
+      expect.arrayContaining(['Ethereum_Sepolia', 'Base_Sepolia', 'Avalanche_Fuji'])
+    )
+    expect(unsupported.data.reason).toContain('EURC cannot be bridged')
+  })
+
+  it('quotes wETH and cirBTC via CCTP-X relayer fee with zero token haircut on Ethereum Sepolia', async () => {
+    state.cctpxQuote = { feeAmount: '0.18', nativeSymbol: 'USDC', speed: 'FAST' }
+
+    const weth = await generateLiveServiceData(gatewayRouteScoutManifest, {
+      token: 'wETH',
+      amountUsdc: 0.5,
+      destinationChain: 'Ethereum_Sepolia',
+      urgency: 'fast',
+    })
+    expect(weth.data.status).toBe('QUOTE_READY')
+    expect(weth.data.token).toBe('wETH')
+    expect(weth.data.recommendedRail).toBe('cctpx')
+    expect(weth.data.gateway.available).toBe(false)
+    expect(weth.data.cctp.available).toBe(true)
+    expect(weth.data.cctp.mechanism).toBe('cctpx')
+    expect(weth.data.cctp.feeUsdc).toBe(0.18)
+    expect(weth.data.cctp.recipientReceivesFullAmount).toBe(true)
+
+    // Base Sepolia is unsupported for cirBTC -> returns UNAVAILABLE with Ethereum_Sepolia hint
+    const badBtc = await generateLiveServiceData(gatewayRouteScoutManifest, {
+      token: 'cirBTC',
+      amountUsdc: 0.05,
+      destinationChain: 'Base_Sepolia',
+      urgency: 'standard',
+    })
+    expect(badBtc.data.status).toBe('UNAVAILABLE')
+    expect(badBtc.data.supportedDestinations).toEqual(['Ethereum_Sepolia'])
+    expect(badBtc.data.reason).toContain('Ethereum Sepolia')
   })
 })
 

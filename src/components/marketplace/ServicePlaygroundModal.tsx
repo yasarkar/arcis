@@ -850,6 +850,24 @@ export function VisualDataDashboard({
     data.defiPositions?.vault && typeof data.defiPositions.vault === 'object'
       ? (data.defiPositions.vault as Record<string, any>)
       : null
+  const bridgeRailQuote: {
+    token: string
+    destinationChain: string
+    recommendedRail: string | null
+    gateway: Record<string, any>
+    cctp: Record<string, any>
+    supportedDestinations: string[]
+  } | null =
+    data.gateway && typeof data.gateway === 'object' && data.cctp && typeof data.cctp === 'object'
+      ? {
+          token: typeof data.token === 'string' ? data.token : 'USDC',
+          destinationChain: typeof data.destinationChain === 'string' ? data.destinationChain : '',
+          recommendedRail: typeof data.recommendedRail === 'string' ? data.recommendedRail : null,
+          gateway: data.gateway as Record<string, any>,
+          cctp: data.cctp as Record<string, any>,
+          supportedDestinations: Array.isArray(data.supportedDestinations) ? data.supportedDestinations : [],
+        }
+      : null
   const executionSizing: Record<string, any> | null =
     data.executionSizing && typeof data.executionSizing === 'object' && !Array.isArray(data.executionSizing)
       ? (data.executionSizing as Record<string, any>)
@@ -1217,6 +1235,114 @@ export function VisualDataDashboard({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Bridge & Gateway Rail Comparison (USDC, EURC, wETH, cirBTC) */}
+          {bridgeRailQuote && (
+            <div
+              className="rounded-2xl border border-white/[0.08] p-4 space-y-3"
+              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-white/50">
+                  BRIDGE & GATEWAY RAIL COMPARISON · {bridgeRailQuote.token} → {bridgeRailQuote.destinationChain.replace(/_/g, ' ')}
+                </span>
+                {onNavigateTab && bridgeRailQuote.recommendedRail && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundService.play('pop')
+                      onNavigateTab(bridgeRailQuote.recommendedRail === 'gateway' ? 'unified' : 'bridge')
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold text-white cursor-pointer transition hover:brightness-110"
+                    style={{
+                      background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                    }}
+                  >
+                    <span>
+                      {bridgeRailQuote.recommendedRail === 'gateway' ? 'Open Unified Balance' : 'Open Bridge'}
+                    </span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Circle Gateway Rail */}
+                <div
+                  className={`p-3 rounded-xl border space-y-1 ${
+                    bridgeRailQuote.recommendedRail === 'gateway'
+                      ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
+                      : 'bg-white/[0.025] border-white/[0.06]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">Circle Gateway</span>
+                    {bridgeRailQuote.recommendedRail === 'gateway' && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
+                        RECOMMENDED
+                      </span>
+                    )}
+                  </div>
+                  {bridgeRailQuote.gateway.available ? (
+                    <div className="text-[11px] font-mono text-white/70 space-y-0.5 tabular-nums">
+                      <div>Total Cost: <strong className="text-white">${bridgeRailQuote.gateway.totalCostUsdc} USDC</strong></div>
+                      <div className="text-white/50">Transfer fee: {bridgeRailQuote.gateway.feeBps} bps · Source gas: $0</div>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] font-mono text-white/45">{bridgeRailQuote.gateway.feeSource}</p>
+                  )}
+                </div>
+
+                {/* CCTP v2 / CCTP-X Rail */}
+                <div
+                  className={`p-3 rounded-xl border space-y-1 ${
+                    bridgeRailQuote.recommendedRail === 'cctp' || bridgeRailQuote.recommendedRail === 'cctpx'
+                      ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
+                      : 'bg-white/[0.025] border-white/[0.06]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">
+                      {bridgeRailQuote.cctp.mechanism === 'cctpx' ? 'Circle CCTP-X' : 'Circle CCTP v2'}
+                    </span>
+                    {(bridgeRailQuote.recommendedRail === 'cctp' || bridgeRailQuote.recommendedRail === 'cctpx') && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
+                        RECOMMENDED
+                      </span>
+                    )}
+                  </div>
+                  {bridgeRailQuote.cctp.available ? (
+                    <div className="text-[11px] font-mono text-white/70 space-y-0.5 tabular-nums">
+                      <div>
+                        Total Cost:{' '}
+                        <strong className="text-white">
+                          {typeof bridgeRailQuote.cctp.totalCostUsdc === 'number'
+                            ? `$${bridgeRailQuote.cctp.totalCostUsdc} USDC`
+                            : `$${bridgeRailQuote.cctp.feeUsdc} USDC + gas`}
+                        </strong>
+                      </div>
+                      <div className="text-white/50">
+                        {bridgeRailQuote.cctp.recipientReceivesFullAmount
+                          ? `Relayer fee: $${bridgeRailQuote.cctp.feeUsdc} USDC (0 token haircut — recipient receives 100%)`
+                          : `Protocol + Forward: $${bridgeRailQuote.cctp.feeUsdc} USDC · Arc gas: $${bridgeRailQuote.cctp.sourceGasUsdc ?? '—'}`}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] font-mono text-white/45">{bridgeRailQuote.cctp.feeSource}</p>
+                  )}
+                </div>
+              </div>
+
+              {bridgeRailQuote.supportedDestinations.length > 0 && !bridgeRailQuote.recommendedRail && (
+                <div className="text-[10px] font-mono text-white/55">
+                  Supported destinations for {bridgeRailQuote.token}:{' '}
+                  <span className="text-white/80">
+                    {bridgeRailQuote.supportedDestinations.map((c) => c.replace(/_/g, ' ')).join(', ')}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
