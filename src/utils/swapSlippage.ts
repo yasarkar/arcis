@@ -1,6 +1,6 @@
 import { parseUnits } from 'viem'
-import { numberToExactDecimal } from './copilotAmount'
-import { POOL_MIN_SLIPPAGE_BPS, POOL_MAX_SLIPPAGE_BPS } from '../config/poolsConfig'
+import { numberToExactDecimal } from './copilotAmount.js'
+import { POOL_MIN_SLIPPAGE_BPS, POOL_MAX_SLIPPAGE_BPS } from '../config/poolsConfig.js'
 
 export function validateSwapSlippageBps(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < POOL_MIN_SLIPPAGE_BPS || value > POOL_MAX_SLIPPAGE_BPS) {

@@ -1,19 +1,19 @@
 // api/copilot.ts
 // Secure Server-Side AI Copilot Orchestrator for Arcis
-import { arcTestnet } from '../src/config/arcChain'
-import { ARC_GAS_LIMITS } from '../src/config/feeTiers'
-import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from '../src/services/arcGasService'
-import { getSwapEstimate } from '../src/services/swapService'
-import { copilotSlippageBps } from '../src/utils/swapSlippage'
-import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
-import { checkRateLimit } from './_utils/rateLimiter'
-import { extractTrustedClientIp } from './_utils/trustedIp'
-import { parseCopilotPromptAmount } from '../src/utils/copilotAmount'
-import { classifyCopilotIntent, copilotActionIntent } from '../src/utils/copilotIntent'
-import { parseLocalIntentFallback, attachLiveQuote } from '../src/services/llmService'
+import { arcTestnet } from '../src/config/arcChain.js'
+import { ARC_GAS_LIMITS } from '../src/config/feeTiers.js'
+import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from '../src/services/arcGasService.js'
+import { getSwapEstimate } from '../src/services/swapService.js'
+import { copilotSlippageBps } from '../src/utils/swapSlippage.js'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse.js'
+import { checkRateLimit } from './_utils/rateLimiter.js'
+import { extractTrustedClientIp } from './_utils/trustedIp.js'
+import { parseCopilotPromptAmount } from '../src/utils/copilotAmount.js'
+import { classifyCopilotIntent, copilotActionIntent } from '../src/utils/copilotIntent.js'
+import { parseLocalIntentFallback, attachLiveQuote } from '../src/services/llmService.js'
 // Single owner of the portfolio → prompt contract, shared with the browser so field names cannot drift.
-import { formatPortfolioForPrompt, availableTokenBalance } from '../src/utils/portfolioPrompt'
-import { COPILOT_EXECUTION_POLICY } from '../src/utils/copilotExecutionPolicy'
+import { formatPortfolioForPrompt, availableTokenBalance } from '../src/utils/portfolioPrompt.js'
+import { COPILOT_EXECUTION_POLICY } from '../src/utils/copilotExecutionPolicy.js'
 import {
   canonicalCopilotTokenSymbol,
   isUnsupportedCopilotToken,
@@ -21,7 +21,7 @@ import {
   isValidEvmAddress,
   isZeroAddress,
   WBTC_UNSUPPORTED_MESSAGE,
-} from '../src/config/copilotTokens'
+} from '../src/config/copilotTokens.js'
 
 // A BYOK credential is honored only when it is unmistakably an OpenRouter key.
 // Any other Authorization value is ignored, so an arbitrary header can never be forwarded

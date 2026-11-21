@@ -15,10 +15,10 @@ import {
   getNetworkByChainId,
   resolveChain,
   type NetworkConfig,
-} from '../config/networks/networkRegistry'
-import { normalizeAppError } from '../utils/errorNormalizer'
-import { watchArcToken } from './tokenAssetService'
-import { logger } from '../utils/logger'
+} from '../config/networks/networkRegistry.js'
+import { normalizeAppError } from '../utils/errorNormalizer.js'
+import { watchArcToken } from './tokenAssetService.js'
+import { logger } from '../utils/logger.js'
 
 /** Scoped logger: failed probes and fire-and-forget token watches must still be observable. */
 const log = logger.createScope('chainSwitchService')

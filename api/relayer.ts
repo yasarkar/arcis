@@ -1,4 +1,4 @@
-import { apiError } from './_utils/apiResponse'
+import { apiError } from './_utils/apiResponse.js'
 
 const RELAYER_DISABLED_MESSAGE =
   'Gasless relayer is unavailable: sponsorship is disabled until its quota, replay-protection, and receipt-verification controls are production-ready.'

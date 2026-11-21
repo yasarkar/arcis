@@ -1,6 +1,6 @@
-import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
-import { extractTrustedClientIp } from './_utils/trustedIp'
-import { checkRateLimit } from './_utils/rateLimiter'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse.js'
+import { extractTrustedClientIp } from './_utils/trustedIp.js'
+import { checkRateLimit } from './_utils/rateLimiter.js'
 
 function getApiKey(): string {
   const globalEnv = (typeof globalThis !== 'undefined' && (globalThis as any).process?.env) || {}

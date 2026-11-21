@@ -8,14 +8,14 @@
 //     forwarding fee; it is quoted live and never replaced by a hard-coded rate.
 // No rail is quoted when its source fails: the field is null and the reason is listed.
 
-import { GATEWAY_DOMAINS } from '../../config/gatewayConfig'
-import { IS_TESTNET } from '../../config/arcChain'
+import { GATEWAY_DOMAINS } from '../../config/gatewayConfig.js'
+import { IS_TESTNET } from '../../config/arcChain.js'
 import {
   ROUTE_SCOUT_DESTINATIONS,
   type RouteScoutDestination,
-} from '../../config/x402/routeScoutChains'
-import { fetchCctpForwardQuote } from '../bridgeUcwService'
-import { estimateArcGasCostUsdc } from '../arcGasService'
+} from '../../config/x402/routeScoutChains.js'
+import { fetchCctpForwardQuote } from '../bridgeUcwService.js'
+import { estimateArcGasCostUsdc } from '../arcGasService.js'
 
 export { ROUTE_SCOUT_DESTINATIONS }
 export type { RouteScoutDestination }

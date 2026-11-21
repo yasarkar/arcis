@@ -15,10 +15,10 @@ import {
   parseUnits,
 } from 'viem'
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
-import { arcTestnet, ARC_METADATA } from '../config/arcChain'
-import { POOL_CONTRACTS, ERC20_ABI } from '../config/poolsConfig'
-import type { SessionScope } from '../types/sessionKey'
-import { logger } from '../utils/logger'
+import { arcTestnet, ARC_METADATA } from '../config/arcChain.js'
+import { POOL_CONTRACTS, ERC20_ABI } from '../config/poolsConfig.js'
+import type { SessionScope } from '../types/sessionKey.js'
+import { logger } from '../utils/logger.js'
 
 const log = logger.createScope('sessionEnclaveService')
 

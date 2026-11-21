@@ -105,7 +105,7 @@ async function getIoredisClient(): Promise<any> {
 
   const redisUrl = getEnv('REDIS_URL') || getEnv('KV_URL') || 'redis://127.0.0.1:6379'
   try {
-    const { default: Redis } = await import('ioredis')
+    const { Redis } = await import('ioredis')
     ioredisClient = new Redis(redisUrl, {
       maxRetriesPerRequest: 1,
       connectTimeout: 4000,

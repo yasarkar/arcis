@@ -1,6 +1,6 @@
 import { hashTypedData, keccak256, stringToHex, type Address, type Hex } from 'viem'
-import { arcTestnet } from '../arcChain'
-import { GATEWAY_CONTRACTS } from './schemes'
+import { arcTestnet } from '../arcChain.js'
+import { GATEWAY_CONTRACTS } from './schemes.js'
 
 export const X402_AUTHORIZATION_DOMAIN = {
   name: 'Arcis x402 Registry',

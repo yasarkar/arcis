@@ -1,13 +1,13 @@
 // src/config/x402/manifests/vaultAnalytics.ts
-import type { ServiceManifest } from '../../../types/x402'
-import { ARC_TESTNET_TOKENS } from '../../arcChain'
+import type { ServiceManifest } from '../../../types/x402.js'
+import { ARC_TESTNET_TOKENS } from '../../arcChain.js'
 import {
   DEFAULT_X402_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
   X402_SCHEMES,
-} from '../schemes'
+} from '../schemes.js'
 
 const PROVIDER_ADDRESS = '0x9482Ac02f0B0F3Ac9443Bf38e78fC3A360049f5E'
 

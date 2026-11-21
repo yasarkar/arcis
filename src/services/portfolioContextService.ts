@@ -3,15 +3,15 @@
 // Gathers real-time multi-chain balances, Vault positions, Gateway liquidity, and Session limits
 
 import { erc20Abi, formatUnits, type Hex } from 'viem'
-import { arcTestnet, ARC_METADATA, ARC_TOKENS } from '../config/arcChain'
-import { POOL_CONTRACTS, YIELD_VAULT_ABI } from '../config/poolsConfig'
-import { getArcPublicClient, resilientGetBalance, resilientReadContract } from './rpc'
-import { getGatewayBalances } from './gatewayService'
-import { getSessionKeyConfig } from './sessionKeyService'
-import { getLiveTokenPrices, type TokenPriceMap } from './tokenPriceService'
-import { redisCache } from './redisCacheService'
+import { arcTestnet, ARC_METADATA, ARC_TOKENS } from '../config/arcChain.js'
+import { POOL_CONTRACTS, YIELD_VAULT_ABI } from '../config/poolsConfig.js'
+import { getArcPublicClient, resilientGetBalance, resilientReadContract } from './rpc/index.js'
+import { getGatewayBalances } from './gatewayService.js'
+import { getSessionKeyConfig } from './sessionKeyService.js'
+import { getLiveTokenPrices, type TokenPriceMap } from './tokenPriceService.js'
+import { redisCache } from './redisCacheService.js'
 
-import { getStoredMscaAddress } from './modularWalletService'
+import { getStoredMscaAddress } from './modularWalletService.js'
 
 export interface GatewayChainBreakdown {
   domain: number
@@ -261,4 +261,4 @@ export {
   formatPortfolioForPrompt,
   EMPTY_PORTFOLIO_PROMPT,
   type PortfolioPromptInput,
-} from '../utils/portfolioPrompt'
+} from '../utils/portfolioPrompt.js'

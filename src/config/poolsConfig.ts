@@ -1,7 +1,7 @@
 // Arcis Pools & Yield — Testnet-first configuration (Phase 5 rewrite).
 // 2 clear categories: Liquidity, Vault.
-import { ARC_TOKENS } from './arcChain'
-import { CHAIN_DEFS } from './chainMeta'
+import { ARC_TOKENS } from './arcChain.js'
+import { CHAIN_DEFS } from './chainMeta.js'
 
 export const POOLS_CHAIN_DEFS = CHAIN_DEFS
 

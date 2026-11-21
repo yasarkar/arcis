@@ -8,10 +8,10 @@
 
 import { timingSafeEqual } from 'node:crypto'
 import { formatUnits } from 'viem'
-import { arcActiveChain, ARC_TOKENS, APP_ENV, IS_TESTNET, ARC_METADATA } from '../src/config/arcChain'
-import { getArcPublicClient, resilientReadContract } from '../src/services/rpc'
-import { isRedisConnected, getRedisInstance } from './_utils/rateLimiter'
-import { getServerSignerAccount } from './_utils/serverSigner'
+import { arcActiveChain, ARC_TOKENS, APP_ENV, IS_TESTNET, ARC_METADATA } from '../src/config/arcChain.js'
+import { getArcPublicClient, resilientReadContract } from '../src/services/rpc/index.js'
+import { isRedisConnected, getRedisInstance } from './_utils/rateLimiter.js'
+import { getServerSignerAccount } from './_utils/serverSigner.js'
 
 const USDC_ADDRESS = ARC_TOKENS.USDC
 const DETAIL_TOKEN_ENV = 'HEALTH_CHECK_TOKEN'

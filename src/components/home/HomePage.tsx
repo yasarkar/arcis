@@ -3,13 +3,13 @@ import { useState } from 'react'
 import { PinnedNetworkIcon } from '../common/PinnedIcons'
 
 // Visual Artwork Assets
-import aiAgentImg from '../../assets/hero/Arcis_AI_Agent.jpg'
-import nativeGasImg from '../../assets/hero/arcis_native_gas.jpg'
-import passkeyVaultImg from '../../assets/hero/arcis_passkey_vault.jpg'
-import realYieldImg from '../../assets/hero/arcis_real_yield.jpg'
-import heroTitaniumCardImg from '../../assets/hero/Arcis_Titanium_Card.jpg'
-import unifiedVaultImg from '../../assets/hero/Arcis_Unified_Vault.jpg'
-import universalBridgeImg from '../../assets/hero/Arcis_Universal_Bridge.jpg'
+import aiAgentImg from '../../assets/hero/arcis_ai_agent.webp'
+import nativeGasImg from '../../assets/hero/arcis_native_gas.webp'
+import passkeyVaultImg from '../../assets/hero/arcis_passkey_vault.webp'
+import realYieldImg from '../../assets/hero/arcis_real_yield.webp'
+import heroTitaniumCardImg from '../../assets/hero/arcis_titanium_card.webp'
+import unifiedVaultImg from '../../assets/hero/arcis_unified_vault.webp'
+import universalBridgeImg from '../../assets/hero/arcis_universal_bridge.webp'
 import usdcTokenImg from '../../assets/Token-Icon/USDC Token.svg'
 
 type TabType = 'home' | 'unified' | 'send' | 'swap' | 'bridge' | 'pools' | 'ai-services' | 'history'
@@ -500,6 +500,8 @@ export default function HomePage({
             <img
               src={heroTitaniumCardImg}
               alt="Arcis L1 Institutional Layer 1 Titanium Card"
+              fetchPriority="high"
+              decoding="async"
               className="w-full h-auto object-contain transform scale-100 lg:scale-105 filter group-hover:drop-shadow-[0_25px_65px_rgba(39,117,202,0.35)] transition-all duration-700"
               style={{
                 mixBlendMode: 'screen',
@@ -716,6 +718,7 @@ export default function HomePage({
                       alt={pillar.title}
                       className="w-full h-auto object-contain transform scale-90 sm:scale-95 group-hover:scale-100 transition-transform duration-700 ease-out"
                       loading="lazy"
+                      decoding="async"
                       style={{
                         WebkitMaskImage:
                           'radial-gradient(ellipse 75% 70% at 50% 50%, rgba(0,0,0,1) 15%, rgba(0,0,0,0.8) 42%, rgba(0,0,0,0.2) 68%, rgba(0,0,0,0) 100%)',

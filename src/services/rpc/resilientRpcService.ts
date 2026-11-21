@@ -21,8 +21,8 @@ import {
   type GetBalanceParameters,
   type TransactionReceipt,
 } from 'viem'
-import { arcTestnet, arcActiveChain} from '../../config/arcChain'
-import { CHAIN_DEFS } from '../../config/chainMeta'
+import { arcTestnet, arcActiveChain} from '../../config/arcChain.js'
+import { CHAIN_DEFS } from '../../config/chainMeta.js'
 import {
   TESTNET_RPC_FALLBACKS,
   ACTIVE_ARC_RPCS,
@@ -30,7 +30,7 @@ import {
   RPC_DEFAULT_RETRIES,
   RPC_DEFAULT_RETRY_DELAY_MS,
   RPC_RECEIPT_TIMEOUT_MS,
-} from './rpcConfig'
+} from './rpcConfig.js'
 
 // ─────────────────────────────────────────────────────────────
 // 1. SINGLETON CLIENT POOL & COOLDOWN CIRCUIT BREAKER

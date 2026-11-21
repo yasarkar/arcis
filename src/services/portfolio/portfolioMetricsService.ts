@@ -1,6 +1,6 @@
-import { EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES } from '../../config/gatewayConfig'
-import { getChainDisplayName } from '../../config/chainMeta'
-import type { WalletChainBalance } from '../../hooks/useWalletTestnetBalances'
+import { EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES } from '../../config/gatewayConfig.js'
+import { getChainDisplayName } from '../../config/chainMeta.js'
+import type { WalletChainBalance } from '../../hooks/useWalletTestnetBalances.js'
 
 // Ordered list of priority testnet networks for optimal UX
 export const ORDERED_CHAIN_KEYS = [

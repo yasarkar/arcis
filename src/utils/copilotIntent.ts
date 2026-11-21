@@ -1,4 +1,4 @@
-import type { CopilotActionPayload, CopilotMessage } from '../types/marketplace'
+import type { CopilotActionPayload, CopilotMessage } from '../types/marketplace.js'
 
 export type TransactionIntent = 'send' | 'swap' | 'deposit' | 'bridge'
 export type CopilotIntent =

@@ -1,14 +1,14 @@
 // src/config/x402/manifests/gatewayRouteScout.ts
-import type { ServiceManifest } from '../../../types/x402'
-import { ARC_TESTNET_TOKENS } from '../../arcChain'
-import { ROUTE_SCOUT_DESTINATIONS } from '../routeScoutChains'
+import type { ServiceManifest } from '../../../types/x402.js'
+import { ARC_TESTNET_TOKENS } from '../../arcChain.js'
+import { ROUTE_SCOUT_DESTINATIONS } from '../routeScoutChains.js'
 import {
   DEFAULT_X402_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
   X402_SCHEMES,
-} from '../schemes'
+} from '../schemes.js'
 
 const PROVIDER_ADDRESS = '0x522fAf9A91c41c443c66765030741e4AaCe147D0'
 

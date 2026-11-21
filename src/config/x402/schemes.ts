@@ -1,7 +1,7 @@
 // src/config/x402/schemes.ts
 // EIP-3009 and Circle Gateway Nanopayments scheme definitions
 
-import { arcTestnet, ARC_TESTNET_TOKENS } from '../arcChain'
+import { arcTestnet, ARC_TESTNET_TOKENS } from '../arcChain.js'
 
 export const X402_SCHEMES = {
   EXACT: 'exact',

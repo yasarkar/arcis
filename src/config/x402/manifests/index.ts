@@ -1,16 +1,16 @@
 // src/config/x402/manifests/index.ts
 // Aggregation of all official Arc AI service manifests (v2)
 
-import type { ServiceManifest } from '../../../types/x402'
-import { arbitrageSentinelManifest } from './arbitrageSentinel'
-import { slippageOptimizerManifest } from './slippageOptimizer'
-import { flashLoanRadarManifest } from './flashLoanRadar'
-import { mevShieldManifest } from './mevShield'
-import { gatewayIndexerManifest } from './gatewayIndexer'
-import { gatewayRouteScoutManifest } from './gatewayRouteScout'
-import { vaultAnalyticsManifest } from './vaultAnalytics'
-import { portfolioRiskManifest } from './portfolioRisk'
-import { vaultYieldReportManifest } from './vaultYieldReport'
+import type { ServiceManifest } from '../../../types/x402.js'
+import { arbitrageSentinelManifest } from './arbitrageSentinel.js'
+import { slippageOptimizerManifest } from './slippageOptimizer.js'
+import { flashLoanRadarManifest } from './flashLoanRadar.js'
+import { mevShieldManifest } from './mevShield.js'
+import { gatewayIndexerManifest } from './gatewayIndexer.js'
+import { gatewayRouteScoutManifest } from './gatewayRouteScout.js'
+import { vaultAnalyticsManifest } from './vaultAnalytics.js'
+import { portfolioRiskManifest } from './portfolioRisk.js'
+import { vaultYieldReportManifest } from './vaultYieldReport.js'
 
 export {
   arbitrageSentinelManifest,

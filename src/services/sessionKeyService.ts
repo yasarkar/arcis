@@ -1,15 +1,15 @@
 // Client-side session limits remain wallet-scoped metadata; no local key is authorized for signing.
-import type { SessionKeyConfig, SessionActionType, SessionTimeRemaining, SessionScope } from '../types/sessionKey'
-import { getStoredMscaAddress } from './modularWalletService'
-import { sessionSpendSnapshot } from './sessionSpendLedger'
-import { logger } from '../utils/logger'
+import type { SessionKeyConfig, SessionActionType, SessionTimeRemaining, SessionScope } from '../types/sessionKey.js'
+import { getStoredMscaAddress } from './modularWalletService.js'
+import { sessionSpendSnapshot } from './sessionSpendLedger.js'
+import { logger } from '../utils/logger.js'
 import {
   generateEphemeralSessionAccount,
   getEphemeralSessionAccount,
   clearEphemeralSessionAccount,
   fetchEnclaveUsdcBalance,
   sweepEnclaveUsdc,
-} from './sessionEnclaveService'
+} from './sessionEnclaveService.js'
 
 export {
   getEphemeralSessionAccount,

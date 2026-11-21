@@ -7,8 +7,8 @@
 //   2. treat a plain BTC/WBTC request as UNSUPPORTED and answer with guidance, never by silently
 //      routing to a different asset (which would move the user's USDC while claiming WBTC).
 
-import { numberToExactDecimal } from '../utils/copilotAmount'
-import type { CopilotActionPayload } from '../types/marketplace'
+import { numberToExactDecimal } from '../utils/copilotAmount.js'
+import type { CopilotActionPayload } from '../types/marketplace.js'
 
 /** Tokens the copilot can send or swap on Arc Testnet, in their canonical display casing. */
 export const COPILOT_SUPPORTED_TOKENS = ['USDC', 'EURC', 'WETH', 'cirBTC', 'af-USDC'] as const

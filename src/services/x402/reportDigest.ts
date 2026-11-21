@@ -19,9 +19,9 @@ import {
   CURRENT_READ_MAX_AGE_SECONDS,
   INSTITUTIONAL_REPORT_SCHEMA,
   type InstitutionalReport,
-} from './institutionalReport'
-import { buildRecommendations, type Recommendation } from './nextActions'
-import { extractReportSignals, isInstitutionalReport } from './reportSignals'
+} from './institutionalReport.js'
+import { buildRecommendations, type Recommendation } from './nextActions.js'
+import { extractReportSignals, isInstitutionalReport } from './reportSignals.js'
 
 export const REPORT_DIGEST_SCHEMA = 'arcis.report-digest/v1'
 export const REPORT_DIGEST_STORE_SCHEMA = 'arcis.report-digests/v1'

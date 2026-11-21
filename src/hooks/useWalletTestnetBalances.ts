@@ -6,15 +6,15 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { erc20Abi, formatUnits, type Chain } from 'viem'
-import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig'
-import { TESTNET_NETWORKS } from '../config/networks/networkRegistry'
+import { USDC_ADDRESSES, EURC_ADDRESSES, CIRBTC_ADDRESSES, WETH_ADDRESSES, GATEWAY_CHAIN_NAMES } from '../config/gatewayConfig.js'
+import { TESTNET_NETWORKS } from '../config/networks/networkRegistry.js'
 import {
   getResilientPublicClient,
   resilientGetBalance,
   resilientMulticall,
-} from '../services/rpc'
-import { normalizeWalletAddress } from '../utils/address'
-import { floorToPlaces } from '../utils/swapAmountUtils'
+} from '../services/rpc/index.js'
+import { normalizeWalletAddress } from '../utils/address.js'
+import { floorToPlaces } from '../utils/swapAmountUtils.js'
 
 export const TESTNET_CHAINS: Record<string, Chain> = Object.fromEntries(
   Object.entries(TESTNET_NETWORKS)

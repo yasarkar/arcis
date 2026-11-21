@@ -4,7 +4,6 @@ import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { ARC_SERVICES_REGISTRY } from '../config/servicesRegistry'
 import { executeX402Call, hasVerifiedX402Settlement, isServiceDataAvailable, isSuccessfulX402ServiceResult } from '../services/x402Client'
 import { recommendationsForReport } from '../services/x402/nextActions'
-import { queryArcisLLM } from '../services/llmService'
 import { getLivePortfolioSnapshot } from '../services/portfolioContextService'
 import {
   getSessionKeyConfig,
@@ -16,7 +15,7 @@ import {
   COPILOT_SESSION_UPDATED_EVENT,
   SESSION_KEY_UPDATED_EVENT,
 } from '../services/sessionKeyService'
-import { executeDirectCopilotAction, type CopilotUcwHandlers } from '../services/copilotExecutionService'
+import type { CopilotUcwHandlers } from '../services/copilotExecutionService'
 import { resolveX402Payer } from '../services/x402/ucwPaymentSigner'
 import { getEphemeralSessionAccount } from '../services/sessionEnclaveService'
 import { tokenAmountToUsd } from '../services/tokenPriceService'
@@ -419,6 +418,7 @@ export function useArcCopilot(
     )
 
     try {
+      const { executeDirectCopilotAction } = await import('../services/copilotExecutionService')
       const receipt = await executeDirectCopilotAction(
         actionPayload,
         walletAddress,
@@ -485,6 +485,7 @@ export function useArcCopilot(
   ): Promise<void> => {
     try {
       const generation = queryGenerationRef.current
+      const { queryArcisLLM } = await import('../services/llmService')
       const llmResult = await queryArcisLLM(queryText, walletAddress, messages, portfolioSnapshot)
       if (generation !== queryGenerationRef.current) return
       const assistantMsgId = 'assistant-' + Date.now()
@@ -555,13 +556,17 @@ export function useArcCopilot(
           addMessage(assistantMsg)
 
           // Auto-execute inline seamlessly with active provider
-          executeDirectCopilotAction(action, walletAddress, provider, (pState) => {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMsgId ? { ...msg, executionState: pState } : msg
-              )
+          import('../services/copilotExecutionService')
+            .then(({ executeDirectCopilotAction }) =>
+              executeDirectCopilotAction(action, walletAddress, provider, (pState) => {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMsgId ? { ...msg, executionState: pState } : msg
+                  )
+                )
+              }, ucwHandlers)
             )
-          }, ucwHandlers).then((receipt) => {
+            .then((receipt) => {
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMsgId

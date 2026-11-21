@@ -13,10 +13,10 @@ import {
   type Chain,
   type TransactionReceipt,
 } from 'viem'
-import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
-import { setSpendingCeiling } from './spendingCeilingService'
-import { exactApprovalAmount } from '../utils/approvalUtils'
-import { logger } from '../utils/logger'
+import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc/index.js'
+import { setSpendingCeiling } from './spendingCeilingService.js'
+import { exactApprovalAmount } from '../utils/approvalUtils.js'
+import { logger } from '../utils/logger.js'
 
 /** Scoped logger: gateway diagnostics must not be raw console output in production. */
 const gatewayLog = logger.createScope('gatewayService')
@@ -33,9 +33,9 @@ import {
   GATEWAY_WALLET_ABI,
   USDC_ADDRESSES,
   EURC_ADDRESSES,
-} from '../config/gatewayConfig'
-import { IS_TESTNET } from '../config/arcChain'
-import { getNetwork } from '../config/networks/networkRegistry'
+} from '../config/gatewayConfig.js'
+import { IS_TESTNET } from '../config/arcChain.js'
+import { getNetwork } from '../config/networks/networkRegistry.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -201,7 +201,7 @@ export async function verifyDestinationUsdcMint(
   return minted >= minReceived
 }
 
-import { assertNetwork } from './chainSwitchService'
+import { assertNetwork } from './chainSwitchService.js'
 
 export async function ensureChain(provider: any, chain: Chain): Promise<void> {
   await assertNetwork(chain, provider)

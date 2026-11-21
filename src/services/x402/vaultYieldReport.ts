@@ -13,16 +13,16 @@
 // disclosure items that bound what the report can claim.
 
 import { formatUnits, type Address } from 'viem'
-import { POOL_CONTRACTS, VAULT_SHARE_DECIMALS, YIELD_VAULT_ABI } from '../../config/poolsConfig'
-import { getArcPublicClient, resilientReadContract } from '../rpc'
-import { generateLlmNarrative, type LlmNarrative } from './llmEngine'
-import { isValidPortfolioAddress } from './portfolioRisk'
+import { POOL_CONTRACTS, VAULT_SHARE_DECIMALS, YIELD_VAULT_ABI } from '../../config/poolsConfig.js'
+import { getArcPublicClient, resilientReadContract } from '../rpc/index.js'
+import { generateLlmNarrative, type LlmNarrative } from './llmEngine.js'
+import { isValidPortfolioAddress } from './portfolioRisk.js'
 import {
   buildInstitutionalReport,
   institutionalRisk,
   type InstitutionalReport,
   type InstitutionalRisk,
-} from './institutionalReport'
+} from './institutionalReport.js'
 
 export const VAULT_YIELD_REPORT_SERVICE_ID = 'arc-vault-yield-tax-report'
 

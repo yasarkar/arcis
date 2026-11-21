@@ -3,7 +3,7 @@
 // and cross-component event dispatching for real-time UI synchronization.
 // STRICT: Pure live on-chain & genuine transaction history only — ZERO synthetic seeds.
 
-import { DEFAULT_TOKEN_PRICES } from '../services/tokenPriceService'
+import { DEFAULT_TOKEN_PRICES } from '../services/tokenPriceService.js'
 
 const SWAP_VOL_STORAGE_KEY = 'arcis_swap_volume_history'
 const ONE_DAY_MS = 24 * 60 * 60 * 1000

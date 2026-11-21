@@ -26,7 +26,7 @@ import {
   type ReportSubjectType,
   type RiskCategory,
   type RiskSeverity,
-} from './institutionalReport'
+} from './institutionalReport.js'
 
 export type ReportSignalLayer = 'meta' | 'finding'
 export type ReportSignalCategory = RiskCategory | 'META'

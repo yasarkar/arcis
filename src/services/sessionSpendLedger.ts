@@ -1,6 +1,6 @@
-import type { CopilotActionPayload } from '../types/marketplace'
-import type { InlineExecutionReceipt, SessionActionType, SessionKeyConfig } from '../types/sessionKey'
-import { logger } from '../utils/logger'
+import type { CopilotActionPayload } from '../types/marketplace.js'
+import type { InlineExecutionReceipt, SessionActionType, SessionKeyConfig } from '../types/sessionKey.js'
+import { logger } from '../utils/logger.js'
 
 /** Scoped logger: the in-process queue must keep draining after a failed task. */
 const log = logger.createScope('sessionSpendLedger')

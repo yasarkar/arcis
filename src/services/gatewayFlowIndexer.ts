@@ -23,13 +23,13 @@
 // findings, each with its evidence, threshold and remediation.
 
 import { formatUnits, parseAbiItem, type Address, type PublicClient } from 'viem'
-import { ARC_TOKENS } from '../config/arcChain'
+import { ARC_TOKENS } from '../config/arcChain.js'
 import {
   ACTIVE_GATEWAY_CONTRACTS,
   DOMAIN_TO_CHAIN,
   GATEWAY_CHAIN_NAMES,
-} from '../config/gatewayConfig'
-import { getArcPublicClient } from './rpc'
+} from '../config/gatewayConfig.js'
+import { getArcPublicClient } from './rpc/index.js'
 import {
   buildInstitutionalReport,
   formatInstitutionalReportHeader,
@@ -37,7 +37,7 @@ import {
   institutionalRisk,
   type InstitutionalReport,
   type InstitutionalRisk,
-} from './x402/institutionalReport'
+} from './x402/institutionalReport.js'
 
 export const GATEWAY_FLOW_SERVICE_ID = 'arc-cross-chain-gateway-flow-indexer'
 

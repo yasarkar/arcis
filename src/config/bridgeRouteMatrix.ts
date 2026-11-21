@@ -21,7 +21,7 @@
 // The registry's per-deployment `enabled` flag is intentionally NOT modelled: the
 // SDK's token schema strips it and matches on `domainId` alone.
 
-import type { SupportedBridgeToken } from '../types/bridge'
+import type { SupportedBridgeToken } from '../types/bridge.js'
 
 /** Tokens carried by the CCTP-X registry (USDC uses standard CCTPv2 instead). */
 export type NonUsdcBridgeToken = 'EURC' | 'WETH' | 'cirBTC'

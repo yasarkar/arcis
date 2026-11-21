@@ -3,7 +3,7 @@
 // Registers Arc Testnet tokens (USDC, EURC, cirBTC) with symbols, decimals, and logos in MetaMask/Web3 wallets
 // Prevents MetaMask from displaying tokens as "Bilinmeyen / Unknown"
 
-import { ARC_TESTNET_TOKENS } from '../config/arcChain'
+import { ARC_TESTNET_TOKENS } from '../config/arcChain.js'
 
 export interface ArcTokenAssetMetadata {
   address: `0x${string}`

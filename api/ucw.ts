@@ -1,17 +1,17 @@
 import { initiateUserControlledWalletsClient } from "@circle-fin/user-controlled-wallets";
-import { checkRateLimit } from "./_utils/rateLimiter";
-import { apiSuccess, apiError, safeJsonParse } from "./_utils/apiResponse";
-import { extractTrustedClientIp } from "./_utils/trustedIp";
+import { checkRateLimit } from "./_utils/rateLimiter.js";
+import { apiSuccess, apiError, safeJsonParse } from "./_utils/apiResponse.js";
+import { extractTrustedClientIp } from "./_utils/trustedIp.js";
 // ARC-022: Circle error bodies may carry the account e-mail and the userToken, so they are
 // redacted before they reach a log line or a diagnostic payload.
-import { circleErrorForLog, redactCircleErrorPayload } from "./_utils/circleError";
+import { circleErrorForLog, redactCircleErrorPayload } from "./_utils/circleError.js";
 import {
   buildClearUcwSessionCookie,
   buildUcwSessionCookie,
   isSecureRequest,
   readUcwSession,
   resolveUcwUserToken,
-} from "./_utils/ucwSession";
+} from "./_utils/ucwSession.js";
 
 // ─────────────────────────────────────────────────────────────
 // 2. INPUT SANITIZATION & VALIDATION HELPERS

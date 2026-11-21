@@ -1,8 +1,8 @@
 // src/config/errorMessages.ts
 // Standardized Web3 Error Messages Dictionary for Arcis Protocol (100% English)
 
-import type { ErrorCategory } from '../types/errors'
-import { MIN_DIRECT_BRIDGE_AMOUNT } from './constants'
+import type { ErrorCategory } from '../types/errors.js'
+import { MIN_DIRECT_BRIDGE_AMOUNT } from './constants.js'
 
 export interface ErrorDefinition {
   category: ErrorCategory

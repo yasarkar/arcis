@@ -10,7 +10,7 @@ import {
   arcMainnet,
   TESTNET_NETWORKS,
   MAINNET_NETWORKS,
-} from './networks/networkRegistry'
+} from './networks/networkRegistry.js'
 
 export { APP_ENV, IS_TESTNET, arcTestnet, arcMainnet }
 

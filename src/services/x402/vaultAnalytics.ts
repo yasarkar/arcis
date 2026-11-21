@@ -12,14 +12,14 @@
 // vault's accounting cannot reveal (no historical series, no strategy risk).
 
 import { formatUnits, type Address } from 'viem'
-import { POOL_CONTRACTS, VAULT_SHARE_DECIMALS, YIELD_VAULT_ABI } from '../../config/poolsConfig'
-import { getArcPublicClient, resilientReadContract } from '../rpc'
+import { POOL_CONTRACTS, VAULT_SHARE_DECIMALS, YIELD_VAULT_ABI } from '../../config/poolsConfig.js'
+import { getArcPublicClient, resilientReadContract } from '../rpc/index.js'
 import {
   buildInstitutionalReport,
   institutionalRisk,
   type InstitutionalReport,
   type InstitutionalRisk,
-} from './institutionalReport'
+} from './institutionalReport.js'
 
 export const VAULT_ANALYTICS_SERVICE_ID = 'arc-yield-vault-analytics'
 

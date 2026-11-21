@@ -2,22 +2,22 @@
 // Intelligent LLM Intent Engine & Tool Calling for Arcis AI Copilot
 // Supports Multi-Provider LLMs (OpenRouter) with seamless, zero-latency Local NLP Fallback
 
-import type { CopilotActionPayload, CopilotMessage } from '../types/marketplace'
-import { arcTestnet } from '../config/arcChain'
-import { ARC_GAS_LIMITS, calculateArcGasCostUsdc } from '../config/feeTiers'
+import type { CopilotActionPayload, CopilotMessage } from '../types/marketplace.js'
+import { arcTestnet } from '../config/arcChain.js'
+import { ARC_GAS_LIMITS, calculateArcGasCostUsdc } from '../config/feeTiers.js'
 import {
   getLiveTokenPrices,
   type TokenPriceMap,
-} from './tokenPriceService'
+} from './tokenPriceService.js'
 import {
   getLivePortfolioSnapshot,
   formatPortfolioForPrompt,
   type PortfolioSnapshot,
-} from './portfolioContextService'
-import { availableTokenBalance } from '../utils/portfolioPrompt'
+} from './portfolioContextService.js'
+import { availableTokenBalance } from '../utils/portfolioPrompt.js'
 // ARC-025: one owner for the scoped "prepare fully specified commands, never refuse" policy.
-import { COPILOT_EXECUTION_POLICY } from '../utils/copilotExecutionPolicy'
-import { DEFAULT_COPILOT_SLIPPAGE, STORAGE_KEYS } from '../config/constants'
+import { COPILOT_EXECUTION_POLICY } from '../utils/copilotExecutionPolicy.js'
+import { DEFAULT_COPILOT_SLIPPAGE, STORAGE_KEYS } from '../config/constants.js'
 import {
   canonicalCopilotTokenSymbol,
   mentionsCirBtc,
@@ -28,14 +28,14 @@ import {
   validateSendAmount,
   detectNonUsdcBridgeToken,
   unsupportedBridgeTokenGuidance,
-} from '../config/copilotTokens'
-import { getSwapEstimate } from './swapService'
-import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from './arcGasService'
-import type { SwapQuoteResult } from '../types/swap'
-import { parseCopilotPromptAmount, numberToExactDecimal } from '../utils/copilotAmount'
-import { classifyCopilotIntent, copilotInstructionText, extractCopilotMemo, latestEditableCopilotDraft } from '../utils/copilotIntent'
-import { copilotSlippageBps, swapPercentToBps } from '../utils/swapSlippage'
-import { walletSettingsService } from './walletSettingsService'
+} from '../config/copilotTokens.js'
+import { getSwapEstimate } from './swapService.js'
+import { calculateArcGasCostFromFee, getDynamicArcGasOptions } from './arcGasService.js'
+import type { SwapQuoteResult } from '../types/swap.js'
+import { parseCopilotPromptAmount, numberToExactDecimal } from '../utils/copilotAmount.js'
+import { classifyCopilotIntent, copilotInstructionText, extractCopilotMemo, latestEditableCopilotDraft } from '../utils/copilotIntent.js'
+import { copilotSlippageBps, swapPercentToBps } from '../utils/swapSlippage.js'
+import { walletSettingsService } from './walletSettingsService.js'
 export { DEFAULT_COPILOT_SLIPPAGE }
 
 export interface LLMResult {

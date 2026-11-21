@@ -4,26 +4,26 @@
 // live token price oracles, and dynamic Arc L1 gas metrics.
 
 import { formatUnits, type Address } from 'viem'
-import type { x402Service, ActionableSignalPayload } from '../types/marketplace'
+import type { x402Service, ActionableSignalPayload } from '../types/marketplace.js'
 import {
   POOL_CONTRACTS,
   STABLE_SWAP_ABI,
   YIELD_VAULT_ABI,
-} from '../config/poolsConfig'
-import { getLiveTokenPrices, normalizeTokenSymbol } from './tokenPriceService'
-import { getSwapEstimate, resolveArcNativeRoute } from './swapService'
-import { getArcPublicClient, resilientReadContract } from './rpc'
-import { estimateArcGasCostUsdc } from './arcGasService'
-import { readVaultAnalytics } from './x402/vaultAnalytics'
-import { readPortfolioRisk } from './x402/portfolioRisk'
-import { scoutGatewayRoutes, type RouteScoutUrgency } from './x402/gatewayRouteScout'
-import { readVaultYieldReport } from './x402/vaultYieldReport'
+} from '../config/poolsConfig.js'
+import { getLiveTokenPrices, normalizeTokenSymbol } from './tokenPriceService.js'
+import { getSwapEstimate, resolveArcNativeRoute } from './swapService.js'
+import { getArcPublicClient, resilientReadContract } from './rpc/index.js'
+import { estimateArcGasCostUsdc } from './arcGasService.js'
+import { readVaultAnalytics } from './x402/vaultAnalytics.js'
+import { readPortfolioRisk } from './x402/portfolioRisk.js'
+import { scoutGatewayRoutes, type RouteScoutUrgency } from './x402/gatewayRouteScout.js'
+import { readVaultYieldReport } from './x402/vaultYieldReport.js'
 import {
   buildGatewayFlowServiceData,
   formatUsdcOrUnavailable,
   readGatewayFlow,
   type GatewayFlowWindow,
-} from './gatewayFlowIndexer'
+} from './gatewayFlowIndexer.js'
 
 export interface GeneratedServiceData {
   data: Record<string, any>

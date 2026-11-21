@@ -15,24 +15,24 @@
 // Rules are data (`src/config/x402/nextActions.ts`); this module is the matcher, the guard rails
 // and the ordering.
 
-import { getOfficialManifestById } from '../../config/x402/manifests'
+import { getOfficialManifestById } from '../../config/x402/manifests/index.js'
 import {
   NEXT_ACTION_RULES,
   type NextActionRule,
   type RecommendationTier,
-} from '../../config/x402/nextActions'
+} from '../../config/x402/nextActions.js'
 import {
   CURRENT_READ_MAX_AGE_SECONDS,
   type ReportSubjectType,
   type RiskSeverity,
-} from './institutionalReport'
+} from './institutionalReport.js'
 import {
   extractReportSignals,
   hasDataQualityBlocker,
   severityAtLeast,
   severityRank,
   type ReportSignal,
-} from './reportSignals'
+} from './reportSignals.js'
 
 export type { RecommendationTier }
 

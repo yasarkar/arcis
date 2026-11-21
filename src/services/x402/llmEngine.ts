@@ -16,7 +16,7 @@
 // The budget is therefore configurable (`X402_LLM_MAX_OUTPUT_TOKENS`) and one call is retried when
 // the provider reports `finish_reason: "length"`, because a retry re-rolls that share.
 
-import { logger } from '../../utils/logger'
+import { logger } from '../../utils/logger.js'
 
 const log = logger.createScope('x402Llm')
 

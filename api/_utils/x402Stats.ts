@@ -11,8 +11,8 @@
 // Nothing here fabricates a value: with no durable driver the snapshot reports
 // `source: 'unavailable'` and the UI renders a dash instead of a zero.
 
-import type { PlatformStatsServiceRow, PlatformStatsSnapshot } from '../../src/types/x402'
-import { kvEval, kvHgetall } from './redisStorage'
+import type { PlatformStatsServiceRow, PlatformStatsSnapshot } from '../../src/types/x402.js'
+import { kvEval, kvHgetall } from './redisStorage.js'
 
 function getEnv(key: string): string {
   const localEnv = (typeof process !== 'undefined' && process.env) || {}

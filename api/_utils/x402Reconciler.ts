@@ -6,8 +6,8 @@
 // records stay `pending` forever. The sweep is intentionally independent of
 // ENABLE_GATEWAY_SETTLE: turning new payments off must not strand already-accepted ones.
 
-import { kvScanKeys, kvSetIfAbsent } from './redisStorage'
-import { reconcileSettlementByNonce } from './x402Settlement'
+import { kvScanKeys, kvSetIfAbsent } from './redisStorage.js'
+import { reconcileSettlementByNonce } from './x402Settlement.js'
 
 const PENDING_KEY_PATTERN = 'arcis:x402:pending:{*}'
 const PENDING_KEY_SHAPE = /^arcis:x402:pending:\{(0x[0-9a-f]{40})\}:(0x[0-9a-f]{64})$/

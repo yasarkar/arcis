@@ -1,10 +1,10 @@
-import { SpeedTier } from '../config/feeTiers'
-import { POOL_MAX_SLIPPAGE_BPS, POOL_MIN_SLIPPAGE_BPS } from '../config/poolsConfig'
+import { SpeedTier } from '../config/feeTiers.js'
+import { POOL_MAX_SLIPPAGE_BPS, POOL_MIN_SLIPPAGE_BPS } from '../config/poolsConfig.js'
 import {
   DEFAULT_WALLET_TRANSACTION_SETTINGS,
   SlippagePreset,
   WalletTransactionSettings,
-} from '../types/walletSettings'
+} from '../types/walletSettings.js'
 
 export const WALLET_SETTINGS_STORAGE_PREFIX = 'arcis_wallet_settings_v1_'
 export const WALLET_SETTINGS_CHANGED_EVENT = 'arcis_wallet_settings_changed'

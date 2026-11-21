@@ -19,4 +19,4 @@ export {
   getObservedArcPriorityFee,
   type ArcActualFeeResult,
   type DynamicArcGasResult,
-} from './fees'
+} from './fees.js'

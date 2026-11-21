@@ -8,8 +8,8 @@
 
 import { createPublicClient, createWalletClient, erc20Abi, http, isAddress, type Address, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { ARC_METADATA, ARC_TESTNET_TOKENS, arcActiveChain, arcTestnet } from '../../src/config/arcChain'
-import { resolveX402TreasuryAddress } from '../../src/config/x402/treasury'
+import { ARC_METADATA, ARC_TESTNET_TOKENS, arcActiveChain, arcTestnet } from '../../src/config/arcChain.js'
+import { resolveX402TreasuryAddress } from '../../src/config/x402/treasury.js'
 
 export const X402_TREASURY_PRIVATE_KEY_ENV = 'X402_TREASURY_PRIVATE_KEY'
 

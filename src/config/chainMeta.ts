@@ -15,8 +15,8 @@ import {
   type NetworkConfig,
   type NetworkCapabilities,
   type NetworkAdapters,
-} from './networks/networkRegistry'
-import type { NetworkUiConfig } from './networks/types'
+} from './networks/networkRegistry.js'
+import type { NetworkUiConfig } from './networks/types.js'
 
 export type ChainMetaItem = NetworkUiConfig
 

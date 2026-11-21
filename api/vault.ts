@@ -3,9 +3,9 @@
 // Provides vault metrics inspection, keeper diagnostics, and on-chain automated yield distribution.
 
 import { createPublicClient, http, formatUnits, parseAbi } from 'viem'
-import { apiSuccess, apiError } from './_utils/apiResponse'
-import { executeYieldDistribution, getKeeperStatus } from './_utils/vaultKeeper'
-import { getServerSignerAccount } from './_utils/serverSigner'
+import { apiSuccess, apiError } from './_utils/apiResponse.js'
+import { executeYieldDistribution, getKeeperStatus } from './_utils/vaultKeeper.js'
+import { getServerSignerAccount } from './_utils/serverSigner.js'
 
 const arcTestnet = {
   id: 5042002,

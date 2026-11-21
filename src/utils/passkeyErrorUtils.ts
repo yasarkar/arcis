@@ -2,8 +2,8 @@
 // WebAuthn / Passkey Utilities & Environment Inspector for Circle Modular Wallets (100% English)
 // Integrated with Arcis Centralized Error Architecture.
 
-import { normalizePasskeyError } from './errorNormalizer'
-import type { ParsedPasskeyError } from '../types/errors'
+import { normalizePasskeyError } from './errorNormalizer.js'
+import type { ParsedPasskeyError } from '../types/errors.js'
 
 export type { ParsedPasskeyError }
 

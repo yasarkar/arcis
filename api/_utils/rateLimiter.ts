@@ -26,7 +26,7 @@ export async function getRedisInstance() {
   connectionAttempted = true
 
   try {
-    const { default: Redis } = await import('ioredis')
+    const { Redis } = await import('ioredis')
     const redisUrl = (process.env.REDIS_URL || process.env.KV_URL || 'redis://127.0.0.1:6379').replace(/^["']|["']$/g, '').trim()
 
     redisClient = new Redis(redisUrl, {

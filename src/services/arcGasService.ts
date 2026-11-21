@@ -9,9 +9,9 @@ import {
   formatUnits,
   type PublicClient,
 } from 'viem'
-import { arcTestnet } from '../config/arcChain'
-import { type SpeedTier, SPEED_TIERS } from '../config/gasTierConstants'
-import { getArcPublicClient as getCentralArcPublicClient } from './rpc'
+import { arcTestnet } from '../config/arcChain.js'
+import { type SpeedTier, SPEED_TIERS } from '../config/gasTierConstants.js'
+import { getArcPublicClient as getCentralArcPublicClient } from './rpc/index.js'
 
 // ── Arc Protocol Constants ───────────────────────────────────────────────────
 /** Minimum base fee floor enforced by Arc Testnet protocol (20 Gwei). */

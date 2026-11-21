@@ -13,16 +13,16 @@ import {
   type Address,
   type Hex,
 } from 'viem'
-import { ARC_TESTNET_TOKENS, arcTestnet } from '../src/config/arcChain'
+import { ARC_TESTNET_TOKENS, arcTestnet } from '../src/config/arcChain.js'
 import {
   PROVIDER_LEDGER_TYPES,
   SERVICE_REGISTRATION_TYPES,
   X402_AUTHORIZATION_DOMAIN,
   hashServiceManifest,
-} from '../src/config/x402/authorization'
-import { OFFICIAL_MANIFESTS } from '../src/config/x402/manifests'
-import { splitSettlementAmount, usdcToBaseUnits } from '../src/config/x402/pricing'
-import { resolveSettlementRoute, resolveX402TreasuryAddress } from '../src/config/x402/treasury'
+} from '../src/config/x402/authorization.js'
+import { OFFICIAL_MANIFESTS } from '../src/config/x402/manifests/index.js'
+import { splitSettlementAmount, usdcToBaseUnits } from '../src/config/x402/pricing.js'
+import { resolveSettlementRoute, resolveX402TreasuryAddress } from '../src/config/x402/treasury.js'
 import {
   CIRCLE_BATCHING_METADATA,
   DEFAULT_X402_DOMAIN,
@@ -31,20 +31,20 @@ import {
   GATEWAY_CONTRACTS,
   X402_NETWORKS,
   X402_SCHEMES,
-} from '../src/config/x402/schemes'
-import { arePayoutAddressesConfirmed, auditManifestPayout } from '../src/config/x402/payouts'
-import { generateLiveServiceData } from '../src/services/aiServicesDataProvider'
-import { isLlmConfigured } from '../src/services/x402/llmEngine'
+} from '../src/config/x402/schemes.js'
+import { arePayoutAddressesConfirmed, auditManifestPayout } from '../src/config/x402/payouts.js'
+import { generateLiveServiceData } from '../src/services/aiServicesDataProvider.js'
+import { isLlmConfigured } from '../src/services/x402/llmEngine.js'
 import type {
   PaymentReceipt,
   ProviderLedger,
   ServiceManifest,
   X402ExecutionReceipt,
   X402PaymentRequirements,
-} from '../src/types/x402'
-import { createBoundedTtlMap, createBoundedTtlSet } from './_utils/boundedStore'
-import { checkRateLimit } from './_utils/rateLimiter'
-import { extractTrustedClientIp } from './_utils/trustedIp'
+} from '../src/types/x402.js'
+import { createBoundedTtlMap, createBoundedTtlSet } from './_utils/boundedStore.js'
+import { checkRateLimit } from './_utils/rateLimiter.js'
+import { extractTrustedClientIp } from './_utils/trustedIp.js'
 import {
   getStorageDriver,
   kvCreateProviderSettlementIntent,
@@ -56,14 +56,14 @@ import {
   kvSet,
   kvSetIfAbsent,
   kvUpdateProviderLedger,
-} from './_utils/redisStorage'
-import { digestFromServiceCall } from '../src/services/x402/reportDigest'
-import { readLatencySnapshot } from './_utils/x402Latency'
-import { readReportDigests, recordReportDigest } from './_utils/reportDigestStore'
-import { isX402PayoutConfigured, resolveX402TreasurySigner, sendProviderPayout } from './_utils/x402Payout'
-import { runReconcileSweep } from './_utils/x402Reconciler'
-import { reconcileSettlementByNonce } from './_utils/x402Settlement'
-import { readPlatformStats, recordPlatformCall } from './_utils/x402Stats'
+} from './_utils/redisStorage.js'
+import { digestFromServiceCall } from '../src/services/x402/reportDigest.js'
+import { readLatencySnapshot } from './_utils/x402Latency.js'
+import { readReportDigests, recordReportDigest } from './_utils/reportDigestStore.js'
+import { isX402PayoutConfigured, resolveX402TreasurySigner, sendProviderPayout } from './_utils/x402Payout.js'
+import { runReconcileSweep } from './_utils/x402Reconciler.js'
+import { reconcileSettlementByNonce } from './_utils/x402Settlement.js'
+import { readPlatformStats, recordPlatformCall } from './_utils/x402Stats.js'
 
 function getEnv(key: string): string {
   const localEnv = (typeof process !== 'undefined' && process.env) || {}

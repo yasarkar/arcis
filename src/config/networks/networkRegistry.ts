@@ -20,7 +20,7 @@ import {
   polygonAmoy,
   sepolia,
 } from 'viem/chains'
-import type { NetworkAdapters, NetworkCapabilities, NetworkConfig, NetworkUiConfig } from './types'
+import type { NetworkAdapters, NetworkCapabilities, NetworkConfig, NetworkUiConfig } from './types.js'
 export type { NetworkAdapters, NetworkCapabilities, NetworkConfig, NetworkUiConfig }
 
 // ─────────────────────────────────────────────────────────────

@@ -1,13 +1,13 @@
 // src/config/x402/manifests/arbitrageSentinel.ts
-import type { ServiceManifest } from '../../../types/x402'
-import { ARC_TESTNET_TOKENS } from '../../arcChain'
+import type { ServiceManifest } from '../../../types/x402.js'
+import { ARC_TESTNET_TOKENS } from '../../arcChain.js'
 import {
   DEFAULT_X402_DOMAIN,
   GATEWAY_CONTRACTS,
   CIRCLE_BATCHING_METADATA,
   X402_NETWORKS,
   X402_SCHEMES,
-} from '../schemes'
+} from '../schemes.js'
 
 export const arbitrageSentinelManifest: ServiceManifest = {
   id: 'arc-cross-dex-arbitrage-sentinel',

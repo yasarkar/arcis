@@ -1,9 +1,9 @@
 // src/utils/errorNormalizer.ts
 // Centralized Web3 Error Normalizer Engine for Arcis Protocol (100% English)
 
-import type { ArcisAppError, ErrorCategory } from '../types/errors'
-import { ERROR_DEFINITIONS, type ErrorDefinition } from '../config/errorMessages'
-import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants'
+import type { ArcisAppError, ErrorCategory } from '../types/errors.js'
+import { ERROR_DEFINITIONS, type ErrorDefinition } from '../config/errorMessages.js'
+import { MIN_DIRECT_BRIDGE_AMOUNT } from '../config/constants.js'
 
 /**
  * Checks whether an error was caused by the user deliberately rejecting/canceling

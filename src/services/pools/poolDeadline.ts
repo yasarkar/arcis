@@ -1,5 +1,5 @@
 import type { Address } from 'viem'
-import { POOL_CONTRACTS } from '../../config/poolsConfig'
+import { POOL_CONTRACTS } from '../../config/poolsConfig.js'
 
 /**
  * V4 pools with audited MEV protection (EURC/cirBTC and cirBTC/WETH) only expose deadline-taking entry points:

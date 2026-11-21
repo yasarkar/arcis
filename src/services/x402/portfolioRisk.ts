@@ -11,19 +11,19 @@
 // with evidence, threshold and remediation per finding. `riskFlags` is kept for older callers.
 
 import { formatUnits, getAddress, type Address } from 'viem'
-import { ARC_TOKENS, IS_TESTNET } from '../../config/arcChain'
-import { DOMAIN_TO_CHAIN } from '../../config/gatewayConfig'
-import { ERC20_ABI } from '../../config/poolsConfig'
-import { getGatewayBalances } from '../gatewayService'
-import { getArcPublicClient, getResilientPublicClient, resilientGetBalance, resilientReadContract } from '../rpc'
-import { getLiveTokenPrices, normalizeTokenSymbol } from '../tokenPriceService'
-import { getNativeGasPrice } from '../portfolio/portfolioMetricsService'
+import { ARC_TOKENS, IS_TESTNET } from '../../config/arcChain.js'
+import { DOMAIN_TO_CHAIN } from '../../config/gatewayConfig.js'
+import { ERC20_ABI } from '../../config/poolsConfig.js'
+import { getGatewayBalances } from '../gatewayService.js'
+import { getArcPublicClient, getResilientPublicClient, resilientGetBalance, resilientReadContract } from '../rpc/index.js'
+import { getLiveTokenPrices, normalizeTokenSymbol } from '../tokenPriceService.js'
+import { getNativeGasPrice } from '../portfolio/portfolioMetricsService.js'
 import {
   buildInstitutionalReport,
   institutionalRisk,
   type InstitutionalReport,
   type InstitutionalRisk,
-} from './institutionalReport'
+} from './institutionalReport.js'
 
 export const PORTFOLIO_RISK_SERVICE_ID = 'arc-portfolio-risk-exposure'
 

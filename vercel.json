@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm install --legacy-peer-deps",
+  "installCommand": "npm install --no-audit --no-fund",
   "buildCommand": "npm run build:verified",
   "outputDirectory": "dist",
   "framework": "vite",
@@ -7,19 +7,15 @@
   "trailingSlash": false,
   "functions": {
     "api/copilot.ts": {
-      "memory": 1024,
       "maxDuration": 30
     },
     "api/x402.ts": {
-      "memory": 1024,
       "maxDuration": 30
     },
     "api/swap.ts": {
-      "memory": 1024,
       "maxDuration": 30
     },
     "api/relayer.ts": {
-      "memory": 1024,
       "maxDuration": 30
     }
   },

@@ -10,7 +10,7 @@
 // the UI advertises a fee.
 
 import { getAddress, type Address } from 'viem'
-import { auditPayoutAddress } from './payouts'
+import { auditPayoutAddress } from './payouts.js'
 
 /**
  * Normalizes an address the way the tollgate does. Manifest addresses are not always correctly

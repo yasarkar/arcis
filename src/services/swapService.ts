@@ -9,9 +9,9 @@ import {
   type Address,
   type Hex,
 } from 'viem'
-import { arcTestnet, IS_TESTNET } from '../config/arcChain'
-import { ARC_GAS_LIMITS, getDynamicArcGasOptions } from '../config/feeTiers'
-import { getNetwork } from '../config/networks/networkRegistry'
+import { arcTestnet, IS_TESTNET } from '../config/arcChain.js'
+import { ARC_GAS_LIMITS, getDynamicArcGasOptions } from '../config/feeTiers.js'
+import { getNetwork } from '../config/networks/networkRegistry.js'
 import {
   ARCIS_SWAP_ROUTER_ABI,
   CIRBTC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
@@ -26,17 +26,17 @@ import {
   STABLE_SWAP_ANN_MULTIPLIER,
   STABLE_SWAP_LP_FEE_BPS,
   WETH_CONSTANT_PRODUCT_LP_FEE_BPS,
-} from '../config/poolsConfig'
-import type { SwapExecuteParams, SwapExecutionStatus, SwapQuoteResult } from '../types/swap'
-import { formatCopilotError, isUserCanceled } from '../utils/errorUtils'
-import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils'
-import { getActiveSmartAccount, restoreSmartAccount, sendModularUserOperation } from './modularWalletService'
-import { buildPoolSwapCall, buildRouterSwapCall, buildRouterSwapUcwCall } from './pools/poolDeadline'
-import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
-import { setSpendingCeiling } from './spendingCeilingService'
+} from '../config/poolsConfig.js'
+import type { SwapExecuteParams, SwapExecutionStatus, SwapQuoteResult } from '../types/swap.js'
+import { formatCopilotError, isUserCanceled } from '../utils/errorUtils.js'
+import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils.js'
+import { getActiveSmartAccount, restoreSmartAccount, sendModularUserOperation } from './modularWalletService.js'
+import { buildPoolSwapCall, buildRouterSwapCall, buildRouterSwapUcwCall } from './pools/poolDeadline.js'
+import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc/index.js'
+import { setSpendingCeiling } from './spendingCeilingService.js'
 
-import { exactApprovalAmount } from '../utils/approvalUtils'
-import { exactSwapOutputUnits, swapFractionToBps, swapMinimumUnits, validateSwapSlippageBps } from '../utils/swapSlippage'
+import { exactApprovalAmount } from '../utils/approvalUtils.js'
+import { exactSwapOutputUnits, swapFractionToBps, swapMinimumUnits, validateSwapSlippageBps } from '../utils/swapSlippage.js'
 
 const kit = new AppKit()
 

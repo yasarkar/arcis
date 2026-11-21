@@ -7,12 +7,12 @@ import {
   CHAIN_DEFS,
   getChainIconId,
   getChainDisplayName,
-} from './chainMeta'
+} from './chainMeta.js'
 import {
   getNetwork,
   getNetworksByCapability,
   IS_TESTNET,
-} from './networks/networkRegistry'
+} from './networks/networkRegistry.js'
 
 export { CHAIN_META, CHAIN_DEFS, getChainIconId, getChainDisplayName }
 export const SEND_CHAIN_META = CHAIN_META

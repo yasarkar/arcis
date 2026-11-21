@@ -9,10 +9,10 @@
 // Nothing is fabricated: when no sample succeeds (or a production instance has no shared store) the
 // snapshot is `unavailable` and the card renders a dash instead of an old or invented number.
 
-import { ACTIVE_ARC_RPCS } from '../../src/services/rpc/rpcConfig'
-import type { LatencySnapshot } from '../../src/types/x402'
-import { getStorageDriver, kvDel, kvGet, kvSet } from './redisStorage'
-import { getPlatformStatsNamespace } from './x402Stats'
+import { ACTIVE_ARC_RPCS } from '../../src/services/rpc/rpcConfig.js'
+import type { LatencySnapshot } from '../../src/types/x402.js'
+import { getStorageDriver, kvDel, kvGet, kvSet } from './redisStorage.js'
+import { getPlatformStatsNamespace } from './x402Stats.js'
 
 /** Storage-schema version. Bump only when the snapshot layout changes. */
 export const LATENCY_SNAPSHOT_VERSION = 'v1'

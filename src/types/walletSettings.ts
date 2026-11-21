@@ -1,4 +1,4 @@
-import { SpeedTier } from '../config/feeTiers'
+import { SpeedTier } from '../config/feeTiers.js'
 
 export type SlippagePreset = '0.1' | '0.5' | '1.0' | '2.0' | 'custom'
 

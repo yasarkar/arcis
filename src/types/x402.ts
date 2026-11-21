@@ -1,7 +1,7 @@
 // src/types/x402.ts
 // Arc AI Services & Circle Gateway Nanopayments (x402) Architectural Contracts
 
-import type { ActionableSignalPayload, ServiceInputParameter } from './marketplace'
+import type { ActionableSignalPayload, ServiceInputParameter } from './marketplace.js'
 
 export type ServiceCategory =
   | 'All'

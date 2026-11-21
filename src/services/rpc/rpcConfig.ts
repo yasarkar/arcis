@@ -9,7 +9,7 @@ import {
   MULTI_CHAIN_RPC_FALLBACKS,
   TESTNET_NETWORKS,
   MAINNET_NETWORKS,
-} from '../../config/networks/networkRegistry'
+} from '../../config/networks/networkRegistry.js'
 
 export interface ChainRpcConfig {
   chainId: number
@@ -45,5 +45,5 @@ export {
   RPC_RECEIPT_TIMEOUT_MS,
   RPC_DEFAULT_RETRIES,
   RPC_DEFAULT_RETRY_DELAY_MS,
-} from '../../config/constants'
+} from '../../config/constants.js'
 

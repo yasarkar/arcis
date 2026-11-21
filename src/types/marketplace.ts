@@ -1,5 +1,5 @@
 // Data structures for x402 AI Services Marketplace & Arcis AI Copilot
-import type { Recommendation } from '../services/x402/nextActions'
+import type { Recommendation } from '../services/x402/nextActions.js'
 import type {
   ServiceCategory,
   ServiceManifest,
@@ -10,7 +10,7 @@ import type {
   ProviderLedger,
   ServiceHealth,
   X402ExecutionReceipt,
-} from './x402'
+} from './x402.js'
 
 export type {
   ServiceCategory,
@@ -149,7 +149,7 @@ export interface CopilotActionPayload {
   }
 }
 
-import type { InlineExecutionReceipt, ExecutionProgressState } from './sessionKey'
+import type { InlineExecutionReceipt, ExecutionProgressState } from './sessionKey.js'
 
 export interface CopilotMessage {
   id: string

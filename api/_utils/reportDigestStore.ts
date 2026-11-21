@@ -15,9 +15,9 @@ import {
   parseReportDigestStore,
   type ReportDigest,
   type ReportDigestStore,
-} from '../../src/services/x402/reportDigest'
-import { kvGet, kvSet } from './redisStorage'
-import { getPlatformStatsNamespace } from './x402Stats'
+} from '../../src/services/x402/reportDigest.js'
+import { kvGet, kvSet } from './redisStorage.js'
+import { getPlatformStatsNamespace } from './x402Stats.js'
 
 /** A digest is a convenience memory; ninety days is longer than any recommendation stays useful. */
 export const REPORT_DIGEST_TTL_SECONDS = 90 * 24 * 60 * 60

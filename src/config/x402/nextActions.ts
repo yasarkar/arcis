@@ -12,11 +12,11 @@
 //   3. a principal-impairment finding is a claim about the vault, so it is cross-checked against
 //      the vault's own read instead of being acted on directly.
 
-import type { RiskSeverity } from '../../services/x402/institutionalReport'
+import type { RiskSeverity } from '../../services/x402/institutionalReport.js'
 import {
   FINDING_SIGNAL_IDS,
   META_SIGNAL_IDS,
-} from '../../services/x402/reportSignals'
+} from '../../services/x402/reportSignals.js'
 
 export type RecommendationTier =
   | 'reparameterize'

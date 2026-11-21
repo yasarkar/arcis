@@ -2,8 +2,8 @@
 // Arcis Protocol Centralized Error Utilities Facade (100% English)
 // Re-exports and adapts core normalizer functions for backward compatibility.
 
-import { normalizeAppError, normalizePasskeyError, parsePasskeyError, isUserCanceledError } from './errorNormalizer'
-import type { ArcisAppError, ErrorCategory, ParsedPasskeyError } from '../types/errors'
+import { normalizeAppError, normalizePasskeyError, parsePasskeyError, isUserCanceledError } from './errorNormalizer.js'
+import type { ArcisAppError, ErrorCategory, ParsedPasskeyError } from '../types/errors.js'
 
 export { normalizeAppError, normalizePasskeyError, parsePasskeyError, isUserCanceledError }
 export type { ArcisAppError, ErrorCategory, ParsedPasskeyError }

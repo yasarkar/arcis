@@ -7,28 +7,28 @@ import {
   type Address,
   type Hex,
 } from 'viem'
-import { IS_TESTNET } from '../config/networks/networkRegistry'
-import { getNetwork } from '../config/networks/networkRegistry'
-import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc'
+import { IS_TESTNET } from '../config/networks/networkRegistry.js'
+import { getNetwork } from '../config/networks/networkRegistry.js'
+import { getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc/index.js'
 import {
   GATEWAY_DOMAINS,
   USDC_ADDRESSES,
   EURC_ADDRESSES,
   CIRBTC_ADDRESSES,
   WETH_ADDRESSES,
-} from '../config/gatewayConfig'
-import { getExplorerTxUrl } from '../config/sendConfig'
+} from '../config/gatewayConfig.js'
+import { getExplorerTxUrl } from '../config/sendConfig.js'
 import {
   getUcwBridgeMechanism,
   normalizeMatrixToken,
   NON_USDC_TOKEN_DEPLOYMENTS,
   type NonUsdcBridgeToken,
-} from '../config/bridgeRouteMatrix'
-import { mapChainKeyToCircleBlockchain } from './gatewayUcwService'
-import type { SupportedBridgeToken } from '../types/bridge'
-import { exactApprovalAmount } from '../utils/approvalUtils'
-import { singleFlightWithBackoff } from '../utils/singleFlight'
-import { logger } from '../utils/logger'
+} from '../config/bridgeRouteMatrix.js'
+import { mapChainKeyToCircleBlockchain } from './gatewayUcwService.js'
+import type { SupportedBridgeToken } from '../types/bridge.js'
+import { exactApprovalAmount } from '../utils/approvalUtils.js'
+import { singleFlightWithBackoff } from '../utils/singleFlight.js'
+import { logger } from '../utils/logger.js'
 
 /** Scoped logger: bridge diagnostics must not be raw console output in production. */
 const bridgeLog = logger.createScope('bridgeUcwService')

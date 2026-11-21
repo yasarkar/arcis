@@ -8,14 +8,14 @@
 // provider on an assumption.
 
 import { getAddress, isAddress, type Address } from 'viem'
-import { X402_NETWORKS } from '../../src/config/x402/schemes'
+import { X402_NETWORKS } from '../../src/config/x402/schemes.js'
 import {
   kvConfirmPendingProviderSettlement,
   kvFailPendingProviderSettlement,
   kvGetPendingProviderSettlement,
   kvMarkProviderSettlementAccepted,
-} from './redisStorage'
-import { recordPlatformCall } from './x402Stats'
+} from './redisStorage.js'
+import { recordPlatformCall } from './x402Stats.js'
 
 export interface SettlementReconcileResult {
   status: number

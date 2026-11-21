@@ -8,8 +8,8 @@
 // Everything else is reported as "unverified" by scripts/audit-x402-payouts.ts for the operator to
 // confirm — this module never invents an address or silently substitutes one.
 
-import { ARC_TESTNET_TOKENS } from '../arcChain'
-import { GATEWAY_CONTRACTS } from './schemes'
+import { ARC_TESTNET_TOKENS } from '../arcChain.js'
+import { GATEWAY_CONTRACTS } from './schemes.js'
 
 export interface PayoutAudit {
   usable: boolean

@@ -4,11 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false && tsc -p tsconfig.api.json --pretty false",
+    "typecheck:api": "tsc -p tsconfig.api.json --pretty false",
     "build": "vite build",
     "build:verified": "npm run typecheck && vite build && npm run budget",
     "budget": "node scripts/check-bundle-budget.mjs",
@@ -72,5 +73,16 @@
     "typescript": "^5.6.3",
     "vite": "^6.0.0",
     "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.7",
+    "undici": "^6.29.1",
+    "toml": "^5.0.1",
+    "@circle-fin/w3s-pw-web-sdk": {
+      "uuid": "^11.1.1"
+    },
+    "jayson": {
+      "uuid": "^11.1.1"
+    }
   }
 }

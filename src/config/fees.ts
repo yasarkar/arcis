@@ -221,7 +221,7 @@ import {
   type SpeedTier,
   type SpeedTierConfig,
   SPEED_TIERS,
-} from './gasTierConstants'
+} from './gasTierConstants.js'
 
 export {
   type SpeedTier,
@@ -511,4 +511,4 @@ export {
   getObservedArcPriorityFee,
   type ArcActualFeeResult,
   type DynamicArcGasResult,
-} from '../services/arcGasService'
+} from '../services/arcGasService.js'

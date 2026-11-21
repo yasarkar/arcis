@@ -10,7 +10,7 @@ import {
   formatUnits,
   parseAbi,
 } from 'viem'
-import { getServerSignerAccount } from './serverSigner'
+import { getServerSignerAccount } from './serverSigner.js'
 
 const arcTestnet = {
   id: 5042002,

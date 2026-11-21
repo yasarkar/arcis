@@ -25,9 +25,9 @@ import {
   ContractAddress,
 } from '@circle-fin/modular-wallets-core'
 
-import { arcTestnet, ARC_TOKENS } from '../config/arcChain'
-import { checkPasskeySupport, parsePasskeyError, type ParsedPasskeyError } from '../utils/passkeyErrorUtils'
-import { logger } from '../utils/logger'
+import { arcTestnet, ARC_TOKENS } from '../config/arcChain.js'
+import { checkPasskeySupport, parsePasskeyError, type ParsedPasskeyError } from '../utils/passkeyErrorUtils.js'
+import { logger } from '../utils/logger.js'
 
 /** Scoped logger: a lost passkey credential is user-visible (re-authentication), never silent. */
 const log = logger.createScope('modularWalletService')

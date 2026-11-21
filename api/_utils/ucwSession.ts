@@ -19,7 +19,7 @@
 //   * Opaque to the browser. HttpOnly plus `Path=/api/ucw` means neither scripts
 //     nor the app's other routes ever see the value.
 
-import { readTrustedProtocol } from './trustedIp'
+import { readTrustedProtocol } from './trustedIp.js'
 
 export const UCW_SESSION_COOKIE = 'arcis_ucw_session'
 

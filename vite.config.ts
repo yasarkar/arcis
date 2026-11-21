@@ -152,9 +152,10 @@ export default defineConfig(({ mode }) => {
       nodePolyfills({
         protocolImports: false,
         // P07: exclude server-only core modules so no browser chunk can pull
-        // their shims in. If a dependency ever needs one of these, `vite build`
-        // fails loudly ("externalized for browser compatibility") instead of
-        // silently shipping a stub — the build is the guardrail.
+        // their shims in. `rollupOptions.onwarn` below enforces this guardrail by
+        // failing the build on any unexpected "externalized for browser
+        // compatibility" warning (only the audited `asn1.js -> vm` try/catch
+        // fallback is allowlisted).
         exclude: [
           'fs',
           'child_process',
@@ -201,6 +202,22 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       chunkSizeWarningLimit: 600,
       rollupOptions: {
+        onwarn(warning, defaultHandler) {
+          const id = warning.id?.replace(/\\/g, '/') ?? ''
+          const message = warning.message?.replace(/\\/g, '/') ?? ''
+          if (warning.code === 'INVALID_ANNOTATION' && id.includes('/node_modules/ox/')) {
+            return
+          }
+          if (message.includes('has been externalized for browser compatibility')) {
+            if (message.includes('Module "vm"') && message.includes('/asn1.js/lib/asn1/api.js')) {
+              return
+            }
+            throw new Error(
+              `[vite-build-guard] Unexpected Node module externalized for browser: ${warning.message}`
+            )
+          }
+          defaultHandler(warning)
+        },
         output: {
           // ARC-027: split only the vendor families that are eagerly needed by the shell and that
           // nothing lazy-only depends on, so the browser can cache them across app releases.

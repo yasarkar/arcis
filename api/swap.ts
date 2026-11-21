@@ -1,4 +1,4 @@
-import { apiError } from "./_utils/apiResponse";
+import { apiError } from "./_utils/apiResponse.js";
 
 // Security (SEC-03): Server-controlled swaps are disabled pending cryptographic owner authorization
 // and authenticated mandate policy to prevent unauthenticated execution of developer-controlled wallets.

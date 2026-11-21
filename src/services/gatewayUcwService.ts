@@ -10,10 +10,10 @@ import {
   GATEWAY_EIP712_DOMAIN,
   GATEWAY_EIP712_TYPES,
   USDC_ADDRESSES,
-} from '../config/gatewayConfig'
-import { IS_TESTNET } from '../config/arcChain'
-import { getNetwork } from '../config/networks/networkRegistry'
-import { getResilientPublicClient } from './rpc'
+} from '../config/gatewayConfig.js'
+import { IS_TESTNET } from '../config/arcChain.js'
+import { getNetwork } from '../config/networks/networkRegistry.js'
+import { getResilientPublicClient } from './rpc/index.js'
 import {
   getGatewayBalances,
   verifyDestinationUsdcMint,
@@ -21,11 +21,11 @@ import {
   estimateGatewayMaxFee,
   MAX_BLOCK_HEIGHT,
   type GatewayTransferSpecPayload,
-} from './gatewayService'
-import { getExplorerTxUrl } from '../config/sendConfig'
-import { prepareCircleTypedData } from './ucwTypedData'
-import { normalizeCircleBlockchain } from '../utils/circleBlockchain'
-import { logger } from '../utils/logger'
+} from './gatewayService.js'
+import { getExplorerTxUrl } from '../config/sendConfig.js'
+import { prepareCircleTypedData } from './ucwTypedData.js'
+import { normalizeCircleBlockchain } from '../utils/circleBlockchain.js'
+import { logger } from '../utils/logger.js'
 
 /** Scoped logger: gateway diagnostics must not be raw console output in production. */
 const gatewayLog = logger.createScope('gatewayUcwService')

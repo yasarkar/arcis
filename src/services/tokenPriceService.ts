@@ -1,7 +1,7 @@
 // Multi-Tier Dynamic Token Price Oracle & Cache for Arcis and Ask Arcis Copilot
 // 1. In-Memory Micro Cache (0ms) -> 2. Redis Cache (30s TTL) -> 3. Live Oracle/DEX API -> 4. Safe Static Fallback
-import { redisCache } from './redisCacheService'
-import { logger } from '../utils/logger'
+import { redisCache } from './redisCacheService.js'
+import { logger } from '../utils/logger.js'
 
 /** Scoped logger: the Redis price cache is optional, but a failed warm-up must stay visible. */
 const log = logger.createScope('tokenPriceService')

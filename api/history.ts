@@ -48,7 +48,7 @@ export interface ServerHistoryItem {
   tokenB?: string
 }
 
-import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse'
+import { apiSuccess, apiError, safeJsonParse } from './_utils/apiResponse.js'
 import {
   kvGet,
   kvMget,
@@ -56,7 +56,7 @@ import {
   kvDel,
   isStorageAvailable,
   getStorageDriver,
-} from './_utils/redisStorage'
+} from './_utils/redisStorage.js'
 
 // In-memory fallback array on server for offline or cold-start fallback
 const memoryHistory: ServerHistoryItem[] = []

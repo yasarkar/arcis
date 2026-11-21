@@ -10,7 +10,7 @@ import {
   ACTIVE_NETWORKS,
   getNetworksByCapability,
   type NetworkConfig,
-} from './networks/networkRegistry'
+} from './networks/networkRegistry.js'
 
 // ── Gateway REST API ─────────────────────────────────────────────────────────
 export const GATEWAY_API = {
