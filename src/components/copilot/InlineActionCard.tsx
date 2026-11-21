@@ -686,20 +686,6 @@ export default function InlineActionCard({
                   value={
                     <span className="inline-flex items-center gap-1.5 select-text">
                       <span>{slippageBps === undefined ? 'Invalid — new quote required' : `${slippageBps / 100}%`}</span>
-                      {onOpenExecutionSettings && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onOpenExecutionSettings()
-                          }}
-                          aria-label="Slippage ayarını aç"
-                          title="Toleransı ve Gaz Ayarlarını Düzenle"
-                          className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition cursor-pointer"
-                        >
-                          <Settings className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                     </span>
                   }
                 />
