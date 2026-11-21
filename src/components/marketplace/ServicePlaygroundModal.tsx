@@ -7,6 +7,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Download,
   FileJson,
   Info,
   Lock,
@@ -39,6 +40,7 @@ import type { x402ExecutionResult, x402Service } from '../../types/marketplace'
 import type { SessionKeyConfig } from '../../types/sessionKey'
 import { diagnoseX402Failure } from '../../utils/x402FailureDiagnosis'
 import { evaluateX402Readiness } from '../../utils/x402Readiness'
+import { buildReportCsv, triggerFileDownload } from '../../utils/reportExport'
 import { ChainIcon } from '../common/ChainIcon'
 import { PortfolioAssetIcon } from '../portfolio/PortfolioAssetIcon'
 import MarketplaceSelect from './MarketplaceSelect'
@@ -793,6 +795,9 @@ export function VisualDataDashboard({
     vaultTotalAssetsUsdc: { label: 'Vault Total Assets', isCurrency: true },
     tvlUsdc: { label: 'Vault TVL', isCurrency: true },
     sharePriceUsdc: { label: 'Share Price', isCurrency: true },
+    totalLpValueUsd: { label: 'Active LP Value', isCurrency: true },
+    totalPendingLpFeesUsd: { label: 'Pending LP Fees', isCurrency: true },
+    totalHarvestableYieldAndFeesUsd: { label: 'Harvestable Total', isCurrency: true },
     gatewayBalanceUsdc: { label: 'Gateway Balance', isCurrency: true },
     gasCostUsdc: { label: 'Gas Cost', isCurrency: true },
     estimatedGasCostUsdc: { label: 'Est. Gas Cost', isCurrency: true },
@@ -836,6 +841,15 @@ export function VisualDataDashboard({
   const routeComparison: any[] = Array.isArray(data.routeComparison) ? data.routeComparison : []
   const scannedPools: any[] = Array.isArray(data.scannedPools) ? data.scannedPools : []
   const yieldOpportunities: any[] = Array.isArray(data.opportunities) ? data.opportunities : []
+  const defiLpPositions: any[] = Array.isArray(data.lpPositions)
+    ? data.lpPositions
+    : Array.isArray(data.defiPositions?.lpPools)
+      ? data.defiPositions.lpPools
+      : []
+  const defiVaultSummary: Record<string, any> | null =
+    data.defiPositions?.vault && typeof data.defiPositions.vault === 'object'
+      ? (data.defiPositions.vault as Record<string, any>)
+      : null
   const executionSizing: Record<string, any> | null =
     data.executionSizing && typeof data.executionSizing === 'object' && !Array.isArray(data.executionSizing)
       ? (data.executionSizing as Record<string, any>)
@@ -927,9 +941,36 @@ export function VisualDataDashboard({
           )}
         </div>
 
-        {/* Right side controls: Raw JSON toggle button */}
-        {onToggleViewMode && (
-          <div className="flex items-center gap-2 flex-wrap">
+        {/* Right side controls: Export CSV/JSON & Raw JSON toggle */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              soundService.play('pop')
+              const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
+              const csv = buildReportCsv(slug, data)
+              triggerFileDownload(`${slug}-${Date.now()}.csv`, csv, 'text/csv;charset=utf-8;')
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-semibold transition cursor-pointer shadow-sm bg-white/[0.05] hover:bg-white/[0.1] border-white/10 hover:border-white/20 text-white/80 hover:text-white"
+            title="Download Report as CSV"
+          >
+            <Download className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>CSV</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              soundService.play('pop')
+              const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
+              triggerFileDownload(`${slug}-${Date.now()}.json`, JSON.stringify(data, null, 2), 'application/json')
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-semibold transition cursor-pointer shadow-sm bg-white/[0.05] hover:bg-white/[0.1] border-white/10 hover:border-white/20 text-white/80 hover:text-white"
+            title="Download Report as JSON"
+          >
+            <Download className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>JSON</span>
+          </button>
+          {onToggleViewMode && (
             <button
               type="button"
               onClick={onToggleViewMode}
@@ -941,8 +982,8 @@ export function VisualDataDashboard({
             >
               <FileJson className="w-4 h-4 flex-shrink-0" />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {outputViewMode === 'raw' ? (
@@ -1275,6 +1316,71 @@ export function VisualDataDashboard({
             </div>
           )}
 
+
+          {/* Active Arc DeFi Positions (Vault & LP Pools with Pending Fees) */}
+          {(defiLpPositions.length > 0 || defiVaultSummary?.hasPosition) && (
+            <div
+              className="rounded-2xl border border-white/[0.08] overflow-hidden"
+              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
+            >
+              <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[11px] font-mono font-semibold text-white/60">
+                <span>ARC DEFI POSITIONS ({(defiVaultSummary?.hasPosition ? 1 : 0) + defiLpPositions.length})</span>
+                <span className="text-[10px] text-white/40">VAULT + LP FEES</span>
+              </div>
+              <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
+                {defiVaultSummary?.hasPosition && (
+                  <div className="p-3 rounded-xl bg-white/[0.025] border border-[var(--purple-1)]/25 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-bold text-white">USDC Yield Vault (ERC-4626)</span>
+                      <span className="text-[10px] font-mono text-white/45 block">
+                        Shares: {defiVaultSummary.shares}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums">
+                      <span className="text-white/70">
+                        Value: <strong className="text-white">{typeof defiVaultSummary.currentValueUsdc === 'number' ? `$${defiVaultSummary.currentValueUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
+                      </span>
+                      {typeof defiVaultSummary.pendingYieldUsdc === 'number' && defiVaultSummary.pendingYieldUsdc > 0 && (
+                        <span className="text-[var(--earned-green)] font-bold">
+                          Pending Yield: +${defiVaultSummary.pendingYieldUsdc.toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {defiLpPositions.map((lp: any) => (
+                  <div
+                    key={lp.poolId || lp.poolName}
+                    className="p-3 rounded-xl bg-white/[0.025] border border-white/[0.06] flex flex-wrap items-center justify-between gap-2"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white">{lp.poolName} LP</span>
+                        {typeof lp.poolSharePct === 'number' && lp.poolSharePct > 0 && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-white/60">
+                            {lp.poolSharePct.toFixed(2)}% share
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-mono text-white/45 block mt-0.5">
+                        {lp.amountA ?? '—'} {lp.tokenA} + {lp.amountB ?? '—'} {lp.tokenB} · IL: {lp.impermanentLossRisk}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums">
+                      <span className="text-white/70">
+                        LP Value: <strong className="text-white">{typeof lp.valueUsd === 'number' ? `$${lp.valueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
+                      </span>
+                      {typeof lp.pendingFeesUsd === 'number' && lp.pendingFeesUsd > 0 && (
+                        <span className="text-[var(--earned-green)] font-bold">
+                          Pending Fees: +${lp.pendingFeesUsd.toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Side-by-Side: Portfolio Assets & Chain Exposure */}
           {(holdings.length > 0 || chainExposure.length > 0) && (

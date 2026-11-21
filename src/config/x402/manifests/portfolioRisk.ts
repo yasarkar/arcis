@@ -13,13 +13,13 @@ const PROVIDER_ADDRESS = '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A'
 
 export const portfolioRiskManifest: ServiceManifest = {
   id: 'arc-portfolio-risk-exposure',
-  version: '1.0.0',
-  name: 'Portfolio & DeFi Health Auditor',
-  tagline: 'Multi-Chain Balances, Concentration & Stablecoin Risk Audit',
+  version: '1.1.0',
+  name: 'Full Portfolio & DeFi Health Auditor',
+  tagline: 'Wallet, 6 LP Pools, Yield Vault, Multi-Chain Gas & Gateway Exposure in One Audit',
   category: 'Risk & Compliance',
   engine: 'native',
   description:
-    'Audits wallet holdings across Arc L1, connected testnets, and Circle Gateway unified USDC to flag asset concentration, non-stablecoin exposure, and data coverage.',
+    'Audits your full on-chain portfolio across Arc wallet tokens, ERC-4626 Yield Vault shares, all 6 Arc V4 AMM LP positions, multi-chain native gas, and Circle Gateway unified USDC.',
   listing: {
     kind: 'official',
     ownerAddress: PROVIDER_ADDRESS,

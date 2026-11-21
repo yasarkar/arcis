@@ -1834,8 +1834,8 @@ This is advisory analysis only; no trade or relayer protection was executed.`
 2. <strong>All-Pools Spread & Mispricing Scanner:</strong> $0.005 USDC/call — scans all 6 Arc pools against live market oracles after USDC gas.
 3. <strong>Bridge & Gateway Cost Optimizer:</strong> $0.003 USDC/call — live Circle Gateway vs CCTP fee comparison before bridging.
 4. <strong>Arc Yield & Pool Opportunity Finder:</strong> $0.002 USDC/call — live TVL, 24h volume, fee tiers and wallet matching across all 6 Arc pools + ERC-4626 vault.
-5. <strong>Portfolio & DeFi Health Auditor:</strong> $0.004 USDC/call — multi-chain wallet & Gateway concentration and exposure audit.
-6. <strong>Yield & Position Statement (AI):</strong> $0.012 USDC/call — on-chain vault principal & yield with AI-narrated summary.
+5. <strong>Full Portfolio & DeFi Health Auditor:</strong> $0.004 USDC/call — audits wallet tokens, ERC-4626 vault shares, all 6 Arc LP pools, multi-chain gas, and Gateway USDC.
+6. <strong>Yield, LP Fees & Position Statement (AI):</strong> $0.012 USDC/call — vault principal, accrued yield, and all 6 LP pool fees with AI summary & CSV/JSON export.
 7. <strong>Cross-Chain Gateway Flow Monitor:</strong> $0.003 USDC/call — live on-chain Gateway USDC inflows and outflows on Arc L1.
 
 These are catalog rates, not successful calls. Paid calls require an external EOA or a Circle Wallet EOA, Arc Testnet and a previously funded Circle Gateway balance. Circle facilitator acceptance serves the result, while provider earnings remain pending until nonce reconciliation confirms settlement. Passkey/MSCA and autonomous session payments are unsupported; this app never deposits automatically.`,
@@ -1869,8 +1869,8 @@ A provider can integrate an HTTP 402 payment challenge and register a service ma
 • <strong>All 6 pools vs oracle price spread:</strong> All-Pools Spread & Mispricing Scanner ($0.005/call).
 • <strong>Before bridging (Gateway vs CCTP):</strong> Bridge & Gateway Cost Optimizer ($0.003/call).
 • <strong>Compare all 6 pools & vault yield opportunities:</strong> Arc Yield & Pool Opportunity Finder ($0.002/call).
-• <strong>Wallet risk & concentration audit:</strong> Portfolio & DeFi Health Auditor ($0.004/call).
-• <strong>AI-narrated yield statement:</strong> Yield & Position Statement (AI) ($0.012/call).
+• <strong>Full wallet, LP & Vault risk audit:</strong> Full Portfolio & DeFi Health Auditor ($0.004/call).
+• <strong>AI-narrated yield & LP fees statement (CSV/JSON):</strong> Yield, LP Fees & Position Statement (AI) ($0.012/call).
 • <strong>On-chain Arc USDC inflow/outflow tracking:</strong> Cross-Chain Gateway Flow Monitor ($0.003/call).
 
 These are catalog entries. Paid testnet calls require an external EOA or Circle Wallet EOA with a funded Circle Gateway balance. Open the AI Services tab to launch any service.`,

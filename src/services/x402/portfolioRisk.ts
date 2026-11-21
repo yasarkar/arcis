@@ -24,13 +24,18 @@ import {
   type InstitutionalReport,
   type InstitutionalRisk,
 } from './institutionalReport.js'
+import {
+  readArcDefiPositions,
+  type ArcLpPosition,
+  type ArcVaultPositionSummary,
+} from './arcDefiPositions.js'
 
 export const PORTFOLIO_RISK_SERVICE_ID = 'arc-portfolio-risk-exposure'
 
 const REPORT_TITLE = 'Portfolio Risk & Exposure Report'
 
 const REPORT_LIMITATIONS = [
-  'Held assets are the four Arc Testnet ERC-20 tokens plus native gas on the supported testnets; LP positions, vault shares and unlisted tokens are outside the measurement.',
+  'Held assets cover Arc Testnet ERC-20 wallet balances, ERC-4626 USDC Yield Vault shares, all 6 Arc V4 AMM LP positions, native gas across supported testnets, and optional Circle Gateway unified USDC; unlisted tokens are outside the measurement.',
   'USD values come from the application price service and are indicative feed values, not executable quotes.',
   'No historical series is read, so no drawdown, volatility or time-weighted exposure is computed.',
   'Every finding is an observation about measured exposure. The service submits no transaction and recommends no trade.',
@@ -113,6 +118,20 @@ export interface PortfolioRiskResult {
   holdings: TokenHolding[]
   gatewayBalanceUsdc: number | null
   chainExposure: ChainExposure[]
+  defiPositions?: {
+    vault: ArcVaultPositionSummary
+    lpPools: ArcLpPosition[]
+    totalVaultUsd: number | null
+    totalLpUsd: number | null
+    totalPendingFeesUsd: number | null
+    totalDefiUsd: number | null
+  }
+  allocationBreakdown?: {
+    walletTokensUsd: number | null
+    gatewayUsdc: number | null
+    vaultUsd: number | null
+    lpPoolsUsd: number | null
+  }
   riskFlags: string[]
   /** Institutional envelope: identity, freshness, coverage, grade, graded risk register. */
   report: InstitutionalReport
@@ -172,8 +191,9 @@ export async function readPortfolioRisk(input: {
     ? 'Balances are read from Arc Testnet token contracts, multi-chain native gas balances, and Circle Gateway at call time; USD values use the app price service. Concentration and stablecoin share reflect unified asset exposure across Arc wallet, connected testnets, and Gateway balances.'
     : 'Balances are read from Arc Testnet token contracts and multi-chain native gas balances at call time; USD values use the app price service. Concentration and stablecoin share are arithmetic on the measured total, not a risk score.'
 
+  const DEFI_READS_COUNT = 7 // 1 ERC-4626 Vault + 6 Arc V4 AMM pools
   const expectedReads =
-    PORTFOLIO_TOKENS.length + PORTFOLIO_NATIVE_SPECS.length + (includeGatewayBalance ? 1 : 0)
+    PORTFOLIO_TOKENS.length + PORTFOLIO_NATIVE_SPECS.length + DEFI_READS_COUNT + (includeGatewayBalance ? 1 : 0)
 
   const reportFor = (args: {
     subject: string
@@ -192,6 +212,7 @@ export async function readPortfolioRisk(input: {
       risks: args.risks,
       methodology: [
         'Wallet token balances are read with eth_call balanceOf() against the Arc Testnet ERC-20 contracts (USDC, EURC, WETH, cirBTC).',
+        'Active Arc DeFi positions are read live from the ERC-4626 USDC Yield Vault and all 6 Arc V4 AMM pools (LP shares, pro-rata underlying reserves and pending fees).',
         'Native gas balances are read from the configured Sepolia, Amoy, Fuji, Sei and Sonic RPC endpoints.',
         'USD values apply the application price service; an unpriced nonzero balance withholds the total instead of contributing zero.',
         includeGatewayBalance
@@ -352,29 +373,48 @@ export async function readPortfolioRisk(input: {
 
   let gatewayBalanceUsdc: number | null = null
   let gatewayExposure: ChainExposure[] = []
+  const [gatewayOutcome, defiPositions] = await Promise.all([
+    includeGatewayBalance
+      ? getGatewayBalances(address, IS_TESTNET ? 'testnet' : 'mainnet')
+          .then((response) => {
+            const balances = Array.isArray(response?.balances) ? response.balances : []
+            const parsed = balances.map((item) => ({
+              chain: DOMAIN_TO_CHAIN[Number(item.domain)] || `domain:${item.domain}`,
+              balance: Number(item.balance),
+            }))
+            if (parsed.some((item) => !Number.isFinite(item.balance))) {
+              throw new Error('Gateway returned an unparseable balance')
+            }
+            return {
+              ok: true as const,
+              total: round6(parsed.reduce((sum, item) => sum + item.balance, 0)),
+              exposure: parsed.map((item) => ({ chain: item.chain, valueUsd: round6(item.balance) })),
+            }
+          })
+          .catch(() => ({ ok: false as const, total: null, exposure: [] as ChainExposure[] }))
+      : Promise.resolve({ ok: true as const, total: null, exposure: [] as ChainExposure[] }),
+    readArcDefiPositions(address as Address, prices),
+  ])
+
   if (includeGatewayBalance) {
-    try {
-      const response = await getGatewayBalances(address, IS_TESTNET ? 'testnet' : 'mainnet')
-      const balances = Array.isArray(response?.balances) ? response.balances : []
-      const parsed = balances.map((item) => ({
-        chain: DOMAIN_TO_CHAIN[Number(item.domain)] || `domain:${item.domain}`,
-        balance: Number(item.balance),
-      }))
-      if (parsed.some((item) => !Number.isFinite(item.balance))) {
-        throw new Error('Gateway returned an unparseable balance')
-      }
-      gatewayBalanceUsdc = round6(parsed.reduce((sum, item) => sum + item.balance, 0))
-      gatewayExposure = parsed.map((item) => ({ chain: item.chain, valueUsd: round6(item.balance) }))
-    } catch {
+    if (gatewayOutcome.ok) {
+      gatewayBalanceUsdc = gatewayOutcome.total
+      gatewayExposure = gatewayOutcome.exposure
+    } else {
       unavailable.push('Circle Gateway unified balance')
     }
   }
+  for (const item of defiPositions.unavailable) {
+    unavailable.push(item)
+  }
 
-  const balancesComplete = holdings.every((holding) => holding.balance !== null)
-  const pricesComplete = holdings.every((holding) => holding.valueUsd !== null || (holding.balance ?? 0) === 0)
+  const balancesComplete = holdings.every((holding) => holding.balance !== null) && defiPositions.allReadsOk
+  const defiValued = defiPositions.totalDefiUsd !== null
+  const pricesComplete =
+    holdings.every((holding) => holding.valueUsd !== null || (holding.balance ?? 0) === 0) && defiValued
   const gatewayComplete = !includeGatewayBalance || gatewayBalanceUsdc !== null
 
-  // Arc wallet tokens total
+  // Arc wallet tokens total (excluding Vault & LP)
   const arcWalletTokens = holdings.filter((h) => PORTFOLIO_TOKENS.some((t) => t.symbol === h.symbol))
   const arcWalletTotal = arcWalletTokens.reduce((sum, holding) => sum + (holding.valueUsd ?? 0), 0)
 
@@ -382,8 +422,28 @@ export async function readPortfolioRisk(input: {
   const nativeWalletTokens = holdings.filter((h) => NATIVE_SYMBOLS.includes(h.symbol as any))
   const nativeWalletTotal = nativeWalletTokens.reduce((sum, holding) => sum + (holding.valueUsd ?? 0), 0)
 
-  // Total wallet value across Arc and connected native testnets
+  // Total wallet value across Arc and connected native testnets (excluding DeFi)
   const walletTotal = round6(arcWalletTotal + nativeWalletTotal)
+  const defiTotalUsd = defiPositions.totalDefiUsd ?? 0
+
+  // Fold underlying Vault + LP tokens into asset-level holdings so concentration & stablecoin share
+  // reflect the wallet's complete on-chain DeFi exposure.
+  for (const underlying of defiPositions.underlyingAssets) {
+    const idx = holdings.findIndex((h) => h.symbol.toUpperCase() === underlying.symbol.toUpperCase())
+    if (idx !== -1 && holdings[idx].balance !== null) {
+      const existing = holdings[idx]
+      const mergedBal = round6((existing.balance ?? 0) + underlying.amount)
+      const mergedUsd =
+        existing.valueUsd !== null && underlying.valueUsd !== null
+          ? round6(existing.valueUsd + underlying.valueUsd)
+          : null
+      holdings[idx] = {
+        ...existing,
+        balance: mergedBal,
+        valueUsd: mergedUsd,
+      }
+    }
+  }
 
   // When Gateway is included and available, unify Gateway USDC into the USDC holding
   // so that asset-level concentration, stablecoin share, and holdings breakdown are consistent.
@@ -407,9 +467,9 @@ export async function readPortfolioRisk(input: {
   }
 
   const complete = balancesComplete && pricesComplete && gatewayComplete
-  const totalUsd = complete ? round6(walletTotal + (gatewayBalanceUsdc ?? 0)) : null
+  const totalUsd = complete ? round6(walletTotal + defiTotalUsd + (gatewayBalanceUsdc ?? 0)) : null
 
-  // True asset-level concentration across all holdings
+  // True asset-level concentration across all holdings (wallet + DeFi + Gateway)
   const measuredValues = holdings
     .filter((holding) => holding.valueUsd !== null)
     .map((holding) => holding.valueUsd as number)
@@ -425,12 +485,11 @@ export async function readPortfolioRisk(input: {
   const stablecoinSharePct =
     totalUsd !== null && totalUsd > 0 ? round6((stablecoinUsd / totalUsd) * 100) : null
 
-  // One row per chain: Arc wallet receives arcWalletTotal.
-  // Gateway and native gas exposures are tracked per individual chain.
+  // One row per chain: Arc_Testnet receives Arc wallet tokens + Arc Vault & LP positions.
   const exposureByChain = new Map<string, number | null>()
   exposureByChain.set(
     IS_TESTNET ? 'Arc_Testnet' : 'Arc',
-    balancesComplete && pricesComplete ? round6(arcWalletTotal) : null
+    balancesComplete && pricesComplete ? round6(arcWalletTotal + defiTotalUsd) : null
   )
   for (const entry of gatewayExposure) {
     const current = exposureByChain.get(entry.chain)
@@ -485,7 +544,10 @@ export async function readPortfolioRisk(input: {
   const tokenReadsReturned = reads.filter((read) => read.raw !== null).length
   const nativeReadsReturned = nativeResults.filter((entry) => entry.totalBalance !== null).length
   const measuredReads =
-    tokenReadsReturned + nativeReadsReturned + (includeGatewayBalance && gatewayBalanceUsdc !== null ? 1 : 0)
+    tokenReadsReturned +
+    nativeReadsReturned +
+    defiPositions.measuredReads +
+    (includeGatewayBalance && gatewayBalanceUsdc !== null ? 1 : 0)
 
   const unpricedPositions = holdings.filter(
     (holding) => holding.valueUsd === null && (holding.balance ?? 0) > 0
@@ -603,9 +665,52 @@ export async function readPortfolioRisk(input: {
     )
   }
 
+  const volatileLpUsd = defiPositions.lpPositions
+    .filter((p) => p.isVolatile && p.valueUsd !== null)
+    .reduce((sum, p) => sum + (p.valueUsd ?? 0), 0)
+  if (volatileLpUsd > 0 && totalUsd !== null && totalUsd > 0) {
+    const volatileLpSharePct = round6((volatileLpUsd / totalUsd) * 100)
+    risks.push(
+      institutionalRisk({
+        id: 'LP_IMPERMANENT_LOSS_EXPOSURE',
+        category: 'MARKET_STRUCTURE',
+        severity: volatileLpSharePct >= 30 ? 'MEDIUM' : 'LOW',
+        title: 'Capital exposed to volatile AMM LP impermanent loss',
+        finding: `$${volatileLpUsd.toFixed(2)} (${volatileLpSharePct}% of total portfolio) sits in volatile constant-product LP pools subject to impermanent loss.`,
+        evidence: { volatileLpUsd, volatileLpSharePct, totalUsd },
+        threshold: 'Volatile LP allocation > 0% (>= 30% graded MEDIUM).',
+        remediation:
+          'Monitor pair divergence and harvest accumulated LP swap fees in the Pools tab to offset potential IL.',
+      })
+    )
+  }
+
+  const totalPendingRewardsUsd = round6(
+    (defiPositions.vault.pendingYieldUsdc ?? 0) + (defiPositions.totalPendingLpFeesUsd ?? 0)
+  )
+  if (totalPendingRewardsUsd > 0) {
+    risks.push(
+      institutionalRisk({
+        id: 'UNCLAIMED_DEFI_REWARDS',
+        category: 'COMPOSITION',
+        severity: 'INFO',
+        title: 'Unclaimed yield and LP swap fees available to harvest',
+        finding: `$${totalPendingRewardsUsd.toFixed(4)} in accrued vault yield and AMM LP fees is ready to harvest on Arc Testnet.`,
+        evidence: {
+          vaultPendingYieldUsdc: defiPositions.vault.pendingYieldUsdc ?? 0,
+          lpPendingFeesUsd: defiPositions.totalPendingLpFeesUsd ?? 0,
+          totalPendingRewardsUsd,
+        },
+        threshold: 'Accrued pendingYield + pendingFees > 0.',
+        remediation: 'Open the Pools tab to harvest your accrued USDC yield and LP swap fees.',
+      })
+    )
+  }
+
   const riskFlags = risks.map((entry) => entry.id)
 
-  const everyBalanceFailed = holdings.every((holding) => holding.balance === null) && gatewayBalanceUsdc === null
+  const everyBalanceFailed =
+    holdings.every((holding) => holding.balance === null) && gatewayBalanceUsdc === null
   const status: PortfolioRiskResult['status'] = everyBalanceFailed
     ? 'UNAVAILABLE'
     : complete
@@ -621,6 +726,20 @@ export async function readPortfolioRisk(input: {
     holdings: sortedHoldings,
     gatewayBalanceUsdc,
     chainExposure,
+    defiPositions: {
+      vault: defiPositions.vault,
+      lpPools: defiPositions.lpPositions,
+      totalVaultUsd: defiPositions.totalVaultUsd,
+      totalLpUsd: defiPositions.totalLpUsd,
+      totalPendingFeesUsd: defiPositions.totalPendingLpFeesUsd,
+      totalDefiUsd: defiPositions.totalDefiUsd,
+    },
+    allocationBreakdown: {
+      walletTokensUsd: balancesComplete && pricesComplete ? walletTotal : null,
+      gatewayUsdc: gatewayBalanceUsdc,
+      vaultUsd: defiPositions.totalVaultUsd,
+      lpPoolsUsd: defiPositions.totalLpUsd,
+    },
     riskFlags,
     report: reportFor({ subject: address, measuredReads, risks, issuedAt: readAt }),
     readAt,

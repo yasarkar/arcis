@@ -17,6 +17,7 @@ import { vaultYieldReportManifest } from '../../config/x402/manifests/vaultYield
 import { ARC_TESTNET_TOKENS } from '../../config/arcChain'
 import { POOL_CONTRACTS } from '../../config/poolsConfig'
 import { generateLiveServiceData } from '../aiServicesDataProvider'
+import { buildReportCsv } from '../../utils/reportExport'
 import { getSwapEstimate } from '../swapService'
 import { hasAcceptedX402Payment, hasVerifiedX402Settlement, isServiceDataAvailable, isSuccessfulX402ServiceResult } from '../x402Client'
 import { isX402ServiceResultAvailable } from '../../../api/x402'
@@ -35,6 +36,8 @@ const state = vi.hoisted(() => ({
   vaultRedeem: 0n as bigint | null,
   balances: {} as Record<string, bigint>,
   nativeBalances: {} as Record<string, bigint>,
+  totalLp: 0n as bigint,
+  pendingFees: {} as Record<string, [bigint, bigint]>,
   balanceFails: false,
   cctpQuote: null as {
     finalityThreshold: number
@@ -47,6 +50,8 @@ const state = vi.hoisted(() => ({
 beforeEach(() => {
   state.nativeBalances = {}
   state.balanceFails = false
+  state.totalLp = 0n
+  state.pendingFees = {}
 })
 
 vi.mock('../rpc', () => ({
@@ -64,9 +69,13 @@ vi.mock('../rpc', () => ({
     }
     if (params.functionName === 'totalAssets') return state.vaultAssets
     if (params.functionName === 'totalSupply') return state.vaultSupply
+    if (params.functionName === 'totalLp') return state.totalLp
+    if (params.functionName === 'pendingFees') {
+      return state.pendingFees[String(params.address).toLowerCase()] ?? [0n, 0n]
+    }
     if (params.functionName === 'balanceOf') {
-      if (params.address === POOL_CONTRACTS.YIELD_VAULT) return state.vaultShares
       if (state.balanceFails) throw new Error('arc rpc unavailable')
+      if (params.address === POOL_CONTRACTS.YIELD_VAULT) return state.vaultShares
       return state.balances[String(params.address).toLowerCase()] ?? 0n
     }
     if (params.functionName === 'principalAssets') return state.vaultPrincipal
@@ -865,6 +874,49 @@ describe('generateLiveServiceData — portfolio risk & exposure', () => {
     expect(chains).toContain('Ethereum_Sepolia')
     expect(chains).toContain('Polygon_Amoy_Testnet')
   })
+
+  it('folds ERC-4626 Vault shares and active AMM LP positions + pending fees into total exposure', async () => {
+    const wethPool = POOL_CONTRACTS.WETH_POOL.toLowerCase()
+    state.prices = { USDC: 1, WETH: 3000 }
+    // Wallet holds 100 USDC; Vault holds 200 USDC; WETH LP holds 50% of (600 USDC + 0.2 WETH = $1200) => $600 LP
+    state.balances = {
+      [USDC]: 100_000_000n,
+      [wethPool]: 50n * 10n ** 18n,
+    }
+    state.totalLp = 100n * 10n ** 18n
+    state.reserves = { reserveA: usdc(600), reserveB: 2n * 10n ** 17n } // 600 USDC + 0.2 WETH
+    state.pendingFees = { [wethPool]: [2_500_000n, 0n] } // $2.50 USDC pending LP fees
+    state.vaultShares = 200_000_000_000n
+    state.vaultRedeem = 200_000_000n // $200 USDC in Vault
+    state.vaultPending = 1_500_000n // $1.50 pending vault yield
+    state.gatewayBalances = null
+
+    const { data } = await generateLiveServiceData(portfolioRiskManifest, {
+      address: '0x0000000000000000000000000000000000000001',
+      includeGatewayBalance: false,
+    })
+
+    expect(data.status).toBe('PORTFOLIO_ANALYZED')
+    // 100 wallet + 200 vault + 600 LP = $900 total
+    expect(data.totalUsd).toBe(900)
+    expect(data.defiPositions.totalVaultUsd).toBe(200)
+    expect(data.defiPositions.totalLpUsd).toBe(600)
+    expect(data.defiPositions.totalPendingFeesUsd).toBe(2.5)
+    expect(data.defiPositions.lpPools).toHaveLength(1)
+    expect(data.allocationBreakdown).toEqual({
+      walletTokensUsd: 100,
+      gatewayUsdc: null,
+      vaultUsd: 200,
+      lpPoolsUsd: 600,
+    })
+    expect(data.riskFlags).toContain('LP_IMPERMANENT_LOSS_EXPOSURE')
+    expect(data.riskFlags).toContain('UNCLAIMED_DEFI_REWARDS')
+
+    // Reset vault state for subsequent tests
+    state.vaultShares = 0n
+    state.vaultRedeem = 0n
+    state.vaultPending = 0n
+  })
 })
 
 describe('generateLiveServiceData — LLM vault yield report', () => {
@@ -919,6 +971,36 @@ describe('generateLiveServiceData — LLM vault yield report', () => {
     expect(data.measured.currentValueUsdc).toBe(0)
     expect(data.narrative).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('includes active AMM LP positions and pending fees in the AI statement and exports valid CSV', async () => {
+    const stablePool = POOL_CONTRACTS.STABLE_SWAP_POOL.toLowerCase()
+    state.prices = { USDC: 1, EURC: 1.0 }
+    state.vaultAssets = 1_000_000_000n
+    state.vaultSupply = 1_000_000_000_000n
+    state.vaultShares = 0n // zero vault shares, but active LP position!
+    state.vaultPrincipal = 0n
+    state.vaultPending = 0n
+    state.balances = { [stablePool]: 10n * 10n ** 18n }
+    state.totalLp = 100n * 10n ** 18n
+    state.reserves = { reserveA: usdc(5000), reserveB: usdc(5000) } // 10% share = $1,000 LP
+    state.pendingFees = { [stablePool]: [3_000_000n, 2_000_000n] } // $5 pending fees
+    const fetchMock = stubLlmNarrative()
+
+    const { data } = await generateLiveServiceData(vaultYieldReportManifest, { address })
+
+    expect(data.status).toBe('REPORT_READY')
+    expect(data.lpPositions).toHaveLength(1)
+    expect(data.measured.activeLpPositionsCount).toBe(1)
+    expect(data.measured.totalLpValueUsd).toBe(1000)
+    expect(data.measured.totalPendingLpFeesUsd).toBe(5)
+    expect(data.report.riskRegister.map((e: any) => e.id)).toContain('UNCLAIMED_LP_FEES')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const csv = buildReportCsv(vaultYieldReportManifest.id, data)
+    expect(csv).toContain('Section,Item,Metric / Detail,Value,Notes')
+    expect(csv).toContain('LP Position,USDC / EURC')
+    expect(csv).toContain('Harvestable AMM LP swap fees accrued')
   })
 
   it('returns UNAVAILABLE when the share balance cannot be read', async () => {

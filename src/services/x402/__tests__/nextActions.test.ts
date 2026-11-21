@@ -110,7 +110,7 @@ describe('gateway-scope-fallback', () => {
       includeGatewayBalance: false,
     })
     expect(recommendation.action.priceUsdc).toBe(0.004)
-    expect(recommendation.action.serviceName).toBe('Portfolio & DeFi Health Auditor')
+    expect(recommendation.action.serviceName).toBe('Full Portfolio & DeFi Health Auditor')
     expect(recommendation.triggerSignalIds).toEqual([
       'PORTFOLIO_EXPOSURE:GATEWAY_BALANCE_UNAVAILABLE',
     ])
