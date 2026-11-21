@@ -1,4 +1,4 @@
-import { Clock, RotateCcw, Wallet } from 'lucide-react'
+import { Clock, RotateCcw} from 'lucide-react'
 
 export interface HistoryEmptyStateProps {
   activeWalletAddress: string
@@ -33,12 +33,12 @@ export function HistoryEmptyState({
   const filteredEmpty = Boolean(activeWalletAddress) && historyLength > 0 && hasActiveFilters
 
   const heading = needsWallet
-    ? 'CONNECT WALLET'
+    ? 'Connect wallet to view balances'
     : loadFailed
-    ? 'HISTORY UNAVAILABLE'
+    ? 'History unavailable'
     : noRecords
-    ? 'NO TRANSACTIONS'
-    : 'NO MATCHES'
+    ? 'No transactions'
+    : 'No matches'
 
   return (
     <div className="flex flex-col items-center justify-center text-center p-6 min-h-[220px]">
@@ -55,17 +55,6 @@ export function HistoryEmptyState({
           ? `No completed transactions for ${activeWalletAddress.slice(0, 6)}...${activeWalletAddress.slice(-4)} yet. Settled Send, Swap or Bridge activity will appear here.`
           : 'No transactions match the selected filters.'}
       </p>
-
-      {needsWallet && onConnectWallet && (
-        <button
-          type="button"
-          onClick={onConnectWallet}
-          className="ub-action-btn ub-action-btn-primary mt-3.5 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold"
-        >
-          <Wallet className="w-3.5 h-3.5" />
-          <span>Connect Wallet</span>
-        </button>
-      )}
 
       {loadFailed && activeWalletAddress && (
         <button
