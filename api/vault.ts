@@ -39,7 +39,7 @@ function getPublicClient() {
   })
 }
 
-// ARC-011: dedicated server signer only (DISTRIBUTOR_KEY, else RELAYER_PRIVATE_KEY); the deploy key
+// ARC-011: dedicated server signer only (RELAYER_PRIVATE_KEY); the deploy key
 // in PRIVATE_KEY is never used to sign vault operations.
 function getRelayerAccount() {
   return getServerSignerAccount({ forVault: true })

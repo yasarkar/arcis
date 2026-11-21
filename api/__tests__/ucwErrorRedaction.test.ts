@@ -53,7 +53,6 @@ let errorSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.stubEnv('CIRCLE_API_KEY', 'test-circle-key')
-  vi.stubEnv('UCW_SESSION_SECRET', 'test-ucw-session-secret')
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 

@@ -56,7 +56,7 @@ function readEnv(name: string): string {
 
 /** Dedicated secret when configured, otherwise the API key the server already holds. */
 function getSigningSecret(): string {
-  return readEnv('UCW_SESSION_SECRET') || readEnv('CIRCLE_API_KEY')
+  return readEnv('CIRCLE_API_KEY')
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ export async function buildUcwSessionCookie(
 ): Promise<string> {
   const secret = getSigningSecret()
   if (!secret) {
-    throw new Error('UCW session signing secret is not configured (UCW_SESSION_SECRET or CIRCLE_API_KEY).')
+    throw new Error('UCW session signing secret is not configured (CIRCLE_API_KEY).')
   }
 
   const maxAgeSeconds = Math.max(1, Math.floor(options.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS))

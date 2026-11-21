@@ -28,7 +28,6 @@ function healthRequest(token?: string): Request {
 beforeEach(() => {
   // Deterministic regardless of ambient CI env: no server signer key exists in these tests.
   vi.stubEnv('RELAYER_PRIVATE_KEY', '')
-  vi.stubEnv('DISTRIBUTOR_KEY', '')
 })
 
 afterEach(() => {

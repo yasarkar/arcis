@@ -124,10 +124,9 @@ Examples:
   // 2. Resolve Signer Account
   // ARC-011: dedicated keys only. PRIVATE_KEY is the Foundry deploy key (contracts/.env) and must
   // not sign fund movement here, exactly as the server-side resolver (api/_utils/serverSigner.ts) does.
-  const rawKey = opts.key || process.env.DISTRIBUTOR_KEY || process.env.RELAYER_PRIVATE_KEY
+  const rawKey = opts.key || process.env.RELAYER_PRIVATE_KEY
   if (!rawKey) {
     console.error('❌ Error: No private key provided.')
-    console.error('   Please pass --key <privateKey> or set DISTRIBUTOR_KEY (or RELAYER_PRIVATE_KEY) in .env.')
     console.error('   PRIVATE_KEY is reserved for the Foundry deploy scripts in contracts/.env.')
     process.exit(1)
   }

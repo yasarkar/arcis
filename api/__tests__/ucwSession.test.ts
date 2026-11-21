@@ -32,7 +32,7 @@ function cookiePair(setCookie: string): string {
 }
 
 beforeEach(() => {
-  vi.stubEnv('UCW_SESSION_SECRET', SECRET)
+  vi.stubEnv('CIRCLE_API_KEY', SECRET)
 })
 
 afterEach(() => {
@@ -185,14 +185,12 @@ describe('ucwSession resolveUcwUserToken', () => {
 
 describe('ucwSession fail-closed without a signing secret', () => {
   it('refuses to mint a cookie when neither secret is configured', async () => {
-    vi.stubEnv('UCW_SESSION_SECRET', '')
     vi.stubEnv('CIRCLE_API_KEY', '')
 
     await expect(buildUcwSessionCookie({ userToken: 'u' }, { secure: true })).rejects.toThrow(/secret/i)
   })
 
   it('falls back to CIRCLE_API_KEY as the signing secret', async () => {
-    vi.stubEnv('UCW_SESSION_SECRET', '')
     vi.stubEnv('CIRCLE_API_KEY', 'circle-api-key-secret')
 
     const setCookie = await buildUcwSessionCookie({ userToken: 'u-key' }, { secure: true })
@@ -201,7 +199,6 @@ describe('ucwSession fail-closed without a signing secret', () => {
 
   it('rejects any cookie when no secret is configured', async () => {
     const setCookie = await buildUcwSessionCookie({ userToken: 'u' }, { secure: true })
-    vi.stubEnv('UCW_SESSION_SECRET', '')
     vi.stubEnv('CIRCLE_API_KEY', '')
 
     expect(await readUcwSession(requestWith(cookiePair(setCookie)))).toBeNull()

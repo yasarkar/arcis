@@ -7,12 +7,10 @@
 // "configured" relayer that is really their deployer. Server processes use dedicated keys:
 //
 //   RELAYER_PRIVATE_KEY — gasless sponsorship and other server-side signing (required)
-//   DISTRIBUTOR_KEY     — optional dedicated yield-vault distributor key; takes priority for vault work
 
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 
 export const RELAYER_PRIVATE_KEY_ENV = 'RELAYER_PRIVATE_KEY'
-export const DISTRIBUTOR_KEY_ENV = 'DISTRIBUTOR_KEY'
 export const DEPLOY_KEY_ENV = 'PRIVATE_KEY'
 
 /** A 32-byte hex key, with or without the 0x prefix. */
@@ -24,10 +22,7 @@ export interface ServerSignerKey {
   privateKey: `0x${string}`
 }
 
-export interface ServerSignerOptions {
-  /** Vault work may use the dedicated DISTRIBUTOR_KEY, falling back to the relayer key. */
-  forVault?: boolean
-}
+export interface ServerSignerOptions {}
 
 function readEnv(name: string): string {
   const local = typeof process !== 'undefined' && process.env ? process.env[name] : undefined
@@ -44,14 +39,12 @@ function warnAboutDeployKeyOnly(): void {
   console.warn(
     `[serverSigner] ${DEPLOY_KEY_ENV} is set but no dedicated server key is. ` +
       `${DEPLOY_KEY_ENV} is reserved for the Foundry deploy scripts in contracts/.env and is ignored here — ` +
-      `set ${RELAYER_PRIVATE_KEY_ENV} (and optionally ${DISTRIBUTOR_KEY_ENV}) instead.`
+      `set ${RELAYER_PRIVATE_KEY_ENV} instead.`
   )
 }
 
 export function resolveServerSignerKey(options: ServerSignerOptions = {}): ServerSignerKey | null {
-  const candidates = options.forVault
-    ? [DISTRIBUTOR_KEY_ENV, RELAYER_PRIVATE_KEY_ENV]
-    : [RELAYER_PRIVATE_KEY_ENV]
+  const candidates = [RELAYER_PRIVATE_KEY_ENV]
 
   for (const envName of candidates) {
     const raw = readEnv(envName)

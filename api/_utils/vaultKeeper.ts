@@ -71,7 +71,7 @@ function getPublicClient() {
   })
 }
 
-// ARC-011: the vault signer is a dedicated key (DISTRIBUTOR_KEY, else RELAYER_PRIVATE_KEY).
+// ARC-011: the vault signer is a dedicated key (RELAYER_PRIVATE_KEY).
 // The Foundry deploy key (PRIVATE_KEY) is never used for fund movement.
 function getRelayerAccount() {
   return getServerSignerAccount({ forVault: true })
@@ -89,7 +89,7 @@ export async function executeYieldDistribution(amountUsdc?: number) {
   const client = getPublicClient()
   const relayer = getRelayerAccount()
   if (!relayer) {
-    throw new Error('No server signer key configured: set DISTRIBUTOR_KEY or RELAYER_PRIVATE_KEY (PRIVATE_KEY is reserved for the Foundry deploy scripts)')
+    throw new Error('No server signer key configured: set RELAYER_PRIVATE_KEY (PRIVATE_KEY is reserved for the Foundry deploy scripts)')
   }
 
   const vaultOwner = await client.readContract({

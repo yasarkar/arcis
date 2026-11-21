@@ -8,7 +8,6 @@ import { readFileSync } from 'node:fs'
 import { privateKeyToAccount } from 'viem/accounts'
 
 const RELAYER_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'
-const DISTRIBUTOR_KEY = '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba'
 const DEPLOY_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 
 afterEach(() => {
@@ -57,24 +56,19 @@ describe('server signer key resolution', () => {
     }
   })
 
-  it('prefers DISTRIBUTOR_KEY for vault work and still accepts the relayer key', async () => {
+  it('prefers RELAYER_PRIVATE_KEY for vault work and still accepts the relayer key', async () => {
     const { getServerSignerAccount } = await freshModule()
     vi.stubEnv('RELAYER_PRIVATE_KEY', RELAYER_KEY)
-    vi.stubEnv('DISTRIBUTOR_KEY', DISTRIBUTOR_KEY)
 
-    expect(getServerSignerAccount({ forVault: true })?.address).toBe(privateKeyToAccount(DISTRIBUTOR_KEY).address)
-
-    vi.stubEnv('DISTRIBUTOR_KEY', '')
     expect(getServerSignerAccount({ forVault: true })?.address).toBe(privateKeyToAccount(RELAYER_KEY).address)
   })
 
-  it('does not hand the relayer key to vault work when only DISTRIBUTOR_KEY is set', async () => {
+  it('does not hand the relayer key to vault work when only RELAYER_PRIVATE_KEY is set', async () => {
     const { getServerSignerAccount } = await freshModule()
-    vi.stubEnv('DISTRIBUTOR_KEY', DISTRIBUTOR_KEY)
     vi.stubEnv('RELAYER_PRIVATE_KEY', '')
 
     expect(getServerSignerAccount()).toBeNull()
-    expect(getServerSignerAccount({ forVault: true })?.address).toBe(privateKeyToAccount(DISTRIBUTOR_KEY).address)
+    expect(getServerSignerAccount({ forVault: true })?.address).toBe(privateKeyToAccount(RELAYER_KEY).address)
   })
 })
 
@@ -96,7 +90,6 @@ describe('ambiguous PRIVATE_KEY reads stay removed', () => {
   it('the env template documents dedicated keys instead of a relayer PRIVATE_KEY', () => {
     const template = readFileSync('.env.example', 'utf8')
     expect(template).toMatch(/^RELAYER_PRIVATE_KEY=/m)
-    expect(template).toMatch(/^DISTRIBUTOR_KEY=/m)
     expect(template).not.toMatch(/^PRIVATE_KEY=/m)
   })
 })
