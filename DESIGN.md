@@ -11,26 +11,27 @@ Arcis embodies an **"Aave Luxury + Arc Blockchain High-Fi Obsidian"** aesthetic.
 ### Core Tenets:
 1. **Dark & Deep Obsidian Foundations**: Deep void backgrounds (`#07080d`, `#090a0f`) layered with ambient radial glow fields (`rgba(99, 102, 241, 0.06)` and `rgba(168, 85, 247, 0.06)`). Never use stark black or bright light-mode backgrounds.
 2. **Glassmorphism with Restraint**: Panels use subtle dark glass (`rgba(15, 17, 26, 0.7)` to `rgba(22, 25, 42, 0.85)`) with high-blur backdrops (`blur(16px)` to `blur(28px)`) and hairline borders (`1px solid rgba(255, 255, 255, 0.04 - 0.08)`).
-3. **Living Interface (Micro-Animations)**: Interfaces feel reactive and alive through subtle micro-animations (e.g. ECG heartbeat pulses, levitating token tokens, rotating chronometer sweeps) while strictly respecting CPU paint diets and accessibility preferences.
+3. **Living Interface (Micro-Animations)**: Interfaces feel reactive and alive through subtle micro-animations (e.g. ECG heartbeat pulses, levitating token icons, rotating chronometer sweeps) while strictly respecting CPU paint diets and accessibility preferences.
 4. **Precision Financial Typography**: High-contrast, tabular numeric figures (`font-variant-numeric: tabular-nums`) paired with technical monospace labels.
+5. **Global Viewport Scale**: `body` in `src/index.css` sets `zoom: 0.90;` to maintain dense institutional fintech proportions. Account for this global scale when tuning heights, breakpoints, or fixed-position overlays.
 
 ---
 
 ## 2. Typography System
 
-All five fonts are loaded via Google Fonts in [index.html](file:///c:/arc-mini-app/index.html). Each font has a strict, distinct purpose:
+All five fonts are loaded via Google Fonts in [index.html](./index.html). Each font has a strict, distinct purpose:
 
 | Font Family | CSS Variable / Token | Role & Usage |
 | :--- | :--- | :--- |
-| **Space Grotesk** | `var(--fonts--space-grotesk)` | **Hero metrics, display balances, headline stats.** Used for large numbers (`.arc-display-hero`, `.arcis-hero-balance`, `.ub-stat-value`). Always pair with `tabular-nums`. |
-| **Space Mono** | `var(--fonts--space-mono)` | **Eyebrow tags, micro-labels, badges, addresses, hashes.** Uppercase with wide letter spacing (`letter-spacing: 2.72px`). Used in `.arc-eyebrow`, `.arcis-label`, `.ub-pct-badge`, `.arc-btn`. |
-| **Inter** | `var(--font-app)` or `'Inter', sans-serif` | **Primary UI copy, descriptions, form labels, tooltips.** Default application body font. High legibility at 12–15px. |
+| **Space Grotesk** | `var(--fonts--space-grotesk)` | **Hero metrics, display balances, headline stats.** Used for large numbers (`.arc-display-hero`, `.arcis-hero-balance`, `.ub-stat-value`, `.ub-amount-input`). Always pair with `tabular-nums`. |
+| **Space Mono** | `var(--fonts--space-mono)` | **Eyebrow tags, micro-labels, badges, addresses, hashes.** Uppercase with wide letter spacing (`letter-spacing: 2.72px`). Used in `.arc-eyebrow`, `.arcis-label`, `.ub-pct-badge`. |
+| **Inter** | `var(--font-app)` or `'Inter', sans-serif` | **Primary UI copy, buttons, descriptions, form labels, tooltips.** Default application body font and button font (`.arc-btn`, `.ub-action-btn`, `FintechActionButton`). High legibility at 12–15px. |
 | **Outfit** | `var(--font-display)` | **Marketing headers, feature titles, hero section displays.** Clean, modern geometric display sans. |
 | **DM Sans** | `var(--fonts--dm-sans)` | **Editorial subheaders and fintech narrative paragraphs.** Smooth and balanced. |
 
 ### Typography Scale & Hierarchy:
 - **Hero Balance**: `font-family: var(--fonts--space-grotesk); font-size: clamp(2.75rem, 6vw, 4rem); font-weight: 400; letter-spacing: -2px;`
-- **Section Eyebrow**: `font-family: var(--fonts--space-mono); font-size: 12px–13px; font-weight: 600; letter-spacing: 2.72px; text-transform: uppercase;`
+- **Section Eyebrow**: `.arc-eyebrow` (`font-family: var(--fonts--space-mono); font-size: 13px; font-weight: 400; letter-spacing: 2.72px; text-transform: uppercase;`) and `.arcis-label` (`12px; font-weight: 600;`).
 - **Card Title**: `font-family: var(--font-display); font-size: 18px–20px; font-weight: 600; color: #ffffff;`
 - **Body Text**: `font-family: 'Inter', sans-serif; font-size: 14px; line-height: 1.5; color: rgba(255, 255, 255, 0.7);`
 - **Micro / Subtext**: `font-size: 11px–12px; color: var(--secondary-colors--sky-sync) or rgba(255, 255, 255, 0.45);`
@@ -40,12 +41,12 @@ All five fonts are loaded via Google Fonts in [index.html](file:///c:/arc-mini-a
 ## 3. Color System & Semantic Tokens
 
 ### 3.1 Background & Surface Layers
-- **App Canvas Base**: `#07080d` / `#090a0f`
+- **App Canvas Base**: `#07080d` (`--color-brand-dark`) / `#090a0f`
 - **Surface Elevation 1 (Card Base)**: `#0f111a` (`--color-brand-card`)
 - **Surface Elevation 2 (Card Hover / Inset)**: `#161926` (`--color-brand-card-light`)
 - **Card Alternative Base**: `#111827` (`.arcis-card`)
-- **Border Default**: `#1e2235` / `rgba(255, 255, 255, 0.05 - 0.08)`
-- **Border Focus / Hover**: `#3b4261` / `rgba(152, 150, 255, 0.35)`
+- **Border Default**: `#1e2235` (`--color-brand-border`) / `rgba(255, 255, 255, 0.05 - 0.08)`
+- **Border Focus / Hover**: `#3b4261` (`--color-brand-border-focus`) / `rgba(152, 150, 255, 0.35)`
 
 ### 3.2 Brand & Accent Colors
 - **Brand Primary (Indigo)**: `#6366f1` (`--color-brand-primary`)
@@ -58,8 +59,8 @@ All five fonts are loaded via Google Fonts in [index.html](file:///c:/arc-mini-a
 - **Validator Blue**: `#2f578c` (`--primary-colors--validator-blue`)
 - **Sky Sync (Highlight Blue)**: `#acc6e9` (`--secondary-colors--sky-sync`)
 - **Static Ether**: `#d5e0e7` (`--secondary-colors--static-ether`)
-- **Cipher Violet**: `#412c5c`
-- **Blockstream Gold**: `#e9a13f`
+- **Cipher Violet**: `#412c5c` (`--primary-colors--cipher-violet`)
+- **Blockstream Gold**: `#e9a13f` (`--secondary-colors--blockstream-gold`)
 
 ### 3.4 Aave Luxury Tokens
 - **Earned Green (Success/Live)**: `#01d062` (`--earned-green`) / `#28d358` (`--gho-1`)
@@ -67,7 +68,7 @@ All five fonts are loaded via Google Fonts in [index.html](file:///c:/arc-mini-a
 - **Aave Purple 1**: `#9896ff` (`--purple-1`)
 - **Aave Purple 2**: `#978eff` (`--purple-2`)
 - **Text Tiers**:
-  - Pure White: `#ffffff`
+  - Pure White: `#ffffff` (`--base-colors--white`)
   - Secondary Text: `rgba(255, 255, 255, 0.9)` (`--fp-2`)
   - Muted Text: `rgba(255, 255, 255, 0.65)` (`--fp-3`)
   - Subtle Label: `rgba(255, 255, 255, 0.45)` (`--fp-4`)
@@ -103,8 +104,8 @@ Lightweight utility panel for floating popovers, drawers, and modal backdrops:
 
 #### 1. Primary Action & Fintech Buttons (`FintechActionButton`, `.arc-btn.arc-btn-primary`)
 Standard across Swap, Send, Bridge, Pools, and Settings Modals.
-- **Font**: `Inter` (`var(--font-app)`), 14px–16px, weight 600, `tracking-wide` (letter-spacing 0.025em / 0.3px).
-- **Radius**: `99px` (`rounded-full` pill standard), padding `12px–16px` dikey, `20px–24px` yatay.
+- **Font**: `Inter` (`var(--font-app)`), 14px–16px, weight 600, `tracking-wide` (`letter-spacing: 0.025em`).
+- **Radius & Padding**: `99px` (`rounded-full` pill standard); `.arc-btn` uses `padding: 10px 18px`, while `FintechActionButton` uses `py-4 px-6` (`16px` vertical, `24px` horizontal).
 - **Surface**:
   - **Actionable / Active**: High-grade Aave Luxury violet gradient `linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)`. Text `#ffffff`.
   - **Hover**: `brightness-110` / `scale-[1.01]`, shadow `0 6px 24px rgba(152, 150, 255, 0.3)`.
@@ -128,15 +129,15 @@ Used for quick utility actions (e.g. "Deposit", "Sync", filter pills).
 ### 4.3 Form Inputs & Selectors
 
 - **Amount Input (`.ub-amount-input`)**:
-  - Space Grotesk font, tabular numbers, font-size 16px.
+  - Space Grotesk font (`font-weight: 500`), font-size `16px` (add `tabular-nums` utility class on numeric inputs).
   - Dark glass surface (`rgba(11, 13, 24, 0.75)`), subtle border.
   - Focus state: Violet outline glow (`border-color: rgba(152, 150, 255, 0.6); box-shadow: 0 0 0 3px rgba(152, 150, 255, 0.16)`).
   - Invalid state: `border-color: #ef4444`.
 - **Chain / Token Select Trigger (`.ub-select-trigger`)**:
-  - Radius `14px`, 12px 16px padding.
+  - Radius `14px`, `12px 16px` padding.
   - Expanded state: violet glow ring.
 - **Select Dropdown Menu (`.ub-select-menu`)**:
-  - Deterministic 5-row visible height (`--ub-select-row-height: 44px; max-height: calc(5 * var(--ub-select-row-height) + 14px)`).
+  - Deterministic 5-row visible height (`--ub-select-row-height: 44px; max-height: calc(5 * var(--ub-select-row-height) + 12px + 2px)`).
   - Thin styled scrollbar (`scrollbar-color: rgba(152, 150, 255, 0.45) transparent`).
   - High backdrop blur (`blur(24px)`), z-index 200.
 
@@ -152,8 +153,8 @@ Used for quick utility actions (e.g. "Deposit", "Sync", filter pills).
   - Amber warning pill (`#fbbf24`), used when Circle Gateway indexer is lagging 20-30s behind user deposit.
 - **Percentage Share Badge (`.ub-pct-badge`)**:
   - Monospace pill with `--purple-1` color (`#9896ff`).
-- **Gasless / Zero-Fee Badge (`GaslessBadge.tsx`)**:
-  - Highlights gasless execution enabled by Arc USDC gas precompiles or Circle paymasters.
+- **Gasless / Zero-Fee Badge (`src/components/common/GaslessBadge.tsx`)**:
+  - Interactive pill and popover for **EIP-3009 Sponsored Mode** via the Arcis Relayer (off-chain EIP-712 authorization, daily free transfer quota).
 
 ---
 
@@ -174,14 +175,14 @@ Arcis uses bespoke CSS animations to communicate state and blockchain motion:
 All animations and heavy DOM treatments must observe these non-negotiable rules:
 
 1. **Tab Hidden Freezing**:
-   - When the user switches browser tabs, `App.tsx` attaches `.tab-hidden` to the body.
-   - Every infinite animation is automatically frozen:
+   - When the user switches browser tabs, `src/App.tsx` toggles `.tab-hidden` on `document.documentElement` (`<html>`).
+   - Every running CSS animation is automatically frozen:
      ```css
      .tab-hidden * { animation-play-state: paused !important; }
      ```
 2. **Reduced Motion Compliance**:
-   - Under `@media (prefers-reduced-motion: reduce)`, ambient orbs disappear (`display: none !important`) and all continuous decorative animations are killed (`animation: none !important`).
-   - One-shot accessibility feedback (such as brief loading indicators or typing dots) remains functional.
+   - Under `@media (prefers-reduced-motion: reduce)`, ambient orbs (`.ambient-orb`, rendered only on the `home` tab) disappear (`display: none !important`), infinite decorative animations are disabled (`animation: none !important`), and `.ub-screen` collapses all animation/transition durations to `0.001ms`.
+   - One-shot accessibility feedback (such as brief loading indicators or typing dots outside `.ub-screen`) remains functional.
 3. **Hardware Acceleration**:
    - Animate only `transform` and `opacity`. Always mark animated elements with `will-change: transform, opacity`.
    - Never animate `top`, `left`, `margin`, or `padding` directly.
@@ -196,7 +197,7 @@ When creating new components, modals, or pages in Arcis:
 2. **Never build light-mode variants** unless explicitly instructed. Arcis is an intentional luxury dark obsidian platform.
 3. **Always use tabular figures for amounts**: Wrap token balances and currency in `font-variant-numeric: tabular-nums` and prefer `Space Grotesk` or `Space Mono`.
 4. **Preserve Component Consistency**:
-   - For primary action buttons, use `.arc-btn.arc-btn-primary` or `.ub-action-btn.ub-action-btn-primary`.
+   - For primary action buttons, use `FintechActionButton` (`src/components/fintech/FintechActionButton.tsx`), `.arc-btn.arc-btn-primary`, or `.ub-action-btn.ub-action-btn-primary`.
    - For metric headers, use `.arc-eyebrow` for the label and `.arc-display-hero` or `.arcis-hero-balance` for the value.
    - For cards, build upon `.ub-hero-card`, `.arc-card`, or `.arcis-card`.
 5. **Icon Standard**: Use `lucide-react` with thin-to-medium strokes (size 14–18 for buttons, 20–24 for headers) or dedicated `@web3icons/react` / `PinnedIcons` for chain/token logos.

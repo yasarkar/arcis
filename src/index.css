@@ -1051,7 +1051,7 @@
   font-family: var(--fonts--space-mono);
   font-size: 12px;
   letter-spacing: 1px;
-  color: var(--primary-colors--white);
+  color: var(--base-colors--white);
 }
 
 /* ── Quick Action Primary State ── */
