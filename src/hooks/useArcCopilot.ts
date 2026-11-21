@@ -68,6 +68,7 @@ const isPaidOrSettled = (result: any): boolean =>
 export function isTransactionalAction(type?: CopilotActionType | string): boolean {
   if (!type) return false
   const t = type.toLowerCase()
+  if (t === 'unsupported_bridge') return false
   return (
     t === 'trade' ||
     t === 'zap' ||
@@ -543,85 +544,45 @@ export function useArcCopilot(
             : actionType === 'send'
               ? String(action.data?.tokenSymbol || action.data?.token || 'USDC')
               : 'USDC'
-        const check = isSessionActive ? verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress) : { allowed: false }
-        if (liveConfig.autoExecute && isSessionActive && check.allowed) {
-          const assistantMsg: CopilotMessage = {
-            id: assistantMsgId,
-            role: 'assistant',
-            content: llmResult.message,
-            timestamp: Date.now(),
-            actionPayload: action,
-            isExecutingInline: true,
-            executionState: 'routing',
-          }
-          addMessage(assistantMsg)
 
-          // Auto-execute inline seamlessly with active provider
-          import('../services/copilotExecutionService')
-            .then(({ executeDirectCopilotAction }) =>
-              executeDirectCopilotAction(action, walletAddress, provider, (pState) => {
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === assistantMsgId ? { ...msg, executionState: pState } : msg
-                  )
-                )
-              }, ucwHandlers)
-            )
-            .then((receipt) => {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMsgId
-                  ? {
-                      ...msg,
-                      isExecutingInline: false,
-                      executionState: receipt.status === 'SUCCESS' ? 'confirmed' : receipt.status === 'PENDING' ? 'pending' : 'failed',
-                      receipt,
-                    }
-                  : msg
-              )
-            )
-            setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
-          }).catch((err: any) => {
-            // Autonomous execution can reject before producing a receipt (e.g. the user dismisses
-            // the signature). Classify it so a deliberate cancellation is shown with the amber
-            // "canceled" theme rather than the red error theme.
-            console.error('[useArcCopilot] Auto-execution failed:', err)
-            const cleanErr = formatCopilotError(err)
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMsgId
-                  ? {
-                      ...msg,
-                      isExecutingInline: false,
-                      executionState: cleanErr.isCanceled ? 'idle' : 'failed',
-                      receipt: {
-                        id: `rcpt_err_${Date.now()}`,
-                        actionType,
-                        title: cleanErr.isCanceled ? canceledActionTitle(actionType) : cleanErr.title,
-                        status: cleanErr.isCanceled ? 'CANCELED' : 'FAILED',
-                        txHash: '',
-                        gasUsdc: 0,
-                        settlementLatencyMs: 0,
-                        timestamp: Date.now(),
-                        errorMessage: cleanErr.message,
-                      },
-                    }
-                  : msg
-              )
-            )
-            setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
-          })
-        } else {
-          // Manual 1-click mode with active session limits
-          const assistantMsg: CopilotMessage = {
-            id: assistantMsgId,
-            role: 'assistant',
-            content: llmResult.message,
-            timestamp: Date.now(),
-            actionPayload: action,
+        if (isSessionActive) {
+          const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
+          if (!check.allowed) {
+            pendingActionRef.current = action
+            const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)
+            const reasonMsg = check.reason?.includes('not authorized')
+              ? `The "${actionName}" operation is not allowed for this active session. Please check your session settings to grant permission for ${actionName}s.`
+              : `${check.reason} Please adjust your session budget or limits in the Session Settings.`
+
+            const assistantMsg: CopilotMessage = {
+              id: 'assistant-session-limit-' + Date.now(),
+              role: 'assistant',
+              content: `⚠️ ${reasonMsg}`,
+              timestamp: Date.now(),
+              actionPayload: {
+                type: 'configure_session',
+                title: 'Open Session Settings',
+                data: {
+                  pendingAction: action,
+                  reason: reasonMsg,
+                  actionType,
+                },
+              },
+            }
+            addMessage(assistantMsg)
+            return
           }
-          addMessage(assistantMsg)
         }
+
+        // Always present the Confirm card template before executing any transactional command.
+        const assistantMsg: CopilotMessage = {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: llmResult.message,
+          timestamp: Date.now(),
+          actionPayload: action,
+        }
+        addMessage(assistantMsg)
       } else {
         const assistantMsg: CopilotMessage = {
           id: assistantMsgId,

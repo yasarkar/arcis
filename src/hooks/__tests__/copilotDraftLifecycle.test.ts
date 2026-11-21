@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CopilotMessage } from '../../types/marketplace'
 
-const harness = vi.hoisted(() => ({ states: [] as any[], refs: [] as any[], stateIndex: 0, refIndex: 0, active: false, autoExecute: false }))
+const harness = vi.hoisted(() => ({
+  states: [] as any[],
+  refs: [] as any[],
+  stateIndex: 0,
+  refIndex: 0,
+  active: false,
+  autoExecute: false,
+  limitCheck: { allowed: true } as { allowed: boolean; reason?: string },
+}))
 vi.mock('react', async original => ({ ...await original<typeof import('react')>(),
   useState: (initial: any) => {
     const index = harness.stateIndex++
@@ -19,7 +27,7 @@ vi.mock('react', async original => ({ ...await original<typeof import('react')>(
 vi.mock('../../services/sessionKeyService', () => ({
   getSessionKeyConfig: () => ({ isActive: harness.active, expiresAt: Date.now() + 100000, autoExecute: harness.autoExecute }),
   activateSessionKey: vi.fn(async () => { harness.active = true; return { isActive: true, expiresAt: Date.now() + 100000 } }),
-  verifySessionLimits: () => ({ allowed: true }),
+  verifySessionLimits: () => harness.limitCheck,
 }))
 vi.mock('../../services/copilotExecutionService', () => ({ executeDirectCopilotAction: vi.fn(async () => ({ status: 'PENDING' })) }))
 vi.mock('../../services/portfolioContextService', () => ({ getLivePortfolioSnapshot: vi.fn(async () => ({ liquidUsdc: 100, liquidEurc: 100 })), formatPortfolioForPrompt: () => '' }))
@@ -46,7 +54,7 @@ async function query(prompt: string) {
 }
 const RECIPIENT = '0x2222222222222222222222222222222222222222'
 beforeEach(() => {
-  harness.states = []; harness.refs = []; harness.active = false; harness.autoExecute = false
+  harness.states = []; harness.refs = []; harness.active = false; harness.autoExecute = false; harness.limitCheck = { allowed: true }
   vi.clearAllMocks(); vi.useFakeTimers()
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({ success: true, message: 'Prepared.' })))
 })
@@ -241,5 +249,39 @@ describe('A02 hook draft lifecycle before any signer', () => {
     expect(localStrategyMsg.content).toContain('Portfolio')
     expect(localStrategyMsg.actionPayload?.type).toBe('interactive_deposit')
     expect(localStrategyMsg.actionPayload?.data?.amount).toBe(35)
+  })
+
+  it('always presents the Confirm card template for swap and send even when autoExecute is enabled', async () => {
+    harness.active = true
+    harness.autoExecute = true
+
+    await query('swap 10 USDC to EURC')
+    const swapMsg = messages()[messages().length - 1]
+    expect(swapMsg.actionPayload?.type).toBe('interactive_swap')
+    expect(swapMsg.isExecutingInline).toBeFalsy()
+    expect(executeDirectCopilotAction).not.toHaveBeenCalled()
+
+    await query(`send 5 USDC to ${RECIPIENT}`)
+    const sendMsg = messages()[messages().length - 1]
+    expect(sendMsg.actionPayload?.type).toBe('interactive_send')
+    expect(sendMsg.isExecutingInline).toBeFalsy()
+    expect(executeDirectCopilotAction).not.toHaveBeenCalled()
+  })
+
+  it('warns immediately when maxPerTxUsdc is exceeded instead of showing a Confirm card first', async () => {
+    harness.active = true
+    harness.autoExecute = true
+    harness.limitCheck = {
+      allowed: false,
+      reason: 'Amount (100 USDC) exceeds single-transaction cap (50 USDC).',
+    }
+
+    await query(`send 100 USDC to ${RECIPIENT}`)
+    const limitMsg = messages()[messages().length - 1]
+    expect(limitMsg.content).toContain('exceeds single-transaction cap')
+    expect(limitMsg.actionPayload?.type).toBe('configure_session')
+    expect(limitMsg.actionPayload?.data?.pendingAction?.type).toBe('interactive_send')
+    expect(messages().some((m) => m.actionPayload?.type === 'interactive_send')).toBe(false)
+    expect(executeDirectCopilotAction).not.toHaveBeenCalled()
   })
 })
