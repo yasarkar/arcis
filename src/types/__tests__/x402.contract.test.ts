@@ -9,8 +9,8 @@ import { ARC_TESTNET_TOKENS } from '../../config/arcChain'
 import { SERVICE_CATEGORIES, ALL_CATEGORY_LABELS } from '../../config/x402/categories'
 
 describe('x402 Architectural Contracts & Manifest Integrity', () => {
-  it('contains all 9 official manifests with valid v2 structure', () => {
-    expect(OFFICIAL_MANIFESTS.length).toBe(9)
+  it('contains all 7 official manifests with valid v2 structure', () => {
+    expect(OFFICIAL_MANIFESTS.length).toBe(7)
     
     for (const manifest of OFFICIAL_MANIFESTS) {
       // Identity & Version
@@ -20,7 +20,7 @@ describe('x402 Architectural Contracts & Manifest Integrity', () => {
       expect(manifest.tagline).toBeTruthy()
       expect(manifest.description).toBeTruthy()
 
-      // Engine transparency: 8 native services + 1 server-side LLM service.
+      // Engine transparency: 6 native services + 1 server-side LLM service.
       expect(['native', 'llm', 'proxy']).toContain(manifest.engine)
       if (manifest.engine === 'llm') {
         // A paid LLM call must at least cover its provider cost.

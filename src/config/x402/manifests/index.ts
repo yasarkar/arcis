@@ -4,8 +4,6 @@
 import type { ServiceManifest } from '../../../types/x402.js'
 import { arbitrageSentinelManifest } from './arbitrageSentinel.js'
 import { slippageOptimizerManifest } from './slippageOptimizer.js'
-import { flashLoanRadarManifest } from './flashLoanRadar.js'
-import { mevShieldManifest } from './mevShield.js'
 import { gatewayIndexerManifest } from './gatewayIndexer.js'
 import { gatewayRouteScoutManifest } from './gatewayRouteScout.js'
 import { vaultAnalyticsManifest } from './vaultAnalytics.js'
@@ -15,8 +13,6 @@ import { vaultYieldReportManifest } from './vaultYieldReport.js'
 export {
   arbitrageSentinelManifest,
   slippageOptimizerManifest,
-  flashLoanRadarManifest,
-  mevShieldManifest,
   gatewayIndexerManifest,
   gatewayRouteScoutManifest,
   vaultAnalyticsManifest,
@@ -25,15 +21,13 @@ export {
 }
 
 export const OFFICIAL_MANIFESTS: ServiceManifest[] = [
-  arbitrageSentinelManifest,
   slippageOptimizerManifest,
-  flashLoanRadarManifest,
-  mevShieldManifest,
-  gatewayIndexerManifest,
+  arbitrageSentinelManifest,
   gatewayRouteScoutManifest,
   vaultAnalyticsManifest,
   portfolioRiskManifest,
   vaultYieldReportManifest,
+  gatewayIndexerManifest,
 ]
 
 export function getOfficialManifestById(id: string): ServiceManifest | undefined {

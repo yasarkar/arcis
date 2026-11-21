@@ -110,7 +110,7 @@ describe('gateway-scope-fallback', () => {
       includeGatewayBalance: false,
     })
     expect(recommendation.action.priceUsdc).toBe(0.004)
-    expect(recommendation.action.serviceName).toBe('Portfolio Risk & Exposure Engine')
+    expect(recommendation.action.serviceName).toBe('Portfolio & DeFi Health Auditor')
     expect(recommendation.triggerSignalIds).toEqual([
       'PORTFOLIO_EXPOSURE:GATEWAY_BALANCE_UNAVAILABLE',
     ])
@@ -175,7 +175,7 @@ describe('vault-impairment-cross-check', () => {
     expect(recommendation.tier).toBe('cross_check')
     expect(recommendation.action.kind).toBe('open_service')
     expect(recommendation.action.serviceId).toBe('arc-yield-vault-analytics')
-    expect(recommendation.action.serviceName).toBe('USDC Yield Vault Analytics')
+    expect(recommendation.action.serviceName).toBe('Arc Yield & Pool Analytics')
     expect(recommendation.action.params).toEqual({ windowDays: '30' })
     expect(recommendation.action.priceUsdc).toBe(0.002)
     expect(recommendation.severity).toBe('HIGH')

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
+import { getCategoryLabel, SERVICE_CATEGORIES } from '../../config/x402/categories'
 import { OFFICIAL_MANIFESTS } from '../../config/x402/manifests'
 import { useMarketplaceServices } from '../../hooks/useMarketplaceServices'
 import { usePlatformStats } from '../../hooks/usePlatformStats'
@@ -291,6 +292,12 @@ export default function MarketplaceTab({
 
   const verifiedCount = useMemo(() => services.filter((s) => s.provider.isVerified).length, [services])
   const communityCount = useMemo(() => services.filter((s) => s.listing.kind === 'community').length, [services])
+
+  // Show only categories that actually contain at least one listed service, preventing empty tabs.
+  const activeCategories = useMemo(() => {
+    const present = new Set(services.map((s) => s.category))
+    return SERVICE_CATEGORIES.filter((cat) => present.has(cat.id))
+  }, [services])
 
   const displayedServices = useMemo(() => {
     const list = [...filteredServices]
@@ -769,6 +776,53 @@ export default function MarketplaceTab({
         </div>
       </div>
 
+      {/* ── ACTIVE CATEGORY FILTER PILLS (only categories with live services) ── */}
+      {activeCategories.length > 1 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar" role="tablist" aria-label="Filter AI services by category">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={selectedCategory === 'All'}
+            onClick={() => {
+              soundService.play('pop')
+              setSelectedCategory('All')
+            }}
+            className={`px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer border ${
+              selectedCategory === 'All'
+                ? 'text-white border-[var(--purple-1)]/50 bg-[var(--purple-1)]/15 shadow-[0_0_12px_rgba(152,150,255,0.18)]'
+                : 'text-white/60 border-white/10 bg-white/[0.02] hover:text-white hover:border-white/20'
+            }`}
+            style={{ fontFamily: 'var(--fonts--space-mono)' }}
+          >
+            All ({services.length})
+          </button>
+          {activeCategories.map((cat) => {
+            const count = services.filter((s) => s.category === cat.id).length
+            const isActive = selectedCategory === cat.id
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => {
+                  soundService.play('pop')
+                  setSelectedCategory(cat.id)
+                }}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer border ${
+                  isActive
+                    ? 'text-white border-[var(--purple-1)]/50 bg-[var(--purple-1)]/15 shadow-[0_0_12px_rgba(152,150,255,0.18)]'
+                    : 'text-white/60 border-white/10 bg-white/[0.02] hover:text-white hover:border-white/20'
+                }`}
+                style={{ fontFamily: 'var(--fonts--space-mono)' }}
+              >
+                {cat.label} ({count})
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* ── SERVICE CARDS GRID (DESIGN.md: .arc-card & .glow-card) ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 relative z-0">
         {displayedServices.map((service) => {
@@ -800,7 +854,7 @@ export default function MarketplaceTab({
                         letterSpacing: '1px',
                       }}
                     >
-                      {service.category}
+                      {getCategoryLabel(service.category)}
                     </span>
                     {service.listing.kind === 'community' && (
                       <span

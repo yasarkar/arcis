@@ -48,7 +48,7 @@ vi.mock('../../aiServicesDataProvider', async () => {
 describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
   const payerPrivKey = generatePrivateKey()
   const payerAccount = privateKeyToAccount(payerPrivKey)
-  const manifest = OFFICIAL_MANIFESTS[0] // arc-cross-dex-arbitrage-sentinel (0.005 USDC)
+  const manifest = OFFICIAL_MANIFESTS.find((item) => item.id === 'arc-cross-dex-arbitrage-sentinel')! // Pool Spread & Mispricing Scanner (0.005 USDC)
   const providerAddress = getAddress(manifest.provider.address.toLowerCase())
   // Fee-bearing calls settle to this treasury, so every signed authorization names it.
   const treasuryPrivateKey = generatePrivateKey()
@@ -78,8 +78,8 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.success).toBe(true)
-    expect(data.count).toBe(9)
-    expect(data.services.length).toBe(9)
+    expect(data.count).toBe(7)
+    expect(data.services.length).toBe(7)
     expect(data.services.filter((service: any) => service.engine === 'llm')).toHaveLength(1)
   })
 

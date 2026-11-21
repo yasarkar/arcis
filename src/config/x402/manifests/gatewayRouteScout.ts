@@ -15,12 +15,12 @@ const PROVIDER_ADDRESS = '0x522fAf9A91c41c443c66765030741e4AaCe147D0'
 export const gatewayRouteScoutManifest: ServiceManifest = {
   id: 'arc-gateway-fee-route-scout',
   version: '1.0.0',
-  name: 'Gateway vs CCTP Route Scout',
-  tagline: 'Compare Circle Gateway and CCTP Fees for One Route Before You Bridge',
+  name: 'Bridge & Gateway Cost Optimizer',
+  tagline: 'Compare Circle Gateway and CCTP Fees Before You Bridge',
   category: 'Cross-Chain Gateway',
   engine: 'native',
   description:
-    'Simultaneously quotes and compares Circle Gateway and CCTP forwarding rails on Arc Testnet, identifying the lowest fee and fastest transfer path.',
+    'Quotes Circle Gateway and CCTP forwarding rails side by side on Arc Testnet so you can pick the lowest-cost transfer route before bridging.',
   listing: {
     kind: 'official',
     ownerAddress: PROVIDER_ADDRESS,

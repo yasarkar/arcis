@@ -14,12 +14,12 @@ const PROVIDER_ADDRESS = '0x9482Ac02f0B0F3Ac9443Bf38e78fC3A360049f5E'
 export const vaultYieldReportManifest: ServiceManifest = {
   id: 'arc-vault-yield-tax-report',
   version: '1.0.0',
-  name: 'Vault Yield & Tax Reporter',
-  tagline: 'On-Chain Principal, Redeemable Value and Pending Yield, Explained',
+  name: 'Yield & Position Statement (AI)',
+  tagline: 'On-Chain Principal, Redeemable Value & Pending Yield Explained by AI',
   category: 'Reporting & Tax',
   engine: 'llm',
   description:
-    'Audits wallet yield positions, on-chain principal, and accrued interest across Arc USDC vaults to generate structured reporting for accounting and tax compliance. Each response carries an institutional report envelope with read coverage, a data-quality grade, principal-impairment grading and stated disclosure limits.',
+    'Reads on-chain Arc USDC vault principal, redeemable value, and accrued yield, then generates a clear AI-narrated summary and structured statement for your records.',
   listing: {
     kind: 'official',
     ownerAddress: PROVIDER_ADDRESS,

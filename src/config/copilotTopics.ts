@@ -299,11 +299,11 @@ export const QUICK_PROMPTS = [
     category: 'Routing',
   },
   {
-    id: 'flash-liquidations',
-    icon: '🎯',
-    label: 'Flash-Loan Liquidation Radar',
-    prompt: 'Scan under-collateralized lending positions and show liquidation premiums.',
-    category: 'Yield',
+    id: 'bridge-cost-optimizer',
+    icon: '🌉',
+    label: 'Compare Bridge vs Gateway Fees',
+    prompt: 'Is Circle Gateway or CCTP cheaper to move 100 USDC from Arc to Base Sepolia?',
+    category: 'Gateway',
   },
   {
     id: 'gateway-whales',

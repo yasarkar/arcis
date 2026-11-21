@@ -1397,7 +1397,7 @@ Arc L1 solves this with sub-second deterministic finality:
 Transactions are included in blocks and finalized in under 500 milliseconds, which leaves a far smaller window for front-running than a multi-second public mempool.
 
 • <strong>No Private Relayer:</strong>
-Arcis does not operate a private relayer or bundle pipeline — swaps are submitted as ordinary Arc transactions. The Mempool MEV Shield Simulator only measures a trade's exposure; it provides no transaction protection.
+Arcis does not operate a private relayer or bundle pipeline — swaps are submitted as ordinary Arc transactions. The Smart Trade & Execution Advisor measures pool depth and price impact before you swap; it provides advisory metrics, not transaction protection.
 
 • <strong>Price Transparency:</strong>
 The quote is read from live pool reserves, and slippage tolerance is yours to set; pool depth can still move the execution price, which is why that limit exists.`,
@@ -1702,8 +1702,20 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       q.includes('highest arbitrage spread') ||
       q.includes('arbitrage')
     ) {
-      // Step 1: Deep Liquidity Depth
-      const s1 = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-deep-liquidity-slippage-optimizer')!
+      // Step 1: Smart Trade & Execution Advisor
+      const s1 = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-deep-liquidity-slippage-optimizer')
+      const s2 = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-cross-dex-arbitrage-sentinel')
+      if (!s1 || !s2) {
+        addMessage({
+          id: 'assistant-' + Date.now(),
+          role: 'assistant',
+          content: 'Pool spread analysis services are currently unavailable in the catalog.',
+          timestamp: Date.now(),
+        })
+        setIsAnalyzing(false)
+        setCurrentSteps([])
+        return
+      }
       steps.push({
         stepNumber: 1,
         serviceId: s1.id,
@@ -1711,7 +1723,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
         status: 'executing',
         costUsdc: 0,
         durationMs: 0,
-        detail: 'Scanning ArcSwap V3 and Aerodrome liquidity depth...',
+        detail: 'Measuring Arc L1 pool liquidity depth and execution impact...',
       })
       setCurrentSteps([...steps])
 
@@ -1739,7 +1751,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
         addMessage({
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `Arbitrage scan could not be completed. ${result.error || 'A usable service response and Gateway payment acceptance were not both confirmed.'} No trade action was created.${failureNote ? `\n\n${failureNote}` : ''}`,
+          content: `Pool spread scan could not be completed. ${result.error || 'A usable service response and Gateway payment acceptance were not both confirmed.'} No trade action was created.${failureNote ? `\n\n${failureNote}` : ''}`,
           timestamp: Date.now(),
           steps: [...steps],
           ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
@@ -1758,8 +1770,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       steps[0].resultSummary = r1.payment?.status === 'settlement_pending' ? 'Gateway accepted payment; provider settlement remains pending reconciliation.' : 'Settlement receipt verified; paid service data returned.'
       setCurrentSteps([...steps])
 
-      // Step 2: Arbitrage Sentinel
-      const s2 = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-cross-dex-arbitrage-sentinel')!
+      // Step 2: Pool Spread & Mispricing Scanner
       steps.push({
         stepNumber: 2,
         serviceId: s2.id,
@@ -1767,7 +1778,7 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
         status: 'executing',
         costUsdc: 0,
         durationMs: 0,
-        detail: 'Calculating cross-pool price spread and net yield...',
+        detail: 'Calculating Arc pool vs external oracle spread and net difference after gas...',
       })
       setCurrentSteps([...steps])
 
@@ -1786,39 +1797,11 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       steps[1].resultSummary = r2.payment?.status === 'settlement_pending' ? `Gateway accepted payment; provider settlement pending. Result: ${r2Data?.status || 'analysis returned'}.` : `Verified paid response: ${r2Data?.status || 'analysis returned'}.`
       setCurrentSteps([...steps])
 
-      // Step 3: MEV Risk Check
-      const s3 = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-mempool-mev-shield')!
-      steps.push({
-        stepNumber: 3,
-        serviceId: s3.id,
-        serviceName: s3.name,
-        status: 'executing',
-        costUsdc: 0,
-        durationMs: 0,
-        detail: 'Measuring how much of the USDC/WETH pool a 25,000 USDC sale would move...',
-      })
-      setCurrentSteps([...steps])
-
-      const r3 = paidCallKind
-        ? await executeX402Call(s3, { pair: 'USDC/WETH', tokenIn: 'USDC', targetTxAmountUsdc: 25000, slippageTolerancePct: 0.2 }, walletAddress, provider, paidCallKind, paidCallSigner)
-        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
-      if (!isSuccessfulX402ServiceResult(r3)) {
-        finishFailedStep(steps[2], r3)
-        return
-      }
-      totalCost += r3.costUsdc
-      steps[2].costUsdc = r3.costUsdc
-      const r3Data = r3.data as any
-      steps[2].status = 'completed'
-      steps[2].durationMs = r3.executionTimeMs
-      steps[2].resultSummary = r3.payment?.status === 'settlement_pending' ? `Gateway accepted payment; provider settlement pending. ${r3Data?.status || 'Risk analysis returned'}; analysis only, not transaction protection.` : `Verified paid response: ${r3Data?.status || 'risk analysis returned'}; this is analysis only, not transaction protection.`
-      setCurrentSteps([...steps])
-
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
         content: r2Data?.status === 'OPPORTUNITY_DETECTED'
-          ? `Arbitrage analysis completed (estimates only; no trade was executed):
+          ? `Pool spread analysis completed (estimates only; no trade was executed):
 
 • <strong>Buy venue / quoted price:</strong> ${r2Data?.bestRoute?.buyDex ?? 'Unavailable'} @ ${r2Data?.bestRoute?.buyPriceUsdc ?? 'Unavailable'}
 • <strong>Sell venue / quoted price:</strong> ${r2Data?.bestRoute?.sellDex ?? 'Unavailable'} @ ${r2Data?.bestRoute?.sellPriceUsdc ?? 'Unavailable'}
@@ -1826,8 +1809,8 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
 • <strong>Estimated gas:</strong> ${r2Data?.bestRoute?.estimatedGasCostUsdc ?? 'Unavailable'} USDC
 • <strong>Estimated net result:</strong> ${r2Data?.bestRoute?.netProfitUsdc ?? 'Unavailable'} USDC (${r2Data?.bestRoute?.netProfitPct ?? 'Unavailable'}%)
 
-The separate MEV service returned analysis only. No relayer protection or trade execution is implied.`
-          : `No arbitrage opportunity above the requested threshold was reported. The services returned analysis only; no trade or relayer protection was executed.`,
+This is advisory analysis only; no trade or relayer protection was executed.`
+          : `No pool spread above the requested threshold was reported. The services returned analysis only; no trade was executed.`,
         timestamp: Date.now(),
         steps: [...steps],
         totalCostUsdc: totalCost,
@@ -1840,31 +1823,19 @@ The separate MEV service returned analysis only. No relayer protection or trade 
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `x402 AI Services Catalog Pricing (configured rates; paid execution is currently unavailable in this client):
+        content: `x402 AI Services Catalog Pricing (configured pay-per-call rates on Arc Testnet):
 
-<strong>Listed Services:</strong>
+<strong>Listed Official Services (7 Active):</strong>
 
-1. <strong>Cross-DEX Arbitrage Sentinel:</strong>
-Listed rate: $0.005 USDC per query
-Intended output: spread and route estimates when the service is enabled and its data sources are available.
+1. <strong>Smart Trade & Execution Advisor:</strong> $0.002 USDC/call — pool depth, price impact, and execution sizing before a swap.
+2. <strong>Pool Spread & Mispricing Scanner:</strong> $0.005 USDC/call — live Arc pool rate vs external oracle spread after USDC gas.
+3. <strong>Bridge & Gateway Cost Optimizer:</strong> $0.003 USDC/call — live Circle Gateway vs CCTP fee comparison before bridging.
+4. <strong>Arc Yield & Pool Analytics:</strong> $0.002 USDC/call — live ERC-4626 USDC Yield Vault TVL and share price.
+5. <strong>Portfolio & DeFi Health Auditor:</strong> $0.004 USDC/call — multi-chain wallet & Gateway concentration and exposure audit.
+6. <strong>Yield & Position Statement (AI):</strong> $0.012 USDC/call — on-chain vault principal & yield with AI-narrated summary.
+7. <strong>Cross-Chain Gateway Flow Monitor:</strong> $0.003 USDC/call — live on-chain Gateway USDC inflows and outflows on Arc L1.
 
-2. <strong>Liquidity Depth & Slippage Scout:</strong>
-Listed rate: $0.002 USDC per query
-Intended output: route depth and slippage estimates when the service is enabled and its data sources are available.
-
-3. <strong>Flash-Loan & Liquidation Radar:</strong>
-Listed rate: $0.008 USDC per query
-Intended output: liquidation analysis only if a valid opportunity feed is connected.
-
-4. <strong>Mempool MEV Shield Simulator:</strong>
-Listed rate: $0.004 USDC per query
-Intended output: risk analysis only; this is not transaction protection.
-
-5. <strong>Cross-Chain Gateway Flow Indexer:</strong>
-Listed rate: $0.003 USDC per query
-Intended output: Gateway flow data only when a successful paid service response is available.
-
-These are catalog rates, not successful calls. Paid calls require an external EOA or a Circle Wallet EOA, Arc Testnet and a previously funded Circle Gateway balance. Circle facilitator acceptance serves the result, but provider earnings remain pending until Circle reports a matching confirmed transfer. Passkey/MSCA and autonomous session payments are unsupported; this app never deposits automatically.`,
+These are catalog rates, not successful calls. Paid calls require an external EOA or a Circle Wallet EOA, Arc Testnet and a previously funded Circle Gateway balance. Circle facilitator acceptance serves the result, while provider earnings remain pending until nonce reconciliation confirms settlement. Passkey/MSCA and autonomous session payments are unsupported; this app never deposits automatically.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1889,15 +1860,17 @@ A provider can integrate an HTTP 402 payment challenge and register a service ma
         const assistantMsg: CopilotMessage = {
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `Choosing an x402 AI service (catalog rates; paid testnet calls require an external EOA or Circle Wallet):
+          content: `Choosing an x402 AI service (7 active official services on Arc Testnet):
 
-• <strong>Arbitrage research:</strong> the Cross-DEX Arbitrage Sentinel is listed at $0.005/query.
-• <strong>Route/slippage estimates:</strong> the Liquidity Depth & Slippage Scout is listed at $0.002/query.
-• <strong>Liquidation research:</strong> the Flash-Loan & Liquidation Radar is listed at $0.008/query; its opportunity feed is unavailable until connected.
-• <strong>MEV risk analysis:</strong> the Mempool MEV Shield Simulator is listed at $0.004/query and does not itself protect or execute a transaction.
-• <strong>Gateway flow reporting:</strong> the Cross-Chain Gateway Flow Indexer is listed at $0.003/query when a successful service response is available.
+• <strong>Before a swap (impact & sizing):</strong> Smart Trade & Execution Advisor ($0.002/call).
+• <strong>Pool vs oracle price spread:</strong> Pool Spread & Mispricing Scanner ($0.005/call).
+• <strong>Before bridging (Gateway vs CCTP):</strong> Bridge & Gateway Cost Optimizer ($0.003/call).
+• <strong>Vault TVL & share price check:</strong> Arc Yield & Pool Analytics ($0.002/call).
+• <strong>Wallet risk & concentration audit:</strong> Portfolio & DeFi Health Auditor ($0.004/call).
+• <strong>AI-narrated yield statement:</strong> Yield & Position Statement (AI) ($0.012/call).
+• <strong>On-chain Arc USDC inflow/outflow tracking:</strong> Cross-Chain Gateway Flow Monitor ($0.003/call).
 
-These are catalog entries. Paid testnet calls require an external EOA or Circle Wallet and Circle Gateway configuration; a successful facilitator acceptance is still pending provider reconciliation, not a chain receipt. Open the AI Services tab to inspect the catalog.`,
+These are catalog entries. Paid testnet calls require an external EOA or Circle Wallet EOA with a funded Circle Gateway balance. Open the AI Services tab to launch any service.`,
           timestamp: Date.now(),
         }
         addMessage(assistantMsg)
@@ -2065,7 +2038,7 @@ Calculates institutional deposit velocity, burn volumes, and cross-chain net liq
 Every cross-chain transfer generates cryptographic attestations verifiable on the ArcScan block explorer.
 
 • <strong>Automated Flow Reports:</strong>
-You can trigger the <strong>Cross-Chain Gateway Flow Indexer</strong> agent directly through Ask Arco to generate an institutional flow report with your connected wallet.`,
+You can trigger the <strong>Cross-Chain Gateway Flow Monitor</strong> agent directly through Ask Arco to generate an institutional flow report with your connected wallet.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -2074,7 +2047,7 @@ You can trigger the <strong>Cross-Chain Gateway Flow Indexer</strong> agent dire
         addMessage({
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: `The <strong>Cross-Chain Gateway Flow Indexer</strong> is an institutional on-chain intelligence service ($0.003 USDC per query).
+          content: `The <strong>Cross-Chain Gateway Flow Monitor</strong> is an institutional on-chain intelligence service ($0.003 USDC per query).
 
 To run this query live against the Arc L1 RPC:
 • <strong>Connect an EOA Wallet:</strong> Connect MetaMask, Rabby, or a Circle User-Controlled Wallet (UCW).

@@ -8,7 +8,6 @@ import type { x402Service, ActionableSignalPayload } from '../types/marketplace.
 import {
   POOL_CONTRACTS,
   STABLE_SWAP_ABI,
-  YIELD_VAULT_ABI,
 } from '../config/poolsConfig.js'
 import { getLiveTokenPrices, normalizeTokenSymbol } from './tokenPriceService.js'
 import { getSwapEstimate, resolveArcNativeRoute } from './swapService.js'
@@ -56,7 +55,7 @@ async function fetchStablePoolReserves(): Promise<{ reserveA: bigint; reserveB: 
   }
 }
 
-interface ArbitragePoolMeta {
+export interface ArbitragePoolMeta {
   address: Address
   dexName: string
   decA: number
@@ -70,7 +69,7 @@ interface ArbitragePoolMeta {
  * on-chain ordering of the pool (symbolA is the contract's tokenA), so a reversed input
  * cannot re-label a reserve.
  */
-function resolveDexPoolMeta(tokenA: string, tokenB: string): ArbitragePoolMeta | null {
+export function resolveDexPoolMeta(tokenA: string, tokenB: string): ArbitragePoolMeta | null {
   const normA = normalizeTokenSymbol(tokenA)
   const normB = normalizeTokenSymbol(tokenB)
 
@@ -178,7 +177,7 @@ function resolveArbitragePoolMeta(tokenA: string, tokenB: string): ArbitragePool
   return meta && (meta.symbolA === 'USDC' || meta.symbolB === 'USDC') ? meta : null
 }
 
-interface PoolDepthUsdc {
+export interface PoolDepthUsdc {
   /** USDC value of the reserve the exposure is measured against; null when unpriceable. */
   reserveUsdc: number | null
   /**
@@ -202,7 +201,7 @@ interface PoolDepthUsdc {
  * token is valued with its live oracle price, and a missing price leaves the depth unknown
  * instead of substituting a default one.
  */
-function valuePoolDepthInUsdc(
+export function valuePoolDepthInUsdc(
   meta: ArbitragePoolMeta,
   reserves: { reserveA: bigint; reserveB: bigint },
   livePrices: Record<string, number>,
@@ -248,25 +247,6 @@ async function fetchPairReserves(poolAddress: Address): Promise<{ reserveA: bigi
     return { reserveA: rA, reserveB: rB }
   } catch (err) {
     console.warn(`[aiServicesDataProvider] On-chain pool reserves unavailable for ${poolAddress}:`, err)
-    return null
-  }
-}
-
-/**
- * Reads totalAssets from the Arc Testnet YieldVault (af-USDC ERC-4626).
- * Returns null when the on-chain read fails — never a substituted figure.
- */
-async function fetchVaultTotalAssets(): Promise<bigint | null> {
-  try {
-    const client = getArcPublicClient()
-    const totalAssets = await resilientReadContract(client, {
-      address: POOL_CONTRACTS.YIELD_VAULT as Address,
-      abi: YIELD_VAULT_ABI,
-      functionName: 'totalAssets',
-    })
-    return totalAssets
-  } catch (err) {
-    console.warn('[aiServicesDataProvider] On-chain vault assets unavailable:', err)
     return null
   }
 }
@@ -598,196 +578,7 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 3. FLASH-LOAN YIELD & LIQUIDATION RADAR
-  // ─────────────────────────────────────────────────────────────
-  if (service.id === 'arc-flash-loan-yield-radar') {
-    const minReward = Number(inputPayload.minLiquidationRewardUsdc) || 100
-
-    // Fetch real Arc Testnet YieldVault assets
-    const vaultAssets = await fetchVaultTotalAssets()
-
-    // Arcis has no on-chain liquidation source: it cannot enumerate under-collateralized
-    // positions, so no opportunity, health factor, bonus or reward is invented here.
-    const data = {
-      status: 'UNAVAILABLE',
-      requestedMinLiquidationRewardUsdc: minReward,
-      onChainVaultLiquidityUsdc: vaultAssets === null ? null : Number(formatUnits(vaultAssets, 6)),
-      activeOpportunitiesCount: null,
-      opportunities: [],
-      unavailable: ['liquidation opportunity feed'],
-      reason:
-        'No on-chain liquidation source is connected, so no liquidation opportunity or expected reward can be reported.',
-      riskRegister: [
-        {
-          id: 'FLASH_LOAN_UNAVAILABLE',
-          category: 'DATA_QUALITY',
-          severity: 'INFO',
-          title: 'No Liquidation Feed Connected',
-          finding:
-            'Arcis connects to verified on-chain accounting; no liquidation feed exists on Arc Testnet, so no liquidation opportunity is reported.',
-          evidence: { minReward },
-          threshold: 'Connected lending protocol liquidation engine required.',
-          remediation: 'Monitor Arc ecosystem deployment updates for lending integration.',
-        },
-      ],
-    }
-
-    return { data }
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // 4. ARC MEMPOOL & MEV SHIELD SIMULATOR
-  // ─────────────────────────────────────────────────────────────
-  if (service.id === 'arc-mempool-mev-shield') {
-    const amount = Number(inputPayload.targetTxAmountUsdc) || 100000
-    const slippageTolerancePct = Number(inputPayload.slippageTolerancePct) || 0.5
-    const requestedPair = String(inputPayload.pair || 'USDC/EURC')
-    const [legA, legB] = requestedPair.split('/')
-    const poolMeta = resolveDexPoolMeta(legA || 'USDC', legB || 'EURC')
-    // Echo the pair that was actually measured, so a malformed input cannot claim one
-    // market while the exposure came from another.
-    const pair = poolMeta ? `${poolMeta.symbolA}/${poolMeta.symbolB}` : requestedPair
-
-    // Direction: the token the trade sells into the pool. 'pair-first' — the form's default and
-    // the meaning of an absent field — is the pair's first leg, i.e. the order the caller wrote
-    // the pair in: EURC/WETH sells EURC, USDC/WETH sells USDC.
-    const rawTokenIn = inputPayload.tokenIn ? String(inputPayload.tokenIn) : 'pair-first'
-    const trimmedTokenIn = rawTokenIn.trim().toLowerCase()
-    const autoDirection = trimmedTokenIn === 'pair-first' || trimmedTokenIn === ''
-    const requestedTokenIn = normalizeTokenSymbol(autoDirection ? legA || 'USDC' : rawTokenIn)
-    const tokenInSide = poolMeta
-      ? [poolMeta.symbolA, poolMeta.symbolB].find(
-          (symbol) => normalizeTokenSymbol(symbol) === requestedTokenIn
-        ) ?? null
-      : null
-    // Echo the pool's own casing ("cirBTC") so the response lines up with `poolReserves`.
-    const tokenIn = tokenInSide ?? requestedTokenIn
-    const tokenOut =
-      poolMeta && tokenInSide
-        ? tokenInSide === poolMeta.symbolA
-          ? poolMeta.symbolB
-          : poolMeta.symbolA
-        : null
-
-    // Read the reserve of the pool this trade would actually move. A USDC/WETH trade
-    // measured against the StableSwap reserve would describe a different market.
-    const reserves = poolMeta ? await fetchPairReserves(poolMeta.address) : null
-    // Selling anything but USDC needs that token's live price to express its reserve in USDC.
-    const needsUsdcValuation = tokenInSide !== null && tokenInSide !== 'USDC'
-    const livePrices = needsUsdcValuation && reserves ? await getLiveTokenPrices() : {}
-    const depth =
-      poolMeta && reserves && tokenInSide
-        ? valuePoolDepthInUsdc(poolMeta, reserves, livePrices, tokenInSide)
-        : null
-    const poolReserves =
-      poolMeta && reserves
-        ? {
-            [poolMeta.symbolA]: Number(formatUnits(reserves.reserveA, poolMeta.decA)),
-            [poolMeta.symbolB]: Number(formatUnits(reserves.reserveB, poolMeta.decB)),
-          }
-        : null
-
-    const poolReserveUsdc = depth ? depth.reserveUsdc : null
-    // Transactions larger than 5% of the sold side's USDC value are exposed to sandwich attacks.
-    // The share is a real ratio of two real inputs, or unknown when a read failed.
-    const reserveSharePct =
-      poolReserveUsdc !== null && poolReserveUsdc > 0
-        ? Number(((amount / poolReserveUsdc) * 100).toFixed(2))
-        : null
-
-    // Arc L1 dynamic priority gas options
-    const arcGasUsdc = await estimateArcGasCostUsdc(120_000n)
-    const suggestedSlippagePct = Number(slippageTolerancePct.toFixed(2))
-
-    const missingPrices = depth ? depth.missingPrices : []
-    const unavailable: string[] = []
-    if (!poolMeta) unavailable.push('active Arc L1 DEX pool for requested pair')
-    else if (!tokenInSide) unavailable.push(`tokenIn ${requestedTokenIn} as a side of the ${pair} pool`)
-    else if (!reserves) unavailable.push('on-chain pool reserve depth')
-    else if (missingPrices.length > 0) {
-      unavailable.push(`oracle price for ${missingPrices.join(' and ')} to value the pool in USDC`)
-    } else if (reserveSharePct === null) unavailable.push('a non-empty pool reserve')
-
-    const unmeasuredReason = !poolMeta
-      ? `Exposure not computed: no active DEX liquidity pool exists on Arc Testnet for pair ${pair}.`
-      : !tokenInSide
-        ? `Exposure not computed: tokenIn ${requestedTokenIn} is not part of the ${pair} pool (expected ${poolMeta.symbolA} or ${poolMeta.symbolB}).`
-        : !reserves
-          ? 'Exposure not computed: the pool reserve read failed.'
-          : missingPrices.length > 0
-            ? `Exposure not computed: the ${pair} pool's ${tokenIn} reserve could not be valued in USDC (missing ${missingPrices.join(' and ')} oracle price).`
-            : reserveSharePct === null
-              ? `Exposure not computed: the ${pair} pool holds no measurable ${tokenIn} reserve.`
-              : null
-
-    const isMevHighRisk = reserveSharePct !== null && reserveSharePct > 5.0
-    const riskRegister = [
-      reserveSharePct === null
-        ? {
-            id: 'MEV_ANALYSIS_UNAVAILABLE',
-            category: 'DATA_QUALITY',
-            severity: 'HIGH',
-            title: 'MEV Exposure Analysis Unavailable',
-            finding: unmeasuredReason || 'Could not measure pool reserves or oracle valuation.',
-            evidence: { pair, tokenIn, unavailable },
-            threshold: 'Requires readable on-chain reserves and active oracle rates.',
-            remediation: 'Verify pair selection and retry query.',
-          }
-        : {
-            id: isMevHighRisk ? 'MEV_SANDWICH_EXPOSURE' : 'LOW_MEV_RISK',
-            category: 'EXECUTION_RISK',
-            severity: isMevHighRisk ? 'HIGH' : 'LOW',
-            title: isMevHighRisk
-              ? `Mempool Sandwich Attack Risk (${reserveSharePct}% Reserve)`
-              : `Minimal MEV Exposure (${reserveSharePct}%)`,
-            finding: isMevHighRisk
-              ? `Trade size represents ${reserveSharePct}% of the ${pair} pool's ${tokenIn} reserve. Orders exceeding 5% reserve depth face elevated sandwich attack vectors.`
-              : `Trade size is only ${reserveSharePct}% of pool reserve depth; low vulnerability to front-running on Arc.`,
-            evidence: {
-              pair,
-              tokenIn,
-              tradeReserveExposurePct: reserveSharePct,
-              suggestedSlippagePct,
-              arcGasUsdc,
-            },
-            threshold: 'Trade size > 5.0% of pool reserve depth triggers sandwich alert.',
-            remediation: isMevHighRisk
-              ? `Tighten max slippage to ${suggestedSlippagePct}% or utilize small batch execution.`
-              : 'Order can proceed safely under standard FIFO mempool parameters.',
-          },
-    ]
-
-    const data = {
-      status: reserveSharePct === null ? 'UNAVAILABLE' : 'ANALYSIS_COMPLETE',
-      pair,
-      tokenIn,
-      tokenOut,
-      poolAddress: poolMeta?.address ?? null,
-      poolReserveUsdc,
-      poolReserves,
-      poolReserveBasis: depth ? depth.basis : null,
-      vulnerabilityLevel:
-        reserveSharePct === null ? null : reserveSharePct > 5.0 ? 'HIGH_IF_UNPROTECTED' : 'LOW_RISK',
-      tradeReserveExposurePct: reserveSharePct,
-      arcL1MempoolArchitecture: 'Deterministic FIFO / USDC-Native Gas Priority',
-      recommendedShieldAction: {
-        bundleType: 'Advisory only — no bundle is submitted',
-        advisoryOnly: true,
-        adjustedMaxSlippagePct: suggestedSlippagePct,
-        estimatedGasCostUsdc: arcGasUsdc,
-      },
-      ...(depth && depth.basis === 'token-in-side' && Object.keys(depth.prices).length > 0
-        ? { usdcValuationPrices: depth.prices }
-        : {}),
-      ...(unmeasuredReason ? { unavailable, reason: unmeasuredReason } : {}),
-      riskRegister,
-    }
-
-    return { data }
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // 5. CROSS-CHAIN GATEWAY FLOW INDEXER
+  // 3. CROSS-CHAIN GATEWAY FLOW MONITOR
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-cross-chain-gateway-flow-indexer') {
     const requestedWindow = String(inputPayload.timeWindow || '1h')

@@ -12,11 +12,11 @@ import {
 export const arbitrageSentinelManifest: ServiceManifest = {
   id: 'arc-cross-dex-arbitrage-sentinel',
   version: '1.0.0',
-  name: 'Cross-DEX Arbitrage Sentinel',
-  tagline: 'Prices an Arc L1 Pool Against an External Oracle and Reports the Net Spread',
+  name: 'Pool Spread & Mispricing Scanner',
+  tagline: 'Compare Arc Pool Prices Against Live Market Oracles After Gas',
   category: 'Arbitrage',
   engine: 'native',
-  description: 'Reads one Arc L1 pool rate and compares it with the external oracle rate for the same pair, then reports the gross spread and the net result after the measured Arc gas cost.',
+  description: 'Compares live Arc L1 pool rates with external market oracle prices and calculates gross spread and net difference after Arc USDC gas costs.',
   listing: {
     kind: 'official',
     ownerAddress: '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A',

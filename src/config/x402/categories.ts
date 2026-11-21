@@ -12,34 +12,46 @@ export interface CategoryMetadata {
 
 export const SERVICE_CATEGORIES: CategoryMetadata[] = [
   {
-    id: 'Arbitrage',
-    label: 'Arbitrage & Spreads',
-    description: 'High-frequency DEX spread detection and triangular arbitrage execution',
-    iconName: 'TrendingUp',
-  },
-  {
     id: 'Liquidity & Routing',
-    label: 'Liquidity & Routing',
-    description: 'Pool depth oracles, slippage estimation, and multi-hop DEX routing',
+    label: 'Trade Execution',
+    description: 'Pool depth analysis, slippage estimation, and pre-trade execution sizing',
     iconName: 'Layers',
   },
   {
-    id: 'Yield & Flash-Loan',
-    label: 'Yield & Flash-Loan',
-    description: 'Lending pool APY analytics, flash-loan cycles, and delta-neutral yield vaults',
-    iconName: 'Zap',
-  },
-  {
-    id: 'MEV & Security',
-    label: 'MEV & Security',
-    description: 'Mempool frontrunning defense, sandwich attack detection, and transaction simulations',
-    iconName: 'ShieldCheck',
+    id: 'Arbitrage',
+    label: 'Spreads & Pricing',
+    description: 'Arc DEX pool spread detection against live external market oracles',
+    iconName: 'TrendingUp',
   },
   {
     id: 'Cross-Chain Gateway',
-    label: 'Cross-Chain Gateway',
-    description: 'Circle Gateway unified balance telemetry, CCTP routing, and instant mint scouts',
+    label: 'Bridge & Gateway',
+    description: 'Circle Gateway vs CCTP cost optimization and live cross-chain USDC flows',
     iconName: 'GitCommit',
+  },
+  {
+    id: 'Yield & Flash-Loan',
+    label: 'Yield & Pools',
+    description: 'ERC-4626 USDC yield vault and Arc L1 liquidity pool analytics',
+    iconName: 'Zap',
+  },
+  {
+    id: 'Risk & Compliance',
+    label: 'Portfolio & Risk',
+    description: 'Multi-chain balance auditing, asset concentration, and exposure analysis',
+    iconName: 'AlertTriangle',
+  },
+  {
+    id: 'Reporting & Tax',
+    label: 'Statements & AI',
+    description: 'On-chain yield statements, position accounting, and AI-narrated reports',
+    iconName: 'FileText',
+  },
+  {
+    id: 'MEV & Security',
+    label: 'Security',
+    description: 'Execution safety checks and transaction risk analysis',
+    iconName: 'ShieldCheck',
   },
   {
     id: 'Agent & Copilot',
@@ -54,22 +66,10 @@ export const SERVICE_CATEGORIES: CategoryMetadata[] = [
     iconName: 'PlayCircle',
   },
   {
-    id: 'Risk & Compliance',
-    label: 'Risk & Compliance',
-    description: 'Counterparty risk evaluation, smart contract anomaly detection, and AML screening',
-    iconName: 'AlertTriangle',
-  },
-  {
     id: 'Payments & Invoicing',
     label: 'Payments & Invoicing',
     description: 'Merchant payment verification, automated streaming payroll, and invoice settlement',
     iconName: 'CreditCard',
-  },
-  {
-    id: 'Reporting & Tax',
-    label: 'Reporting & Tax',
-    description: 'DeFi P&L calculation, cross-chain accounting, and tax compliance telemetry',
-    iconName: 'FileText',
   },
   {
     id: 'Data & Oracles',
@@ -83,3 +83,8 @@ export const ALL_CATEGORY_LABELS: ServiceCategory[] = [
   'All',
   ...SERVICE_CATEGORIES.map((c) => c.id),
 ]
+
+export function getCategoryLabel(category: ServiceCategory): string {
+  if (category === 'All') return 'All'
+  return SERVICE_CATEGORIES.find((c) => c.id === category)?.label ?? category
+}

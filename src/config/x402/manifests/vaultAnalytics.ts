@@ -14,12 +14,12 @@ const PROVIDER_ADDRESS = '0x9482Ac02f0B0F3Ac9443Bf38e78fC3A360049f5E'
 export const vaultAnalyticsManifest: ServiceManifest = {
   id: 'arc-yield-vault-analytics',
   version: '1.0.0',
-  name: 'USDC Yield Vault Analytics',
-  tagline: 'Live ERC-4626 TVL and Share Price for the Arc Yield Vault',
+  name: 'Arc Yield & Pool Analytics',
+  tagline: 'Live ERC-4626 Vault TVL, Share Price & Reserve Health on Arc',
   category: 'Yield & Flash-Loan',
   engine: 'native',
   description:
-    'Delivers real-time on-chain reads of Arc ERC-4626 USDC Yield Vault reserves, total TVL, and computed share value with verified accounting precision. Each response is an institutional report with read coverage, freshness, a data-quality grade and explicitly graded findings.',
+    'Reads live Arc ERC-4626 USDC Yield Vault reserves, TVL, and share price directly on-chain with institutional coverage and data-quality grading.',
   listing: {
     kind: 'official',
     ownerAddress: PROVIDER_ADDRESS,

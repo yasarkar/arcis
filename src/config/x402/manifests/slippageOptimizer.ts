@@ -12,11 +12,11 @@ import {
 export const slippageOptimizerManifest: ServiceManifest = {
   id: 'arc-deep-liquidity-slippage-optimizer',
   version: '1.0.0',
-  name: 'Liquidity Depth & Slippage Scout',
-  tagline: 'Lowest Slippage and Multi-Hop Routing for High-Volume Trades',
+  name: 'Smart Trade & Execution Advisor',
+  tagline: 'Check Pool Depth, Price Impact & Execution Sizing Before You Swap',
   category: 'Liquidity & Routing',
   engine: 'native',
-  description: 'Reads live Arc L1 pool depth and computes the price impact and execution price of one trade, so a high-volume order can be sized against liquidity that actually exists.',
+  description: 'Reads live Arc L1 pool reserves and computes price impact and effective execution price before you submit a trade, helping you size orders against real liquidity.',
   listing: {
     kind: 'official',
     ownerAddress: '0x522fAf9A91c41c443c66765030741e4AaCe147D0',

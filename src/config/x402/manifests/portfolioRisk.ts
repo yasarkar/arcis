@@ -14,12 +14,12 @@ const PROVIDER_ADDRESS = '0x360049f5E86E2070f80B0F3Ac9443Bf38e78fC3A'
 export const portfolioRiskManifest: ServiceManifest = {
   id: 'arc-portfolio-risk-exposure',
   version: '1.0.0',
-  name: 'Portfolio Risk & Exposure Engine',
-  tagline: 'On-Chain Arc Token Exposure, Concentration and Stablecoin Share',
+  name: 'Portfolio & DeFi Health Auditor',
+  tagline: 'Multi-Chain Balances, Concentration & Stablecoin Risk Audit',
   category: 'Risk & Compliance',
   engine: 'native',
   description:
-    'Computes multi-asset token exposure, concentration metrics, and stablecoin proportions across Arc L1 and Circle Gateway unified balances, and issues them as an institutional report: read coverage, a data-quality grade, and a severity-graded risk register carrying evidence, threshold and remediation per finding.',
+    'Audits wallet holdings across Arc L1, connected testnets, and Circle Gateway unified USDC to flag asset concentration, non-stablecoin exposure, and data coverage.',
   listing: {
     kind: 'official',
     ownerAddress: PROVIDER_ADDRESS,
