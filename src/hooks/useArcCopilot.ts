@@ -979,13 +979,13 @@ export function useArcCopilot(
   }
 
 
-  // The vault's own economics, bought as a separate read: the position report says what a
-  // holder is owed, this measures the vault that owes it (assets, shares, share price).
-  const runPaidVaultAnalytics = async (windowDaysInput?: unknown): Promise<void> => {
+  // Measures the ERC-4626 USDC Yield Vault and all 6 live Arc V4 AMM pools on-chain.
+  const runPaidVaultAnalytics = async (riskPreferenceInput?: unknown): Promise<void> => {
     const steps: CopilotStepLog[] = []
     let totalCost = 0
-    const requestedWindow = String(windowDaysInput ?? '30')
-    const windowDays = requestedWindow === '7' || requestedWindow === '90' ? requestedWindow : '30'
+    const rawPref = String(riskPreferenceInput ?? 'all').toLowerCase()
+    const riskPreference =
+      rawPref === 'stable_only' || rawPref === 'volatile_only' ? rawPref : 'all'
 
     if (!walletAddress) {
       addMessage({
@@ -1013,7 +1013,7 @@ export function useArcCopilot(
       addMessage({
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: 'The vault analytics service is not listed in the catalog, so no paid call was made.',
+        content: 'The yield & pool finder service is not listed in the catalog, so no paid call was made.',
         timestamp: Date.now(),
       })
       setCurrentSteps([])
@@ -1027,7 +1027,7 @@ export function useArcCopilot(
       status: 'executing',
       costUsdc: 0,
       durationMs: 0,
-      detail: 'Reading vault total assets, share supply and share price on-chain...',
+      detail: 'Scanning ERC-4626 vault accounting and all 6 live Arc V4 AMM pools on-chain...',
     })
     setCurrentSteps([...steps])
 
@@ -1035,7 +1035,7 @@ export function useArcCopilot(
     try {
       result = await executeX402Call(
         service,
-        { windowDays },
+        { riskPreference, walletAddress },
         walletAddress,
         provider,
         paidCallKind,
@@ -1108,7 +1108,10 @@ export function useArcCopilot(
         `• <strong>Total assets:</strong> ${formatUsdReportValue(data?.totalAssetsUsdc)}`,
         `• <strong>Shares outstanding:</strong> ${sharesText}`,
         `• <strong>Vault:</strong> ${data?.vaultAddress || 'unavailable'}`,
-        `• <strong>Observation window:</strong> ${windowDays} days — echoed for traceability; the vault publishes no historical series, so no APY or window return is derived from it.`,
+        ...(typeof data?.poolsMeasuredCount === 'number'
+          ? [`• <strong>Live Arc AMM pools scanned:</strong> ${data.poolsMeasuredCount}/${data.poolsScannedCount ?? 6} (filter: ${riskPreference})`]
+          : []),
+        `• <strong>On-chain snapshot:</strong> no historical APY series is published on-chain; pool fee run-rates reflect 24h rolling volume only.`,
       ].join('\n')
     )
 
@@ -1131,7 +1134,7 @@ export function useArcCopilot(
       steps: [...steps],
       nextSteps: recommendationsForReport(data?.report, {
         serviceId: service.id,
-        requestParams: { windowDays },
+        requestParams: { riskPreference, walletAddress },
         limit: 2,
       }),
       ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
@@ -1830,7 +1833,7 @@ This is advisory analysis only; no trade or relayer protection was executed.`
 1. <strong>Smart Trade & Execution Advisor:</strong> $0.003 USDC/call — direct vs 2-hop routing, pool reserve exposure, and batch sizing before a swap.
 2. <strong>All-Pools Spread & Mispricing Scanner:</strong> $0.005 USDC/call — scans all 6 Arc pools against live market oracles after USDC gas.
 3. <strong>Bridge & Gateway Cost Optimizer:</strong> $0.003 USDC/call — live Circle Gateway vs CCTP fee comparison before bridging.
-4. <strong>Arc Yield & Pool Analytics:</strong> $0.002 USDC/call — live ERC-4626 USDC Yield Vault TVL and share price.
+4. <strong>Arc Yield & Pool Opportunity Finder:</strong> $0.002 USDC/call — live TVL, 24h volume, fee tiers and wallet matching across all 6 Arc pools + ERC-4626 vault.
 5. <strong>Portfolio & DeFi Health Auditor:</strong> $0.004 USDC/call — multi-chain wallet & Gateway concentration and exposure audit.
 6. <strong>Yield & Position Statement (AI):</strong> $0.012 USDC/call — on-chain vault principal & yield with AI-narrated summary.
 7. <strong>Cross-Chain Gateway Flow Monitor:</strong> $0.003 USDC/call — live on-chain Gateway USDC inflows and outflows on Arc L1.
@@ -1865,7 +1868,7 @@ A provider can integrate an HTTP 402 payment challenge and register a service ma
 • <strong>Before a swap (routes, impact & sizing):</strong> Smart Trade & Execution Advisor ($0.003/call).
 • <strong>All 6 pools vs oracle price spread:</strong> All-Pools Spread & Mispricing Scanner ($0.005/call).
 • <strong>Before bridging (Gateway vs CCTP):</strong> Bridge & Gateway Cost Optimizer ($0.003/call).
-• <strong>Vault TVL & share price check:</strong> Arc Yield & Pool Analytics ($0.002/call).
+• <strong>Compare all 6 pools & vault yield opportunities:</strong> Arc Yield & Pool Opportunity Finder ($0.002/call).
 • <strong>Wallet risk & concentration audit:</strong> Portfolio & DeFi Health Auditor ($0.004/call).
 • <strong>AI-narrated yield statement:</strong> Yield & Position Statement (AI) ($0.012/call).
 • <strong>On-chain Arc USDC inflow/outflow tracking:</strong> Cross-Chain Gateway Flow Monitor ($0.003/call).
@@ -2338,7 +2341,7 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
         : action.serviceId === 'arc-vault-yield-tax-report'
           ? () => runPaidVaultReport(requestedAddress)
           : action.serviceId === 'arc-yield-vault-analytics'
-            ? () => runPaidVaultAnalytics(params.windowDays)
+            ? () => runPaidVaultAnalytics(params.riskPreference)
             : null
 
     if (!run) return false

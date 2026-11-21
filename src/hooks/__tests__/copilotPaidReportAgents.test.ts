@@ -122,17 +122,22 @@ const ANALYST_DATA = {
 
 const VAULT_ANALYTICS_DATA = {
   status: 'VAULT_READ',
-  windowDays: 30,
+  riskPreference: 'all',
+  walletAddress: WALLET,
   vaultAddress: '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A',
   totalAssetsUsdc: 250000,
   totalSupplyShares: '237867.75',
   sharePriceUsdc: 1.05,
   tvlUsdc: 250000,
   shareDecimals: 9,
+  poolsScannedCount: 6,
+  poolsMeasuredCount: 6,
+  totalProtocolTvlUsd: 550000,
+  opportunities: [],
   readAt: 1761234567890,
   unavailable: [],
-  limitations: ['No historical series is readable on-chain for this vault, so no APY is computed from windowDays.'],
-  note: 'Read from the vault contract.',
+  limitations: ['No historical time series is readable on-chain, so no multi-day drawdown or realized return is computed.'],
+  note: 'Read from the vault contract and Arc AMM pools.',
 }
 
 const VAULT_DATA = {
@@ -449,7 +454,7 @@ describe('paid vault report intent', () => {
 })
 
 describe('paid vault analytics cross-check', () => {
-  const crossCheck = (windowDays: unknown = '30'): Recommendation => ({
+  const crossCheck = (riskPreference: unknown = 'stable_only'): Recommendation => ({
     id: 'vault-impairment-cross-check:VAULT:test',
     ruleId: 'vault-impairment-cross-check',
     subject: { type: 'VAULT', identifier: '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A' },
@@ -463,8 +468,8 @@ describe('paid vault analytics cross-check', () => {
     action: {
       kind: 'open_service',
       serviceId: 'arc-yield-vault-analytics',
-      serviceName: 'USDC Yield Vault Analytics',
-      params: { windowDays },
+      serviceName: 'Arc Yield & Pool Opportunity Finder',
+      params: { riskPreference },
       priceUsdc: 0.002,
     },
   })
@@ -482,7 +487,7 @@ describe('paid vault analytics cross-check', () => {
 
     const calls = vi.mocked(executeX402Call).mock.calls
     expect(calls.map(([service]) => service.id)).toEqual(['arc-yield-vault-analytics'])
-    expect(calls[0][1]).toEqual({ windowDays: '30' })
+    expect(calls[0][1]).toEqual({ riskPreference: 'all', walletAddress: WALLET })
 
     vi.mocked(executeX402Call).mockClear()
     await query('How does the Real-Yield Vault (af-USDC) earn APY?')
@@ -501,32 +506,32 @@ describe('paid vault analytics cross-check', () => {
     ])
   })
 
-  it('buys the vault read itself and reports TVL, share price and the window limit', async () => {
+  it('buys the vault read itself and reports TVL, share price and live pool count', async () => {
     const executed = await render().executeNextStep(crossCheck())
     await vi.runAllTimersAsync()
 
     expect(executed).toBe(true)
     const calls = vi.mocked(executeX402Call).mock.calls
     expect(calls.map(([service]) => service.id)).toEqual(['arc-yield-vault-analytics'])
-    expect(calls[0][1]).toEqual({ windowDays: '30' })
+    expect(calls[0][1]).toEqual({ riskPreference: 'stable_only', walletAddress: WALLET })
 
     const final = messages().filter((message) => message.role === 'assistant').at(-1)!
     expect(final.content).toContain('measured from the ERC-4626 vault itself')
     expect(final.content).toContain('$250,000.00')
     expect(final.content).toContain('$1.05')
     expect(final.content).toContain('237867.75 shares (9 decimals)')
-    expect(final.content).toContain('30 days — echoed for traceability')
-    expect(final.content).toContain('no historical series')
+    expect(final.content).toContain('6/6')
+    expect(final.content).toContain('no historical APY series')
     expect(final.totalCostUsdc).toBeCloseTo(0.002, 6)
     expect(final.steps?.map((step) => step.status)).toEqual(['completed'])
     expect(final.steps?.[0].costUsdc).toBeCloseTo(0.002, 6)
   })
 
-  it('falls back to the 30-day window when a card carries an invalid one', async () => {
-    await render().executeNextStep(crossCheck('365'))
+  it('falls back to all opportunities when a card carries an invalid riskPreference', async () => {
+    await render().executeNextStep(crossCheck('invalid_mode'))
     await vi.runAllTimersAsync()
 
-    expect(vi.mocked(executeX402Call).mock.calls[0][1]).toEqual({ windowDays: '30' })
+    expect(vi.mocked(executeX402Call).mock.calls[0][1]).toEqual({ riskPreference: 'all', walletAddress: WALLET })
   })
 
   it('states the empty vault instead of inventing a share price', async () => {

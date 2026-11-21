@@ -775,6 +775,7 @@ export function VisualDataDashboard({
   const knownMetrics: Record<string, { label: string; isCurrency?: boolean; isPct?: boolean }> = {
     totalUsd: { label: 'Total Value', isCurrency: true },
     totalValueUsd: { label: 'Total Portfolio', isCurrency: true },
+    totalProtocolTvlUsd: { label: 'Total Protocol TVL', isCurrency: true },
     concentrationPct: { label: 'Asset Concentration', isPct: true },
     stablecoinSharePct: { label: 'Stablecoin Share', isPct: true },
     apy: { label: 'Annual Yield (APY)', isPct: true },
@@ -834,6 +835,7 @@ export function VisualDataDashboard({
   const routes: any[] = Array.isArray(view.routes) ? view.routes : []
   const routeComparison: any[] = Array.isArray(data.routeComparison) ? data.routeComparison : []
   const scannedPools: any[] = Array.isArray(data.scannedPools) ? data.scannedPools : []
+  const yieldOpportunities: any[] = Array.isArray(data.opportunities) ? data.opportunities : []
   const executionSizing: Record<string, any> | null =
     data.executionSizing && typeof data.executionSizing === 'object' && !Array.isArray(data.executionSizing)
       ? (data.executionSizing as Record<string, any>)
@@ -1103,6 +1105,73 @@ export function VisualDataDashboard({
                       <span className={pool.meetsThreshold ? 'text-[var(--earned-green)] font-bold' : 'text-white/60'}>
                         Net: ${pool.netProfitUsdc} ({pool.netProfitPct}%)
                       </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Yield & Pool Opportunities Table (Arc Yield & Pool Opportunity Finder) */}
+          {yieldOpportunities.length > 0 && (
+            <div
+              className="rounded-2xl border border-white/[0.08] overflow-hidden"
+              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
+            >
+              <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[11px] font-mono font-semibold text-white/60">
+                <span>ARC YIELD & POOL OPPORTUNITIES ({yieldOpportunities.length})</span>
+                <span className="text-[10px] text-white/40">LIVE ON-CHAIN STATE</span>
+              </div>
+              <div className="p-3 space-y-2 max-h-80 overflow-y-auto">
+                {yieldOpportunities.map((op: any) => (
+                  <div
+                    key={op.id || op.name}
+                    className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
+                      op.paused
+                        ? 'bg-rose-500/[0.05] border-rose-500/25 opacity-75'
+                        : op.walletEligible
+                          ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
+                          : 'bg-white/[0.025] border-white/[0.05]'
+                    }`}
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-bold text-white">{op.name}</span>
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/[0.06] text-white/60">
+                          {op.kind === 'vault' ? 'ERC-4626 VAULT' : 'AMM POOL'}
+                        </span>
+                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--purple-1)]/15 text-[var(--purple-1)] border border-[var(--purple-1)]/25">
+                          {op.riskLevel} Risk
+                        </span>
+                        {op.walletEligible && (
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
+                            Wallet Match ({Array.isArray(op.matchedTokens) ? op.matchedTokens.join(', ') : ''})
+                          </span>
+                        )}
+                        {op.paused && (
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                            PAUSED
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-mono text-white/45 block">
+                        IL: {op.impermanentLossRisk}{typeof op.feeTierPct === 'number' && op.feeTierPct > 0 ? ` · Swap Fee: ${op.feeTierPct}%` : ''}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono tabular-nums">
+                      <span className="text-white/70">
+                        TVL: <strong className="text-white">{typeof op.tvlUsd === 'number' ? `$${op.tvlUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
+                      </span>
+                      {op.kind === 'lp_pool' && (
+                        <span className="text-white/70">
+                          24h Vol: <strong className="text-white">{typeof op.volume24hUsd === 'number' ? `$${op.volume24hUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
+                        </span>
+                      )}
+                      {typeof op.feeRunRateAnnualizedPct === 'number' && (
+                        <span className="text-[var(--earned-green)] font-bold">
+                          24h Fee Run-Rate: {op.feeRunRateAnnualizedPct.toFixed(2)}%
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}

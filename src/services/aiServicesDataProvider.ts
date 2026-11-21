@@ -128,10 +128,14 @@ export async function generateLiveServiceData(
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 5. ARC YIELD & POOL ANALYTICS
+  // 5. ARC YIELD & POOL OPPORTUNITY FINDER
   // ─────────────────────────────────────────────────────────────
   if (service.id === 'arc-yield-vault-analytics') {
-    const analytics = await readVaultAnalytics({ windowDays: inputPayload.windowDays })
+    const analytics = await readVaultAnalytics({
+      riskPreference: inputPayload.riskPreference,
+      walletAddress: inputPayload.walletAddress,
+      windowDays: inputPayload.windowDays,
+    })
 
     return { data: analytics }
   }

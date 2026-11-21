@@ -668,21 +668,28 @@ describe('generateLiveServiceData — gateway fee & route scout', () => {
   })
 })
 
-describe('generateLiveServiceData — vault analytics', () => {
-  it('derives TVL and share price from totalAssets and totalSupply', async () => {
+describe('generateLiveServiceData — yield & pool opportunity finder', () => {
+  it('derives vault TVL/share price and scans all 6 Arc AMM pools live on-chain', async () => {
+    state.prices = { USDC: 1, EURC: 1.1, WETH: 3000, cirBTC: 90000 }
+    state.reserves = { reserveA: usdc(100_000), reserveB: usdc(90_000) }
     state.vaultAssets = 1_234_567_890n // 1,234.567890 USDC
     state.vaultSupply = 1_000_000_000_000n // 1,000 shares at 9 decimals
 
     const { data, actionablePayload } = await generateLiveServiceData(vaultAnalyticsManifest, {
-      windowDays: '30',
+      riskPreference: 'all',
     })
 
     expect(data.status).toBe('VAULT_READ')
-    expect(data.windowDays).toBe(30)
+    expect(data.riskPreference).toBe('all')
     expect(data.tvlUsdc).toBe(1234.56789)
     expect(data.sharePriceUsdc).toBe(1.234568)
     expect(data.totalSupplyShares).toBe('1000')
     expect(data.shareDecimals).toBe(9)
+    expect(data.poolsScannedCount).toBe(6)
+    expect(data.poolsMeasuredCount).toBe(6)
+    expect(data.opportunities).toHaveLength(7) // 1 Vault + 6 AMM pools
+    expect(data.opportunities.some((o: any) => o.kind === 'vault')).toBe(true)
+    expect(data.opportunities.filter((o: any) => o.kind === 'lp_pool')).toHaveLength(6)
     expect(actionablePayload).toBeUndefined()
 
     expect(data.report.kind).toBe('VAULT_ANALYTICS')
@@ -693,11 +700,37 @@ describe('generateLiveServiceData — vault analytics', () => {
     expect(registerIds).toContain('VAULT_ACTIVE_RESERVES')
   })
 
+  it('filters opportunities by riskPreference and tags wallet-matched pools when walletAddress is provided', async () => {
+    const wallet = '0x1111111111111111111111111111111111111111'
+    state.prices = { USDC: 1, EURC: 1.1, WETH: 3000, cirBTC: 90000 }
+    state.reserves = { reserveA: usdc(100_000), reserveB: usdc(90_000) }
+    state.vaultAssets = 500_000_000n
+    state.vaultSupply = 500_000_000_000n
+    state.balances = {
+      [ARC_TESTNET_TOKENS.USDC.toLowerCase()]: 250_000_000n, // holds 250 USDC
+    }
+
+    const stableOnly = await generateLiveServiceData(vaultAnalyticsManifest, {
+      riskPreference: 'stable_only',
+      walletAddress: wallet,
+    })
+    expect(stableOnly.data.opportunities).toHaveLength(2) // USDC Yield Vault + USDC/EURC StableSwap
+    expect(stableOnly.data.opportunities.every((o: any) => o.walletEligible === true)).toBe(true)
+    expect(stableOnly.data.opportunities.every((o: any) => o.matchedTokens.includes('USDC'))).toBe(true)
+    expect(stableOnly.data.report.riskRegister.map((e: any) => e.id)).toContain('WALLET_OPPORTUNITIES_MATCHED')
+
+    const volatileOnly = await generateLiveServiceData(vaultAnalyticsManifest, {
+      riskPreference: 'volatile_only',
+    })
+    expect(volatileOnly.data.opportunities).toHaveLength(5)
+    expect(volatileOnly.data.opportunities.every((o: any) => o.kind === 'lp_pool' && o.riskLevel !== 'Safe')).toBe(true)
+  })
+
   it('does not compute a share price when the vault has no shares', async () => {
     state.vaultAssets = 0n
     state.vaultSupply = 0n
 
-    const { data } = await generateLiveServiceData(vaultAnalyticsManifest, { windowDays: '7' })
+    const { data } = await generateLiveServiceData(vaultAnalyticsManifest, { riskPreference: 'all' })
 
     expect(data.status).toBe('VAULT_EMPTY')
     expect(data.sharePriceUsdc).toBeNull()
@@ -708,7 +741,7 @@ describe('generateLiveServiceData — vault analytics', () => {
     state.vaultAssets = null
     state.vaultSupply = 1_000_000_000_000n
 
-    const { data } = await generateLiveServiceData(vaultAnalyticsManifest, { windowDays: '90' })
+    const { data } = await generateLiveServiceData(vaultAnalyticsManifest, { riskPreference: 'all' })
 
     expect(data.status).toBe('UNAVAILABLE')
     expect(data.totalAssetsUsdc).toBeNull()

@@ -94,7 +94,7 @@ export const NEXT_ACTION_RULES: NextActionRule[] = [
       tier: 'cross_check',
       action: 'open_service',
       serviceId: 'arc-yield-vault-analytics',
-      params: { windowDays: '30' },
+      params: { riskPreference: 'stable_only' },
       title: 'Cross-check the vault’s own TVL and share price',
     },
   },
