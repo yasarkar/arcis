@@ -731,10 +731,10 @@ export default function InlineActionCard({
 
         return (
           <ActionCardShell
-            accentColor="emerald"
+            accentColor="indigo"
             warnings={warnings}
             header={{
-              icon: <Coins className="w-4 h-4 text-emerald-400" />,
+              icon: <Coins className="w-4 h-4 text-indigo-400" />,
               title: 'Yield Vault Deposit',
               subtitle: 'Arcis YieldVault • Continuous Compounding',
             }}
@@ -764,9 +764,11 @@ export default function InlineActionCard({
                   <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-0.5 select-text">
                     Est. 1Y Yield
                   </span>
-                  <div className="font-bold text-white text-base flex items-center justify-end gap-1 select-text">
-                    <span>{hasYieldEstimate ? `+${yearlyYield.toFixed(2)}` : '—'}</span>
-                    <span className="text-xs text-white font-bold">USDC</span>
+                  <div className="font-bold text-white text-base flex items-center justify-end gap-1.5 select-text">
+                    {hasYieldEstimate && <span>+</span>}
+                    <CopilotTokenIcon symbol="USDC" className="w-4 h-4 shrink-0" />
+                    <span>{hasYieldEstimate ? yearlyYield.toFixed(2) : '—'}</span>
+                    <span className="text-[12px] text-white font-bold">USDC</span>
                   </div>
                   <span className="text-[11px] font-mono text-slate-400 block mt-0.5">
                     Variable APY (~8.4%)

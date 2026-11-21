@@ -4,8 +4,15 @@ import { isBridgeRouteSupported } from '../../config/bridgeRouteMatrix'
 import { getExplorerTxUrl } from '../../config/sendConfig'
 import { addTransaction } from '../../utils/history'
 import { formatCopilotError, isUserCanceled } from '../../utils/errorUtils'
+import { logger } from '../../utils/logger'
 import type { InlineExecutionReceipt } from '../../types/sessionKey'
-import { createViemAdapter } from '../sendService'
+import { createHeadlessSessionAdapter, createViemAdapter } from '../sendService'
+import { verifySessionLimits } from '../sessionKeyService'
+import {
+  getEphemeralSessionAccount,
+  getEphemeralSessionPrivateKey,
+  fetchEnclaveUsdcBalance,
+} from '../sessionEnclaveService'
 import { executeBridge } from '../bridgeService'
 import { pollCctpDestinationTx, executeUcwBridgeTransfer } from '../bridgeUcwService'
 import {
@@ -14,6 +21,8 @@ import {
   isPositiveTokenAmount,
   isTransactionHash,
 } from './copilotCommon'
+
+const log = logger.createScope('copilotBridgeAction')
 
 export async function executeCopilotBridgeAction(
   context: CopilotActionContext,
@@ -73,7 +82,32 @@ export async function executeCopilotBridgeAction(
     )
   }
 
-  if (ucwHandlers?.authSource === 'ucw') {
+  // ── 0. AUTONOMOUS SESSION ENCLAVE EXECUTION (ZERO-POPUP, ARC TESTNET SOURCE) ──
+  // When the user has an active, funded Session Enclave on Arc Testnet, bridge directly
+  // from the enclave via the headless Viem adapter so MetaMask does not pop up.
+  let sourceAdapter: any = null
+  if (sourceChainKey === 'Arc_Testnet') {
+    const ephemeralAccount = getEphemeralSessionAccount(activeWallet, 'copilot')
+    const ephemeralKey = ephemeralAccount
+      ? getEphemeralSessionPrivateKey(activeWallet, 'copilot', ephemeralAccount.address)
+      : null
+    if (ephemeralAccount && ephemeralKey) {
+      const limitCheck = verifySessionLimits('bridge', amount, activeWallet, 'copilot')
+      if (limitCheck.allowed || budgetManaged) {
+        let enclaveBalance = 0
+        try {
+          enclaveBalance = await fetchEnclaveUsdcBalance(ephemeralAccount.address)
+        } catch (balErr) {
+          log.debug('Could not fetch enclave balance for bridge:', balErr)
+        }
+        if (enclaveBalance >= amount) {
+          sourceAdapter = createHeadlessSessionAdapter(ephemeralKey)
+        }
+      }
+    }
+  }
+
+  if (!sourceAdapter && ucwHandlers?.authSource === 'ucw') {
     if (!ucwHandlers.executeUcwContract || sourceChainKey !== 'Arc_Testnet') {
       if (onProgress) onProgress('failed')
       return failedActionReceipt('bridge', 'Circle UCW Bridge Unavailable', 'UCW bridge requires its contract challenge handler and an Arc Testnet source chain; no fallback signer was used.', startTime)
@@ -125,26 +159,27 @@ export async function executeCopilotBridgeAction(
     }
   }
 
-  let sourceAdapter: any
-  const effectiveProvider = provider || (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
+  if (!sourceAdapter) {
+    const effectiveProvider = provider || (typeof window !== 'undefined' && (window as any).ethereum ? (window as any).ethereum : null)
 
-  if (effectiveProvider) {
-    sourceAdapter = await createViemAdapter(effectiveProvider)
-  } else {
-    if (onProgress) onProgress('failed')
-    return {
-      id: `rcpt_err_${Date.now()}`,
-      actionType: 'bridge',
-      title: `Bridge Failed: ${amount} USDC`,
-      status: 'FAILED',
-      txHash: '',
-      fromChain: fromDisplayName,
-      toChain: toDisplayName,
-      amountIn: amount,
-      gasUsdc: 0,
-      settlementLatencyMs: Date.now() - startTime,
-      timestamp: Date.now(),
-      errorMessage: 'İşlem adaptörü oluşturulamadı. Lütfen Web3 cüzdanınızı (MetaMask/Rainbow) bağlayın.',
+    if (effectiveProvider) {
+      sourceAdapter = await createViemAdapter(effectiveProvider)
+    } else {
+      if (onProgress) onProgress('failed')
+      return {
+        id: `rcpt_err_${Date.now()}`,
+        actionType: 'bridge',
+        title: `Bridge Failed: ${amount} USDC`,
+        status: 'FAILED',
+        txHash: '',
+        fromChain: fromDisplayName,
+        toChain: toDisplayName,
+        amountIn: amount,
+        gasUsdc: 0,
+        settlementLatencyMs: Date.now() - startTime,
+        timestamp: Date.now(),
+        errorMessage: 'İşlem adaptörü oluşturulamadı. Lütfen Web3 cüzdanınızı (MetaMask/Rainbow) bağlayın.',
+      }
     }
   }
 

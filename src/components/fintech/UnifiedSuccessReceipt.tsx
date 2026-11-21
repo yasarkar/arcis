@@ -540,7 +540,7 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               {apy && (
                 <div className="flex items-center justify-between">
                   <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>Yield Vault APY</div>
-                  <span className={`font-bold ${isInline ? 'text-xs' : 'text-xs sm:text-sm'} text-emerald-400 tabular-nums`}>{apy}</span>
+                  <span className={`font-bold ${isInline ? 'text-xs' : 'text-xs sm:text-sm'} text-white tabular-nums`}>{apy}</span>
                 </div>
               )}
             </>

@@ -213,7 +213,8 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('Deposit Amount')
     expect(html).toContain('200')
     expect(html).toContain('Est. 1Y Yield')
-    expect(html).toContain('+16.84')
+    expect(html).toContain('<span>+</span>')
+    expect(html).toContain('16.84')
     expect(html).toContain('Variable APY (~8.4%)')
 
     // Details Rows

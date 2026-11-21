@@ -25,8 +25,9 @@ const log = logger.createScope('sessionEnclaveService')
 const ENCLAVE_KEY_STORAGE_PREFIX = 'arcis_enclave_key_v2_'
 const LEGACY_STORAGE_PREFIX = 'arcis_enclave_key_v1_'
 
-// In-memory cache of active ephemeral accounts mapped by scoped key (`scope:walletKey`)
+// In-memory cache of active ephemeral accounts and private keys mapped by scoped key (`scope:walletKey`)
 const inMemoryEnclaveAccounts: Map<string, PrivateKeyAccount> = new Map()
+const inMemoryEnclaveKeys: Map<string, Hex> = new Map()
 
 /**
  * Normalizes wallet address and scope into an isolated cache key
@@ -252,11 +253,43 @@ export function getEphemeralSessionAccount(
     try {
       const account = privateKeyToAccount(storedKey)
       inMemoryEnclaveAccounts.set(cacheKey, account)
+      inMemoryEnclaveKeys.set(cacheKey, storedKey)
       return account
     } catch (err) {
       log.error('Failed to instantiate privateKeyToAccount from stored key', err)
       removeStoredPrivateKey(rawWallet, scope, targetPublicKey)
     }
+  }
+
+  return null
+}
+
+/**
+ * Returns the raw 32-byte private key for the active ephemeral session enclave account,
+ * used by headless Viem adapters (e.g. Circle Bridge Kit zero-popup execution on Arc Testnet).
+ */
+export function getEphemeralSessionPrivateKey(
+  walletAddress?: string,
+  scope: SessionScope = 'copilot',
+  targetPublicKey?: string
+): Hex | null {
+  const { rawWallet, cacheKey } = normalizeScopedKey(walletAddress, scope)
+  const cachedKey = inMemoryEnclaveKeys.get(cacheKey)
+  if (cachedKey) {
+    if (!targetPublicKey) return cachedKey
+    try {
+      if (privateKeyToAccount(cachedKey).address.toLowerCase() === targetPublicKey.trim().toLowerCase()) {
+        return cachedKey
+      }
+    } catch {
+      inMemoryEnclaveKeys.delete(cacheKey)
+    }
+  }
+
+  const storedKey = readStoredPrivateKey(rawWallet, scope, targetPublicKey)
+  if (storedKey) {
+    inMemoryEnclaveKeys.set(cacheKey, storedKey)
+    return storedKey
   }
 
   return null
@@ -277,6 +310,7 @@ export function generateEphemeralSessionAccount(
   const account = privateKeyToAccount(privKey)
 
   inMemoryEnclaveAccounts.set(cacheKey, account)
+  inMemoryEnclaveKeys.set(cacheKey, privKey)
   persistPrivateKey(rawWallet, privKey, scope)
 
   log.info(`Generated ephemeral ${scope} session account ${account.address} for wallet ${rawWallet}`)
@@ -297,6 +331,7 @@ export function clearEphemeralSessionAccount(
 ): void {
   const { rawWallet, cacheKey } = normalizeScopedKey(walletAddress, scope)
   inMemoryEnclaveAccounts.delete(cacheKey)
+  inMemoryEnclaveKeys.delete(cacheKey)
   removeStoredPrivateKey(rawWallet, scope, targetPublicKey)
   log.info(`Cleared ephemeral ${scope} session account for wallet ${rawWallet}`)
 }
