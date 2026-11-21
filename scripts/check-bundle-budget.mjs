@@ -23,9 +23,9 @@ const BUDGETS = {
   'react-vendor': 70 * 1024,
   // Lazy token-icon index (JS-embedded SVGs — see the icon-sprite follow-up).
   'dynamicIconImports': 75 * 1024,
-  // Largest single chunk (today the deliberate Web3 monolith ARC-027 keeps
-  // whole; the gate pins it so it can never grow silently).
-  'maxSingleChunk': 1300 * 1024,
+  // Largest single chunk (re-baselined 2026-11-21 after lazy-splitting AppKit,
+  // Passkey/modular-wallets, CopilotRuntime, and HistoryTable: ~258 KB gzip).
+  'maxSingleChunk': 350 * 1024,
   // Whole production JS payload.
   'totalJs': 7.8 * 1024 * 1024,
 }

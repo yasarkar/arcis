@@ -7,9 +7,7 @@ import { clearAllAppInputs } from './utils/inputClearer'
 import HomePage from './components/home/HomePage'
 import Header from './components/Header'
 import Footer from './components/Footer'
-import HistoryTable from './components/HistoryTable'
 import CopilotRobotWidget from './components/copilot/CopilotRobotWidget'
-import { useArcCopilot } from './hooks/useArcCopilot'
 import { useAutoSwitchArcChain } from './hooks/useAutoSwitchArcChain'
 import { BroadcastProvider } from './components/BroadcastNotification'
 import { prefetchGlobalData, prefetchAllWalletData, prefetchEssentialWalletData, prefetchDeferredWalletData } from './services/prefetchCoordinator'
@@ -26,6 +24,7 @@ import type { CopilotUcwHandlers } from './services/copilotExecutionService'
 const UnifiedBalance = lazy(() => import('./components/UnifiedBalance'))
 const PoolsTab = lazy(() => import('./components/pools/PoolsTab'))
 const MarketplaceTab = lazy(() => import('./components/marketplace/MarketplaceTab'))
+const HistoryTable = lazy(() => import('./components/HistoryTable'))
 const SendModal = lazy(() => import('./components/SendModal'))
 const SwapModal = lazy(() => import('./components/SwapModal'))
 const BridgeModal = lazy(() => import('./components/BridgeModal'))
@@ -33,6 +32,7 @@ const CircleAuthModal = lazy(() => import('./components/CircleAuthModal'))
 const FaucetModal = lazy(() => import('./components/FaucetModal'))
 const PortfolioDrawer = lazy(() => import('./components/PortfolioDrawer'))
 const ArcCopilotDrawer = lazy(() => import('./components/copilot/ArcCopilotDrawer'))
+const CopilotRuntime = lazy(() => import('./components/copilot/CopilotRuntime'))
 const UnifiedWalletModal = lazy(() =>
   import('./components/common/UnifiedWalletModal').then((m) => ({ default: m.UnifiedWalletModal }))
 )
@@ -69,80 +69,25 @@ interface CopilotHostProps {
   onNavigateToTab: (tab: string) => void
 }
 
-// P08: the copilot subscription lives here, not in App. Every copilot state
-// update (messages streaming, analyzing ticks, drawer open/close) re-renders
-// only this subtree; the shell (Header/tabs/prefetch effects) stays put.
-function CopilotHost({
-  walletAddress,
-  connectedProvider,
-  activeAuthSource,
-  ucwAddress,
-  executeUcwTransfer,
-  executeUcwContract,
-  pollUcwChallengeTx,
-  executeUcwSignTypedData,
-  onNavigateToTab,
-}: CopilotHostProps) {
-  // Arcis AI Copilot (Autonomous Orchestrator with Real On-Chain Execution)
-  // Circle UCW signs via user challenges, so the copilot needs the UCW executors to route
-  // send/swap/deposit/bridge through the active UCW wallet instead of a session key or EOA.
-  const copilot = useArcCopilot(walletAddress, connectedProvider, {
-    authSource: activeAuthSource,
-    executeUcwTransfer,
-    executeUcwContract,
-    // A Circle Wallet has no EIP-1193 provider, so its x402 payment authorization
-    // is signed through Circle's typed-data challenge instead.
-    signTypedData: executeUcwSignTypedData,
-    // The copilot's UCW bridge resolves its burn hash through this callback
-    // rather than reading the Circle session token from browser storage.
-    pollChallengeTx: pollUcwChallengeTx,
-  })
+// P08: the copilot subscription lives here, not in App, and mounts on first click so
+// `useArcCopilot` (x402 manifests, payment orchestrator, zod) stays off the initial entry chunk.
+function CopilotHost(props: CopilotHostProps) {
+  const [activated, setActivated] = useState(false)
+
+  if (!activated) {
+    return (
+      <CopilotRobotWidget
+        isOpen={false}
+        onClick={() => setActivated(true)}
+        isAnalyzing={false}
+      />
+    )
+  }
 
   return (
-    <>
-      {/* Global Floating Cybernetic Robot Widget (Bottom-Left) */}
-      <CopilotRobotWidget
-        isOpen={copilot.isOpen}
-        onClick={copilot.toggleOpen}
-        isAnalyzing={copilot.isAnalyzing}
-      />
-
-      {/* Arcis AI Copilot Side Drawer */}
-      <SectionErrorBoundary title="Arco AI Copilot is temporarily unavailable">
-        {copilot.isOpen && (
-        <Suspense fallback={null}>
-        <ArcCopilotDrawer
-          isOpen={copilot.isOpen}
-          onClose={() => copilot.setIsOpen(false)}
-          messages={copilot.messages}
-          currentSteps={copilot.currentSteps}
-          isAnalyzing={copilot.isAnalyzing}
-          sessionConfig={copilot.sessionConfig}
-          walletAddress={walletAddress || ucwAddress}
-          provider={connectedProvider}
-          ucwHandlers={{
-            executeUcwTransfer,
-            executeUcwContract,
-            pollChallengeTx: pollUcwChallengeTx,
-            signTypedData: executeUcwSignTypedData,
-            authSource: activeAuthSource,
-          }}
-          authSource={activeAuthSource}
-          onSendMessage={copilot.executeQuery}
-          onClearChat={copilot.clearChat}
-          onActivateSession={copilot.activateSession}
-          onRevokeSession={copilot.revokeSession}
-          onToggleAutoExecute={copilot.toggleAutoExecute}
-          onExecuteInline={copilot.executeInlineAction}
-          onExecuteNextStep={copilot.executeNextStep}
-          canExecuteNextStep={copilot.canExecuteNextStep}
-          canPayForCalls={copilot.canPayForCalls}
-          onNavigateToTab={(tab) => onNavigateToTab(tab as any)}
-        />
-        </Suspense>
-        )}
-      </SectionErrorBoundary>
-    </>
+    <Suspense fallback={null}>
+      <CopilotRuntime {...props} DrawerComponent={ArcCopilotDrawer} />
+    </Suspense>
   )
 }
 

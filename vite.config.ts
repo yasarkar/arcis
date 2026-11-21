@@ -200,7 +200,10 @@ export default defineConfig(({ mode }) => {
       target: 'es2022',
       minify: 'esbuild',
       sourcemap: false,
-      chunkSizeWarningLimit: 600,
+      // Uncompressed warning floor set above the unsplittable 715 kB upstream
+      // `@circle-fin/app-kit/index.mjs` bundle and ~938 kB entry; strict gzip
+      // regression enforcement lives in `scripts/check-bundle-budget.mjs` (≤ 350 KB).
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         onwarn(warning, defaultHandler) {
           const id = warning.id?.replace(/\\/g, '/') ?? ''

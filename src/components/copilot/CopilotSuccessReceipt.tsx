@@ -69,7 +69,7 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
     let cancelled = false
     const pollReceipt = async () => {
       try {
-        const client = getModularPublicClient() as any
+        const client = (await getModularPublicClient()) as any
         if (!client) return
         const rcpt = typeof client.waitForTransactionReceipt === 'function'
           ? await client.waitForTransactionReceipt({ hash: receipt.txHash as any, timeout: 6000 }).catch(() => null)

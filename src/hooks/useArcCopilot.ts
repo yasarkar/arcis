@@ -109,9 +109,10 @@ export {
 export function useArcCopilot(
   walletAddress?: string,
   provider?: any,
-  ucwHandlers?: CopilotUcwHandlers
+  ucwHandlers?: CopilotUcwHandlers,
+  initialOpen = false
 ) {
-  const [isOpen, setIsOpen] = useState<boolean>(false)
+  const [isOpen, setIsOpen] = useState<boolean>(initialOpen)
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false)
   const [currentSteps, setCurrentSteps] = useState<CopilotStepLog[]>([])
   const [messages, setMessages] = useState<CopilotMessage[]>([createArcisWelcomeMessage()])

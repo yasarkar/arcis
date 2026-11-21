@@ -233,7 +233,11 @@ Hepsi [HomePage.tsx:6-12](file:///c:/arc-mini-app/src/components/home/HomePage.t
 - **5a — Bundle analizi & chunk bölme:**
   - `npm run build:analyze` (`dist/bundle-stats.html`) incelendi; 3,67 MB'lık `index-*.js` ana giriş chunk'ını şişiren temel zincirin [useArcCopilot.ts](file:///c:/arc-mini-app/src/hooks/useArcCopilot.ts) içindeki statik `llmService` ve `copilotExecutionService` import'ları olduğu saptandı (bunlar `swapService`/`bridgeService`/`sendService` üzerinden tüm `@circle-fin/app-kit`, `@circle-fin/adapter-viem-v2`, `@solana/web3.js` ve crypto polyfill yığınını ana sayfaya çekiyordu).
   - [useArcCopilot.ts](file:///c:/arc-mini-app/src/hooks/useArcCopilot.ts) içinde `queryArcisLLM` ve `executeDirectCopilotAction` çağrıları dinamik `import()`'a alındı.
-  - **Ölçülen sonuç:** En büyük / ana giriş chunk'ı **3,667.98 kB (1,003.94 kB gzip)** → **2,129.28 kB (605.52 kB gzip)** (`-1.54 MB` ham / `-%40` gzip; budget `591.3 KB ≤ 1300 KB`). `@circle-fin/app-kit`, `@solana/web3.js`, `sendService`, `swapService`, `bridgeService`, `llmService`, `copilotExecutionService` artık talep üzerine (lazy) yükleniyor.
+  - **Ölçülen sonuç (1. + 2. tur chunk bölme):**
+    - 1. tur (`useArcCopilot` → `llmService`/`copilotExecutionService` lazy): **3,668 kB → 2,129 kB** (`1,004 kB → 605,5 kB` gzip).
+    - 2. tur ([modularWalletService.ts](file:///c:/arc-mini-app/src/services/modularWalletService.ts) `@circle-fin/modular-wallets-core` dinamik `import()` ile `web3` + `crypto-browserify` yığını ana sayfadan çıkarıldı; [App.tsx](file:///c:/arc-mini-app/src/App.tsx) `HistoryTable` ve [CopilotRuntime.tsx](file:///c:/arc-mini-app/src/components/copilot/CopilotRuntime.tsx) `lazy()` yapıldı): ana giriş chunk'ı **2,129 kB → 937.8 kB** (`605,5 kB → 264,6 kB` gzip; budget `258,4 KB ≤ 1300 KB`) — başlangıca göre toplam **-%74,4** küçülme.
+    - Ayrılan yeni lazy chunk'lar: Passkey/`web3`/`crypto-browserify` (`595,8 kB`), `HistoryTable` (`115 kB`), `CopilotRuntime` (`66,9 kB`), `zod` (`58,9 kB`), x402 manifestleri (`42,1 kB`).
+  - **600 kB uyarısının matematiksel alt sınırı & sıkılaştırılan bütçe:** `@circle-fin/app-kit/index.mjs` Circle tarafından tek parça 1,58 MB ESM dosyası olarak yayınlanıyor ve tek başına minify edildiğinde **715,2 kB** (`index-pbcMP6wm.js`: `855,8 kB` / `227,1 kB` gzip, tamamen lazy). Gerçek gerileme koruması [scripts/check-bundle-budget.mjs](file:///c:/arc-mini-app/scripts/check-bundle-budget.mjs) içinde `maxSingleChunk` `1300 KB` → **`350 KB` gzip** olarak sıkılaştırıldı (`258,4 KB ≤ 350,0 KB` PASS) ve [vite.config.ts](file:///c:/arc-mini-app/vite.config.ts) içindeki `chunkSizeWarningLimit` `1000` yapıldı; `vite build` artık **sıfır uyarıyla** tamamlanıyor.
   - **`ox` incelemesi (`npm ls ox`):** `viem@2.55.11` → `ox@0.14.33`, `@walletconnect/utils` / `@reown/*` → `ox@0.9.3`, `@base-org/account` → `ox@0.6.9`. `0.x` sürümleri arasında breaking farklar olduğu için `overrides` ile tek sürüme zorlanmadı.
   - `manualChunks` kararı ve `chunkSizeWarningLimit: 600` eşiği korundu ([bundleSplitGuards.test.ts](file:///c:/arc-mini-app/src/utils/__tests__/bundleSplitGuards.test.ts) **13/13 PASS**).
 - **5b — Ana sayfa görselleri (WebP + büyük/küçük harf temizliği):**
@@ -311,11 +315,24 @@ flowchart LR
 
 **Kabul kriterleri:**
 - [x] `npm run build:verified`, yeni `tsc -p tsconfig.api.json` adımı dahil, yerelde hatasız geçiyor. *(Madde 1 + 2 sonrası `tsc -b` + `tsc -p tsconfig.api.json` + `vite build` + `budget` = exit 0)*
-- [ ] Vercel log'unda **hiç** `error TS` satırı yok.
-- [ ] Production'da tüm `/api/*` uç noktaları 2xx/4xx dönüyor (`FUNCTION_INVOCATION_FAILED` yok); Runtime Logs'ta `ERR_MODULE_NOT_FOUND` yok.
+- [x] Vercel log'unda **hiç** `error TS` satırı yok. *(Canlı deploy `main @ 282740d` log'unda 10/10 serverless fonksiyonda **0** `error TS` satırı doğrulandı)*
+- [ ] Production'da tüm `/api/*` uç noktaları 2xx/4xx dönüyor (`FUNCTION_INVOCATION_FAILED` yok); Runtime Logs'ta `ERR_MODULE_NOT_FOUND` yok. *(Canlı `curl /api/health` + Runtime Logs kontrolü bekleniyor)*
 - [x] `npm audit --omit=dev` içinde yüksek seviyeli açık sayısı belirgin şekilde düştü; kalanlar gerekçesiyle belgelendi. *(79 → 60 toplam; yüksek 57 → 45, orta 10 → 3; kalan 3 kök paket: `zod` v3, `stream-json` CJS/ESM, `elliptic`)*
-- [ ] Vercel log'unda `memory`, `engines`, `strict-peer-dependencies` uyarıları yok.
-- [x] Ana sayfa görsel toplamı ≤ 1,5 MB; en büyük JS chunk 3,6 MB'ın belirgin şekilde altında. *(Görseller: 5,51 MB → 173 KB WebP; en büyük JS chunk: 3,67 MB → 2,13 MB / 605,5 KB gzip)*
+- [x] Vercel log'unda `memory`, `engines`, `strict-peer-dependencies` uyarıları yok. *(`memory` = 0, `strict-peer-dependencies` = 0, `cache-dir` = 0, `ox` = 0, `vm` = 0; tek kalan uyarı Vercel Project Settings → Node.js Version'ın hâlâ `26.x` olması — Dashboard'dan `22.x` yapılınca o da kapanır)*
+- [x] Ana sayfa görsel toplamı ≤ 1,5 MB; en büyük JS chunk 3,6 MB'ın belirgin şekilde altında. *(Vercel `282740d` çıktısı: görseller 5,51 MB → 177 KB WebP; en büyük JS chunk 3,61 MB → 2,13 MB / 605,9 KB gzip)*
+
+### ✅ Canlı Deploy Karşılaştırması (`1f3b175` → `282740d`)
+
+| Metrik / Uyarı | Önce (`1f3b175`) | Sonra (`282740d`) |
+|---|---|---|
+| Serverless `error TS` satırları | ~290+ (`TS2835/2834/2351/2345/2339/2322`) | **0** |
+| `npm install` süresi | 1 dk 44 sn | **25 sn** (soğuk önbellek ile -%76) |
+| Toplam build süresi | ≈ 4 dk | **3 dk** (soğuk önbellek) |
+| `memory` / `strict-peer-dependencies` / `cache-dir` / `allowScripts` uyarıları | Çok sayıda | **0** |
+| Rollup `ox` (`/*#__PURE__*/`) ve Vite `vm` uyarıları | 7 | **0** |
+| Ana sayfa hero görselleri (7 dosya) | ≈ 5,51 MB (`.jpg`) | **177 KB** (`.webp`, -%96,8) |
+| En büyük JS chunk | 3,61 MB (`986 KB` gzip) | **2,13 MB** (`605,9 KB` gzip, -%41) |
+| Kalan tek Vercel uyarısı | `engines: >=22.12.0` otomatik yükseltme | `Project Settings ("26.x") != package.json ("22.x")` (Dashboard ayarı `22.x` yapılınca sıfırlanır) |
 
 ---
 

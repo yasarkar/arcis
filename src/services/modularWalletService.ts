@@ -4,7 +4,8 @@
 
 import {
   createPublicClient,
-  defineChain,
+  encodeFunctionData,
+  parseAbi,
   type Hex,
   type Transport,
   parseUnits,
@@ -15,15 +16,9 @@ import {
   createBundlerClient,
   toWebAuthnAccount,
 } from 'viem/account-abstraction'
-import {
-  WebAuthnMode,
-  toCircleSmartAccount,
-  toModularTransport,
-  toPasskeyTransport,
-  toWebAuthnCredential,
-  encodeTransfer,
-  ContractAddress,
-} from '@circle-fin/modular-wallets-core'
+
+const loadModularSdk = () => import('@circle-fin/modular-wallets-core')
+const ERC20_TRANSFER_ABI = parseAbi(['function transfer(address to, uint256 amount) returns (bool)'])
 
 import { arcTestnet, ARC_TOKENS } from '../config/arcChain.js'
 import { checkPasskeySupport, parsePasskeyError, type ParsedPasskeyError } from '../utils/passkeyErrorUtils.js'
@@ -57,16 +52,18 @@ function getClientCredentials() {
 let _cachedModularTransport: Transport | null = null
 let _cachedPasskeyTransport: Transport | null = null
 
-function getModularTransport(): Transport {
+async function getModularTransport(): Promise<Transport> {
   if (!_cachedModularTransport) {
+    const { toModularTransport } = await loadModularSdk()
     const { key, url } = getClientCredentials()
     _cachedModularTransport = toModularTransport(`${url}/arcTestnet`, key) as unknown as Transport
   }
   return _cachedModularTransport
 }
 
-function getPasskeyTransport(): Transport {
+async function getPasskeyTransport(): Promise<Transport> {
   if (!_cachedPasskeyTransport) {
+    const { toPasskeyTransport } = await loadModularSdk()
     const { key, url } = getClientCredentials()
     _cachedPasskeyTransport = toPasskeyTransport(url, key) as unknown as Transport
   }
@@ -76,11 +73,11 @@ function getPasskeyTransport(): Transport {
 let _cachedModularPublicClient: any = null
 let _cachedModularBundlerClient: any = null
 
-export function getModularPublicClient() {
+export async function getModularPublicClient() {
   if (!_cachedModularPublicClient) {
     _cachedModularPublicClient = createPublicClient({
       chain: arcTestnetChain,
-      transport: getModularTransport(),
+      transport: await getModularTransport(),
     })
   }
   return _cachedModularPublicClient
@@ -90,11 +87,11 @@ export function getModularPublicClient() {
  * Creates a bundler client using Circle's modular transport (Bundler + Paymaster).
  * Pass account per-call in sendUserOperation, NOT here.
  */
-export function getModularBundlerClient() {
+export async function getModularBundlerClient() {
   if (!_cachedModularBundlerClient) {
     _cachedModularBundlerClient = createBundlerClient({
       chain: arcTestnetChain,
-      transport: getModularTransport(),
+      transport: await getModularTransport(),
     })
   }
   return _cachedModularBundlerClient
@@ -176,7 +173,10 @@ export function clearStoredCredential() {
 // ─────────────────────────────────────────────────────────────
 
 async function buildSmartAccount(credential: P256Credential) {
-  const client = getModularPublicClient()
+  const [{ toCircleSmartAccount }, client] = await Promise.all([
+    loadModularSdk(),
+    getModularPublicClient(),
+  ])
   const ownerAccount = toWebAuthnAccount({ credential })
   const account = await toCircleSmartAccount({
     client: client as any,
@@ -198,7 +198,10 @@ export async function registerPasskey(username: string): Promise<{
     }
 
     const safeUsername = username.trim() || `arcis_user_${Math.floor(Math.random() * 10000)}`
-    const passkeyTransport = getPasskeyTransport()
+    const [{ toWebAuthnCredential, WebAuthnMode }, passkeyTransport] = await Promise.all([
+      loadModularSdk(),
+      getPasskeyTransport(),
+    ])
     const credential = await toWebAuthnCredential({
       transport: passkeyTransport as any, mode: WebAuthnMode.Register, username: safeUsername,
     })
@@ -232,7 +235,10 @@ export async function loginPasskey(): Promise<{
     const existingUsername = getStoredUsername() || 'Arcis Passkey User'
     if (!credential) {
       try {
-        const passkeyTransport = getPasskeyTransport()
+        const [{ toWebAuthnCredential, WebAuthnMode }, passkeyTransport] = await Promise.all([
+          loadModularSdk(),
+          getPasskeyTransport(),
+        ])
         credential = await toWebAuthnCredential({ transport: passkeyTransport as any, mode: WebAuthnMode.Login })
       } catch (authErr: any) {
         const raw = authErr?.message || String(authErr)
@@ -308,7 +314,7 @@ export async function sendModularUserOperation(params: {
       return { success: false, error: 'Smart account bulunamadı. Passkey ile giriş yapın.' }
     }
 
-    const bundlerClient = getModularBundlerClient()
+    const bundlerClient = await getModularBundlerClient()
 
     // Submit via Circle Bundler — paymaster: true sponsors gas via Gas Station
     const userOpHash = await bundlerClient.sendUserOperation({
@@ -360,10 +366,14 @@ export async function sendModularUserOperation(params: {
 }
 
 /**
- * Prepares an ERC-20 USDC transfer call using Circle SDK encodeTransfer.
+ * Prepares an ERC-20 USDC transfer call using viem ABI encoding.
  */
 export function createModularUsdcTransferCall(recipient: Hex, amountUsdc: number): UserOpCall {
   const parsedAmount = parseUnits(amountUsdc.toString(), 6)
-  const result = encodeTransfer(recipient, ContractAddress.ArcTestnet_USDC, parsedAmount)
-  return { to: result.to as Hex, data: result.data as Hex }
+  const data = encodeFunctionData({
+    abi: ERC20_TRANSFER_ABI,
+    functionName: 'transfer',
+    args: [recipient, parsedAmount],
+  })
+  return { to: ARC_TESTNET_USDC, data }
 }
