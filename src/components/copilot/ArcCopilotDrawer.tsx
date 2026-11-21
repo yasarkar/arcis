@@ -912,7 +912,7 @@ export default function ArcCopilotDrawer({
                     >
                       <span className="text-slate-300 truncate max-w-[65%]">{step.serviceName}</span>
                       <span className="text-indigo-300 flex-shrink-0">
-                        {step.status === 'completed' ? `✓ ${step.durationMs}ms` : '⚡ Yürütülüyor...'}
+                        {step.status === 'completed' ? `✓ ${step.durationMs}ms` : '⚡ Executing...'}
                       </span>
                     </div>
                   ))}
