@@ -134,7 +134,7 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'arb-2',
-        title: 'Scan live Arc DEX pools for highest arbitrage spread.',
+        title: 'Scan all 6 live Arc DEX pools for price spreads.',
         prompt: 'Scan live Arc DEX pools for highest arbitrage spread.',
       },
       {
@@ -154,19 +154,19 @@ export const EXPLORE_TOPIC_CATEGORIES: TopicCategory[] = [
       },
       {
         id: 'arb-6',
-        title: 'Run a paid portfolio risk analysis on my wallet.',
+        title: 'Run a full portfolio, LP & vault health audit on my wallet.',
         prompt: 'Run a portfolio risk analysis on my wallet.',
         requiresWallet: true,
       },
       {
         id: 'arb-7',
-        title: 'Generate my vault yield report.',
+        title: 'Generate my AI yield & LP fees statement.',
         prompt: 'Generate my vault yield report.',
         requiresWallet: true,
       },
       {
         id: 'arb-8',
-        title: "What is the vault's current TVL and share price?",
+        title: 'Compare live Arc vault TVL and all 6 pool yield opportunities.',
         prompt: "What is the vault's TVL and share price per share?",
         requiresWallet: true,
       },

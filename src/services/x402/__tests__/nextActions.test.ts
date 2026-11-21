@@ -192,6 +192,46 @@ describe('vault-impairment-cross-check', () => {
   })
 })
 
+describe('portfolio cross-service next-step rules', () => {
+  it('offers the Yield & Pool Opportunity Finder on HIGH single-asset concentration when data is clean', () => {
+    const concentrated = portfolioReport({
+      risks: [
+        risk({
+          id: 'HIGH_CONCENTRATION',
+          category: 'CONCENTRATION',
+          severity: 'HIGH',
+          finding: 'USDC accounts for 88% of the measured total.',
+        }),
+      ],
+    })
+
+    const recs = run(concentrated, { now: AS_OF })
+    expect(recs.map((r) => r.ruleId)).toContain('portfolio-concentration-yield-check')
+    const rec = recs.find((r) => r.ruleId === 'portfolio-concentration-yield-check')!
+    expect(rec.tier).toBe('advisory_action')
+    expect(rec.action.serviceId).toBe('arc-yield-vault-analytics')
+    expect(rec.action.params).toEqual({ riskPreference: 'all' })
+  })
+
+  it('offers the AI Yield & LP Fees Statement when accrued DeFi rewards are detected', () => {
+    const rewards = portfolioReport({
+      risks: [
+        risk({
+          id: 'UNCLAIMED_DEFI_REWARDS',
+          category: 'COMPOSITION',
+          severity: 'INFO',
+          finding: '$4.00 in accrued vault yield and AMM LP fees is ready to harvest.',
+        }),
+      ],
+    })
+
+    const recs = run(rewards, { now: AS_OF })
+    expect(recs.map((r) => r.ruleId)).toContain('portfolio-unclaimed-rewards-statement')
+    const rec = recs.find((r) => r.ruleId === 'portfolio-unclaimed-rewards-statement')!
+    expect(rec.action.serviceId).toBe('arc-vault-yield-tax-report')
+  })
+})
+
 describe('expiry', () => {
   it('drops a recommendation once the measurement leaves the freshness window', () => {
     const report = vaultPositionReport({

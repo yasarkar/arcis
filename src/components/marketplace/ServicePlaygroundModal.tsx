@@ -15,10 +15,11 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { getChainDisplayName, getChainIconId } from '../../config/chainMeta'
+import { getCategoryLabel } from '../../config/x402/categories'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { useChainSwitch } from '../../hooks/useChainSwitch'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
@@ -1991,28 +1992,49 @@ export default function ServicePlaygroundModal({
     }
   }, [isOpen, onClose])
 
-  // Initialize form data with default values
+  // Initialize form data cleanly whenever the service, active wallet, or recommendation payload changes.
+  // Never leaks field values across different services and never leaves the zero-address placeholder when a wallet is connected.
+  const lastServiceIdRef = useRef<string | null>(null)
+  const lastWalletRef = useRef<string | undefined>(walletAddress)
   useEffect(() => {
     if (service) {
+      const serviceChanged = lastServiceIdRef.current !== service.id
+      const walletChanged = lastWalletRef.current !== walletAddress
+      lastServiceIdRef.current = service.id
+      lastWalletRef.current = walletAddress
+
       setFormData((prev) => {
         const next: Record<string, any> = {}
+        const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
         service.ui.form.forEach((param) => {
           const isAddressParam =
             param.name === 'address' ||
             param.name === 'walletAddress' ||
             param.label?.toLowerCase().includes('wallet address')
 
-          if (isAddressParam && walletAddress) {
-            const currentVal = prev[param.name]
-            if (!currentVal || currentVal === '0x0000000000000000000000000000000000000000' || currentVal === param.defaultValue) {
-              next[param.name] = walletAddress
+          if (isAddressParam) {
+            const currentVal = serviceChanged ? undefined : prev[param.name]
+            if (walletAddress) {
+              if (
+                walletChanged ||
+                !currentVal ||
+                currentVal === ZERO_ADDR ||
+                currentVal === param.defaultValue
+              ) {
+                next[param.name] = walletAddress
+                return
+              }
+              next[param.name] = currentVal
               return
             }
-            next[param.name] = currentVal
+            // Disconnected: avoid showing the dead zero address as a prefilled input
+            const fallback = param.defaultValue === ZERO_ADDR ? '' : param.defaultValue
+            next[param.name] = currentVal !== undefined && currentVal !== ZERO_ADDR ? currentVal : fallback
             return
           }
 
-          next[param.name] = prev[param.name] !== undefined ? prev[param.name] : param.defaultValue
+          next[param.name] =
+            !serviceChanged && prev[param.name] !== undefined ? prev[param.name] : param.defaultValue
         })
 
         // A shelf recommendation supplies the inputs it was derived for (the parameter a re-run
@@ -2299,7 +2321,7 @@ export default function ServicePlaygroundModal({
             <div>
               <div className="flex items-center gap-2">
                 <span className="arc-eyebrow text-[10px] text-[var(--secondary-colors--sky-sync)] font-semibold">
-                  ARCIS AI // {service.category}
+                  ARCIS AI // {getCategoryLabel(service.category)}
                 </span>
               </div>
               <h2

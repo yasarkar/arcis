@@ -70,12 +70,14 @@ export function findingSignalId(kind: InstitutionalReportKind, riskId: string): 
   return `${kind}:${riskId}`
 }
 
-/** The finding ids the first rules are written against. */
+/** The finding ids the recommendation rules are written against. */
 export const FINDING_SIGNAL_IDS = {
   portfolioGatewayBalanceUnavailable: findingSignalId(
     'PORTFOLIO_EXPOSURE',
     'GATEWAY_BALANCE_UNAVAILABLE'
   ),
+  portfolioHighConcentration: findingSignalId('PORTFOLIO_EXPOSURE', 'HIGH_CONCENTRATION'),
+  portfolioUnclaimedRewards: findingSignalId('PORTFOLIO_EXPOSURE', 'UNCLAIMED_DEFI_REWARDS'),
   vaultPrincipalImpairment: findingSignalId('VAULT_POSITION', 'PRINCIPAL_IMPAIRMENT'),
 } as const
 

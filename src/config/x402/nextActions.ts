@@ -98,4 +98,35 @@ export const NEXT_ACTION_RULES: NextActionRule[] = [
       title: 'Cross-check the vault’s own TVL and share price',
     },
   },
+  {
+    id: 'portfolio-concentration-yield-check',
+    description:
+      'When a wallet is heavily concentrated (>= 75%) in a single asset on a clean, current audit, comparing live Arc yield pools and vault options is an evidence-backed next step.',
+    when: {
+      signalId: FINDING_SIGNAL_IDS.portfolioHighConcentration,
+      minSeverity: 'HIGH',
+    },
+    then: {
+      tier: 'advisory_action',
+      action: 'open_service',
+      serviceId: 'arc-yield-vault-analytics',
+      params: { riskPreference: 'all' },
+      title: 'Compare live Arc yield pools & vault opportunities for your holdings',
+    },
+  },
+  {
+    id: 'portfolio-unclaimed-rewards-statement',
+    description:
+      'When the portfolio audit detects accrued vault yield or unharvested AMM LP swap fees, the AI position statement breaks down principal, redeemable value and harvestable fees for record-keeping.',
+    when: {
+      signalId: FINDING_SIGNAL_IDS.portfolioUnclaimedRewards,
+      minSeverity: 'INFO',
+    },
+    then: {
+      tier: 'cross_check',
+      action: 'open_service',
+      serviceId: 'arc-vault-yield-tax-report',
+      title: 'Generate an AI yield & LP fees statement for these accrued rewards',
+    },
+  },
 ]

@@ -66,8 +66,8 @@ export const COPILOT_SLASH_COMMANDS: SlashCommandItem[] = [
   {
     id: 'slash-arbitrage',
     command: '/arbitrage',
-    title: 'Live DEX Arbitrage Scanner',
-    description: 'Arc DEX pools',
+    title: 'All-Pools Spread & Mispricing Scanner',
+    description: 'Scan all 6 Arc V4 pools vs live market oracles after USDC gas.',
     syntax: '/arbitrage',
     category: 'Trading',
     icon: '⚡',
