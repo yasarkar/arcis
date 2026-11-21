@@ -388,8 +388,11 @@ function createUnsettledPaymentResponse(params: {
   latencyMs: number
   /** The payee the authorization named (treasury for a fee-bearing service). */
   payTo: Address
+  /** Optional sanitized rejection reason reported by Circle Gateway facilitator. */
+  reason?: string
 }): Response {
-  const { manifest, payerAddress, signature, nonce, requirements, latencyMs, payTo } = params
+  const { manifest, payerAddress, signature, nonce, requirements, latencyMs, payTo, reason } = params
+  const cleanReason = typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 240) : undefined
   const providerAddress = safeChecksumAddress(manifest.provider.address)
   const payment: PaymentReceipt = {
     id: `rcpt_${Date.now()}`,
@@ -416,7 +419,10 @@ function createUnsettledPaymentResponse(params: {
   return new Response(JSON.stringify({
     statusCode: 503,
     success: false,
-    error: 'Circle Gateway did not accept the payment. No service result or provider credit was recorded.',
+    error: cleanReason
+      ? `Circle Gateway did not accept the payment (${cleanReason}). No service result or provider credit was recorded.`
+      : 'Circle Gateway did not accept the payment. No service result or provider credit was recorded.',
+    ...(cleanReason ? { gatewayReason: cleanReason } : {}),
     executionTimeMs: latencyMs,
     costUsdc: 0,
     protocolFeeUsdc: 0,
@@ -1043,7 +1049,7 @@ export async function POST(req: Request): Promise<Response> {
   const unsettledParams = { manifest, payerAddress, signature, nonce: resolvedNonce, requirements, payTo: settlementRecipient }
   if (!acceptedPaymentOption || !paymentResource) return create402ChallengeResponse(manifest, 'A complete Circle Gateway x402 payment payload is required.')
   if (serverNonceStore.has(nonceIdentity) || serverUsedAuthorizationNonces.has(nonceIdentity)) return new Response(JSON.stringify({ error: 'Nonce replay detected. Authorization signature has already been consumed.', statusCode: 409 }), { status: 409, headers: { 'Content-Type': 'application/json' } })
-  if (getEnv('ENABLE_GATEWAY_SETTLE').toLowerCase() !== 'true') return createUnsettledPaymentResponse({ ...unsettledParams, latencyMs: Math.round(performance.now() - startTime) })
+  if (getEnv('ENABLE_GATEWAY_SETTLE').toLowerCase() !== 'true') return createUnsettledPaymentResponse({ ...unsettledParams, latencyMs: Math.round(performance.now() - startTime), reason: 'gateway settlement is disabled on this server' })
   const reservation = await kvSetIfAbsent(scopedReservationKey, `${manifest.id}:${providerChecksum.toLowerCase()}`, CIRCLE_BATCHING_METADATA.FULL_VALIDITY_SECONDS)
   if (reservation !== 'acquired') {
     if (reservation === 'exists') {
@@ -1139,7 +1145,15 @@ export async function POST(req: Request): Promise<Response> {
   if (facilitatorResponse?.success === false) {
     await kvRejectProviderSettlementIntent(pendingKey)
     await kvSet(scopedReservationKey, 'settlement_failed', CIRCLE_BATCHING_METADATA.FULL_VALIDITY_SECONDS)
-    return createUnsettledPaymentResponse({ ...unsettledParams, latencyMs: Math.round(performance.now() - startTime) })
+    const gatewayReason =
+      typeof facilitatorResponse?.errorReason === 'string' && facilitatorResponse.errorReason.trim()
+        ? facilitatorResponse.errorReason.trim()
+        : typeof facilitatorResponse?.error === 'string' && facilitatorResponse.error.trim()
+          ? facilitatorResponse.error.trim()
+          : typeof facilitatorResponse?.message === 'string' && facilitatorResponse.message.trim()
+            ? facilitatorResponse.message.trim()
+            : undefined
+    return createUnsettledPaymentResponse({ ...unsettledParams, latencyMs: Math.round(performance.now() - startTime), reason: gatewayReason })
   }
   if (!facilitatorAccepted || !settlementRef) {
     // Keep the durable nonce intent reserved: Circle may have accepted the transfer despite a

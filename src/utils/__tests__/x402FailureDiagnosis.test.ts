@@ -104,6 +104,27 @@ describe('diagnoseX402Failure', () => {
     expect(summarizeX402Failure({ statusCode: 200, costUsdc: 0 })).toBeNull()
   })
 
+  it('diagnoses Circle Gateway payment rejection and insufficient balance clearly', () => {
+    const lowBalance = diagnoseX402Failure({
+      statusCode: 503,
+      costUsdc: 0,
+      error: 'Circle Gateway did not accept the payment (insufficient_funds). No service result or provider credit was recorded.',
+    })
+    expect(lowBalance?.kind).toBe('payment_rejected')
+    expect(lowBalance?.title).toBe('Insufficient Circle Gateway Balance')
+    expect(lowBalance?.charged).toBe(false)
+    expect(lowBalance?.action).toMatch(/Unified Balance/i)
+
+    const generic = diagnoseX402Failure({
+      statusCode: 503,
+      costUsdc: 0,
+      error: 'Circle Gateway did not accept the payment. No service result or provider credit was recorded.',
+    })
+    expect(generic?.kind).toBe('payment_rejected')
+    expect(generic?.title).toBe('Circle Gateway rejected the payment')
+    expect(generic?.charged).toBe(false)
+  })
+
   it('never claims a refund: without diagnostics it falls back to the reported cost', () => {
     expect(diagnoseX402Failure({ statusCode: 500, costUsdc: 0.01, error: 'boom' })?.charged).toBe(true)
     expect(diagnoseX402Failure({ statusCode: 500, error: 'boom' })?.charged).toBe(false)

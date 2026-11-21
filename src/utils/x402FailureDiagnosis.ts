@@ -117,6 +117,20 @@ export function diagnoseX402Failure(result: {
     }
   }
 
+  if (/circle gateway did not accept the payment/i.test(error)) {
+    const isInsufficient = /insufficient|balance|funds/i.test(error)
+    return {
+      kind: 'payment_rejected',
+      title: isInsufficient ? 'Insufficient Circle Gateway Balance' : 'Circle Gateway rejected the payment',
+      detail: error,
+      action: isInsufficient
+        ? 'Deposit USDC into your Unified Balance (Circle Gateway) on Arc Testnet, then retry.'
+        : 'Verify your Circle Gateway (Unified Balance) USDC balance and wallet signature on Arc Testnet, then retry.',
+      charged: false,
+      reasons,
+    }
+  }
+
   return {
     kind: 'unknown',
     title: 'Execution Error',

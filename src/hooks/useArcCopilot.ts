@@ -1832,14 +1832,13 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       q.includes('highest arbitrage spread') ||
       q.includes('arbitrage')
     ) {
-      // Step 1: Smart Trade & Execution Advisor
-      const s1 = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-deep-liquidity-slippage-optimizer')
-      const s2 = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-cross-dex-arbitrage-sentinel')
-      if (!s1 || !s2) {
+      // Single-step All-Pools Spread & Mispricing Scanner (no wasted pre-call)
+      const scannerService = ARC_SERVICES_REGISTRY.find((s) => s.id === 'arc-cross-dex-arbitrage-sentinel')
+      if (!scannerService) {
         addMessage({
           id: 'assistant-' + Date.now(),
           role: 'assistant',
-          content: 'Pool spread analysis services are currently unavailable in the catalog.',
+          content: 'Pool spread analysis service is currently unavailable in the catalog.',
           timestamp: Date.now(),
         })
         setIsAnalyzing(false)
@@ -1848,63 +1847,8 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       }
       steps.push({
         stepNumber: 1,
-        serviceId: s1.id,
-        serviceName: s1.name,
-        status: 'executing',
-        costUsdc: 0,
-        durationMs: 0,
-        detail: 'Measuring Arc L1 pool liquidity depth and execution impact...',
-      })
-      setCurrentSteps([...steps])
-
-      const paidCall = () => paidCallKind
-        ? executeX402Call(s1, { fromToken: 'USDC', toToken: 'WETH', amount: 25000 }, walletAddress, provider, paidCallKind, paidCallSigner)
-        : Promise.resolve({ statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>)
-      const r1 = await paidCall()
-      const finishFailedStep = (
-        step: CopilotStepLog,
-        result: Awaited<ReturnType<typeof executeX402Call>>
-      ) => {
-        const verifiedSettlement = hasVerifiedX402Settlement(result)
-        const acceptedPayment = result.payment?.status === 'settlement_pending' && result.success
-        const failureNote = acceptedPayment ? null : formatX402FailureNote(result)
-        step.status = 'failed'
-        step.costUsdc = acceptedPayment || verifiedSettlement ? result.costUsdc : 0
-        step.durationMs = result.executionTimeMs
-        step.resultSummary = acceptedPayment
-          ? `Gateway accepted ${result.costUsdc} USDC; provider settlement remains pending reconciliation. Later analysis step failed.`
-          : isServiceDataAvailable(result)
-            ? `No verified settlement: ${result.error || 'paid service response could not be verified'}`
-            : `Service data unavailable: ${result.error || 'no usable service result was returned'}`
-        if (verifiedSettlement || acceptedPayment) totalCost += result.costUsdc
-        setCurrentSteps([...steps])
-        addMessage({
-          id: 'assistant-' + Date.now(),
-          role: 'assistant',
-          content: `Pool spread scan could not be completed. ${result.error || 'A usable service response and Gateway payment acceptance were not both confirmed.'} No trade action was created.${failureNote ? `\n\n${failureNote}` : ''}`,
-          timestamp: Date.now(),
-          steps: [...steps],
-          ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
-        })
-        setIsAnalyzing(false)
-        setCurrentSteps([])
-      }
-      if (!isSuccessfulX402ServiceResult(r1)) {
-        finishFailedStep(steps[0], r1)
-        return
-      }
-      totalCost += r1.costUsdc
-      steps[0].costUsdc = r1.costUsdc
-      steps[0].status = 'completed'
-      steps[0].durationMs = r1.executionTimeMs
-      steps[0].resultSummary = r1.payment?.status === 'settlement_pending' ? 'Gateway accepted payment; provider settlement remains pending reconciliation.' : 'Settlement receipt verified; paid service data returned.'
-      setCurrentSteps([...steps])
-
-      // Step 2: All-Pools Spread & Mispricing Scanner
-      steps.push({
-        stepNumber: 2,
-        serviceId: s2.id,
-        serviceName: s2.name,
+        serviceId: scannerService.id,
+        serviceName: scannerService.name,
         status: 'executing',
         costUsdc: 0,
         durationMs: 0,
@@ -1913,18 +1857,40 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       setCurrentSteps([...steps])
 
       const r2 = paidCallKind
-        ? await executeX402Call(s2, { pair: 'ALL_POOLS', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, paidCallKind, paidCallSigner)
-        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+        ? await executeX402Call(scannerService, { pair: 'ALL_POOLS', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, paidCallKind, paidCallSigner)
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
       if (!isSuccessfulX402ServiceResult(r2)) {
-        finishFailedStep(steps[1], r2)
+        const verifiedSettlement = hasVerifiedX402Settlement(r2)
+        const acceptedPayment = r2.payment?.status === 'settlement_pending' && r2.success
+        const failureNote = acceptedPayment ? null : formatX402FailureNote(r2)
+        steps[0].status = 'failed'
+        steps[0].costUsdc = acceptedPayment || verifiedSettlement ? r2.costUsdc : 0
+        steps[0].durationMs = r2.executionTimeMs
+        steps[0].resultSummary = acceptedPayment
+          ? `Gateway accepted ${r2.costUsdc} USDC; provider settlement remains pending reconciliation.`
+          : isServiceDataAvailable(r2)
+            ? `No verified settlement: ${r2.error || 'paid service response could not be verified'}`
+            : `Service data unavailable: ${r2.error || 'no usable service result was returned'}`
+        if (verifiedSettlement || acceptedPayment) totalCost += r2.costUsdc
+        setCurrentSteps([...steps])
+        addMessage({
+          id: 'assistant-' + Date.now(),
+          role: 'assistant',
+          content: `Pool spread scan could not be completed. ${r2.error || 'A usable service response and Gateway payment acceptance were not both confirmed.'} No trade action was created.${failureNote ? `\n\n${failureNote}` : ''}`,
+          timestamp: Date.now(),
+          steps: [...steps],
+          ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
+        })
+        setIsAnalyzing(false)
+        setCurrentSteps([])
         return
       }
       totalCost += r2.costUsdc
-      steps[1].costUsdc = r2.costUsdc
+      steps[0].costUsdc = r2.costUsdc
       const r2Data = r2.data as any
-      steps[1].status = 'completed'
-      steps[1].durationMs = r2.executionTimeMs
-      steps[1].resultSummary = r2.payment?.status === 'settlement_pending' ? `Gateway accepted payment; provider settlement pending. Result: ${r2Data?.status || 'analysis returned'}.` : `Verified paid response: ${r2Data?.status || 'analysis returned'}.`
+      steps[0].status = 'completed'
+      steps[0].durationMs = r2.executionTimeMs
+      steps[0].resultSummary = r2.payment?.status === 'settlement_pending' ? `Gateway accepted payment; provider settlement pending. Result: ${r2Data?.status || 'analysis returned'}.` : `Verified paid response: ${r2Data?.status || 'analysis returned'}.`
       setCurrentSteps([...steps])
 
       const assistantMsg: CopilotMessage = {
