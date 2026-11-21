@@ -133,9 +133,12 @@ describe('InlineActionCard Institutional Templates', () => {
       },
     })
 
-    // Header
+    // Header & Theme (matches Cross-Chain Bridge indigo theme, no sky/blue classes)
     expect(html).toContain('Token Transfer')
     expect(html).toContain('Arc Testnet')
+    expect(html).toContain('border-indigo-500/40')
+    expect(html).toContain('text-indigo-400')
+    expect(html).not.toContain('sky-')
 
     // Hero Panel
     expect(html).toContain('Send Amount')

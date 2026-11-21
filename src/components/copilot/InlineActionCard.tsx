@@ -964,10 +964,10 @@ export default function InlineActionCard({
 
         return (
           <ActionCardShell
-            accentColor="sky"
+            accentColor="indigo"
             warnings={warnings}
             header={{
-              icon: <ArrowUpRight className="w-4 h-4 text-sky-400" />,
+              icon: <ArrowUpRight className="w-4 h-4 text-indigo-400" />,
               title: 'Token Transfer',
               subtitle: 'Arc Testnet • Gas Abstracted Transfer',
             }}
