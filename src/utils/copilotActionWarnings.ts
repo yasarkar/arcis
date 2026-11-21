@@ -59,12 +59,6 @@ export function availableBalanceFor(
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function trimAmount(value: number): string {
-  if (!Number.isFinite(value)) return '0'
-  const fixed = value >= 1 ? value.toFixed(2) : value.toPrecision(4)
-  return fixed.replace(/\.?0+$/, '')
-}
-
 /**
  * True when the recipient has never been used from this browser. An empty saved list means every
  * address is new — which is exactly what the user should be told before signing.

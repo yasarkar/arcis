@@ -41,7 +41,7 @@ interface RegistryRow {
 }
 
 /**
- * Measured 2026-10-14 from the sandbox IRIS registry (all 15 pages / 736 rows).
+ * Measured 2026-11-21 from the sandbox IRIS registry (all 25 pages / 1215 rows).
  * These are the official Circle tokens; the same host also carries hundreds of
  * third-party test tokens, which the matrix deliberately ignores.
  */
@@ -50,7 +50,7 @@ const RECORDED_REGISTRY_ROWS: RegistryRow[] = [
     symbol: 'EURC',
     tokenId: '0x2587821a0ee7daa174b95436b5dab1731cfa1844775b010217d3c0dd02a4eecd',
     decimals: 6,
-    domains: [0, 1, 6, 14, 26],
+    domains: [0, 1, 6, 14, 21, 26],
   },
   {
     symbol: 'WETH',
@@ -109,7 +109,7 @@ describe('CCTP route matrix — SDK eligibility', () => {
     const matrixDomains = Object.values(CCTPX_ELIGIBLE_CHAINS).sort((a, b) => a - b)
 
     expect(matrixDomains).toEqual(sdkDomains)
-    expect(sdkDomains).toEqual([0, 1, 2, 3, 6, 7, 26])
+    expect(sdkDomains).toEqual([0, 1, 2, 3, 6, 7, 14, 19, 21, 26])
   })
 
   it('marks no chain eligible that the SDK would reject as a bridge endpoint', () => {
@@ -147,27 +147,41 @@ describe('CCTP route matrix — registry deployments', () => {
       'Ethereum_Sepolia',
       'Avalanche_Fuji',
       'Base_Sepolia',
+      'World_Chain_Sepolia',
+      'Ink_Testnet',
     ])
     expect(getNonUsdcRoutePartners('WETH', 'Arc_Testnet')).toEqual(['Ethereum_Sepolia'])
     expect(getNonUsdcRoutePartners('cirBTC', 'Arc_Testnet')).toEqual(['Ethereum_Sepolia'])
   })
 
-  it('excludes a chain where the token is deployed but the chain is not eligible', () => {
-    // Domain 14 is World Chain Sepolia: EURC is deployed there, yet no route.
-    expect(CCTPX_ELIGIBLE_CHAINS.World_Chain_Sepolia).toBeUndefined()
-    expect(getNonUsdcRoutePartners('EURC', 'World_Chain_Sepolia')).toEqual([])
-    expect(isBridgeRouteSupported('EURC', 'Arc_Testnet', 'World_Chain_Sepolia')).toBe(false)
+  it('excludes ineligible chains and eligible chains where the token is not deployed', () => {
+    // Sei Testnet is not CCTP-X eligible; HyperEVM Testnet is eligible but has no EURC deployment.
+    expect(CCTPX_ELIGIBLE_CHAINS.Sei_Testnet).toBeUndefined()
+    expect(getNonUsdcRoutePartners('EURC', 'Sei_Testnet')).toEqual([])
+    expect(isBridgeRouteSupported('EURC', 'Arc_Testnet', 'Sei_Testnet')).toBe(false)
+    expect(CCTPX_ELIGIBLE_CHAINS.HyperEVM_Testnet).toBe(19)
+    expect(getNonUsdcRoutePartners('EURC', 'HyperEVM_Testnet')).toEqual([])
+    expect(isBridgeRouteSupported('EURC', 'Arc_Testnet', 'HyperEVM_Testnet')).toBe(false)
   })
 
-  it('gives EURC six pairs and WETH/cirBTC one pair each, all symmetric and distinct', () => {
+  it('gives EURC fifteen pairs and WETH/cirBTC one pair each, all symmetric and distinct', () => {
     const expected: Record<string, Array<[string, string]>> = {
       EURC: [
         ['Ethereum_Sepolia', 'Avalanche_Fuji'],
         ['Ethereum_Sepolia', 'Base_Sepolia'],
+        ['Ethereum_Sepolia', 'World_Chain_Sepolia'],
+        ['Ethereum_Sepolia', 'Ink_Testnet'],
         ['Ethereum_Sepolia', 'Arc_Testnet'],
         ['Avalanche_Fuji', 'Base_Sepolia'],
+        ['Avalanche_Fuji', 'World_Chain_Sepolia'],
+        ['Avalanche_Fuji', 'Ink_Testnet'],
         ['Avalanche_Fuji', 'Arc_Testnet'],
+        ['Base_Sepolia', 'World_Chain_Sepolia'],
+        ['Base_Sepolia', 'Ink_Testnet'],
         ['Base_Sepolia', 'Arc_Testnet'],
+        ['World_Chain_Sepolia', 'Ink_Testnet'],
+        ['World_Chain_Sepolia', 'Arc_Testnet'],
+        ['Ink_Testnet', 'Arc_Testnet'],
       ],
       WETH: [['Ethereum_Sepolia', 'Arc_Testnet']],
       cirBTC: [['Ethereum_Sepolia', 'Arc_Testnet']],
@@ -252,6 +266,7 @@ describe('CCTP route matrix — selection helpers', () => {
       'Ethereum_Sepolia',
       'Base_Sepolia',
       'Avalanche_Fuji',
+      'World_Chain_Sepolia',
     ])
     expect(filterReachableDestinations('WETH', 'Arc_Testnet', BRIDGE_SELECTABLE_CHAINS)).toEqual([
       'Ethereum_Sepolia',
@@ -269,6 +284,7 @@ describe('CCTP route matrix — selection helpers', () => {
       'Arc_Testnet',
       'Ethereum_Sepolia',
       'Avalanche_Fuji',
+      'World_Chain_Sepolia',
     ])
   })
 

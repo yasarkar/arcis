@@ -7,7 +7,7 @@
 //
 //   1. Both chains must be CCTP-X eligible — their SDK chain definition carries
 //      `cctpx.serviceAddress` (a shared CrossChainTokenService proxy per
-//      environment). On testnet that is exactly the seven chains below.
+//      environment). On testnet that is the ten chains below.
 //   2. Circle's IRIS registry must list the token with a deployment on BOTH
 //      chains' CCTP domains — `assertCCTPXTokenDeployments` in the SDK:
 //      "a token routes iff the registry lists it with a deployment on both the
@@ -73,6 +73,9 @@ export const CCTPX_ELIGIBLE_CHAINS: Readonly<Record<string, number>> = {
   Arbitrum_Sepolia: 3,
   Base_Sepolia: 6,
   Polygon_Amoy_Testnet: 7,
+  World_Chain_Sepolia: 14,
+  HyperEVM_Testnet: 19,
+  Ink_Testnet: 21,
   Arc_Testnet: 26,
 }
 
@@ -85,10 +88,7 @@ export interface NonUsdcTokenDeployments {
 }
 
 /**
- * Measured registry deployments (sandbox host, 2026-10-14). Domain 14 is World
- * Chain Sepolia, which has EURC deployed but is not CCTP-X eligible — its
- * presence here is deliberately kept so the eligibility gate, not the deployment
- * list, is what excludes it.
+ * Measured registry deployments (sandbox host, 2026-11-21).
  */
 export const NON_USDC_TOKEN_DEPLOYMENTS: Readonly<
   Record<NonUsdcBridgeToken, NonUsdcTokenDeployments>
@@ -96,7 +96,7 @@ export const NON_USDC_TOKEN_DEPLOYMENTS: Readonly<
   EURC: {
     tokenId: '0x2587821a0ee7daa174b95436b5dab1731cfa1844775b010217d3c0dd02a4eecd',
     decimals: 6,
-    domains: [0, 1, 6, 14, 26],
+    domains: [0, 1, 6, 14, 21, 26],
   },
   WETH: {
     tokenId: '0xaa3cf4df2d82ec4b91da19afe54d414f637d068fe9cd52ba5e0e7e0d94f9eac8',

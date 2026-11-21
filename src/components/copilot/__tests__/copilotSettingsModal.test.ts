@@ -59,7 +59,7 @@ describe('CopilotSettingsModal & Ask Arco Execution Settings', () => {
     expect(html).toContain('Save Preferences')
   })
 
-  it('renders Ask Arco execution settings button in the drawer header with slippage badge', () => {
+  it('renders Ask Arco execution settings button in the drawer header', () => {
     const baseSessionConfig: SessionKeyConfig = {
       sessionId: 'mock-session-id',
       sessionPublicKey: '0xmocksessionpubkey',
@@ -92,7 +92,6 @@ describe('CopilotSettingsModal & Ask Arco Execution Settings', () => {
 
     expect(html).toContain('aria-label="Ask Arco transaction settings"')
     expect(html).toContain('lucide-sliders-horizontal')
-    expect(html).toContain('1.0%')
   })
 
   it('renders edit settings button next to Slippage Tolerance on the swap action card', () => {

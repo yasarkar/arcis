@@ -200,7 +200,7 @@ export const CIRBTC_WETH_CONSTANT_PRODUCT_LP_FEE_BPS = 30n
 // O3: slippage is clamped to a safe band so a fat-fingered or oversized tolerance can never
 // silently widen the min-out guard. The upper bound was 10% (1000 bps); it is now 2% (200 bps).
 export const POOL_MIN_SLIPPAGE_BPS = 10
-export const POOL_MAX_SLIPPAGE_BPS = 500
+export const POOL_MAX_SLIPPAGE_BPS = 200
 
 // Converts a percent tolerance (e.g. 0.5) to bps, clamped to
 // [POOL_MIN_SLIPPAGE_BPS, POOL_MAX_SLIPPAGE_BPS]. Single source of truth for every pool path.

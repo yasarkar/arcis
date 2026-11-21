@@ -56,19 +56,19 @@ describe('server signer key resolution', () => {
     }
   })
 
-  it('prefers RELAYER_PRIVATE_KEY for vault work and still accepts the relayer key', async () => {
+  it('uses RELAYER_PRIVATE_KEY for vault work as well as relayer work', async () => {
     const { getServerSignerAccount } = await freshModule()
     vi.stubEnv('RELAYER_PRIVATE_KEY', RELAYER_KEY)
 
     expect(getServerSignerAccount({ forVault: true })?.address).toBe(privateKeyToAccount(RELAYER_KEY).address)
   })
 
-  it('does not hand the relayer key to vault work when only RELAYER_PRIVATE_KEY is set', async () => {
+  it('returns null for both relayer and vault work when RELAYER_PRIVATE_KEY is unset', async () => {
     const { getServerSignerAccount } = await freshModule()
     vi.stubEnv('RELAYER_PRIVATE_KEY', '')
 
     expect(getServerSignerAccount()).toBeNull()
-    expect(getServerSignerAccount({ forVault: true })?.address).toBe(privateKeyToAccount(RELAYER_KEY).address)
+    expect(getServerSignerAccount({ forVault: true })).toBeNull()
   })
 })
 

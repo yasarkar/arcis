@@ -50,10 +50,10 @@ describe('share of balance warning', () => {
     expect(largeShareWarning(10, 100, 'USDC')).toBeNull()
   })
 
-  it('reports the share and the available amount', () => {
+  it('reports the share and the token symbol', () => {
     const message = largeShareWarning(75, 100, 'USDC')?.message ?? ''
     expect(message).toContain('75%')
-    expect(message).toContain('100')
+    expect(message).toContain('USDC')
   })
 
   it('does not invent a warning from an unknown, zero or negative balance', () => {

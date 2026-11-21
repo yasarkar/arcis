@@ -30,6 +30,7 @@ vi.mock('../../services/arcGasService', async original => ({ ...await original<t
 vi.mock('../../services/swapService', () => ({ getSwapEstimate: vi.fn(async () => ({ estimatedOutput: '9', stopLimit: '8', rate: '0.9' })) }))
 
 import { useArcCopilot } from '../useArcCopilot'
+import '../../services/llmService'
 import { executeDirectCopilotAction } from '../../services/copilotExecutionService'
 import { getLivePortfolioSnapshot } from '../../services/portfolioContextService'
 

@@ -22,7 +22,10 @@ export interface ServerSignerKey {
   privateKey: `0x${string}`
 }
 
-export interface ServerSignerOptions {}
+export interface ServerSignerOptions {
+  /** Retained for caller compatibility; vault and relayer work both use RELAYER_PRIVATE_KEY. */
+  forVault?: boolean
+}
 
 function readEnv(name: string): string {
   const local = typeof process !== 'undefined' && process.env ? process.env[name] : undefined
