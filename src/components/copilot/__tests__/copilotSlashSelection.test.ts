@@ -124,5 +124,33 @@ describe('Ask Arco slash command selection on Enter & Tab', () => {
     // /swap expects parameters, so it must not send immediately to agent
     expect(send).not.toHaveBeenCalled()
   })
+
+  it('filters slash commands strictly by command name prefix (ignoring descriptions and categories)', () => {
+    harness.input = '/a'
+    vi.stubGlobal('document', { body: {} })
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() })
+    const session = { isActive: false, expiresAt: 0 } as SessionKeyConfig
+
+    const html = renderToStaticMarkup(React.createElement(ArcCopilotDrawer, {
+      isOpen: true,
+      onClose: vi.fn(),
+      messages: [],
+      currentSteps: [],
+      isAnalyzing: false,
+      sessionConfig: session,
+      onSendMessage: vi.fn(async () => {}),
+      onClearChat: vi.fn(),
+      onActivateSession: async () => session,
+      onRevokeSession: vi.fn(),
+      onToggleAutoExecute: vi.fn(),
+      onExecuteInline: async () => {},
+    }))
+
+    expect(html).toContain('/arbitrage')
+    expect(html).not.toContain('/strategy')
+    expect(html).not.toContain('/swap')
+    expect(html).not.toContain('/vault')
+    expect(html).not.toContain('/clear')
+  })
 })
 

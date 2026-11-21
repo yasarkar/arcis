@@ -215,13 +215,9 @@ export default function ArcCopilotDrawer({
   const isSlashMode = inputText.startsWith('/')
   const slashQuery = isSlashMode ? inputText.slice(1).toLowerCase().trim() : ''
   const filteredSlashCommands = isSlashMode
-    ? COPILOT_SLASH_COMMANDS.filter(
-      (c) =>
-        c.command.toLowerCase().includes(slashQuery) ||
-        c.title.toLowerCase().includes(slashQuery) ||
-        c.category.toLowerCase().includes(slashQuery) ||
-        c.description.toLowerCase().includes(slashQuery)
-    )
+    ? COPILOT_SLASH_COMMANDS.filter((c) =>
+        c.command.slice(1).toLowerCase().startsWith(slashQuery)
+      )
     : []
   const isSlashMenuOpen = isSlashMode && filteredSlashCommands.length > 0
 
