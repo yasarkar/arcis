@@ -43,6 +43,9 @@ import {
 import { verifyArcSwapReceipt } from './copilot/copilotReceiptVerifier'
 import { executeCopilotSwapAction } from './copilot/copilotSwapAction'
 import { executeCopilotDepositAction } from './copilot/copilotDepositAction'
+import { executeCopilotLpDepositAction, decodeLiquidityAddedFromReceipt } from './copilot/copilotLpDepositAction'
+import { executeCopilotLpRemoveAction } from './copilot/copilotLpRemoveAction'
+import { executeCopilotClaimFeesAction } from './copilot/copilotClaimAction'
 import { executeCopilotBridgeAction } from './copilot/copilotBridgeAction'
 import { executeCopilotSendAction } from './copilot/copilotSendAction'
 
@@ -105,19 +108,23 @@ export async function reconcileCopilotReservation(wallet: string, id: string): P
       } else if (record.actionType === 'swap') {
         confirmed = (await verifyArcSwapReceipt(hash, wallet, String(data.fromToken), String(data.toToken), Number(data.amount))).status === 'success'
       } else if (record.actionType === 'deposit') {
-        confirmed = chainReceipt.logs.some((logItem: any) => {
-          if (logItem.address.toLowerCase() !== POOL_CONTRACTS.YIELD_VAULT.toLowerCase()) return false
-          try {
-            const event = decodeEventLog({ abi: YIELD_VAULT_ABI, data: logItem.data, topics: logItem.topics })
-            const args = event.args as any
-            return event.eventName === 'Deposit' && String(args.owner).toLowerCase() === wallet.toLowerCase() && BigInt(args.assets) === parseUnits(numberToExactDecimal(Number(data.amount))!, 6) && BigInt(args.shares) > 0n
-          } catch (err) {
-            // Expected for every log that is not this vault's Deposit event; logged so that a genuine
-            // ABI mismatch shows up as "no log decoded" instead of a silent non-confirmation.
-            log.debug('Receipt log did not decode as a YieldVault deposit event; continuing with the remaining logs.', err)
-            return false
-          }
-        })
+        if (record.action.type === 'interactive_lp_deposit' && data.poolAddress) {
+          confirmed = decodeLiquidityAddedFromReceipt(chainReceipt, String(data.poolAddress), wallet) !== null
+        } else {
+          confirmed = chainReceipt.logs.some((logItem: any) => {
+            if (logItem.address.toLowerCase() !== POOL_CONTRACTS.YIELD_VAULT.toLowerCase()) return false
+            try {
+              const event = decodeEventLog({ abi: YIELD_VAULT_ABI, data: logItem.data, topics: logItem.topics })
+              const args = event.args as any
+              return event.eventName === 'Deposit' && String(args.owner).toLowerCase() === wallet.toLowerCase() && BigInt(args.assets) === parseUnits(numberToExactDecimal(Number(data.amount))!, 6) && BigInt(args.shares) > 0n
+            } catch (err) {
+              // Expected for every log that is not this vault's Deposit event; logged so that a genuine
+              // ABI mismatch shows up as "no log decoded" instead of a silent non-confirmation.
+              log.debug('Receipt log did not decode as a YieldVault deposit event; continuing with the remaining logs.', err)
+              return false
+            }
+          })
+        }
       }
     }
   }
@@ -174,10 +181,27 @@ export async function executeDirectCopilotAction(
       return executeCopilotActionUnreserved(actionPayload, walletAddress, provider, onProgress, ucwHandlers)
     }
     const data = actionPayload.data || {}
-    const token = actionType === 'swap' ? String(data.fromToken || 'USDC') : actionType === 'send' ? String(data.tokenSymbol || data.token || 'USDC') : 'USDC'
-    const amount = Number(data.amount)
-    const usd = actionType === 'send' || actionType === 'swap' ? await valueTokenAmountUsd(token, amount) : amount
-    const fingerprint = JSON.stringify([actionType, token, data.toToken, data.amount, data.recipient || data.recipientAddress, data.fromChain, data.toChain, data.memo, data.slippageBps, data.minReceived])
+    const isLpDeposit = actionPayload.type === 'interactive_lp_deposit'
+    const token = actionType === 'swap'
+      ? String(data.fromToken || 'USDC')
+      : actionType === 'send'
+        ? String(data.tokenSymbol || data.token || 'USDC')
+        : isLpDeposit
+          ? String(data.tokenA || 'USDC')
+          : 'USDC'
+    const amount = isLpDeposit ? Number(data.amountA ?? data.amount) : Number(data.amount)
+    let usd: number
+    if (isLpDeposit) {
+      const usdA = await valueTokenAmountUsd(token, amount)
+      const usdB =
+        data.lpMode === 'dual' && data.tokenB && Number(data.amountB) > 0
+          ? await valueTokenAmountUsd(String(data.tokenB), Number(data.amountB))
+          : 0
+      usd = Number((usdA + usdB).toFixed(4))
+    } else {
+      usd = actionType === 'send' || actionType === 'swap' ? await valueTokenAmountUsd(token, amount) : amount
+    }
+    const fingerprint = JSON.stringify([actionType, token, data.toToken, data.amount, data.recipient || data.recipientAddress, data.fromChain, data.toChain, data.memo, data.slippageBps, data.minReceived, data.poolId, data.lpMode, data.amountA, data.amountB, data.minLpSharesRaw])
     id = `${actionPayload.draftId || fingerprint}:${actionPayload.revision || 1}`
     const prior = await admitSessionSpend(wallet, () => getSessionKeyConfig(wallet, 'copilot'), { id, actionType, amountMicros: spendMicros(usd), fingerprint, action: actionPayload })
     const pendingReceipt = (): InlineExecutionReceipt => ({ id: `rcpt_reservation_${id}`, actionType, title: 'Transaction Reserved — Reconciliation Required', status: 'PENDING', txHash: prior.txHash || '', userOpHash: prior.userOpHash, reservationId: id, reservationWallet: wallet, gasUsdc: 0, timestamp: Date.now(), settlementLatencyMs: Date.now() - started, errorMessage: 'This intent already holds budget; no second signer was called.' })
@@ -252,8 +276,12 @@ async function executeCopilotActionUnreserved(
     const actionTypeMapped: InlineExecutionReceipt['actionType'] =
       actType === 'interactive_swap' || actType === 'trade'
         ? 'swap'
-        : actType === 'interactive_deposit'
+        : actType === 'interactive_deposit' || actType === 'interactive_lp_deposit'
         ? 'deposit'
+        : actType === 'interactive_lp_remove'
+        ? 'withdraw'
+        : actType === 'interactive_claim_fees'
+        ? 'claim'
         : actType === 'interactive_bridge'
         ? 'bridge'
         : 'send'
@@ -287,6 +315,21 @@ async function executeCopilotActionUnreserved(
   // 2. YIELD VAULT DEPOSIT EXECUTION
   if (actType === 'interactive_deposit' || actType === 'view_pool') {
     return executeCopilotDepositAction(context, sessionConfig)
+  }
+
+  // 2b. AMM LP POOL DEPOSIT EXECUTION (1-Click Zap / Dual-Asset)
+  if (actType === 'interactive_lp_deposit') {
+    return executeCopilotLpDepositAction(context, sessionConfig)
+  }
+
+  // 2c. AMM LP POOL REMOVAL EXECUTION (removeLiquidity)
+  if (actType === 'interactive_lp_remove') {
+    return executeCopilotLpRemoveAction(context)
+  }
+
+  // 2d. CLAIM ALL FEES / POOL HARVEST EXECUTION
+  if (actType === 'interactive_claim_fees') {
+    return executeCopilotClaimFeesAction(context)
   }
 
   // 3. REAL ON-CHAIN BRIDGE EXECUTION (Circle CCTP via AppKit)

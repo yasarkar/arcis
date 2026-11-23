@@ -35,6 +35,21 @@ import type { SwapQuoteResult } from '../types/swap.js'
 import { parseCopilotPromptAmount, numberToExactDecimal } from '../utils/copilotAmount.js'
 import { classifyCopilotIntent, copilotInstructionText, extractCopilotMemo, latestEditableCopilotDraft } from '../utils/copilotIntent.js'
 import { copilotSlippageBps, swapPercentToBps } from '../utils/swapSlippage.js'
+import {
+  findCopilotLpPoolByPair,
+  getCopilotLpPoolById,
+  parseCopilotLpAmounts,
+  parseCopilotLpRemoveAmount,
+  resolveCopilotLpPoolFromPrompt,
+  supportedLpPoolsListText,
+} from '../utils/copilotPoolParser.js'
+import { getCopilotLpQuote } from './copilot/copilotLpQuote.js'
+import {
+  formatActiveLpPositionsLines,
+  getCopilotLpRemoveQuote,
+  scanActiveCopilotLpPositions,
+} from './copilot/copilotLpRemoveQuote.js'
+import { scanClaimableCopilotFees } from './copilot/copilotClaimQuote.js'
 import { walletSettingsService } from './walletSettingsService.js'
 export { DEFAULT_COPILOT_SLIPPAGE }
 
@@ -173,6 +188,8 @@ export function isExplicitTransactionCommand(prompt: string): boolean {
   if (!prompt) return false
   const intent = classifyCopilotIntent(prompt)
   if (intent.kind !== 'command') return false
+  if (intent.action === 'claim_fees') return true
+  if (intent.action === 'lp_remove') return true
   const instruction = copilotInstructionText(prompt)
   const hasAddress = /0x[a-fA-F0-9]{40}/i.test(instruction)
   const amount = parseCopilotPromptAmount(instruction)
@@ -320,12 +337,237 @@ export async function attachLiveQuote<T extends { message: string; actionPayload
   const isSwap = payload?.type === 'interactive_swap' || payload?.type === 'trade'
   const isSend = payload?.type === 'interactive_send' || payload?.type === 'send'
   const isBridge = payload?.type === 'interactive_bridge' || payload?.type === 'bridge'
+  const isLpDeposit = payload?.type === 'interactive_lp_deposit'
+  const isLpRemove = payload?.type === 'interactive_lp_remove'
+  const isClaimFees = payload?.type === 'interactive_claim_fees'
+  if (isLpRemove && payload?.data) {
+    const remData = payload.data
+    const pool = getCopilotLpPoolById(remData.poolId)
+    if (!pool) {
+      if (walletAddress) {
+        const active = await scanActiveCopilotLpPositions(walletAddress)
+        if (active.length > 0) {
+          return {
+            ...result,
+            message: `<strong>Specify a liquidity pool / Likidite havuzu belirtin.</strong>\n\n<strong>Your active LP positions:</strong>\n${formatActiveLpPositionsLines(active)}\n\nExample: <strong>"Remove 50% LP from ${active[0].poolName} pool"</strong>.`,
+            actionPayload: undefined,
+          }
+        }
+        return {
+          ...result,
+          message: '<strong>No active LP positions found.</strong>\n\nYou currently hold 0 LP tokens across Arc AMM pools.',
+          actionPayload: undefined,
+        }
+      }
+      return {
+        ...result,
+        message: `<strong>Specify a liquidity pool / Likidite havuzu belirtin.</strong>\n\nSupported pools: ${supportedLpPoolsListText()}.`,
+        actionPayload: undefined,
+      }
+    }
+    const defaultSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
+    const defaultSpeedTier = walletSettingsService.getCopilotSpeedTier(walletAddress)
+    let remSlippageBps: number
+    try {
+      remSlippageBps =
+        typeof remData.slippageBps === 'number' && Number.isFinite(remData.slippageBps)
+          ? remData.slippageBps
+          : swapPercentToBps(typeof remData.slippage === 'number' ? remData.slippage : defaultSlippage)
+    } catch (error) {
+      return { ...result, message: String((error as Error).message), actionPayload: undefined }
+    }
+    const removeMode: 'percent' | 'lp' | 'usd' =
+      remData.removeMode === 'lp' ? 'lp' : remData.removeMode === 'usd' ? 'usd' : 'percent'
+    const quoteRes = await getCopilotLpRemoveQuote({
+      walletAddress: walletAddress || '',
+      pool,
+      removeMode,
+      removePercent: typeof remData.removePercent === 'number' ? remData.removePercent : undefined,
+      lpAmount: typeof remData.lpAmount === 'number' ? remData.lpAmount : undefined,
+      lpAmountDecimal: typeof remData.lpAmountDecimal === 'string' ? remData.lpAmountDecimal : undefined,
+      usdAmount: typeof remData.usdAmount === 'number' ? remData.usdAmount : undefined,
+      slippageBps: remSlippageBps,
+      speedTier: defaultSpeedTier,
+    })
+    if (!quoteRes.ok) {
+      return { ...result, message: quoteRes.error, actionPayload: undefined }
+    }
+    const q = quoteRes.quote
+    const tokenASym = pool.tokens[0].symbol
+    const tokenBSym = pool.tokens[1].symbol
+    const nextRemPayload: CopilotActionPayload = {
+      ...payload,
+      title: `📤 Remove ${q.removePercent >= 99.99 ? '100%' : `${q.removePercent}%`} LP from ${pool.name}`,
+      data: {
+        ...remData,
+        poolId: pool.id,
+        poolName: pool.name,
+        poolAddress: pool.contractAddress,
+        tokenA: tokenASym,
+        tokenB: tokenBSym,
+        lpTokenSymbol: pool.lpTokenSymbol || `af-${tokenASym}-${tokenBSym}`,
+        removeMode: q.removeMode,
+        removePercent: q.removePercent,
+        lpAmount: q.lpAmount,
+        lpAmountDecimal: q.lpAmountDecimal,
+        lpAmountRaw: q.lpAmountRaw,
+        userLpBalanceDecimal: q.userLpBalanceDecimal,
+        estimatedOutA: q.estimatedOutA,
+        estimatedOutB: q.estimatedOutB,
+        minOutA: q.minOutA,
+        minOutB: q.minOutB,
+        minOutARaw: q.minOutARaw,
+        minOutBRaw: q.minOutBRaw,
+        estimatedWithdrawUsd: q.estimatedWithdrawUsd,
+        slippage: undefined,
+        slippageBps: q.slippageBps,
+        estimatedFeeUsdc: q.estimatedFeeUsdc,
+        feeEstimateSource: q.feeEstimateSource,
+      },
+    }
+    return { ...result, actionPayload: nextRemPayload }
+  }
+  if (isClaimFees && payload?.data) {
+    const claimData = payload.data
+    const defaultSpeedTier = walletSettingsService.getCopilotSpeedTier(walletAddress)
+    const targetPoolId = claimData.claimScope === 'single' && typeof claimData.poolId === 'string'
+      ? claimData.poolId
+      : undefined
+    const scan = await scanClaimableCopilotFees(walletAddress || '', {
+      poolId: targetPoolId,
+      speedTier: defaultSpeedTier,
+    })
+    if (!scan.ok) {
+      return { ...result, message: scan.error, actionPayload: undefined }
+    }
+    const poolCount = scan.pools.length
+    const isSingle = poolCount === 1
+    const formattedTotal = scan.totalClaimableUsd < 0.0001
+      ? '<$0.0001'
+      : `$${scan.totalClaimableUsd.toFixed(4)}`
+    const nextClaimPayload: CopilotActionPayload = {
+      ...payload,
+      title: isSingle
+        ? `✨ Claim ${scan.pools[0].poolName} Fees (~${formattedTotal})`
+        : `✨ Claim All Fees (~${formattedTotal} across ${poolCount} pools)`,
+      data: {
+        ...claimData,
+        claimScope: targetPoolId ? 'single' : 'all',
+        ...(targetPoolId && { poolId: targetPoolId, poolName: scan.pools[0]?.poolName }),
+        claimPools: scan.pools,
+        totalClaimableUsd: scan.totalClaimableUsd,
+        estimatedFeeUsdc: scan.estimatedFeeUsdc,
+        feeEstimateSource: scan.feeEstimateSource,
+      },
+    }
+    return { ...result, actionPayload: nextClaimPayload }
+  }
   if (isBridge) {
     const rawToken = String(payload.data?.tokenSymbol || payload.data?.token || payload.data?.fromToken || '').trim()
     if (rawToken && rawToken.toUpperCase() !== 'USDC') {
       const guidance = unsupportedBridgeTokenGuidance(rawToken)
       return { ...result, message: guidance.message, actionPayload: guidance.actionPayload }
     }
+  }
+  if (isLpDeposit && payload?.data) {
+    const lpData = payload.data
+    const pool = getCopilotLpPoolById(lpData.poolId)
+    if (!pool) {
+      return {
+        ...result,
+        message: `<strong>Unknown liquidity pool.</strong>\n\nSupported Arc LP pools: ${supportedLpPoolsListText()}.`,
+        actionPayload: undefined,
+      }
+    }
+    const defaultSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
+    const defaultSpeedTier = walletSettingsService.getCopilotSpeedTier(walletAddress)
+    let lpSlippageBps: number
+    try {
+      lpSlippageBps =
+        typeof lpData.slippageBps === 'number' && Number.isFinite(lpData.slippageBps)
+          ? lpData.slippageBps
+          : swapPercentToBps(typeof lpData.slippage === 'number' ? lpData.slippage : defaultSlippage)
+    } catch (error) {
+      return { ...result, message: String((error as Error).message), actionPayload: undefined }
+    }
+
+    const lpMode: 'zap' | 'dual' = lpData.lpMode === 'zap' ? 'zap' : 'dual'
+    const quoteRes = await getCopilotLpQuote({
+      pool,
+      mode: lpMode,
+      amountA: typeof lpData.amountA === 'number' ? lpData.amountA : undefined,
+      amountB: typeof lpData.amountB === 'number' ? lpData.amountB : undefined,
+      amountADecimal: typeof lpData.amountADecimal === 'string' ? lpData.amountADecimal : undefined,
+      amountBDecimal: typeof lpData.amountBDecimal === 'string' ? lpData.amountBDecimal : undefined,
+      autoMatchCounter: Boolean(lpData.autoMatchCounter),
+      anchorSide: lpData.anchorSide === 'B' ? 'B' : 'A',
+      slippageBps: lpSlippageBps,
+      speedTier: defaultSpeedTier,
+    })
+
+    if (!quoteRes.ok) {
+      return { ...result, message: quoteRes.error, actionPayload: undefined }
+    }
+
+    const q = quoteRes.quote
+    const tokenASym = pool.tokens[0].symbol
+    const tokenBSym = pool.tokens[1].symbol
+
+    const availA = availableTokenBalance(portfolio, tokenASym)
+    if (availA !== null && q.amountA > availA) {
+      return {
+        ...result,
+        message: `<strong>Insufficient ${tokenASym} balance.</strong><br/><br/>You have ${availA} ${tokenASym} available on Arc Testnet, but this ${pool.name} LP deposit requires ${q.amountADecimal} ${tokenASym}.`,
+        actionPayload: undefined,
+      }
+    }
+    if (lpMode === 'dual' && typeof q.amountB === 'number') {
+      const availB = availableTokenBalance(portfolio, tokenBSym)
+      if (availB !== null && q.amountB > availB) {
+        return {
+          ...result,
+          message: `<strong>Insufficient ${tokenBSym} balance.</strong><br/><br/>You have ${availB} ${tokenBSym} available on Arc Testnet, but this ${pool.name} dual LP deposit requires ${q.amountBDecimal} ${tokenBSym}.`,
+          actionPayload: undefined,
+        }
+      }
+    }
+
+    const nextLpPayload: CopilotActionPayload = {
+      ...payload,
+      title:
+        lpMode === 'zap'
+          ? `💧 Zap ${q.amountADecimal} USDC into ${pool.name} LP`
+          : `💧 Add ${q.amountADecimal} ${tokenASym} + ${q.amountBDecimal} ${tokenBSym} to ${pool.name} LP`,
+      data: {
+        ...lpData,
+        poolId: pool.id,
+        poolName: pool.name,
+        poolAddress: pool.contractAddress,
+        lpMode,
+        tokenA: tokenASym,
+        tokenB: tokenBSym,
+        tokenSymbol: tokenASym,
+        amount: q.amountA,
+        amountA: q.amountA,
+        amountADecimal: q.amountADecimal,
+        ...(lpMode === 'dual' && { amountB: q.amountB, amountBDecimal: q.amountBDecimal }),
+        autoMatchCounter: Boolean(lpData.autoMatchCounter),
+        lpTokenSymbol: pool.lpTokenSymbol || `af-${tokenASym}-${tokenBSym}`,
+        estimatedLpOut: q.estimatedLpOut,
+        minLpShares: q.minLpShares,
+        minLpSharesRaw: q.minLpSharesRaw,
+        poolSharePct: q.poolSharePct,
+        donationPct: q.donationPct,
+        feeTierPercent: pool.feeTierPercent,
+        apy: `${pool.apy.toFixed(2)}% ${pool.apyType}`,
+        impermanentLossRisk: pool.impermanentLossRisk,
+        slippage: undefined,
+        slippageBps: q.slippageBps,
+        estimatedFeeUsdc: q.estimatedFeeUsdc,
+        feeEstimateSource: q.feeEstimateSource,
+      },
+    }
+    return { ...result, actionPayload: nextLpPayload }
   }
   if (!payload || (!isSwap && !isSend)) return result
   const data = payload.data || {}
@@ -455,7 +697,11 @@ Arcis features:
 - Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed; network fees are paid in USDC at the live Arc base fee)
 - Speed: <500ms deterministic sub-second finality
 - Supported Tokens: USDC, EURC, WETH, cirBTC, af-USDC (there is NO WBTC on Arc Testnet — never use WBTC; the Bitcoin asset is cirBTC)
-- Real-Yield Vault (af-USDC): 8.42% APY compound real yield
+- Real-Yield Vault (af-USDC): 8.42% APY compound real yield (single-asset USDC)
+- AMM Liquidity Pools (6 live pools):
+  • USDC/EURC (StableSwap 0.12%, Zap + Dual), USDC/cirBTC (0.25%, Zap + Dual), USDC/WETH (0.30%, Zap + Dual)
+  • EURC/WETH (0.30%, Dual only), EURC/cirBTC (0.25%, Dual only), cirBTC/WETH (0.30%, Dual only)
+  • 1-Click Zap is USDC-only on the 3 USDC-paired pools; cross-pair pools require Dual-Asset liquidity (auto-matched from live pool reserves when one token amount is given).
 - Circle Gateway: Instant cross-chain unified balance across Ethereum, Base, Arbitrum, Solana, Polygon
 - Live Real-Time Market Prices: 1 EURC ≈ ${prices.EURC || 1.08} USDC, 1 WETH ≈ ${prices.WETH || 2650} USDC, 1 cirBTC ≈ ${prices.CIRBTC || prices.WBTC || 63000} USDC
 
@@ -484,6 +730,9 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
   const ARC_COPILOT_TOOLS = [
     { type: 'function', function: { name: 'execute_swap', description: 'Execute instant on-chain token swap on Arc Testnet DEX with USDC native gas', parameters: { type: 'object', properties: { fromToken: { type: 'string', description: 'Token symbol to swap from (e.g. USDC, EURC, cirBTC)' }, toToken: { type: 'string', description: 'Token symbol to swap to (e.g. USDC, EURC, cirBTC)' }, amount: { type: 'number', description: 'Amount of tokens to swap' }, slippage: { type: 'number', description: 'Slippage percentage e.g. 0.1' } }, required: ['fromToken', 'toToken', 'amount'] } } },
     { type: 'function', function: { name: 'execute_deposit_yield', description: 'Deposit USDC into Arcis Real-Yield vault earning 8.42% APY', parameters: { type: 'object', properties: { amount: { type: 'number', description: 'Amount of USDC to deposit' } }, required: ['amount'] } } },
+    { type: 'function', function: { name: 'execute_add_liquidity', description: 'Add liquidity (LP deposit) to one of the 6 Arcis AMM pools (USDC/EURC, USDC/cirBTC, USDC/WETH, EURC/WETH, EURC/cirBTC, cirBTC/WETH) via 1-Click Zap (USDC-only on USDC pairs) or Dual-Asset deposit.', parameters: { type: 'object', properties: { poolId: { type: 'string', description: 'Pool id (usdc-eurc-stable-pool, usdc-cirbtc-pool, usdc-weth-pool, eurc-weth-pool, eurc-cirbtc-pool, cirbtc-weth-pool)' }, tokenA: { type: 'string', description: 'First pool token symbol (USDC, EURC, cirBTC)' }, tokenB: { type: 'string', description: 'Second pool token symbol (EURC, cirBTC, WETH)' }, mode: { type: 'string', enum: ['zap', 'dual'], description: 'zap for single-sided USDC on USDC pairs, dual for two-token liquidity' }, amountA: { type: 'number', description: 'Amount of first token' }, amountB: { type: 'number', description: 'Optional amount of second token (omit to auto-match live pool ratio)' }, slippage: { type: 'number', description: 'Optional slippage tolerance percent e.g. 0.5' } }, required: ['amountA'] } } },
+    { type: 'function', function: { name: 'execute_remove_liquidity', description: 'Remove / withdraw LP liquidity from one of the 6 Arcis AMM pools by percentage (e.g. 25, 50, 100) or exact LP token amount.', parameters: { type: 'object', properties: { poolId: { type: 'string', description: 'Pool id (usdc-eurc-stable-pool, usdc-cirbtc-pool, usdc-weth-pool, eurc-weth-pool, eurc-cirbtc-pool, cirbtc-weth-pool)' }, tokenA: { type: 'string' }, tokenB: { type: 'string' }, percent: { type: 'number', description: 'Percentage of LP position to remove (1-100)' }, lpAmount: { type: 'number', description: 'Exact LP token amount to remove' }, slippage: { type: 'number', description: 'Optional slippage tolerance percent e.g. 0.5' } } } } },
+    { type: 'function', function: { name: 'execute_claim_fees', description: 'Claim / harvest all accrued LP swap fees and Yield Vault rewards across every Arc pool in one action (or a single pool when poolId is specified). Principal stays staked.', parameters: { type: 'object', properties: { poolId: { type: 'string', description: 'Optional poolId to harvest a single pool; omit to claim all accrued fees across all pools and vault.' } } } } },
     { type: 'function', function: { name: 'execute_bridge', description: 'Bridge USDC via Circle Gateway between Arc Testnet and other chains (e.g. Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia). NOTE: Only USDC is supported in Copilot; do NOT call this tool for non-USDC tokens like WETH, cirBTC, EURC.', parameters: { type: 'object', properties: { fromChain: { type: 'string' }, toChain: { type: 'string' }, amount: { type: 'number' }, token: { type: 'string', description: 'Token symbol to bridge (only USDC is supported in Copilot)' } }, required: ['amount'] } } },
     { type: 'function', function: { name: 'execute_send', description: 'Send or transfer USDC/EURC/WETH/cirBTC to a recipient address on Arc Testnet with optional memo. WBTC is NOT supported on Arc.', parameters: { type: 'object', properties: { recipient: { type: 'string' }, amount: { type: 'number' }, token: { type: 'string' }, memo: { type: 'string' } }, required: ['recipient', 'amount'] } } },
   ]
@@ -534,6 +783,98 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       if (!Number.isFinite(amount) || amount <= 0) return { message: '<strong>Valid amount required.</strong>\\n\\nPlease provide a positive USDC deposit amount.' }
       const yearlyYield = amount * 0.0842
       return { message: `I have calculated your compound yield allocation. Click below to allocate your USDC into the YieldVault.`, actionPayload: { type: 'interactive_deposit', title: `🏦 Deposit ${amount} USDC into YieldVault`, data: { amount, apy: '8.42%', estimatedYieldUsdcYearly: Number(yearlyYield.toFixed(2)) } } }
+    }
+    if (fnName === 'execute_add_liquidity') {
+      const pool =
+        getCopilotLpPoolById(args.poolId) ||
+        findCopilotLpPoolByPair(args.tokenA, args.tokenB) ||
+        (() => {
+          const r = resolveCopilotLpPoolFromPrompt(userPrompt)
+          return r.status === 'matched' ? r.pool : undefined
+        })()
+      if (!pool) {
+        return { message: `<strong>Select a liquidity pool.</strong>\n\nSupported pools: ${supportedLpPoolsListText()}.` }
+      }
+      const lpMode: 'zap' | 'dual' = args.mode === 'zap' && pool.supportsZap ? 'zap' : 'dual'
+      const amountA = Number(args.amountA)
+      const amountB = args.amountB != null ? Number(args.amountB) : undefined
+      if (!Number.isFinite(amountA) || amountA <= 0) {
+        return { message: `<strong>Valid amount required.</strong>\n\nPlease provide a positive ${pool.tokens[0].symbol} amount.` }
+      }
+      const defaultSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
+      const slippage = extractSlippageFromPrompt(userPrompt, defaultSlippage)
+      return {
+        message: `I have prepared your <strong>${pool.name}</strong> liquidity deposit on Arc Testnet. Review the live LP quote below and confirm to execute on-chain.`,
+        actionPayload: {
+          type: 'interactive_lp_deposit',
+          title: `💧 Add Liquidity: ${pool.name}`,
+          data: {
+            poolId: pool.id,
+            poolName: pool.name,
+            poolAddress: pool.contractAddress,
+            lpMode,
+            tokenA: pool.tokens[0].symbol,
+            tokenB: pool.tokens[1].symbol,
+            tokenSymbol: pool.tokens[0].symbol,
+            amount: amountA,
+            amountA,
+            ...(amountB && amountB > 0 ? { amountB, autoMatchCounter: false } : { autoMatchCounter: lpMode === 'dual', anchorSide: 'A' }),
+            slippageBps: swapPercentToBps(slippage),
+          },
+        },
+      }
+    }
+    if (fnName === 'execute_remove_liquidity') {
+      const pool =
+        getCopilotLpPoolById(args.poolId) ||
+        findCopilotLpPoolByPair(args.tokenA, args.tokenB) ||
+        (() => {
+          const r = resolveCopilotLpPoolFromPrompt(userPrompt)
+          return r.status === 'matched' ? r.pool : undefined
+        })()
+      const defaultSlippage = walletSettingsService.getCopilotSlippage(walletAddress)
+      const slippage = extractSlippageFromPrompt(userPrompt, defaultSlippage)
+      const parsedAmount = parseCopilotLpRemoveAmount(userPrompt, pool?.name)
+      if (parsedAmount.status === 'error' || parsedAmount.status === 'missing') {
+        return { message: parsedAmount.message }
+      }
+      return {
+        message: pool
+          ? `I have prepared your <strong>${pool.name}</strong> LP removal on Arc Testnet. Review your expected tokens and slippage protection below to confirm.`
+          : 'Checking your active LP positions on Arc Testnet...',
+        actionPayload: {
+          type: 'interactive_lp_remove',
+          title: pool ? `📤 Remove LP: ${pool.name}` : '📤 Remove LP',
+          data: {
+            ...(pool && {
+              poolId: pool.id,
+              poolName: pool.name,
+              poolAddress: pool.contractAddress,
+              tokenA: pool.tokens[0].symbol,
+              tokenB: pool.tokens[1].symbol,
+            }),
+            removeMode: parsedAmount.status,
+            ...(parsedAmount.status === 'percent' && { removePercent: parsedAmount.percent }),
+            ...(parsedAmount.status === 'lp' && { lpAmount: parsedAmount.lpAmount, lpAmountDecimal: parsedAmount.lpAmountDecimal }),
+            ...(parsedAmount.status === 'usd' && { usdAmount: parsedAmount.usdAmount }),
+            slippageBps: swapPercentToBps(slippage),
+          },
+        },
+      }
+    }
+    if (fnName === 'execute_claim_fees') {
+      const targetPoolId = typeof args.poolId === 'string' && args.poolId.trim() ? args.poolId.trim() : undefined
+      return {
+        message: 'I scanned your live accrued LP fees and vault yield on Arc Testnet. Review the claimable breakdown below and confirm to harvest directly to your wallet.',
+        actionPayload: {
+          type: 'interactive_claim_fees',
+          title: '✨ Claim All Fees',
+          data: {
+            claimScope: targetPoolId ? 'single' : 'all',
+            ...(targetPoolId && { poolId: targetPoolId }),
+          },
+        },
+      }
     }
     if (fnName === 'execute_bridge') {
       const tokenArg = String(args.token || '').trim()
@@ -618,6 +959,52 @@ export function parseLocalIntentFallback(
   if (payload.type === 'unsupported_bridge' || payload.type === 'configure_session') {
     return result
   }
+  if (payload.type === 'interactive_claim_fees') {
+    return {
+      ...result,
+      actionPayload: {
+        ...payload,
+        draftId: crypto.randomUUID(),
+        revision: 1,
+      },
+    }
+  }
+  if (payload.type === 'interactive_lp_remove') {
+    return {
+      ...result,
+      actionPayload: {
+        ...payload,
+        draftId: intent.kind === 'correction' ? latestEditableCopilotDraft(chatHistory)?.draftId || crypto.randomUUID() : crypto.randomUUID(),
+        revision: intent.kind === 'correction' ? (latestEditableCopilotDraft(chatHistory)?.revision || 0) + 1 : 1,
+      },
+    }
+  }
+  if (payload.type === 'interactive_lp_deposit') {
+    const lpData = payload.data || {}
+    const tokenA = String(lpData.tokenA || 'USDC')
+    const tokenB = String(lpData.tokenB || 'EURC')
+    if (lpData.amountA != null) {
+      const checkA = validateSendAmount(lpData.amountA, tokenA)
+      if (!checkA.ok) return { message: `<strong>Invalid amount / Geçersiz tutar.</strong>\n\n${checkA.error}` }
+    }
+    if (lpData.amountB != null) {
+      const checkB = validateSendAmount(lpData.amountB, tokenB)
+      if (!checkB.ok) return { message: `<strong>Invalid amount / Geçersiz tutar.</strong>\n\n${checkB.error}` }
+    }
+    const anchorAmount = lpData.amountA ?? lpData.amountB
+    return {
+      ...result,
+      actionPayload: {
+        ...payload,
+        draftId: intent.kind === 'correction' ? latestEditableCopilotDraft(chatHistory)?.draftId || crypto.randomUUID() : crypto.randomUUID(),
+        revision: intent.kind === 'correction' ? (latestEditableCopilotDraft(chatHistory)?.revision || 0) + 1 : 1,
+        data: {
+          ...lpData,
+          amount: anchorAmount,
+        },
+      },
+    }
+  }
   const token = payload.type === 'interactive_swap' || payload.type === 'trade'
     ? String(payload.data?.fromToken || 'USDC')
     : String(payload.data?.tokenSymbol || 'USDC')
@@ -679,6 +1066,117 @@ function parseLocalIntent(
       if (!Number.isFinite(newAmount) || newAmount <= 0) return { message: '<strong>Valid amount required.</strong>\\n\\nPlease include a positive USDC deposit amount.' }
       const yearlyReturn = newAmount * 0.0842
       return { message: `I have updated your YieldVault deposit allocation. Click below to verify and lock in your updated deposit.`, actionPayload: { type: 'interactive_deposit', title: `🏦 Deposit ${newAmount} USDC into YieldVault (8.42% APY)`, data: { amount: newAmount, apy: '8.42%', estimatedYieldUsdcYearly: Number(yearlyReturn.toFixed(2)) } } }
+    }
+    if (prevAction.type === 'interactive_lp_remove') {
+      const resolvedPoolRes = resolveCopilotLpPoolFromPrompt(prompt)
+      if (resolvedPoolRes.status === 'unsupported_wbtc') return unsupportedBtcGuidance()
+      const pool = resolvedPoolRes.status === 'matched'
+        ? resolvedPoolRes.pool
+        : getCopilotLpPoolById(prevData.poolId)
+      if (!pool) return { message: `<strong>Unknown pool.</strong>\n\nSupported pools: ${supportedLpPoolsListText()}.` }
+
+      const updatedSlippage = extractSlippageFromPrompt(
+        prompt,
+        typeof prevData.slippageBps === 'number' ? prevData.slippageBps / 100 : defaultSlippage
+      )
+      const parsedAmount = parseCopilotLpRemoveAmount(prompt, pool.name)
+      if (parsedAmount.status === 'error') return { message: parsedAmount.message }
+
+      const removeMode =
+        parsedAmount.status === 'missing'
+          ? (prevData.removeMode || 'percent')
+          : parsedAmount.status
+
+      return {
+        message: `I have updated your <strong>${pool.name}</strong> LP removal on Arc Testnet. Review the refreshed outputs below and confirm to execute.`,
+        actionPayload: {
+          type: 'interactive_lp_remove',
+          title: `📤 Remove LP: ${pool.name}`,
+          data: {
+            poolId: pool.id,
+            poolName: pool.name,
+            poolAddress: pool.contractAddress,
+            tokenA: pool.tokens[0].symbol,
+            tokenB: pool.tokens[1].symbol,
+            removeMode,
+            ...(parsedAmount.status === 'percent'
+              ? { removePercent: parsedAmount.percent }
+              : parsedAmount.status === 'lp'
+                ? { lpAmount: parsedAmount.lpAmount, lpAmountDecimal: parsedAmount.lpAmountDecimal }
+                : parsedAmount.status === 'usd'
+                  ? { usdAmount: parsedAmount.usdAmount }
+                  : {
+                      removePercent: prevData.removePercent,
+                      lpAmount: prevData.lpAmount,
+                      lpAmountDecimal: prevData.lpAmountDecimal,
+                      usdAmount: prevData.usdAmount,
+                    }),
+            slippageBps: swapPercentToBps(updatedSlippage),
+          },
+        },
+      }
+    }
+    if (prevAction.type === 'interactive_lp_deposit') {
+      const resolvedPoolRes = resolveCopilotLpPoolFromPrompt(prompt)
+      if (resolvedPoolRes.status === 'unsupported_wbtc') return unsupportedBtcGuidance()
+      const pool = resolvedPoolRes.status === 'matched'
+        ? resolvedPoolRes.pool
+        : getCopilotLpPoolById(prevData.poolId)
+      if (!pool) return { message: `<strong>Unknown pool.</strong>\n\nSupported pools: ${supportedLpPoolsListText()}.` }
+
+      const updatedSlippage = extractSlippageFromPrompt(
+        prompt,
+        typeof prevData.slippageBps === 'number' ? prevData.slippageBps / 100 : defaultSlippage
+      )
+      const explicitDual = /\b(?:dual|çift|cift)\b/i.test(p)
+      const explicitZap = /\b(?:zap|tek\s*tarafl[ıi])\b/i.test(p)
+      const lpMode: 'zap' | 'dual' = explicitDual
+        ? 'dual'
+        : explicitZap
+          ? (pool.supportsZap ? 'zap' : 'dual')
+          : (prevData.lpMode === 'zap' && pool.supportsZap ? 'zap' : 'dual')
+
+      const hasNewAmounts = amountMatch !== null
+      let amountA = typeof prevData.amountA === 'number' ? prevData.amountA : Number(prevData.amount)
+      let amountB = typeof prevData.amountB === 'number' ? prevData.amountB : undefined
+      let amountADecimal = prevData.amountADecimal as string | undefined
+      let amountBDecimal = prevData.amountBDecimal as string | undefined
+      let autoMatchCounter = Boolean(prevData.autoMatchCounter)
+      let anchorSide: 'A' | 'B' = prevData.anchorSide === 'B' ? 'B' : 'A'
+
+      if (hasNewAmounts) {
+        const parsed = parseCopilotLpAmounts(prompt, pool)
+        if (parsed.status === 'error') return { message: parsed.message }
+        amountA = parsed.amountA ?? amountA
+        amountB = parsed.amountB
+        amountADecimal = parsed.amountADecimal
+        amountBDecimal = parsed.amountBDecimal
+        autoMatchCounter = parsed.autoMatchCounter
+        anchorSide = parsed.anchorSide || 'A'
+      }
+
+      return {
+        message: `I have updated your <strong>${pool.name}</strong> LP deposit on Arc Testnet. Review the refreshed quote below and confirm to execute.`,
+        actionPayload: {
+          type: 'interactive_lp_deposit',
+          title: `💧 Add Liquidity: ${pool.name}`,
+          data: {
+            poolId: pool.id,
+            poolName: pool.name,
+            poolAddress: pool.contractAddress,
+            lpMode,
+            tokenA: pool.tokens[0].symbol,
+            tokenB: pool.tokens[1].symbol,
+            tokenSymbol: pool.tokens[0].symbol,
+            amount: amountA ?? amountB,
+            ...(amountA != null && { amountA, amountADecimal: amountADecimal || numberToExactDecimal(amountA) || undefined }),
+            ...(lpMode === 'dual' && amountB != null && !autoMatchCounter && { amountB, amountBDecimal: amountBDecimal || numberToExactDecimal(amountB) || undefined }),
+            autoMatchCounter: lpMode === 'dual' ? (autoMatchCounter || amountB == null) : false,
+            anchorSide,
+            slippageBps: swapPercentToBps(updatedSlippage),
+          },
+        },
+      }
     }
     if (prevAction.type === 'interactive_bridge') {
       const nonUsdcToken = detectNonUsdcBridgeToken(p)
@@ -765,6 +1263,135 @@ function parseLocalIntent(
     return {
       message: `I have prepared your instant swap on Arc Testnet. Confirm below to execute this trade on Arc Testnet.`,
       actionPayload: { type: 'interactive_swap', title: `🔄 Confirm Swap: ${parsedAmount} ${fromTok}`, data: { fromToken: fromTok, toToken: toTok, amount: parsedAmount, slippageBps: swapPercentToBps(slippage) } },
+    }
+  }
+
+  const isClaimFees = intent.kind === 'command' && intent.action === 'claim_fees'
+  if (isClaimFees) {
+    const normalizedP = p
+      .replace(/ı/g, 'i')
+      .replace(/ü/g, 'u')
+      .replace(/ö/g, 'o')
+      .replace(/ş/g, 's')
+      .replace(/ğ/g, 'g')
+      .replace(/ç/g, 'c')
+    const asksForAll = /\b(?:all|tum|tumu|tumunu|butun|hepsi|hepsini|every)\b/.test(normalizedP)
+    let targetPoolId: string | undefined
+    if (!asksForAll) {
+      const poolRes = resolveCopilotLpPoolFromPrompt(prompt)
+      if (poolRes.status === 'unsupported_wbtc') return unsupportedBtcGuidance()
+      if (poolRes.status === 'matched') {
+        targetPoolId = poolRes.pool.id
+      } else if (/\b(?:vault|kasa|af-?usdc)\b/.test(normalizedP)) {
+        targetPoolId = 'usdc-yield-vault'
+      }
+    }
+    return {
+      message: targetPoolId
+        ? 'I scanned your live accrued rewards for this pool on Arc Testnet. Review the claimable balance below and confirm to harvest directly to your wallet.'
+        : 'I scanned your live accrued LP fees and vault yield across all Arc pools. Review the breakdown below and confirm to harvest directly to your wallet.',
+      actionPayload: {
+        type: 'interactive_claim_fees',
+        title: targetPoolId ? '✨ Claim Pool Fees' : '✨ Claim All Fees',
+        data: {
+          claimScope: targetPoolId ? 'single' : 'all',
+          ...(targetPoolId && { poolId: targetPoolId }),
+        },
+      },
+    }
+  }
+
+  const isLpRemove = intent.kind === 'command' && intent.action === 'lp_remove'
+  if (isLpRemove) {
+    const poolRes = resolveCopilotLpPoolFromPrompt(prompt)
+    if (poolRes.status === 'unsupported_wbtc') return unsupportedBtcGuidance()
+    const pool = poolRes.status === 'matched' ? poolRes.pool : undefined
+    const parsedAmt = parseCopilotLpRemoveAmount(prompt, pool?.name)
+    if (parsedAmt.status === 'error') return { message: parsedAmt.message }
+    if (!pool) {
+      // No pool named — emit a pool-less interactive_lp_remove so attachLiveQuote scans & lists active LP positions
+      return {
+        message: 'Checking your active LP positions on Arc Testnet...',
+        actionPayload: {
+          type: 'interactive_lp_remove',
+          title: '📤 Remove LP',
+          data: {
+            removeMode: parsedAmt.status === 'missing' ? 'percent' : parsedAmt.status,
+            ...(parsedAmt.status === 'percent' && { removePercent: parsedAmt.percent }),
+            ...(parsedAmt.status === 'lp' && { lpAmount: parsedAmt.lpAmount, lpAmountDecimal: parsedAmt.lpAmountDecimal }),
+            ...(parsedAmt.status === 'usd' && { usdAmount: parsedAmt.usdAmount }),
+          },
+        },
+      }
+    }
+    if (parsedAmt.status === 'missing') {
+      return { message: parsedAmt.message }
+    }
+    const remSlippage = extractSlippageFromPrompt(prompt, defaultSlippage)
+    return {
+      message: `I have prepared your <strong>${pool.name}</strong> LP removal on Arc Testnet. Review the expected tokens and slippage protection below to confirm.`,
+      actionPayload: {
+        type: 'interactive_lp_remove',
+        title: `📤 Remove LP: ${pool.name}`,
+        data: {
+          poolId: pool.id,
+          poolName: pool.name,
+          poolAddress: pool.contractAddress,
+          tokenA: pool.tokens[0].symbol,
+          tokenB: pool.tokens[1].symbol,
+          removeMode: parsedAmt.status,
+          ...(parsedAmt.status === 'percent' && { removePercent: parsedAmt.percent }),
+          ...(parsedAmt.status === 'lp' && { lpAmount: parsedAmt.lpAmount, lpAmountDecimal: parsedAmt.lpAmountDecimal }),
+          ...(parsedAmt.status === 'usd' && { usdAmount: parsedAmt.usdAmount }),
+          slippageBps: swapPercentToBps(remSlippage),
+        },
+      },
+    }
+  }
+
+  const isLpDeposit = intent.kind === 'command' && intent.action === 'lp_deposit'
+  if (isLpDeposit) {
+    const poolRes = resolveCopilotLpPoolFromPrompt(prompt)
+    if (poolRes.status === 'unsupported_wbtc') return unsupportedBtcGuidance()
+    if (poolRes.status === 'missing') {
+      return {
+        message: `<strong>Specify a liquidity pool / Likidite havuzu belirtin.</strong>\n\nSupported Arc AMM pools: <strong>${supportedLpPoolsListText()}</strong>.\n\nExample: "Zap 50 USDC into USDC/EURC pool" or "Add 100 EURC to EURC/WETH pool".`,
+      }
+    }
+    const pool = poolRes.pool
+    const parsedAmounts = parseCopilotLpAmounts(prompt, pool)
+    if (parsedAmounts.status === 'error') {
+      return { message: parsedAmounts.message }
+    }
+    const lpSlippage = extractSlippageFromPrompt(prompt, defaultSlippage)
+    const tokenASym = pool.tokens[0].symbol
+    const tokenBSym = pool.tokens[1].symbol
+    const anchorAmount = parsedAmounts.amountA ?? parsedAmounts.amountB!
+    const modeLabel = parsedAmounts.mode === 'zap' ? '1-Click Zap' : 'Dual-Asset LP'
+    return {
+      message: `I have prepared your <strong>${pool.name}</strong> ${modeLabel} deposit on Arc Testnet. Review the live pool share and slippage protection below to confirm.`,
+      actionPayload: {
+        type: 'interactive_lp_deposit',
+        title:
+          parsedAmounts.mode === 'zap'
+            ? `💧 Zap ${parsedAmounts.amountADecimal} USDC into ${pool.name} LP`
+            : `💧 Add Liquidity: ${pool.name}`,
+        data: {
+          poolId: pool.id,
+          poolName: pool.name,
+          poolAddress: pool.contractAddress,
+          lpMode: parsedAmounts.mode,
+          tokenA: tokenASym,
+          tokenB: tokenBSym,
+          tokenSymbol: tokenASym,
+          amount: anchorAmount,
+          ...(parsedAmounts.amountA != null && { amountA: parsedAmounts.amountA, amountADecimal: parsedAmounts.amountADecimal }),
+          ...(parsedAmounts.amountB != null && { amountB: parsedAmounts.amountB, amountBDecimal: parsedAmounts.amountBDecimal }),
+          autoMatchCounter: parsedAmounts.autoMatchCounter,
+          anchorSide: parsedAmounts.anchorSide || 'A',
+          slippageBps: swapPercentToBps(lpSlippage),
+        },
+      },
     }
   }
 

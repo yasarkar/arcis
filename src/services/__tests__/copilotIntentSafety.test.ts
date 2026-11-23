@@ -18,6 +18,10 @@ const blocked = [
   `Do not send 10 USDC to ${RECIPIENT}`, `Don't send 10 USDC to ${RECIPIENT}`,
   `never transfer 10 USDC to ${RECIPIENT}`, `send 10 USDC to ${RECIPIENT} yapma`,
   `10 USDC gönderme ${RECIPIENT}`, `10 USDC yollama ${RECIPIENT}`, 'deposit 10 USDC yatırma',
+  'USDC/EURC havuzuna 50 USDC yatırma', 'EURC/WETH havuzuna 100 EURC ekleme',
+  'Do not add liquidity 50 USDC to USDC/EURC pool',
+  'tüm ücretleri toplama', 'don\'t claim all fees', 'How do I claim all fees?',
+  'USDC/EURC havuzundan LP çekme', 'USDC/EURC havuzundan LP çıkarma', 'don\'t remove LP', 'How do I remove LP?',
   'swap 10 USDC to EURC çevirme', 'bridge 10 USDC from Arc to Base aktarma',
   'cancel', 'iptal et', 'vazgeç', 'stop', 'do not change it to 5',
   `How do I send 10 USDC to ${RECIPIENT}?`, `Can you send 10 USDC to ${RECIPIENT}?`,
@@ -59,6 +63,7 @@ describe('A02 new commands versus draft revisions', () => {
     [`actually send 5 USDC to ${RECIPIENT}`, 'interactive_send'],
     ['swap 5 USDC to EURC', 'interactive_swap'],
     ['deposit 5 USDC', 'interactive_deposit'],
+    ['zap 5 USDC into USDC/EURC pool', 'interactive_lp_deposit'],
     ['bridge 5 USDC from Arc to Base', 'interactive_bridge'],
   ] as const
   it.each(commands)('starts an independent action for %s after every prior action type', (prompt, type) => {
@@ -165,5 +170,57 @@ describe('A02 new commands versus draft revisions', () => {
     const validUsdc = parseLocalIntentFallback('bridge 100 USDC to Base', undefined, undefined, [])
     expect(validUsdc.actionPayload?.type).toBe('interactive_bridge')
     expect(validUsdc.actionPayload?.data?.amount).toBe(100)
+  })
+
+  it('recognizes claim all fees and single-pool harvest commands without hijacking faucet', () => {
+    for (const cmd of ['claim all fees', 'harvest all', "tüm fee'leri topla", 'bütün ücretleri topla', 'birikmiş getirilerimi topla']) {
+      const res = parseLocalIntentFallback(cmd)
+      expect(res.actionPayload?.type).toBe('interactive_claim_fees')
+      expect(res.actionPayload?.data?.claimScope).toBe('all')
+    }
+
+    const singlePool = parseLocalIntentFallback('USDC/EURC havuzunun ücretlerini topla')
+    expect(singlePool.actionPayload?.type).toBe('interactive_claim_fees')
+    expect(singlePool.actionPayload?.data?.claimScope).toBe('single')
+    expect(singlePool.actionPayload?.data?.poolId).toBe('usdc-eurc-stable-pool')
+
+    const vaultClaim = parseLocalIntentFallback('vault getirisini topla')
+    expect(vaultClaim.actionPayload?.type).toBe('interactive_claim_fees')
+    expect(vaultClaim.actionPayload?.data?.poolId).toBe('usdc-yield-vault')
+
+    // Faucet claim must never be routed to fee harvesting
+    expect(classifyCopilotIntent('claim faucet')).not.toEqual({ kind: 'command', action: 'claim_fees' })
+  })
+
+  it('recognizes LP removal commands (percent, all/tümü, exact LP, pool-less discovery) without hijacking vault or claim', () => {
+    const pct = parseLocalIntentFallback('remove 50% LP from USDC/EURC pool')
+    expect(pct.actionPayload?.type).toBe('interactive_lp_remove')
+    expect(pct.actionPayload?.data?.poolId).toBe('usdc-eurc-stable-pool')
+    expect(pct.actionPayload?.data?.removeMode).toBe('percent')
+    expect(pct.actionPayload?.data?.removePercent).toBe(50)
+
+    const allTr = parseLocalIntentFallback("USDC/EURC havuzundan tüm LP'yi çek")
+    expect(allTr.actionPayload?.type).toBe('interactive_lp_remove')
+    expect(allTr.actionPayload?.data?.removeMode).toBe('percent')
+    expect(allTr.actionPayload?.data?.removePercent).toBe(100)
+
+    const exactLp = parseLocalIntentFallback('EURC/WETH havuzundan 5 LP çek')
+    expect(exactLp.actionPayload?.type).toBe('interactive_lp_remove')
+    expect(exactLp.actionPayload?.data?.poolId).toBe('eurc-weth-pool')
+    expect(exactLp.actionPayload?.data?.removeMode).toBe('lp')
+    expect(exactLp.actionPayload?.data?.lpAmount).toBe(5)
+
+    // Pool-less prompt emits a discovery draft without poolId so attachLiveQuote scans active LP positions
+    const noPool = parseLocalIntentFallback('remove LP')
+    expect(noPool.actionPayload?.type).toBe('interactive_lp_remove')
+    expect(noPool.actionPayload?.data?.poolId).toBeUndefined()
+
+    // Pool without amount fails closed and asks how much LP to remove
+    const noAmount = parseLocalIntentFallback('remove LP from USDC/EURC pool')
+    expect(noAmount.actionPayload).toBeUndefined()
+    expect(noAmount.message).toContain('Specify how much LP')
+
+    // Yield vault withdrawal must NOT be hijacked by LP removal
+    expect(classifyCopilotIntent('withdraw 50 USDC from vault')).not.toEqual({ kind: 'command', action: 'lp_remove' })
   })
 })
