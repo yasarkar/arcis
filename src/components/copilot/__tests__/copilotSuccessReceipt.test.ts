@@ -191,5 +191,64 @@ describe('CopilotSuccessReceipt adapter', () => {
     expect(html).toContain('0.0₆35')
     expect(html).toContain('cirBTC')
   })
+
+  it('expands dynamically for claim-all-fees receipts and renders aggregated coins with icons + small USD subtotal', () => {
+    const html = render({
+      actionType: 'claim',
+      title: 'All Fees Claimed Successfully',
+      totalClaimedUsd: 5.08,
+      txCount: 2,
+      claimedPools: [
+        {
+          poolId: 'usdc-eurc-stable-pool',
+          poolName: 'USDC / EURC',
+          summary: '1.500000 USDC + 1.000000 EURC',
+          usdValue: 2.58,
+        },
+        {
+          poolId: 'eurc-cirbtc-pool',
+          poolName: 'EURC / cirBTC',
+          summary: '1.250000 EURC + 0.000018 cirBTC',
+          usdValue: 2.5,
+        },
+      ],
+    })
+
+    expect(html).toContain('max-w-[620px]')
+    expect(html).toContain('Total Harvested')
+    expect(html).toContain('alt="USDC"')
+    expect(html).toContain('alt="EURC"')
+    expect(html).toContain('alt="cirBTC"')
+    expect(html).toContain('1.5 USDC')
+    expect(html).toContain('2.25 EURC') // 1 + 1.25 aggregated
+    expect(html).toContain('≈ $5.0800 USD')
+    expect(html).toContain('>+<')
+  })
+
+  it('expands dynamically for withdraw (Remove LP) receipts with side-by-side received tokens, USD subtotal, and LP Burned', () => {
+    const html = render({
+      actionType: 'withdraw',
+      title: 'USDC / EURC LP Removed',
+      poolId: 'usdc-eurc-stable-pool',
+      poolName: 'USDC / EURC',
+      fromToken: 'USDC',
+      tokenB: 'EURC',
+      receivedAmountA: '50',
+      receivedAmountB: '45',
+      lpBurned: '50',
+      lpTokenSymbol: 'afUSDC-EURC',
+      withdrawnUsd: 98.6,
+    })
+
+    expect(html).toContain('max-w-[620px]')
+    expect(html).toContain('USDC / EURC LP Removed')
+    expect(html).toContain('You Received')
+    expect(html).toContain('50 USDC')
+    expect(html).toContain('45 EURC')
+    expect(html).toContain('≈ $98.60 USD')
+    expect(html).toContain('LP Burned')
+    expect(html).toContain('50 afUSDC-EURC')
+    expect(html).toContain('>+<')
+  })
 })
 

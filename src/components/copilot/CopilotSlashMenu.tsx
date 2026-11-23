@@ -40,7 +40,6 @@ export const CopilotSlashMenu: React.FC<CopilotSlashMenuProps> = ({
         <div className="px-3.5 py-2 border-b border-white/[0.06] bg-[#0f111a]/80 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-300 font-mono uppercase tracking-wider">
             <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Arcis Commands</span>
           </div>
         </div>
 

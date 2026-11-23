@@ -9,12 +9,14 @@ import {
   Coins,
   Copy,
   Globe,
+  Layers,
   Loader2,
   RotateCw,
   Settings,
   Sparkles,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { formatUnits } from 'viem'
 import { getExplorerName, getExplorerTxUrl } from '../../config/sendConfig'
 import { formatFiatEstimate } from '../../hooks/useLiveTokenPrices'
 import { arcTransferFeeFallbackUsdc } from '../../services/arcGasService'
@@ -36,6 +38,8 @@ import { CopilotTokenIcon } from './CopilotTokenIcon'
 // ARC-025: pre-confirmation risk warnings (new recipient, large share of balance, wide slippage).
 import {
   depositActionWarnings,
+  highSlippageWarning,
+  lpDepositActionWarnings,
   sendActionWarnings,
   swapActionWarnings,
   type CopilotActionWarning,
@@ -69,9 +73,13 @@ export function buildActionAgainCommand(
       ? 'swap'
       : actionPayload?.type === 'interactive_bridge'
         ? 'bridge'
-        : actionPayload?.type === 'interactive_deposit'
+        : actionPayload?.type === 'interactive_deposit' || actionPayload?.type === 'interactive_lp_deposit'
           ? 'deposit'
-          : actionPayload?.type === 'interactive_send' || actionPayload?.type === 'interactive_batch_send'
+          : actionPayload?.type === 'interactive_claim_fees'
+            ? 'claim'
+            : actionPayload?.type === 'interactive_lp_remove'
+              ? 'withdraw'
+              : actionPayload?.type === 'interactive_send' || actionPayload?.type === 'interactive_batch_send'
             ? 'send'
             : undefined)
 
@@ -123,12 +131,57 @@ export function buildActionAgainCommand(
   }
 
   if (actionType === 'deposit') {
+    const isLp =
+      actionPayload?.type === 'interactive_lp_deposit' ||
+      Boolean(receipt?.poolId || receipt?.poolName || actionPayload?.data?.poolId)
+    if (isLp) {
+      const poolName = receipt?.poolName ?? actionPayload?.data?.poolName ?? 'USDC / EURC'
+      const lpMode = receipt?.lpMode ?? actionPayload?.data?.lpMode ?? 'zap'
+      const tokA = receipt?.fromToken ?? actionPayload?.data?.tokenA ?? 'USDC'
+      const tokB = receipt?.tokenB ?? actionPayload?.data?.tokenB
+      const amtAVal = receipt?.amountIn ?? actionPayload?.data?.amountA ?? actionPayload?.data?.amount
+      const amtA = typeof amtAVal === 'number' && amtAVal > 0 ? numberToExactDecimal(amtAVal) : null
+      const amtBVal = receipt?.amountB ?? actionPayload?.data?.amountB
+      const amtB = typeof amtBVal === 'number' && amtBVal > 0 ? numberToExactDecimal(amtBVal) : null
+      if (lpMode === 'zap' && amtA) {
+        return `zap ${amtA} USDC into ${poolName} pool`
+      }
+      if (amtA && amtB && tokB) {
+        return `add ${amtA} ${tokA} and ${amtB} ${tokB} to ${poolName} pool`
+      }
+      if (amtA) {
+        return `add ${amtA} ${tokA} to ${poolName} pool`
+      }
+      return null
+    }
     const amountValue = receipt?.amountIn ?? actionPayload?.data?.amount
     const amount = typeof amountValue === 'number' && amountValue > 0 ? numberToExactDecimal(amountValue) : null
     if (amount) {
       return `deposit ${amount} USDC`
     }
     return null
+  }
+
+  if (actionType === 'withdraw') {
+    const poolName = receipt?.poolName ?? actionPayload?.data?.poolName
+    const removeMode = actionPayload?.data?.removeMode
+    const pct = actionPayload?.data?.removePercent
+    const lpAmt = actionPayload?.data?.lpAmountDecimal ?? actionPayload?.data?.lpAmount
+    if (poolName) {
+      if (removeMode === 'lp' && lpAmt) return `remove ${lpAmt} LP from ${poolName} pool`
+      if (typeof pct === 'number' && pct > 0) return `remove ${pct >= 100 ? '100' : pct}% LP from ${poolName} pool`
+      return `remove 50% LP from ${poolName} pool`
+    }
+    return null
+  }
+
+  if (actionType === 'claim') {
+    const scope = actionPayload?.data?.claimScope
+    const poolName = actionPayload?.data?.poolName
+    if (scope === 'single' && poolName) {
+      return `claim fees from ${poolName} pool`
+    }
+    return 'claim all fees'
   }
 
   if (actionType === 'faucet') {
@@ -297,6 +350,7 @@ export default function InlineActionCard({
       'interactive_swap',
       'trade',
       'interactive_deposit',
+      'interactive_lp_deposit',
       'view_pool',
     ].includes(pendingActionType)
   )
@@ -829,6 +883,464 @@ export default function InlineActionCard({
         )
       })()}
 
+      {/* 4.2b AMM LP POOL DEPOSIT CARD (1-Click Zap / Dual-Asset) */}
+      {actionPayload.type === 'interactive_lp_deposit' && (() => {
+        const lpMode: 'zap' | 'dual' = data.lpMode === 'zap' ? 'zap' : 'dual'
+        const poolName = String(data.poolName || 'Arc AMM Pool')
+        const tokenA = String(data.tokenA || 'USDC')
+        const tokenB = String(data.tokenB || 'EURC')
+        const amountA = Number(data.amountA ?? data.amount)
+        const amountB = Number(data.amountB)
+        const hasValidA = Number.isFinite(amountA) && amountA > 0
+        const hasValidB = lpMode === 'zap' || (Number.isFinite(amountB) && amountB > 0)
+        const hasValidMinLp =
+          typeof data.minLpSharesRaw === 'string' &&
+          /^\d+$/.test(data.minLpSharesRaw) &&
+          BigInt(data.minLpSharesRaw) > 0n
+        const slippageBps =
+          typeof data.slippageBps === 'number' && Number.isFinite(data.slippageBps)
+            ? data.slippageBps
+            : undefined
+        const lpTokenSymbol = String(data.lpTokenSymbol || `af-${tokenA}-${tokenB}`)
+        const estimatedLpOut = data.estimatedLpOut ? String(data.estimatedLpOut) : undefined
+        const minLpShares = data.minLpShares ? String(data.minLpShares) : undefined
+        const poolSharePct =
+          typeof data.poolSharePct === 'number' && Number.isFinite(data.poolSharePct)
+            ? data.poolSharePct
+            : undefined
+        const feeTier =
+          typeof data.feeTierPercent === 'number' && Number.isFinite(data.feeTierPercent)
+            ? `${data.feeTierPercent.toFixed(2)}%`
+            : undefined
+        const fiatA = hasValidA ? formatFiatEstimate(amountA, tokenA, tokenPrices) : undefined
+        const fiatB = lpMode === 'dual' && Number.isFinite(amountB) && amountB > 0
+          ? formatFiatEstimate(amountB, tokenB, tokenPrices)
+          : undefined
+        const estimatedFee = Number(data.estimatedFeeUsdc)
+        const hasFeeEstimate = Number.isFinite(estimatedFee) && estimatedFee > 0
+        const warnings = lpDepositActionWarnings({
+          lpMode,
+          tokenA,
+          tokenB,
+          amountA,
+          amountB: lpMode === 'dual' ? amountB : undefined,
+          slippageBps,
+          donationPct: typeof data.donationPct === 'number' ? data.donationPct : undefined,
+          balances: availableBalances,
+        })
+        const canConfirm = hasValidA && hasValidB && hasValidMinLp && slippageBps !== undefined
+
+        return (
+          <ActionCardShell
+            accentColor="indigo"
+            dynamicWidth={lpMode === 'dual'}
+            warnings={warnings}
+            header={{
+              icon: <Layers className="w-4 h-4 text-indigo-400" />,
+              title: `${poolName} Pool`,
+              subtitle: `${lpMode === 'zap' ? '1-Click Zap • Auto 50/50 Split' : 'Dual-Asset Liquidity'}${feeTier ? ` • ${feeTier} Fee` : ''}`,
+            }}
+            hero={
+              <div className="flex items-center justify-between gap-3 text-xs select-text overflow-x-auto">
+                <div className={`${lpMode === 'dual' ? 'shrink-0' : 'flex-1 min-w-0'} space-y-1.5 select-text cursor-text`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block select-text">
+                    {lpMode === 'zap' ? 'Zap Input' : 'You Supply'}
+                  </span>
+                  {lpMode === 'dual' ? (
+                    <div className="flex items-start gap-2.5 flex-nowrap">
+                      <div className="whitespace-nowrap shrink-0">
+                        <div className="font-bold text-white text-sm flex items-center gap-1.5 select-text tabular-nums">
+                          <CopilotTokenIcon symbol={tokenA} className="w-4 h-4 shrink-0" />
+                          <span>
+                            {hasValidA ? formatSubscriptZero(data.amountADecimal ?? amountA) : '—'}
+                          </span>
+                          <span className="text-[12px] text-white font-bold">{tokenA}</span>
+                        </div>
+                        {fiatA && (
+                          <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{fiatA}</span>
+                        )}
+                      </div>
+
+                      <span
+                        aria-hidden="true"
+                        className="mt-0.5 w-4 h-4 rounded-full bg-slate-800/90 border border-slate-700/70 flex items-center justify-center text-[10px] font-bold text-indigo-300 shrink-0 select-none"
+                      >
+                        +
+                      </span>
+
+                      <div className="whitespace-nowrap shrink-0">
+                        <div className="font-bold text-white text-sm flex items-center gap-1.5 select-text tabular-nums">
+                          <CopilotTokenIcon symbol={tokenB} className="w-4 h-4 shrink-0" />
+                          <span>
+                            {Number.isFinite(amountB) && amountB > 0
+                              ? formatSubscriptZero(data.amountBDecimal ?? amountB)
+                              : '—'}
+                          </span>
+                          <span className="text-[12px] text-white font-bold">{tokenB}</span>
+                        </div>
+                        {fiatB && (
+                          <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{fiatB}</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="font-bold text-white text-sm flex items-center gap-1.5 select-text tabular-nums">
+                        <CopilotTokenIcon symbol={tokenA} className="w-4 h-4 shrink-0" />
+                        <span className="truncate">
+                          {hasValidA ? formatSubscriptZero(data.amountADecimal ?? amountA) : '—'}
+                        </span>
+                        <span className="text-[12px] text-white font-bold">{tokenA}</span>
+                      </div>
+                      {fiatA && (
+                        <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{fiatA}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="h-10 w-px bg-slate-800/80 shrink-0" />
+
+                <div className={`${lpMode === 'dual' ? 'shrink-0 whitespace-nowrap' : 'flex-1 min-w-0'} text-right select-text cursor-text`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1 select-text">
+                    Est. LP Output
+                  </span>
+                  <div className="font-bold text-white text-sm tabular-nums">
+                    {estimatedLpOut ? `~${formatSubscriptZero(estimatedLpOut)}` : 'Quote required'}
+                  </div>
+                  <span className="text-[11px] font-mono text-indigo-300 block mt-0.5">
+                    {lpTokenSymbol}
+                  </span>
+                </div>
+              </div>
+            }
+            details={
+              <>
+                <DetailRow
+                  label="Deposit Mode"
+                  value={lpMode === 'zap' ? '1-Click Zap (USDC → 50/50)' : 'Dual-Asset'}
+                  valueClassName="text-slate-200"
+                />
+                {data.apy && (
+                  <DetailRow
+                    label="Est. Pool Yield"
+                    value={String(data.apy)}
+                    valueClassName="text-emerald-300"
+                  />
+                )}
+                {minLpShares && (
+                  <DetailRow
+                    label="Min. LP Received"
+                    value={`${formatSubscriptZero(minLpShares)} ${lpTokenSymbol}`}
+                    valueClassName="text-slate-200"
+                  />
+                )}
+                <DetailRow
+                  label="Slippage Tolerance"
+                  value={slippageBps === undefined ? 'Quote required' : `${slippageBps / 100}%`}
+                />
+                {data.impermanentLossRisk && (
+                  <DetailRow
+                    label="IL Risk"
+                    value={String(data.impermanentLossRisk)}
+                    valueClassName={
+                      String(data.impermanentLossRisk).toLowerCase().includes('zero')
+                        ? 'text-emerald-300'
+                        : 'text-amber-300'
+                    }
+                  />
+                )}
+                <DetailRow
+                  label="Network Fee"
+                  value={hasFeeEstimate ? `~${estimatedFee.toFixed(5)} USDC` : 'Live estimate unavailable'}
+                  valueClassName={hasFeeEstimate ? 'text-slate-200' : 'text-amber-300'}
+                />
+              </>
+            }
+            primaryAction={{
+              label: !hasValidA || !hasValidB
+                ? 'Amount Required'
+                : !hasValidMinLp
+                  ? 'Quote Required'
+                  : lpMode === 'zap'
+                    ? 'Confirm 1-Click Zap'
+                    : 'Confirm LP Deposit',
+              icon: <Layers className="w-3.5 h-3.5 text-indigo-200" />,
+              onClick: () => onExecuteInline(message.id, actionPayload),
+              disabled: !canConfirm,
+              gradient: 'hover:brightness-110 text-white shadow-purple-500/20',
+              style: PRIMARY_ACTION_GRADIENT_STYLE,
+            }}
+            secondaryAction={{
+              label: 'Pools Page',
+              onClick: () => {
+                if (onNavigateToTab) onNavigateToTab('pools')
+                onCloseDrawer()
+              },
+            }}
+          />
+        )
+      })()}
+
+      {/* 4.2c CLAIM ALL FEES / HARVEST CARD */}
+      {actionPayload.type === 'interactive_claim_fees' && (() => {
+        const claimPools = Array.isArray(data.claimPools) ? data.claimPools : []
+        const poolCount = claimPools.length
+        const isSingleScope = data.claimScope === 'single' && poolCount === 1
+        const totalUsd = Number(data.totalClaimableUsd ?? 0)
+        const hasValidTotal = Number.isFinite(totalUsd) && totalUsd > 0
+        const formattedTotalUsd =
+          !hasValidTotal
+            ? '$0.00'
+            : totalUsd < 0.0001
+              ? '<$0.0001'
+              : `$${totalUsd.toFixed(4)}`
+        const estimatedFee = Number(data.estimatedFeeUsdc)
+        const hasFeeEstimate = Number.isFinite(estimatedFee) && estimatedFee > 0
+
+        // Aggregate total claimable token amounts across all eligible pools using exact BigInt units
+        const decimalsForToken = (sym: string): number => {
+          const upper = sym.toUpperCase()
+          if (upper === 'CIRBTC') return 8
+          if (upper === 'WETH' || upper === 'ETH') return 18
+          return 6
+        }
+        const trimUnits = (units: bigint, decimals: number): string => {
+          const raw = formatUnits(units, decimals)
+          const [whole, frac = ''] = raw.split('.')
+          const maxFrac = decimals >= 18 ? 8 : Math.min(decimals, 6)
+          const trimmed = frac.slice(0, maxFrac).replace(/0+$/, '')
+          return trimmed ? `${whole}.${trimmed}` : whole
+        }
+        const tokenTotals = new Map<string, { raw: bigint; decimals: number }>()
+        const addTokenTotal = (symbol?: string, rawStr?: string) => {
+          if (!symbol || !rawStr || !/^\d+$/.test(rawStr)) return
+          const raw = BigInt(rawStr)
+          if (raw <= 0n) return
+          const existing = tokenTotals.get(symbol)
+          if (existing) {
+            existing.raw += raw
+          } else {
+            tokenTotals.set(symbol, { raw, decimals: decimalsForToken(symbol) })
+          }
+        }
+        for (const item of claimPools) {
+          addTokenTotal(item.tokenA, item.feeARaw)
+          addTokenTotal(item.tokenB, item.feeBRaw)
+        }
+        const aggregatedCoins = Array.from(tokenTotals.entries()).map(([symbol, entry]) => ({
+          symbol,
+          decimal: trimUnits(entry.raw, entry.decimals),
+        }))
+
+        return (
+          <ActionCardShell
+            accentColor="indigo"
+            dynamicWidth={aggregatedCoins.length >= 2}
+            header={{
+              icon: <Sparkles className="w-4 h-4 text-indigo-400" />,
+              title: isSingleScope ? `${claimPools[0].poolName} Fee Harvest` : 'Claim All Fees',
+              subtitle: `${poolCount} ${poolCount === 1 ? 'Pool' : 'Pools'} Ready • Principal Stays Staked`,
+            }}
+            hero={
+              <div className="text-xs select-text overflow-x-auto">
+                <div className="select-text cursor-text">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1.5 select-text">
+                    Total Claimable
+                  </span>
+                  {aggregatedCoins.length > 0 ? (
+                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                      {aggregatedCoins.map((coin, idx) => (
+                        <div key={coin.symbol} className="flex items-center gap-2 shrink-0">
+                          {idx > 0 && (
+                            <span
+                              aria-hidden="true"
+                              className="w-4 h-4 rounded-full bg-slate-800/90 border border-slate-700/70 flex items-center justify-center text-[10px] font-bold text-indigo-300 shrink-0 select-none"
+                            >
+                              +
+                            </span>
+                          )}
+                          <div className="font-bold text-white text-sm flex items-center gap-1.5 whitespace-nowrap select-text tabular-nums">
+                            <CopilotTokenIcon symbol={coin.symbol} className="w-4 h-4 shrink-0" />
+                            <span>{formatSubscriptZero(coin.decimal)}</span>
+                            <span className="text-[12px] text-white font-bold">{coin.symbol}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="font-bold text-slate-200 text-base tabular-nums">
+                      {formattedTotalUsd} USD
+                    </div>
+                  )}
+                  <span className="text-[10px] font-mono text-stale-200 block mt-1.5 tabular-nums">
+                    ≈ {formattedTotalUsd} USD
+                  </span>
+                </div>
+              </div>
+            }
+            details={
+              <DetailRow
+                label="Network Fee"
+                value={hasFeeEstimate ? `~${estimatedFee.toFixed(5)} USDC` : 'Live estimate unavailable'}
+                valueClassName={hasFeeEstimate ? 'text-slate-200' : 'text-amber-300'}
+              />
+            }
+            primaryAction={{
+              label:
+                poolCount === 0
+                  ? 'No Fees Ready'
+                  : poolCount === 1
+                    ? 'Confirm Claim Fees'
+                    : `Confirm Claim All (${poolCount})`,
+              icon: <Sparkles className="w-3.5 h-3.5 text-indigo-200" />,
+              onClick: () => onExecuteInline(message.id, actionPayload),
+              disabled: poolCount === 0,
+              gradient: 'hover:brightness-110 text-white shadow-purple-500/20',
+              style: PRIMARY_ACTION_GRADIENT_STYLE,
+            }}
+            secondaryAction={{
+              label: 'Pools Page',
+              onClick: () => {
+                if (onNavigateToTab) onNavigateToTab('pools')
+                onCloseDrawer()
+              },
+            }}
+          />
+        )
+      })()}
+
+      {/* 4.2d AMM LP REMOVE CARD */}
+      {actionPayload.type === 'interactive_lp_remove' && (() => {
+        const poolName = String(data.poolName || 'Arc AMM Pool')
+        const tokenA = String(data.tokenA || 'USDC')
+        const tokenB = String(data.tokenB || 'EURC')
+        const lpTokenSymbol = String(data.lpTokenSymbol || `af-${tokenA}-${tokenB}`)
+        const lpAmountDecimal = data.lpAmountDecimal ? String(data.lpAmountDecimal) : undefined
+        const hasValidLpRaw =
+          typeof data.lpAmountRaw === 'string' &&
+          /^\d+$/.test(data.lpAmountRaw) &&
+          BigInt(data.lpAmountRaw) > 0n
+        const hasValidMinGuards =
+          (typeof data.minOutARaw === 'string' && /^\d+$/.test(data.minOutARaw) && BigInt(data.minOutARaw) > 0n) ||
+          (typeof data.minOutBRaw === 'string' && /^\d+$/.test(data.minOutBRaw) && BigInt(data.minOutBRaw) > 0n)
+        const removePct =
+          typeof data.removePercent === 'number' && Number.isFinite(data.removePercent)
+            ? data.removePercent
+            : undefined
+        const pctLabel =
+          removePct != null ? (removePct >= 99.99 ? '100%' : `${Number(removePct.toFixed(2))}%`) : 'LP'
+        const estOutA = data.estimatedOutA ? String(data.estimatedOutA) : undefined
+        const estOutB = data.estimatedOutB ? String(data.estimatedOutB) : undefined
+        const minOutA = data.minOutA ? String(data.minOutA) : undefined
+        const minOutB = data.minOutB ? String(data.minOutB) : undefined
+        const estUsd = Number(data.estimatedWithdrawUsd ?? 0)
+        const hasEstUsd = Number.isFinite(estUsd) && estUsd > 0
+        const slippageBps =
+          typeof data.slippageBps === 'number' && Number.isFinite(data.slippageBps)
+            ? data.slippageBps
+            : undefined
+        const estimatedFee = Number(data.estimatedFeeUsdc)
+        const hasFeeEstimate = Number.isFinite(estimatedFee) && estimatedFee > 0
+        const slipWarn = highSlippageWarning(slippageBps)
+        const warnings = slipWarn ? [slipWarn] : []
+        const canConfirm = hasValidLpRaw && hasValidMinGuards && slippageBps !== undefined
+
+        return (
+          <ActionCardShell
+            accentColor="indigo"
+            dynamicWidth
+            warnings={warnings}
+            header={{
+              icon: <Layers className="w-4 h-4 text-indigo-400" />,
+              title: `${poolName} Remove LP`,
+              subtitle: `${pctLabel} of Position • ${lpTokenSymbol}`,
+            }}
+            hero={
+              <div className="flex items-center justify-between gap-3 text-xs select-text overflow-x-auto">
+                <div className="shrink-0 space-y-1.5 select-text cursor-text">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block select-text">
+                    You Receive
+                  </span>
+                  <div className="flex items-center gap-2 flex-nowrap">
+                    <div className="font-bold text-white text-sm flex items-center gap-1.5 whitespace-nowrap tabular-nums">
+                      <CopilotTokenIcon symbol={tokenA} className="w-4 h-4 shrink-0" />
+                      <span>{estOutA ? formatSubscriptZero(estOutA) : '—'}</span>
+                      <span className="text-[12px] text-white font-bold">{tokenA}</span>
+                    </div>
+                    <span
+                      aria-hidden="true"
+                      className="w-4 h-4 rounded-full bg-slate-800/90 border border-slate-700/70 flex items-center justify-center text-[10px] font-bold text-indigo-300 shrink-0 select-none"
+                    >
+                      +
+                    </span>
+                    <div className="font-bold text-white text-sm flex items-center gap-1.5 whitespace-nowrap tabular-nums">
+                      <CopilotTokenIcon symbol={tokenB} className="w-4 h-4 shrink-0" />
+                      <span>{estOutB ? formatSubscriptZero(estOutB) : '—'}</span>
+                      <span className="text-[12px] text-white font-bold">{tokenB}</span>
+                    </div>
+                  </div>
+                  {hasEstUsd && (
+                    <span className="text-[10px] font-mono text-slate-400 block tabular-nums">
+                      ≈ ${estUsd.toFixed(2)} USD
+                    </span>
+                  )}
+                </div>
+
+                <div className="h-10 w-px bg-slate-800/80 shrink-0" />
+
+                <div className="shrink-0 whitespace-nowrap text-right select-text cursor-text">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1 select-text">
+                    You Remove
+                  </span>
+                  <div className="font-bold text-white text-sm tabular-nums">
+                    {lpAmountDecimal ? formatSubscriptZero(lpAmountDecimal) : '—'}
+                  </div>
+                  <span className="text-[10px] font-mono text-indigo-300 block mt-0.5">
+                    {lpTokenSymbol} ({pctLabel})
+                  </span>
+                </div>
+              </div>
+            }
+            details={
+              <>
+                {minOutA && minOutB && (
+                  <DetailRow
+                    label="Min. Received"
+                    value={`${formatSubscriptZero(minOutA)} ${tokenA} + ${formatSubscriptZero(minOutB)} ${tokenB}`}
+                    valueClassName="text-slate-200 tabular-nums"
+                  />
+                )}
+                <DetailRow
+                  label="Slippage Tolerance"
+                  value={slippageBps === undefined ? 'Quote required' : `${slippageBps / 100}%`}
+                />
+                <DetailRow
+                  label="Network Fee"
+                  value={hasFeeEstimate ? `~${estimatedFee.toFixed(5)} USDC` : 'Live estimate unavailable'}
+                  valueClassName={hasFeeEstimate ? 'text-slate-200' : 'text-amber-300'}
+                />
+              </>
+            }
+            primaryAction={{
+              label: !hasValidLpRaw ? 'Amount Required' : !hasValidMinGuards ? 'Quote Required' : 'Confirm Remove LP',
+              icon: <Layers className="w-3.5 h-3.5 text-indigo-200" />,
+              onClick: () => onExecuteInline(message.id, actionPayload),
+              disabled: !canConfirm,
+              gradient: 'hover:brightness-110 text-white shadow-purple-500/20',
+              style: PRIMARY_ACTION_GRADIENT_STYLE,
+            }}
+            secondaryAction={{
+              label: 'Pools Page',
+              onClick: () => {
+                if (onNavigateToTab) onNavigateToTab('pools')
+                onCloseDrawer()
+              },
+            }}
+          />
+        )
+      })()}
+
       {/* 4.3 BRIDGE ACTION CARD */}
       {(actionPayload.type === 'interactive_bridge' || actionPayload.type === 'bridge') && (() => {
         const bridgeAmount = Number(data.amount)
@@ -1201,6 +1713,8 @@ function DetailRow({ label, value, valueClassName = 'text-slate-200' }: DetailRo
 
 interface ActionCardShellProps {
   accentColor: 'cyan' | 'sky' | 'indigo' | 'emerald' | 'amber'
+  /** Expands card width dynamically beyond 390px for multi-column templates (e.g. Dual-Asset LP). */
+  dynamicWidth?: boolean
   header: {
     icon: React.ReactNode
     title: string
@@ -1227,6 +1741,7 @@ interface ActionCardShellProps {
 
 function ActionCardShell({
   accentColor,
+  dynamicWidth = false,
   header,
   hero,
   details,
@@ -1260,7 +1775,7 @@ function ActionCardShell({
 
   return (
     <div
-      className={`w-full max-w-[390px] mx-auto p-3.5 rounded-2xl bg-[#0f111a]/95 border space-y-3 shadow-xl animate-fade-in select-text selection:bg-indigo-500/30 selection:text-white ${borderStyles[accentColor]}`}
+      className={`w-full ${dynamicWidth ? 'min-w-[min(100%,390px)] max-w-[620px]' : 'max-w-[390px]'} mx-auto p-3.5 rounded-2xl bg-[#0f111a]/95 border space-y-3 shadow-xl animate-fade-in select-text selection:bg-indigo-500/30 selection:text-white ${borderStyles[accentColor]}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-white/[0.06]">

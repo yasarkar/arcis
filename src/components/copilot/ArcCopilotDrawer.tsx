@@ -706,7 +706,29 @@ export default function ArcCopilotDrawer({
                 )
               ) : (
                 /* Assistant Bubble */
-                <div className={`rounded-2xl leading-relaxed ${msg.receipt || msg.actionPayload ? 'max-w-[425px]' : 'max-w-[60%]'} shadow-md select-text cursor-text bg-[#0f111a]/95 text-slate-200 border border-white/[0.08] rounded-tl-none ${msg.receipt ? 'p-2 sm:p-2.5' : 'p-3.5'}`}>
+                (() => {
+                  const isDynamicWidthAction =
+                    (msg.receipt?.actionType === 'claim' ||
+                      msg.receipt?.actionType === 'withdraw' ||
+                      (Array.isArray(msg.receipt?.claimedPools) && msg.receipt.claimedPools.length > 0)) ||
+                    (!msg.receipt &&
+                      ((msg.actionPayload?.type === 'interactive_lp_deposit' &&
+                        msg.actionPayload.data?.lpMode !== 'zap') ||
+                        msg.actionPayload?.type === 'interactive_lp_remove' ||
+                        (msg.actionPayload?.type === 'interactive_claim_fees' &&
+                          Array.isArray(msg.actionPayload.data?.claimPools) &&
+                          msg.actionPayload.data.claimPools.length > 0)))
+
+                  return (
+                    <div
+                      className={`rounded-2xl leading-relaxed ${
+                        isDynamicWidthAction
+                          ? 'w-min min-w-[min(100%,425px)] max-w-[min(660px,calc(100%-2.5rem))]'
+                          : msg.receipt || msg.actionPayload
+                            ? 'max-w-[425px]'
+                            : 'max-w-[60%]'
+                      } shadow-md select-text cursor-text bg-[#0f111a]/95 text-slate-200 border border-white/[0.08] rounded-tl-none ${msg.receipt ? 'p-2 sm:p-2.5' : 'p-3.5'}`}
+                    >
                   {/* Fişlerin üstündeki hazırlık mesajı işlem sonuçlandığında (başarılı/başarısız fiş durumunda) gösterilmez */}
                   {!msg.receipt && (
                     <div className="relative">
@@ -782,7 +804,9 @@ export default function ArcCopilotDrawer({
                       onSendMessage={onSendMessage}
                     />
                   )}
-                </div>
+                    </div>
+                  )
+                })()
               )}
             </div>
 

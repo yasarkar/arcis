@@ -230,6 +230,188 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('Pool Page')
   })
 
+  it('renders a standardized LP Pool Deposit card for 1-Click Zap and Dual-Asset with slippage guard', () => {
+    const zapHtml = renderAction({
+      type: 'interactive_lp_deposit',
+      title: 'Zap 100 USDC into USDC / EURC LP',
+      data: {
+        poolId: 'usdc-eurc-stable-pool',
+        poolName: 'USDC / EURC',
+        lpMode: 'zap',
+        tokenA: 'USDC',
+        tokenB: 'EURC',
+        amount: 100,
+        amountA: 100,
+        amountADecimal: '100',
+        lpTokenSymbol: 'afUSDC-EURC',
+        estimatedLpOut: '99.500000',
+        minLpShares: '99.002500',
+        minLpSharesRaw: '99002500000000000000',
+        poolSharePct: 0.512,
+        feeTierPercent: 0.12,
+        apy: '6.15% APR',
+        impermanentLossRisk: 'Zero (Stable)',
+        slippageBps: 50,
+        estimatedFeeUsdc: '0.00125',
+      },
+    })
+
+    expect(zapHtml).toContain('USDC / EURC Pool')
+    expect(zapHtml).toContain('1-Click Zap')
+    expect(zapHtml).toContain('afUSDC-EURC')
+    expect(zapHtml).toContain('Confirm 1-Click Zap')
+    expect(zapHtml).toContain('max-w-[390px]')
+    expect(zapHtml).not.toContain('disabled=""')
+
+    const unguardedDualHtml = renderAction({
+      type: 'interactive_lp_deposit',
+      title: 'Add Liquidity: EURC / WETH',
+      data: {
+        poolId: 'eurc-weth-pool',
+        poolName: 'EURC / WETH',
+        lpMode: 'dual',
+        tokenA: 'EURC',
+        tokenB: 'WETH',
+        amountA: 100,
+        amountB: 0.04,
+        slippageBps: 50,
+      },
+    })
+    expect(unguardedDualHtml).toContain('You Supply')
+    expect(unguardedDualHtml).toContain('max-w-[620px]')
+    expect(unguardedDualHtml).toContain('flex-nowrap')
+    expect(unguardedDualHtml).toContain('>+<')
+    expect(unguardedDualHtml).toContain('Quote Required')
+    expect(unguardedDualHtml).toContain('disabled=""')
+
+    expect(
+      buildActionAgainCommand(undefined, {
+        type: 'interactive_lp_deposit',
+        title: '',
+        data: { poolId: 'usdc-eurc-stable-pool', poolName: 'USDC / EURC', lpMode: 'zap', amountA: 50 },
+      })
+    ).toBe('zap 50 USDC into USDC / EURC pool')
+
+    expect(
+      buildActionAgainCommand(undefined, {
+        type: 'interactive_lp_deposit',
+        title: '',
+        data: { poolId: 'eurc-weth-pool', poolName: 'EURC / WETH', lpMode: 'dual', tokenA: 'EURC', tokenB: 'WETH', amountA: 100, amountB: 0.04 },
+      })
+    ).toBe('add 100 EURC and 0.04 WETH to EURC / WETH pool')
+  })
+
+  it('renders a Claim All Fees confirmation card with per-pool breakdown', () => {
+    const html = renderAction({
+      type: 'interactive_claim_fees',
+      title: 'Claim All Fees',
+      data: {
+        claimScope: 'all',
+        totalClaimableUsd: 5.08,
+        estimatedFeeUsdc: '0.00110',
+        claimPools: [
+          {
+            poolId: 'usdc-eurc-stable-pool',
+            poolName: 'USDC / EURC',
+            poolAddress: '0xC3EdDA15AdfaC31ADfC23aC86dC96d791f72bE8a',
+            isVault: false,
+            tokenA: 'USDC',
+            tokenB: 'EURC',
+            feeADecimal: '1.5',
+            feeBDecimal: '1',
+            feeARaw: '1500000',
+            feeBRaw: '1000000',
+            estimatedUsd: 2.58,
+          },
+          {
+            poolId: 'usdc-yield-vault',
+            poolName: 'USDC Yield Vault',
+            poolAddress: '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A',
+            isVault: true,
+            tokenA: 'USDC',
+            feeADecimal: '2.5',
+            feeARaw: '2500000',
+            estimatedUsd: 2.5,
+          },
+        ],
+      },
+    })
+
+    expect(html).toContain('Claim All Fees')
+    expect(html).toContain('Total Claimable')
+    expect(html).toContain('4') // 1.5 USDC + 2.5 USDC aggregated
+    expect(html).toContain('USDC')
+    expect(html).toContain('>+<')
+    expect(html).toContain('EURC')
+    expect(html).toContain('$5.0800 USD')
+    expect(html).toContain('Network Fee')
+    expect(html).not.toContain('USDC Yield Vault')
+    expect(html).toContain('Confirm Claim All (2)')
+    expect(html).not.toContain('disabled=""')
+    expect(buildActionAgainCommand(undefined, { type: 'interactive_claim_fees', title: '', data: { claimScope: 'all' } })).toBe('claim all fees')
+  })
+
+  it('renders an AMM LP Remove confirmation card with side-by-side You Receive, You Remove, and slippage guard', () => {
+    const html = renderAction({
+      type: 'interactive_lp_remove',
+      title: 'Remove 50% LP from USDC / EURC',
+      data: {
+        poolId: 'usdc-eurc-stable-pool',
+        poolName: 'USDC / EURC',
+        tokenA: 'USDC',
+        tokenB: 'EURC',
+        lpTokenSymbol: 'afUSDC-EURC',
+        removeMode: 'percent',
+        removePercent: 50,
+        lpAmount: 50,
+        lpAmountDecimal: '50',
+        lpAmountRaw: '50000000000000000000',
+        estimatedOutA: '50',
+        estimatedOutB: '45',
+        minOutA: '49.75',
+        minOutB: '44.775',
+        minOutARaw: '49750000',
+        minOutBRaw: '44775000',
+        estimatedWithdrawUsd: 98.6,
+        slippageBps: 50,
+        estimatedFeeUsdc: '0.00095',
+      },
+    })
+
+    expect(html).toContain('USDC / EURC Remove LP')
+    expect(html).toContain('You Receive')
+    expect(html).toContain('You Remove')
+    expect(html).toContain('50')
+    expect(html).toContain('45')
+    expect(html).toContain('Min. Received')
+    expect(html).toContain('49.75 USDC + 44.775 EURC')
+    expect(html).toContain('Confirm Remove LP')
+    expect(html).toContain('max-w-[620px]')
+    expect(html).not.toContain('disabled=""')
+
+    // Missing minOut guards disables Confirm
+    const unguarded = renderAction({
+      type: 'interactive_lp_remove',
+      title: 'Remove 50% LP from USDC / EURC',
+      data: {
+        poolId: 'usdc-eurc-stable-pool',
+        poolName: 'USDC / EURC',
+        lpAmountRaw: '50000000000000000000',
+        slippageBps: 50,
+      },
+    })
+    expect(unguarded).toContain('Quote Required')
+    expect(unguarded).toContain('disabled=""')
+
+    expect(
+      buildActionAgainCommand(undefined, {
+        type: 'interactive_lp_remove',
+        title: '',
+        data: { poolName: 'USDC / EURC', removeMode: 'percent', removePercent: 50 },
+      })
+    ).toBe('remove 50% LP from USDC / EURC pool')
+  })
+
   it('renders a standardized Session Security Configuration template with header and action button', () => {
     const html = renderAction({
       type: 'configure_session',

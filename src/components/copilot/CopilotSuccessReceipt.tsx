@@ -63,7 +63,7 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
 
   useEffect(() => {
     if (receipt?.actualGasUsdc != null) return
-    if (!['send', 'swap', 'deposit'].includes(receipt?.actionType)) return
+    if (!['send', 'swap', 'deposit', 'withdraw', 'claim'].includes(receipt?.actionType)) return
     if (!receipt?.txHash || !receipt.txHash.startsWith('0x')) return
 
     let cancelled = false
@@ -97,7 +97,7 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
   // Resolves the exact base + priority split (the ArcScan "Transaction fee" breakdown)
   // through the shared receipt resolver once the tx hash is known.
   useEffect(() => {
-    if (!['send', 'swap', 'deposit'].includes(receipt?.actionType)) return
+    if (!['send', 'swap', 'deposit', 'withdraw', 'claim'].includes(receipt?.actionType)) return
     if (!receipt?.txHash || !receipt.txHash.startsWith('0x')) return
     let cancelled = false
     resolveArcActualFeeUsdc(receipt.txHash, getModularPublicClient() as any)
@@ -163,12 +163,21 @@ export default function CopilotSuccessReceipt({ receipt, onActionAgain }: Copilo
     }
   }, [receipt.title, receipt.actionType])
 
+  const isDynamicReceipt =
+    receipt.actionType === 'claim' ||
+    receipt.actionType === 'withdraw' ||
+    (Array.isArray(receipt.claimedPools) && receipt.claimedPools.length > 0)
+
   return (
     <div
       className="w-fit max-w-full mx-auto"
-      style={headingWidth != null ? { width: `${headingWidth}px` } : undefined}
+      style={!isDynamicReceipt && headingWidth != null ? { width: `${headingWidth}px` } : undefined}
     >
-      <div className="w-full max-w-[390px] mx-auto p-3.5 rounded-2xl bg-[#0f111a]/95 border border-emerald-500/35 space-y-3 shadow-xl shadow-emerald-500/5 select-text">
+      <div
+        className={`w-full ${
+          isDynamicReceipt ? 'min-w-[min(100%,360px)] max-w-[620px]' : 'max-w-[390px]'
+        } mx-auto p-3.5 rounded-2xl bg-[#0f111a]/95 border border-emerald-500/35 space-y-3 shadow-xl shadow-emerald-500/5 select-text`}
+      >
         {/* Hidden one-line copy of the heading that drives the card width (see the effect above). */}
         <span
           ref={measurerRef}
@@ -261,13 +270,65 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
         <UnifiedSuccessReceipt
           type="deposit"
           title={receipt.title}
+          subtitle={receipt.subtitle}
           amount={amountIn}
-          tokenSymbol="USDC"
+          tokenSymbol={receipt.fromToken || 'USDC'}
+          amountB={receipt.amountB != null ? String(receipt.amountB) : undefined}
+          tokenB={receipt.tokenB}
+          poolName={receipt.poolName}
+          lpTokenSymbol={receipt.lpTokenSymbol}
+          lpMinted={receipt.lpMinted}
+          poolSharePct={receipt.poolSharePct}
           apy={receipt.apy}
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
           connectedAddress={receipt.userAddress || receipt.sender}
           onActionAgain={onActionAgain || (() => {})}
+          isInline
+          {...feeProps}
+        />
+      )
+
+    case 'withdraw':
+      return (
+        <UnifiedSuccessReceipt
+          type="withdraw"
+          title={receipt.title}
+          subtitle={receipt.subtitle}
+          amount={receipt.receivedAmountA ?? amountIn}
+          tokenSymbol={receipt.fromToken || 'USDC'}
+          amountB={receipt.receivedAmountB ?? (receipt.amountB != null ? String(receipt.amountB) : undefined)}
+          tokenB={receipt.tokenB || receipt.toToken}
+          poolName={receipt.poolName}
+          lpTokenSymbol={receipt.lpTokenSymbol}
+          lpBurned={receipt.lpBurned}
+          withdrawnUsd={receipt.withdrawnUsd}
+          txHash={receipt.txHash || undefined}
+          explorerUrl={explorerUrl}
+          connectedAddress={receipt.userAddress || receipt.sender}
+          onActionAgain={onActionAgain || (() => {})}
+          actionButtonText="Remove LP Again"
+          isInline
+          {...feeProps}
+        />
+      )
+
+    case 'claim':
+      return (
+        <UnifiedSuccessReceipt
+          type="claim"
+          title={receipt.title}
+          subtitle={receipt.subtitle}
+          amount={receipt.totalClaimedUsd != null ? receipt.totalClaimedUsd.toFixed(4) : amountOut}
+          tokenSymbol="USD"
+          claimedPools={receipt.claimedPools}
+          failedPools={receipt.failedPools}
+          txCount={receipt.txCount}
+          txHash={receipt.txHash || undefined}
+          explorerUrl={explorerUrl}
+          connectedAddress={receipt.userAddress || receipt.sender}
+          onActionAgain={onActionAgain || (() => {})}
+          actionButtonText="Check Fees Again"
           isInline
           {...feeProps}
         />
