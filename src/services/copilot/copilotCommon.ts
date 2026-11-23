@@ -175,3 +175,19 @@ export function budgetActionType(payload: CopilotActionPayload): SessionActionTy
   if (['interactive_send', 'send', 'interactive_batch_send'].includes(payload.type)) return 'send'
   return undefined
 }
+
+/**
+ * True only when the active wallet is genuinely the connected Passkey/MSCA smart account.
+ * A stale cached MSCA address in localStorage must never hijack an injected EVM EOA or Circle UCW session.
+ */
+export function isPasskeyWalletContext(
+  context: Pick<CopilotActionContext, 'activeWallet' | 'activeMsca' | 'ucwHandlers'>
+): boolean {
+  const authSource = context.ucwHandlers?.authSource
+  if (authSource && authSource !== 'passkey') return false
+  return Boolean(
+    context.activeMsca &&
+    context.activeWallet &&
+    context.activeWallet.toLowerCase() === context.activeMsca.toLowerCase()
+  )
+}

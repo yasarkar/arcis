@@ -34,6 +34,7 @@ import { logger } from '../../utils/logger'
 import {
   type CopilotActionContext,
   failedActionReceipt,
+  isPasskeyWalletContext,
   isPositiveTokenAmount,
   isTransactionHash,
   resolveCopilotToken,
@@ -50,7 +51,6 @@ export async function executeCopilotSwapAction(
   const {
     actionPayload,
     activeWallet,
-    activeMsca,
     provider,
     onProgress,
     ucwHandlers,
@@ -107,6 +107,42 @@ export async function executeCopilotSwapAction(
 
       if (enclaveBalance >= amountIn) {
       if (onProgress) onProgress('routing')
+
+      let quote: Awaited<ReturnType<typeof getSwapEstimate>>
+      try {
+        quote = await getSwapEstimate({
+          fromChain: 'Arc_Testnet',
+          tokenIn: fromTok,
+          tokenOut: toTok,
+          amountIn: numberToExactDecimal(amountIn)!,
+          slippageBps,
+        })
+      } catch (quoteErr: any) {
+        log.warn('Live swap quote unavailable for autonomous enclave swap; refusing to broadcast:', quoteErr)
+        if (onProgress) onProgress('failed')
+        const cleanError = formatCopilotError(quoteErr)
+        return failedActionReceipt(
+          'swap',
+          cleanError.title || 'Swap Quote Failed',
+          cleanError.message || quoteErr?.message || 'Live swap quote is unavailable; no transaction was sent.',
+          startTime
+        )
+      }
+
+      const quoteValue = Number(quote?.estimatedOutput)
+      if (!Number.isFinite(quoteValue) || quoteValue <= 0) {
+        if (onProgress) onProgress('failed')
+        return failedActionReceipt('swap', 'Invalid Swap Quote', 'The live pool quote was invalid; no transaction was sent.', startTime)
+      }
+
+      let minOutUnits: bigint
+      try {
+        minOutUnits = approvedSwapMinimum(data, swapRoute.decOut, String(quote.estimatedOutput))
+      } catch (minErr) {
+        if (onProgress) onProgress('failed')
+        return failedActionReceipt('swap', 'Quote Requires Confirmation', (minErr as Error).message, startTime)
+      }
+
       if (onProgress) onProgress('signing')
       if (onProgress) onProgress('broadcasting')
 
@@ -119,25 +155,6 @@ export async function executeCopilotSwapAction(
         })
 
         const amountInUnits = parseUnits(numberToExactDecimal(amountIn)!, swapRoute.decIn)
-        let quote: any
-        try {
-          quote = await getSwapEstimate({
-            fromChain: 'Arc_Testnet',
-            tokenIn: fromTok,
-            tokenOut: toTok,
-            amountIn: numberToExactDecimal(amountIn)!,
-            slippageBps,
-          })
-        } catch (quoteErr: any) {
-          log.warn('Could not fetch quote for enclave swap:', quoteErr)
-        }
-        const estimatedOutput = quote?.estimatedOutput || String(amountIn)
-        let minOutUnits: bigint
-        try {
-          minOutUnits = approvedSwapMinimum(data, swapRoute.decOut, estimatedOutput)
-        } catch {
-          minOutUnits = 0n
-        }
 
         const allowance = (await resilientClient.readContract({
           address: swapRoute.tokenInAddr as Hex,
@@ -271,7 +288,7 @@ export async function executeCopilotSwapAction(
   // ─────────────────────────────────────────────────────────────
   // A. CIRCLE MODULAR WALLET & SESSION KEY EXECUTION
   // ─────────────────────────────────────────────────────────────
-  const isPasskeyMode = Boolean(activeMsca && activeWallet.toLowerCase() === activeMsca.toLowerCase())
+  const isPasskeyMode = isPasskeyWalletContext(context)
 
   if (ucwHandlers?.authSource === 'ucw') {
     if (!ucwHandlers.executeUcwContract) {

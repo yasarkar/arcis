@@ -224,6 +224,8 @@ export interface CopilotMessage {
   executionState?: ExecutionProgressState
   isExecutingInline?: boolean
   isStreaming?: boolean
+  /** True for non-action validation replies to an invalid correction that leave the prior draft editable. */
+  preservesActiveDraft?: boolean
 }
 
 export interface MarketplaceStats {

@@ -1,5 +1,6 @@
-import { type Hex } from 'viem'
+import { decodeFunctionData, hexToString, type Hex } from 'viem'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MEMO_ABI, MEMO_CONTRACT_ADDRESS } from '../../../config/memoConfig'
 import * as rpc from '../../rpc'
 import * as sessionEnclaveService from '../../sessionEnclaveService'
 import * as sessionKeyService from '../../sessionKeyService'
@@ -216,6 +217,116 @@ describe('Copilot Autonomous Enclave Execution (Zero-Popup)', () => {
     expect(mockProvider.request).not.toHaveBeenCalled()
   })
 
+  it('refuses autonomous enclave swap without broadcasting when live quote drops below approved minReceived (ARCO-01)', async () => {
+    vi.spyOn(sessionKeyService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50)
+    vi.spyOn(sessionEnclaveService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50)
+
+    const swapService = await import('../../swapService')
+    vi.mocked(swapService.getSwapEstimate).mockResolvedValueOnce({
+      estimatedOutput: '9.50',
+    } as any)
+
+    const mockProvider = { request: vi.fn() }
+    const progressStates: string[] = []
+    const context: CopilotActionContext = {
+      actionPayload: {
+        type: 'trade',
+        title: 'Swap 10 USDC for EURC',
+        data: {
+          fromToken: 'USDC',
+          toToken: 'EURC',
+          amount: 10,
+          minReceived: '9.90',
+        },
+      },
+      activeWallet: MOCK_WALLET,
+      provider: mockProvider,
+      onProgress: (state) => progressStates.push(state),
+      budgetManaged: true,
+      startTime: Date.now(),
+    }
+
+    const receipt = await executeCopilotSwapAction(context, { isActive: true })
+
+    expect(receipt.status).toBe('FAILED')
+    expect(receipt.title).toBe('Quote Requires Confirmation')
+    expect(receipt.errorMessage).toContain('approved minimum')
+    expect(mockSendTransaction).not.toHaveBeenCalled()
+    expect(mockProvider.request).not.toHaveBeenCalled()
+    expect(progressStates).not.toContain('broadcasting')
+    expect(progressStates).toContain('failed')
+  })
+
+  it('refuses autonomous enclave swap without falling back to 0n when minReceived is missing (ARCO-01)', async () => {
+    vi.spyOn(sessionKeyService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50)
+    vi.spyOn(sessionEnclaveService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50)
+
+    const mockProvider = { request: vi.fn() }
+    const context: CopilotActionContext = {
+      actionPayload: {
+        type: 'trade',
+        title: 'Swap 10 USDC for EURC',
+        data: {
+          fromToken: 'USDC',
+          toToken: 'EURC',
+          amount: 10,
+        },
+      },
+      activeWallet: MOCK_WALLET,
+      provider: mockProvider,
+      budgetManaged: true,
+      startTime: Date.now(),
+    }
+
+    const receipt = await executeCopilotSwapAction(context, { isActive: true })
+
+    expect(receipt.status).toBe('FAILED')
+    expect(receipt.title).toBe('Quote Requires Confirmation')
+    expect(mockSendTransaction).not.toHaveBeenCalled()
+    expect(mockProvider.request).not.toHaveBeenCalled()
+  })
+
+  it('refuses autonomous enclave swap without 1:1 fallback when live quote fails or is invalid (ARCO-01)', async () => {
+    vi.spyOn(sessionKeyService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50)
+    vi.spyOn(sessionEnclaveService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50)
+
+    const swapService = await import('../../swapService')
+    vi.mocked(swapService.getSwapEstimate).mockRejectedValueOnce(new Error('RPC quote timeout'))
+
+    const mockProvider = { request: vi.fn() }
+    const context: CopilotActionContext = {
+      actionPayload: {
+        type: 'trade',
+        title: 'Swap 10 USDC for EURC',
+        data: {
+          fromToken: 'USDC',
+          toToken: 'EURC',
+          amount: 10,
+          minReceived: '9.90',
+        },
+      },
+      activeWallet: MOCK_WALLET,
+      provider: mockProvider,
+      budgetManaged: true,
+      startTime: Date.now(),
+    }
+
+    const failedQuoteReceipt = await executeCopilotSwapAction(context, { isActive: true })
+    expect(failedQuoteReceipt.status).toBe('FAILED')
+    expect(mockSendTransaction).not.toHaveBeenCalled()
+    expect(mockProvider.request).not.toHaveBeenCalled()
+
+    vi.mocked(swapService.getSwapEstimate).mockResolvedValueOnce({
+      estimatedOutput: '0',
+    } as any)
+
+    const invalidQuoteReceipt = await executeCopilotSwapAction(context, { isActive: true })
+    expect(invalidQuoteReceipt.status).toBe('FAILED')
+    expect(invalidQuoteReceipt.title).toBe('Invalid Swap Quote')
+    expect(mockSendTransaction).not.toHaveBeenCalled()
+    expect(mockProvider.request).not.toHaveBeenCalled()
+  })
+
   it('executes Yield Vault Deposit autonomously with zero-popup when enclave has USDC balance', async () => {
     vi.spyOn(sessionKeyService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50) // 50 USDC in enclave
     vi.spyOn(sessionEnclaveService, 'fetchEnclaveUsdcBalance').mockResolvedValue(50)
@@ -297,5 +408,44 @@ describe('Copilot Autonomous Enclave Execution (Zero-Popup)', () => {
     expect(sendTokenSpy).toHaveBeenCalled()
     // Session budget was NOT deducted because it was a primary wallet fallback!
     expect(deductSpy).not.toHaveBeenCalled()
+  })
+
+  it('routes enclave USDC send with memo through Memo.memo(...) contract instead of plain ERC-20 transfer (ARCO-05)', async () => {
+    vi.spyOn(sessionKeyService, 'fetchEnclaveUsdcBalance').mockResolvedValue(25)
+    vi.spyOn(sessionEnclaveService, 'fetchEnclaveUsdcBalance').mockResolvedValue(25)
+
+    const mockProvider = { request: vi.fn() }
+    const context: CopilotActionContext = {
+      actionPayload: {
+        type: 'interactive_send',
+        title: 'Send 5 USDC with memo',
+        data: {
+          tokenSymbol: 'USDC',
+          amount: 5,
+          recipient: MOCK_RECIPIENT,
+          memo: 'Invoice #42',
+        },
+      },
+      activeWallet: MOCK_WALLET,
+      provider: mockProvider,
+      budgetManaged: true,
+      startTime: Date.now(),
+    }
+
+    const copilotCommon = await import('../copilotCommon')
+    vi.spyOn(copilotCommon, 'getVerifiedArcReceipt').mockResolvedValue({ status: 'success', logs: [] } as any)
+    vi.spyOn(copilotCommon, 'verifyArcTokenTransferReceipt').mockReturnValue(true)
+
+    const receipt = await executeCopilotSendAction(context, { isActive: true })
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(receipt.memo).toBe('Invoice #42')
+    expect(mockSendTransaction).toHaveBeenCalledTimes(1)
+    const txCall = (mockSendTransaction.mock.calls as any[][])[0][0]
+    expect(String(txCall.to).toLowerCase()).toBe(MEMO_CONTRACT_ADDRESS.toLowerCase())
+    const decoded = decodeFunctionData({ abi: MEMO_ABI, data: txCall.data })
+    expect(decoded.functionName).toBe('memo')
+    expect(hexToString((decoded.args as any)[3])).toBe('Invoice #42')
+    expect(mockProvider.request).not.toHaveBeenCalled()
   })
 })

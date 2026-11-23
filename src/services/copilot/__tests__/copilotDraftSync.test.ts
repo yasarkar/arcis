@@ -5,6 +5,10 @@ vi.mock('../../swapService', () => ({
   getSwapEstimate: vi.fn(),
 }))
 
+vi.mock('../copilotLpRemoveQuote', () => ({
+  getCopilotLpRemoveQuote: vi.fn(),
+}))
+
 vi.mock('../../arcGasService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../arcGasService')>()
   return {
@@ -15,7 +19,8 @@ vi.mock('../../arcGasService', async (importOriginal) => {
 
 import { getSwapEstimate } from '../../swapService'
 import { getDynamicArcGasOptions } from '../../arcGasService'
-import { syncDraftWithExecutionSettings } from '../copilotDraftSync'
+import { getCopilotLpRemoveQuote } from '../copilotLpRemoveQuote'
+import { isSettingsSyncableDraft, syncDraftWithExecutionSettings } from '../copilotDraftSync'
 
 describe('syncDraftWithExecutionSettings', () => {
   beforeEach(() => {
@@ -159,10 +164,147 @@ describe('syncDraftWithExecutionSettings', () => {
       title: 'Open Session Settings',
       data: {},
     }
+    expect(isSettingsSyncableDraft(nonTx)).toBe(false)
     const updated = await syncDraftWithExecutionSettings(
       nonTx,
       { copilotSlippage: 1.0, copilotSpeedTier: 'fast' }
     )
     expect(updated).toBeNull()
+  })
+
+  it('live-syncs interactive_lp_remove slippage, minOutA/minOutB, and fee estimate (ARCO-06)', async () => {
+    vi.mocked(getCopilotLpRemoveQuote).mockResolvedValue({
+      ok: true,
+      quote: {
+        removeMode: 'percent',
+        removePercent: 50,
+        lpAmount: 10,
+        lpAmountDecimal: '10',
+        lpAmountRaw: '10000000',
+        userLpBalanceDecimal: '20',
+        estimatedOutA: '50',
+        estimatedOutB: '46',
+        minOutA: '49.5',
+        minOutB: '45.54',
+        minOutARaw: '49500000',
+        minOutBRaw: '45540000',
+        estimatedWithdrawUsd: 99.68,
+        slippageBps: 100,
+        estimatedFeeUsdc: '0.00420',
+        feeEstimateSource: 'rpc',
+      },
+    })
+
+    const lpRemoveDraft: CopilotActionPayload = {
+      type: 'interactive_lp_remove',
+      title: 'Remove 50% LP from USDC/EURC',
+      draftId: 'draft-lp-rm-1',
+      revision: 1,
+      data: {
+        poolId: 'usdc-eurc-stable-pool',
+        removeMode: 'percent',
+        removePercent: 50,
+        slippageBps: 50,
+        minOutA: '49.75',
+        minOutB: '45.77',
+        estimatedFeeUsdc: '0.00240',
+      },
+    }
+
+    expect(isSettingsSyncableDraft(lpRemoveDraft)).toBe(true)
+    const updated = await syncDraftWithExecutionSettings(
+      lpRemoveDraft,
+      { copilotSlippage: 1.0, copilotSpeedTier: 'turbo' },
+      '0x1111111111111111111111111111111111111111'
+    )
+
+    expect(updated?.data?.slippageBps).toBe(100)
+    expect(updated?.data?.minOutA).toBe('49.5')
+    expect(updated?.data?.minOutB).toBe('45.54')
+    expect(updated?.data?.minOutARaw).toBe('49500000')
+    expect(updated?.data?.minOutBRaw).toBe('45540000')
+    expect(updated?.data?.estimatedFeeUsdc).toBe('0.00420')
+    expect(getCopilotLpRemoveQuote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        removePercent: 50,
+        slippageBps: 100,
+        speedTier: 'turbo',
+      })
+    )
+  })
+
+  it('keeps previous slippageBps consistent if LP remove quote throws while still refreshing gas fee (ARCO-06)', async () => {
+    vi.mocked(getCopilotLpRemoveQuote).mockRejectedValue(new Error('RPC temporary failure'))
+
+    const lpRemoveDraft: CopilotActionPayload = {
+      type: 'interactive_lp_remove',
+      title: 'Remove 50% LP from USDC/EURC',
+      data: {
+        poolId: 'usdc-eurc-stable-pool',
+        removeMode: 'percent',
+        removePercent: 50,
+        slippageBps: 50,
+        minOutA: '49.75',
+        minOutB: '45.77',
+        estimatedFeeUsdc: '0.00240',
+      },
+    }
+
+    const updated = await syncDraftWithExecutionSettings(
+      lpRemoveDraft,
+      { copilotSlippage: 2.0, copilotSpeedTier: 'turbo' },
+      '0x1111111111111111111111111111111111111111'
+    )
+
+    expect(updated?.data?.slippageBps).toBe(50)
+    expect(updated?.data?.minOutA).toBe('49.75')
+    expect(updated?.data?.estimatedFeeUsdc).toBe('0.00360')
+  })
+
+  it('live-syncs interactive_claim_fees network fee scaled by pool count (ARCO-06)', async () => {
+    const claimDraft: CopilotActionPayload = {
+      type: 'interactive_claim_fees',
+      title: 'Claim All Fees',
+      draftId: 'draft-claim-1',
+      revision: 1,
+      data: {
+        claimPools: [
+          {
+            poolId: 'usdc-eurc-stable-pool',
+            poolName: 'USDC / EURC',
+            poolAddress: '0x1111111111111111111111111111111111111111',
+            isVault: false,
+            tokenA: 'USDC',
+            tokenB: 'EURC',
+            feeADecimal: '1.2',
+            feeARaw: '1200000',
+            estimatedUsd: 1.2,
+          },
+          {
+            poolId: 'usdc-cirbtc-pool',
+            poolName: 'USDC / cirBTC',
+            poolAddress: '0x2222222222222222222222222222222222222222',
+            isVault: false,
+            tokenA: 'USDC',
+            tokenB: 'cirBTC',
+            feeADecimal: '2.5',
+            feeARaw: '2500000',
+            estimatedUsd: 2.5,
+          },
+        ],
+        estimatedFeeUsdc: '0.00400',
+      },
+    }
+
+    expect(isSettingsSyncableDraft(claimDraft)).toBe(true)
+    const updated = await syncDraftWithExecutionSettings(
+      claimDraft,
+      { copilotSlippage: 1.0, copilotSpeedTier: 'turbo' },
+      '0x1111111111111111111111111111111111111111'
+    )
+
+    expect(getDynamicArcGasOptions).toHaveBeenCalledWith(undefined, 'turbo', 240_000n)
+    expect(updated?.data?.estimatedFeeUsdc).toBe('0.00720')
   })
 })

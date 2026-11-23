@@ -556,12 +556,11 @@ export default function ArcCopilotDrawer({
             type="button"
             onClick={handleResetChat}
             disabled={isResetting}
-            aria-label={isResetting ? 'Sohbet sıfırlanıyor' : 'Sohbet geçmişini sıfırla'}
-            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm group relative ${
-              isResetting
+            aria-label={isResetting ? 'Resetting chat...' : 'Clear chat history'}
+            className={`px-2 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border shadow-sm group relative ${isResetting
                 ? 'bg-indigo-950/90 border-indigo-400/80 text-indigo-300 shadow-[0_0_18px_rgba(99,102,241,0.45)] ring-2 ring-indigo-400/40'
                 : 'bg-[#161926]/85 hover:bg-[#1e2235] border-white/[0.08] hover:border-indigo-400/60 text-slate-300 hover:text-indigo-200 shadow-sm hover:shadow-[0_0_14px_rgba(99,102,241,0.25)]'
-            }`}
+              }`}
           >
             {/* Dynamic visual aura layer */}
             <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-500/25 via-purple-500/20 to-indigo-500/25 opacity-0 group-hover:opacity-100 blur-xs transition-opacity duration-300 pointer-events-none" />
@@ -786,7 +785,7 @@ export default function ArcCopilotDrawer({
                   {/* Protocol fee tag */}
                   {msg.totalCostUsdc && (
                     <div className="mt-2 text-[10px] font-mono text-emerald-400/90 flex items-center justify-between select-text cursor-text">
-                      <span className="select-text">⚡ Nanopayment Ücreti:</span>
+                      <span className="select-text">⚡ Nanopayment Fee:</span>
                       <span className="select-text tabular-nums">${msg.totalCostUsdc.toFixed(4)} USDC</span>
                     </div>
                   )}

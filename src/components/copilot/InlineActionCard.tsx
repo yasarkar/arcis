@@ -249,7 +249,7 @@ export default function InlineActionCard({
       }, 2000)
     } catch (err) {
       console.warn('Clipboard write failed:', err)
-      setCopyError('Kopyalama başarısız')
+      setCopyError('Clipboard write failed')
       copyTimeoutRef.current = setTimeout(() => {
         setCopyError(null)
         copyTimeoutRef.current = null
@@ -1173,7 +1173,7 @@ export default function InlineActionCard({
                       {formattedTotalUsd} USD
                     </div>
                   )}
-                  <span className="text-[10px] font-mono text-stale-200 block mt-1.5 tabular-nums">
+                  <span className="text-[10px] font-mono text-slate-200 block mt-1.5 tabular-nums">
                     ≈ {formattedTotalUsd} USD
                   </span>
                 </div>
@@ -1521,7 +1521,7 @@ export default function InlineActionCard({
                           e.stopPropagation()
                           void handleCopyRecipient(fullRecipient)
                         }}
-                        aria-label={copyError || (copiedRecipient ? 'Adres panoya kopyalandı' : 'Alıcı adresini kopyala')}
+                        aria-label={copyError || (copiedRecipient ? 'Recipient address copied to clipboard' : 'Copy recipient address')}
                         className="p-1 rounded-md text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 transition cursor-pointer flex items-center justify-center"
                       >
                         {copiedRecipient ? (

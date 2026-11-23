@@ -178,7 +178,7 @@ export async function executeCopilotBridgeAction(
         gasUsdc: 0,
         settlementLatencyMs: Date.now() - startTime,
         timestamp: Date.now(),
-        errorMessage: 'İşlem adaptörü oluşturulamadı. Lütfen Web3 cüzdanınızı (MetaMask/Rainbow) bağlayın.',
+        errorMessage: 'Could not initialize the bridge adapter. Please connect your Web3 wallet (MetaMask/Rainbow).',
       }
     }
   }

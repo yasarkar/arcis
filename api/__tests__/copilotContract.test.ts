@@ -345,6 +345,8 @@ describe('cirBTC token contract', () => {
     expect(JSON.stringify(body.tools)).toContain('execute_add_liquidity')
     expect(JSON.stringify(body.tools)).toContain('execute_claim_fees')
     expect(JSON.stringify(body.tools)).toContain('execute_remove_liquidity')
+    expect(JSON.stringify(body.tools)).not.toContain('execute_faucet')
+    expect(JSON.stringify(body.tools)).not.toContain('Solana Devnet')
     // Arc has no WBTC deployment, so the send tool must not list it as sendable.
     expect(JSON.stringify(body.tools)).not.toContain('WETH/WBTC')
     expect(JSON.stringify(body.tools)).not.toContain('WETH, WBTC')

@@ -160,3 +160,94 @@ describe('POST /api/copilot — per-IP rate limiting', () => {
     expect(body.retryAfter).toBeGreaterThan(0)
   })
 })
+
+describe('POST /api/copilot — resilience, bounds & sanitization (ARCO-10)', () => {
+  it('rejects oversized userPrompt before contacting upstream provider', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-v1-testserverkey0123456789')
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const res = await POST(
+      new Request('http://localhost/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.88.0.1' },
+        body: JSON.stringify({ userPrompt: 'a'.repeat(2_001) }),
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.code).toBe('PROMPT_TOO_LONG')
+    expect(body.fallbackToLocal).toBe(true)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('clamps chatHistory item length, sends AbortSignal timeout, and honors configurable max_tokens', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-v1-testserverkey0123456789')
+    vi.stubEnv('COPILOT_MAX_OUTPUT_TOKENS', '1600')
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const res = await POST(
+      new Request('http://localhost/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.88.0.2' },
+        body: JSON.stringify({
+          userPrompt: 'hi',
+          chatHistory: [{ role: 'user', content: 'x'.repeat(2_500) }],
+        }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    const [, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    const sentBody = JSON.parse(String(init.body))
+    expect(sentBody.max_tokens).toBe(1600)
+    expect(sentBody.messages[1].content).toHaveLength(1_200)
+  })
+
+  it('sanitizes raw upstream error text and maps timeout failures to 504 UPSTREAM_TIMEOUT', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-v1-testserverkey0123456789')
+
+    // 1. Raw upstream error payload must never be echoed back to the browser
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('INTERNAL_TRACE_SECRET_STACK_999', { status: 500 }))
+    )
+    const errRes = await POST(
+      new Request('http://localhost/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.88.0.3' },
+        body: JSON.stringify({ userPrompt: 'hi' }),
+      })
+    )
+    const errBody = await errRes.json()
+    expect(errRes.status).toBe(502)
+    expect(errBody.error).not.toContain('INTERNAL_TRACE_SECRET_STACK_999')
+    expect(errBody.fallbackToLocal).toBe(true)
+
+    // 2. Upstream timeout yields 504 UPSTREAM_TIMEOUT
+    const timeoutErr = new Error('The operation was aborted due to timeout')
+    timeoutErr.name = 'TimeoutError'
+    vi.stubGlobal('fetch', vi.fn(async () => { throw timeoutErr }))
+    const toRes = await POST(
+      new Request('http://localhost/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.88.0.4' },
+        body: JSON.stringify({ userPrompt: 'hi' }),
+      })
+    )
+    const toBody = await toRes.json()
+    expect(toRes.status).toBe(504)
+    expect(toBody.code).toBe('UPSTREAM_TIMEOUT')
+    expect(toBody.fallbackToLocal).toBe(true)
+  })
+})

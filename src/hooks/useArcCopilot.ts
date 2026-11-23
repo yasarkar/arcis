@@ -18,6 +18,7 @@ import {
 import type { CopilotUcwHandlers } from '../services/copilotExecutionService'
 import { resolveX402Payer } from '../services/x402/ucwPaymentSigner'
 import { getEphemeralSessionAccount } from '../services/sessionEnclaveService'
+import { getGatewayTotalBalance } from '../services/gatewayService'
 import { tokenAmountToUsd } from '../services/tokenPriceService'
 import {
   formatGatewayFlowReport,
@@ -39,7 +40,10 @@ import {
   normalizeWalletAddressKey,
   walletSettingsService,
 } from '../services/walletSettingsService'
-import { syncDraftWithExecutionSettings } from '../services/copilot/copilotDraftSync'
+import {
+  isSettingsSyncableDraft,
+  syncDraftWithExecutionSettings,
+} from '../services/copilot/copilotDraftSync'
 
 function normalizeActionType(type?: CopilotActionType | string): SessionActionType {
   if (!type) return 'send'
@@ -150,21 +154,48 @@ export function useArcCopilot(
 
   // Paid x402 calls: an injected EOA signs its own EIP-3009 authorization; a Circle Wallet
   // (created as an EOA) signs through Circle's typed-data challenge. Passkey/MSCA smart
-  // accounts and session keys cannot produce such a signature, so they stay blocked.
+  // accounts cannot produce such a signature, so they require a funded Session Enclave.
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() => getSessionKeyConfig(walletAddress, 'copilot'))
-  const sessionEnclaveAccount = (sessionConfig.isActive && sessionConfig.sessionPublicKey)
-    ? getEphemeralSessionAccount(walletAddress)
-    : null
+  const nowMs = Date.now()
+  const marketplaceSessionConfig = getSessionKeyConfig(walletAddress, 'marketplace')
+  const activeMarketplaceEnclave =
+    marketplaceSessionConfig.isActive &&
+    marketplaceSessionConfig.sessionPublicKey &&
+    nowMs <= marketplaceSessionConfig.expiresAt
+      ? getEphemeralSessionAccount(walletAddress, 'marketplace')
+      : null
+  const activeCopilotEnclave =
+    sessionConfig.isActive &&
+    sessionConfig.sessionPublicKey &&
+    nowMs <= sessionConfig.expiresAt
+      ? getEphemeralSessionAccount(walletAddress, 'copilot')
+      : null
+  const sessionEnclaveAccount = activeMarketplaceEnclave || activeCopilotEnclave
 
   const paidCallPayer = resolveX402Payer(ucwHandlers?.authSource, ucwHandlers?.signTypedData)
-  const paidCallKind = (sessionEnclaveAccount && sessionConfig.isActive)
-    ? ('session_eoa' as const)
-    : paidCallPayer?.kind
-  const paidCallSigner = (sessionEnclaveAccount && sessionConfig.isActive)
-    ? undefined
-    : paidCallPayer?.signer
+  const hasPaidCallPayer = paidCallPayer !== null || Boolean(sessionEnclaveAccount)
+  const canPayForCalls = Boolean(walletAddress) && hasPaidCallPayer
 
-  const canPayForCalls = Boolean(walletAddress) && (paidCallPayer !== null || Boolean(sessionConfig.isActive && sessionConfig.sessionPublicKey))
+  // Prefer session_eoa only when the enclave actually holds enough Circle Gateway USDC
+  // (or when no primary EOA/UCW payer exists, e.g. Passkey/MSCA); otherwise fall back
+  // to the connected primary EOA / Circle UCW payer so a native-USDC-only Copilot
+  // enclave never blocks paid x402 queries.
+  const resolveEffectivePaidCallPayer = async (requiredUsdc: number) => {
+    if (sessionEnclaveAccount) {
+      if (!paidCallPayer) {
+        return { kind: 'session_eoa' as const, signer: undefined }
+      }
+      try {
+        const enclaveGatewayBal = Number(await getGatewayTotalBalance(sessionEnclaveAccount.address))
+        if (Number.isFinite(enclaveGatewayBal) && enclaveGatewayBal > 0 && enclaveGatewayBal >= requiredUsdc) {
+          return { kind: 'session_eoa' as const, signer: undefined }
+        }
+      } catch {
+        // Fall back safely to the primary EOA / Circle UCW payer if Gateway balance lookup fails
+      }
+    }
+    return paidCallPayer
+  }
   const pendingActionRef = useRef<CopilotActionPayload | null>(null)
   const queryBusyRef = useRef<boolean>(false)
   // Guards a next-step card: a second click must not buy the same report twice.
@@ -175,12 +206,47 @@ export function useArcCopilot(
   const draftGenerationRef = useRef(0)
   const settingsSyncSeqRef = useRef(0)
   const currentDraftRef = useRef<CopilotActionPayload | null>(null)
+  const messagesRef = useRef<CopilotMessage[]>(messages)
+  messagesRef.current = messages
+  const activeStreamRef = useRef<{
+    msgId: string
+    fullContent: string
+    actionPayload?: CopilotActionPayload
+    draftGeneration: number
+    cancel: () => void
+  } | null>(null)
+
+  const flushActiveStream = (options?: { discardActionPayload?: boolean }) => {
+    const active = activeStreamRef.current
+    if (!active) return
+    activeStreamRef.current = null
+    active.cancel()
+    const attachAction =
+      !options?.discardActionPayload && active.draftGeneration === draftGenerationRef.current
+        ? active.actionPayload
+        : undefined
+    const applyFlush = (prev: CopilotMessage[]) =>
+      prev.map((m) =>
+        m.id === active.msgId
+          ? {
+              ...m,
+              content: active.fullContent,
+              isStreaming: false,
+              actionPayload: attachAction,
+            }
+          : m
+      )
+    messagesRef.current = applyFlush(messagesRef.current)
+    setMessages(applyFlush)
+  }
 
   const invalidateDrafts = () => {
     draftGenerationRef.current += 1
     settingsSyncSeqRef.current += 1
     currentDraftRef.current = null
     pendingActionRef.current = null
+    flushActiveStream({ discardActionPayload: true })
+    messagesRef.current = invalidateCopilotDrafts(messagesRef.current)
     setMessages(invalidateCopilotDrafts)
   }
 
@@ -205,6 +271,8 @@ export function useArcCopilot(
   }, [])
 
   const streamAssistantMessage = async (msg: CopilotMessage): Promise<void> => {
+    // Finish any prior active stream before starting a new one so two typewriter loops never overlap
+    flushActiveStream()
     setIsAnalyzing(false)
     const currentGeneration = queryGenerationRef.current
     const draftGeneration = draftGenerationRef.current
@@ -219,7 +287,25 @@ export function useArcCopilot(
       actionPayload: undefined,
     }
 
+    messagesRef.current = [...messagesRef.current, initialMsg]
     setMessages((prev) => [...prev, initialMsg])
+
+    let canceled = false
+    let activeTimer: ReturnType<typeof setTimeout> | null = null
+    const streamHandle = {
+      msgId,
+      fullContent,
+      actionPayload: msg.actionPayload,
+      draftGeneration,
+      cancel: () => {
+        canceled = true
+        if (activeTimer !== null) {
+          clearTimeout(activeTimer)
+          activeTimer = null
+        }
+      },
+    }
+    activeStreamRef.current = streamHandle
 
     // 2. High-performance, organic typewriter cadence (24 chars batch with natural pauses)
     const chunkSize = 24
@@ -229,7 +315,10 @@ export function useArcCopilot(
     let i = 0
 
     while (i < fullContent.length) {
-      if (currentGeneration !== queryGenerationRef.current) return
+      if (canceled || currentGeneration !== queryGenerationRef.current) {
+        if (activeStreamRef.current === streamHandle) activeStreamRef.current = null
+        return
+      }
 
       // If we encounter an HTML tag (e.g. <strong>, <code>), consume the entire tag atomically
       if (fullContent[i] === '<') {
@@ -256,13 +345,22 @@ export function useArcCopilot(
       const isPauseChar = lastChar === '.' || lastChar === '!' || lastChar === '?' || lastChar === '\n'
       const currentDelay = isPauseChar ? 45 : delayMs
 
-      await new Promise((resolve) => setTimeout(resolve, currentDelay))
+      await new Promise<void>((resolve) => {
+        activeTimer = setTimeout(() => {
+          activeTimer = null
+          resolve()
+        }, currentDelay)
+      })
     }
 
-    if (currentGeneration !== queryGenerationRef.current) return
+    if (canceled || currentGeneration !== queryGenerationRef.current) {
+      if (activeStreamRef.current === streamHandle) activeStreamRef.current = null
+      return
+    }
+    if (activeStreamRef.current === streamHandle) activeStreamRef.current = null
 
     // 3. Finished streaming: reveal full content, stop cursor, attach actionPayload
-    setMessages((prev) =>
+    const finalize = (prev: CopilotMessage[]) =>
       prev.map((m) =>
         m.id === msgId
           ? {
@@ -273,7 +371,8 @@ export function useArcCopilot(
             }
           : m
       )
-    )
+    messagesRef.current = finalize(messagesRef.current)
+    setMessages(finalize)
   }
 
   const addMessage = (msg: CopilotMessage) => {
@@ -423,7 +522,9 @@ export function useArcCopilot(
       }
 
       const activeDraft = currentDraftRef.current
-      if (!activeDraft || !isTransactionalAction(activeDraft.type)) return
+      // Use isSettingsSyncableDraft (not isTransactionalAction) so session-spend-exempt
+      // drafts such as interactive_lp_remove and interactive_claim_fees also live-sync.
+      if (!isSettingsSyncableDraft(activeDraft)) return
 
       const seq = ++settingsSyncSeqRef.current
       const targetDraftId = activeDraft.draftId
@@ -471,6 +572,8 @@ export function useArcCopilot(
             return { ...msg, actionPayload: updatedDraft }
           })
         )
+      }).catch(() => {
+        // Keep existing draft intact if settings sync fails unexpectedly
       })
     }
 
@@ -524,12 +627,37 @@ export function useArcCopilot(
       actionPayload.draftId !== currentDraftRef.current.draftId ||
       actionPayload.revision !== currentDraftRef.current.revision)) return
 
+    // ARCO-04: When retrying a safely released FAILED or CANCELED card ("Try Again"), advance the
+    // draft revision so the immutable session spend ledger admits a fresh reservation instead of
+    // short-circuiting with the prior released receipt. SUCCESS and PENDING receipts are never
+    // eligible here (their currentDraftRef is already cleared and their status is excluded).
+    const existingMsg = messagesRef.current.find((m) => m.id === msgId)
+    const isRetryAfterFailure =
+      existingMsg?.receipt?.status === 'FAILED' || existingMsg?.receipt?.status === 'CANCELED'
+    const effectiveActionPayload: CopilotActionPayload =
+      isRetryAfterFailure && copilotActionIntent(actionPayload)
+        ? {
+            ...actionPayload,
+            draftId: actionPayload.draftId || crypto.randomUUID(),
+            revision: (actionPayload.revision || 1) + 1,
+          }
+        : actionPayload
+
+    if (isRetryAfterFailure && copilotActionIntent(effectiveActionPayload)) {
+      currentDraftRef.current = effectiveActionPayload
+    }
+
     const liveConfig = getSessionKeyConfig(walletAddress, 'copilot')
     const isSessionActive = liveConfig.isActive && Date.now() <= liveConfig.expiresAt
 
-    if (isTransactionalAction(actionPayload?.type)) {
+    if (isTransactionalAction(effectiveActionPayload?.type)) {
       if (!isSessionActive) {
-        pendingActionRef.current = actionPayload
+        pendingActionRef.current = effectiveActionPayload
+        if (isRetryAfterFailure) {
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === msgId ? { ...msg, actionPayload: effectiveActionPayload } : msg))
+          )
+        }
         const blockedMsg: CopilotMessage = {
           id: 'assistant-session-req-' + Date.now(),
           role: 'assistant',
@@ -539,7 +667,7 @@ export function useArcCopilot(
             type: 'configure_session',
             title: 'Set Up Session Settings',
             data: {
-              pendingAction: actionPayload,
+              pendingAction: effectiveActionPayload,
               reason: 'Active session required',
             },
           },
@@ -548,11 +676,16 @@ export function useArcCopilot(
         return
       }
 
-      const actionType = normalizeActionType(actionPayload.type)
-      const check = verifySessionLimits(actionType, estimateActionSpendUsd(actionPayload), walletAddress)
+      const actionType = normalizeActionType(effectiveActionPayload.type)
+      const check = verifySessionLimits(actionType, estimateActionSpendUsd(effectiveActionPayload), walletAddress)
 
       if (!check.allowed) {
-        pendingActionRef.current = actionPayload
+        pendingActionRef.current = effectiveActionPayload
+        if (isRetryAfterFailure) {
+          setMessages((prev) =>
+            prev.map((msg) => (msg.id === msgId ? { ...msg, actionPayload: effectiveActionPayload } : msg))
+          )
+        }
         const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)
         const reasonMsg = check.reason?.includes('not authorized')
           ? `The "${actionName}" operation is not allowed for this active session. Please check your session settings to grant permission for ${actionName}s.`
@@ -567,7 +700,7 @@ export function useArcCopilot(
             type: 'configure_session',
             title: 'Open Session Settings',
             data: {
-              pendingAction: actionPayload,
+              pendingAction: effectiveActionPayload,
               reason: reasonMsg,
               actionType,
             },
@@ -582,7 +715,13 @@ export function useArcCopilot(
     setMessages((prev) =>
       prev.map((msg) =>
         msg.id === msgId
-          ? { ...msg, isExecutingInline: true, executionState: 'routing' }
+          ? {
+              ...msg,
+              actionPayload: effectiveActionPayload,
+              receipt: undefined,
+              isExecutingInline: true,
+              executionState: 'routing',
+            }
           : msg
       )
     )
@@ -590,7 +729,7 @@ export function useArcCopilot(
     try {
       const { executeDirectCopilotAction } = await import('../services/copilotExecutionService')
       const receipt = await executeDirectCopilotAction(
-        actionPayload,
+        effectiveActionPayload,
         walletAddress,
         provider,
         (progressState) => {
@@ -625,11 +764,11 @@ export function useArcCopilot(
     } catch (err: any) {
       const cleanErr = formatCopilotError(err)
       const dynamicActionType: InlineExecutionReceipt['actionType'] =
-        actionPayload?.type === 'interactive_claim_fees'
+        effectiveActionPayload?.type === 'interactive_claim_fees'
           ? 'claim'
-          : actionPayload?.type === 'interactive_lp_remove'
+          : effectiveActionPayload?.type === 'interactive_lp_remove'
             ? 'withdraw'
-            : normalizeActionType(actionPayload?.type)
+            : normalizeActionType(effectiveActionPayload?.type)
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === msgId
@@ -659,13 +798,21 @@ export function useArcCopilot(
   // Helper to dispatch query to LLM / Local Semantic NLP Engine and handle Session Key Auto-Execution
   const handleLLMIntent = async (
     queryText: string,
-    portfolioSnapshot?: any
+    portfolioSnapshot?: any,
+    signal?: AbortSignal,
+    historySnapshot?: CopilotMessage[]
   ): Promise<void> => {
+    const generation = queryGenerationRef.current
     try {
-      const generation = queryGenerationRef.current
       const { queryArcisLLM } = await import('../services/llmService')
-      const llmResult = await queryArcisLLM(queryText, walletAddress, messages, portfolioSnapshot)
-      if (generation !== queryGenerationRef.current) return
+      const llmResult = await queryArcisLLM(
+        queryText,
+        walletAddress,
+        historySnapshot ?? messagesRef.current,
+        portfolioSnapshot,
+        signal
+      )
+      if (signal?.aborted || generation !== queryGenerationRef.current) return
       const assistantMsgId = 'assistant-' + Date.now()
       const action = llmResult.actionPayload
       // Any newly prepared transaction supersedes unsubmitted cards, never receipts/in-flight work.
@@ -759,10 +906,16 @@ export function useArcCopilot(
           content: llmResult.message,
           timestamp: Date.now(),
           actionPayload: action,
+          ...(intent.kind === 'correction' && !action && Boolean(currentDraftRef.current)
+            ? { preservesActiveDraft: true }
+            : {}),
         }
         addMessage(assistantMsg)
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (signal?.aborted || err?.name === 'AbortError' || generation !== queryGenerationRef.current) {
+        return
+      }
       console.error('LLM Intent Execution Error:', err)
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
@@ -805,11 +958,11 @@ export function useArcCopilot(
       setCurrentSteps([])
       return
     }
-    if (!paidCallKind) {
+    if (!hasPaidCallPayer) {
       addMessage({
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.',
+        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session (or a funded Session Enclave); passkey/MSCA wallets alone are unsupported.',
         timestamp: Date.now(),
       })
       setCurrentSteps([])
@@ -841,13 +994,17 @@ export function useArcCopilot(
 
     let risk: any
     try {
+      const resolvedPayer = await resolveEffectivePaidCallPayer(riskService.pricing.priceUsdc)
+      if (!resolvedPayer) {
+        throw new Error('No eligible Circle Gateway payer is available.')
+      }
       risk = await executeX402Call(
         riskService,
         { address: targetAddress, includeGatewayBalance },
         walletAddress,
         provider,
-        paidCallKind,
-        paidCallSigner
+        resolvedPayer.kind,
+        resolvedPayer.signer
       )
     } catch (err: any) {
       steps[0].status = 'failed'
@@ -961,11 +1118,11 @@ export function useArcCopilot(
       setCurrentSteps([])
       return
     }
-    if (!paidCallKind) {
+    if (!hasPaidCallPayer) {
       addMessage({
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.',
+        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session (or a funded Session Enclave); passkey/MSCA wallets alone are unsupported.',
         timestamp: Date.now(),
       })
       setCurrentSteps([])
@@ -997,7 +1154,18 @@ export function useArcCopilot(
 
     let report: any
     try {
-      report = await executeX402Call(service, { address: targetAddress }, walletAddress, provider, paidCallKind, paidCallSigner)
+      const resolvedPayer = await resolveEffectivePaidCallPayer(service.pricing.priceUsdc)
+      if (!resolvedPayer) {
+        throw new Error('No eligible Circle Gateway payer is available.')
+      }
+      report = await executeX402Call(
+        service,
+        { address: targetAddress },
+        walletAddress,
+        provider,
+        resolvedPayer.kind,
+        resolvedPayer.signer
+      )
     } catch (err: any) {
       steps[0].status = 'failed'
       steps[0].resultSummary = err?.message || 'Vault report call failed.'
@@ -1127,11 +1295,11 @@ export function useArcCopilot(
       setCurrentSteps([])
       return
     }
-    if (!paidCallKind) {
+    if (!hasPaidCallPayer) {
       addMessage({
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.',
+        content: 'Circle Gateway paid calls require an external EOA or an active Circle Wallet signing session (or a funded Session Enclave); passkey/MSCA wallets alone are unsupported.',
         timestamp: Date.now(),
       })
       setCurrentSteps([])
@@ -1163,13 +1331,17 @@ export function useArcCopilot(
 
     let result: any
     try {
+      const resolvedPayer = await resolveEffectivePaidCallPayer(service.pricing.priceUsdc)
+      if (!resolvedPayer) {
+        throw new Error('No eligible Circle Gateway payer is available.')
+      }
       result = await executeX402Call(
         service,
         { riskPreference, walletAddress },
         walletAddress,
         provider,
-        paidCallKind,
-        paidCallSigner
+        resolvedPayer.kind,
+        resolvedPayer.signer
       )
     } catch (err: any) {
       steps[0].status = 'failed'
@@ -1295,6 +1467,10 @@ export function useArcCopilot(
     queryAbortRef.current = abortController
 
     try {
+      // Flush any still-streaming assistant reply so its actionPayload is immediately visible
+      // to multi-turn corrections and no two typewriter loops overlap.
+      flushActiveStream()
+      const historyBeforeTurn = messagesRef.current
       const userMsgId = 'user-' + Date.now()
       const userMsg: CopilotMessage = {
         id: userMsgId,
@@ -1303,7 +1479,9 @@ export function useArcCopilot(
         timestamp: Date.now(),
       }
       addMessage(userMsg)
-      if (intent.kind === 'command' || intent.kind === 'correction') invalidateDrafts()
+      // Only a fresh transaction command immediately supersedes existing drafts;
+      // a correction invalidates the prior draft only once a valid revised action is prepared.
+      if (intent.kind === 'command') invalidateDrafts()
       // Paid analysis/report intents are answered before the generic read-only-reply gate:
       // they are measurements bought per call, not transaction drafts.
       if (
@@ -1336,7 +1514,7 @@ export function useArcCopilot(
       // If the query is an action, swap, bridge, deposit, faucet,
       // or multi-turn correction, directly dispatch to the LLM / Local NLP Engine.
       if (isActionOrStrategyIntent(queryText)) {
-        await handleLLMIntent(queryText, portfolioSnapshot)
+        await handleLLMIntent(queryText, portfolioSnapshot, abortController.signal, historyBeforeTurn)
         setCurrentSteps([])
         return
       }
@@ -1399,7 +1577,7 @@ Click <strong>Connect Wallet</strong> in the top navigation. Supported wallets i
 Your wallet will automatically prompt you to connect to <strong>Arc Testnet</strong> (Chain ID: <code>5042002</code>, RPC: <code>https://rpc.testnet.arc.network</code>).
 
 3. <strong>Get Testnet USDC:</strong>
-Ask me by typing <code>/faucet</code> or click <strong>Faucet</strong> in the top header. Because Arc L1 uses USDC as its native gas currency, your testnet USDC serves as both your trading capital and your transaction gas fee token (~$0.005 per swap).
+Click <strong>Faucet</strong> in the top header to claim free testnet USDC. Because Arc L1 uses USDC as its native gas currency, your testnet USDC serves as both your trading capital and your transaction gas fee token (~$0.005 per swap).
 
 4. <strong>Execute Your First Action:</strong>
 You're all set! Try a quick swap with <code>/swap 10 USDC to EURC</code>, deposit into the <code>/vault</code>, or ask me for an optimal portfolio strategy.`,
@@ -1420,7 +1598,7 @@ You're all set! Try a quick swap with <code>/swap 10 USDC to EURC</code>, deposi
 <strong>1. Circle Gateway (Instant Unified Balance):</strong>
 • <strong>Zero Bridge Wait Time:</strong> Hold a unified USDC balance across Ethereum, Base, Arbitrum, Polygon, and Solana.
 • <strong>Burn &amp; Mint:</strong> Deposit on your source chain, and spend or mint instantly (&lt;500ms) on Arc L1 with cryptographic attestations.
-• Navigate to the <strong>Gateway</strong> tab or type <code>/gateway</code> to inspect and manage your unified cross-chain balance.
+• Navigate to the <strong>Gateway</strong> tab to inspect and manage your unified cross-chain balance.
 
 <strong>2. Circle CCTP &amp; CCTP-X (Native Cross-Chain Transfers):</strong>
 • Move native USDC with 1:1 capital efficiency and zero slippage.
@@ -1476,7 +1654,7 @@ Gasless USDC transfers with custom transaction memos and real-time confirmation 
 Type natural commands like <em>"Swap 50 USDC for EURC"</em>, <em>"Deposit 100 USDC to af-USDC vault"</em>, or <em>"Send 10 USDC to 0x..."</em>. I calculate optimal routes and display interactive confirmation cards right here.
 
 • <strong>Slash Commands:</strong>
-Quickly trigger protocol actions with <code>/swap</code>, <code>/vault</code>, <code>/bridge</code>, <code>/faucet</code>, <code>/strategy</code>, <code>/settings</code>, or <code>/help</code>.
+Quickly trigger protocol actions with <code>/swap</code>, <code>/send</code>, <code>/vault</code>, <code>/add-lp</code>, <code>/remove-lp</code>, <code>/claim</code>, <code>/bridge</code>, <code>/strategy</code>, <code>/arbitrage</code>, <code>/session</code>, <code>/clear</code>, or <code>/help</code>.
 
 • <strong>DeFi Intelligence &amp; Strategy:</strong>
 Ask <em>"Analyze my portfolio"</em> or <em>"Scan Arc DEX for arbitrage opportunities"</em> to get real-time risk scores and pool analytics.
@@ -1580,7 +1758,7 @@ All network fees (~$0.005 USDC) are paid directly in USDC with no need to mainta
 <strong>Fee Architecture:</strong>
 
 • <strong>Liquidity Provider (LP) Fee:</strong>
-0.05% for correlated stablecoin pairs (USDC/EURC) and 0.30% for volatile asset pairs (USDC/cirBTC).
+0.12% for StableSwap pairs (USDC/EURC), 0.25% for BTC pairs (USDC/cirBTC, EURC/cirBTC), and 0.30% for WETH pairs (USDC/WETH, EURC/WETH, cirBTC/WETH).
 
 • <strong>Arc L1 Gas Fee:</strong>
 A flat fee of approximately $0.005 USDC per transaction, deducted directly from your USDC balance.
@@ -1632,6 +1810,9 @@ Native gas token and primary settlement base currency (Circle standard).
 
 • <strong>EURC:</strong>
 Circle 100% Euro-backed stablecoin for FX settlement and zero-spread euro swaps.
+
+• <strong>WETH:</strong>
+Wrapped Ether on Arc Testnet across USDC/WETH, EURC/WETH, and cirBTC/WETH liquidity pools.
 
 • <strong>cirBTC:</strong>
 Circle Wrapped Bitcoin for premier digital store of value trading (there is no WBTC on Arc).
@@ -1859,9 +2040,19 @@ Use the Yield Calculator in the Pools tab to simulate compounding before you dep
       })
       setCurrentSteps([...steps])
 
-      const r2 = paidCallKind
-        ? await executeX402Call(scannerService, { pair: 'ALL_POOLS', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 }, walletAddress, provider, paidCallKind, paidCallSigner)
-        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session; passkey/MSCA and autonomous session signers are unsupported.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
+      const resolvedScannerPayer = hasPaidCallPayer
+        ? await resolveEffectivePaidCallPayer(scannerService.pricing.priceUsdc)
+        : null
+      const r2 = resolvedScannerPayer
+        ? await executeX402Call(
+            scannerService,
+            { pair: 'ALL_POOLS', tradeSizeUsdc: 25000, minNetProfitPct: 0.35 },
+            walletAddress,
+            provider,
+            resolvedScannerPayer.kind,
+            resolvedScannerPayer.signer
+          )
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA or an active Circle Wallet signing session (or a funded Session Enclave); passkey/MSCA wallets alone are unsupported.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
       if (!isSuccessfulX402ServiceResult(r2)) {
         const verifiedSettlement = hasVerifiedX402Settlement(r2)
         const acceptedPayment = r2.payment?.status === 'settlement_pending' && r2.success
@@ -1946,9 +2137,9 @@ These are catalog rates, not successful calls. Paid calls require an external EO
       const assistantMsg: CopilotMessage = {
         id: 'assistant-' + Date.now(),
         role: 'assistant',
-        content: `x402 Developer Integration (design overview, not a live payout promise):
+        content: `x402 Developer Integration (Arc Testnet):
 
-A provider can integrate an HTTP 402 payment challenge and register a service manifest. Paid testnet calls require an external EOA or a Circle Wallet EOA and Circle Gateway; each requires a signature and an already-funded Gateway balance. Facilitator acceptance is not final settlement and provider accounting stays pending until nonce reconciliation. Withdrawals only adjust the internal ledger; no USDC payout is sent.`,
+A provider can register a service manifest signed by an external EOA or Circle Wallet EOA and serve HTTP 402 payment challenges. Paid testnet calls settle through Circle Gateway (EIP-3009 authorizations from an external EOA, Circle Wallet EOA, or a funded Session Enclave) into the protocol treasury for fee-bearing listings (0.50% protocol fee on official manifests; net earnings credited after nonce reconciliation), and providers withdraw net USDC earnings directly from the treasury with an EIP-712 withdrawal authorization.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -1992,7 +2183,7 @@ These are catalog entries. Paid testnet calls require an external EOA or Circle 
 Transactions settle deterministically in under 500 milliseconds on Arc L1, giving you instant confirmation with zero waiting.
 
 • <strong>Multi-Token Support:</strong>
-Send native <strong>USDC</strong>, <strong>EURC</strong>, or <strong>cirBTC</strong> directly to any Arc L1 address.
+Send native <strong>USDC</strong>, <strong>EURC</strong>, <strong>WETH</strong>, or <strong>cirBTC</strong> directly to any Arc L1 address.
 
 • <strong>Native USDC Gas (~$0.005):</strong>
 All transaction fees are deducted directly in USDC. You never need to acquire or hold volatile ETH just to send tokens.
@@ -2142,7 +2333,7 @@ You can trigger the <strong>Cross-Chain Gateway Flow Monitor</strong> agent dire
       }
       addMessage(assistantMsg)
     } else if (isGatewayFlowReportQuery(q)) {
-      if (!paidCallKind) {
+      if (!hasPaidCallPayer) {
         addMessage({
           id: 'assistant-' + Date.now(),
           role: 'assistant',
@@ -2172,7 +2363,10 @@ Once connected, ask me again or open the AI Services tab to run the live report!
       })
       setCurrentSteps([...steps])
 
-      const r = await executeX402Call(s, { timeWindow: '1h' }, walletAddress, provider, paidCallKind, paidCallSigner)
+      const resolvedFlowPayer = await resolveEffectivePaidCallPayer(s.pricing.priceUsdc)
+      const r = resolvedFlowPayer
+        ? await executeX402Call(s, { timeWindow: '1h' }, walletAddress, provider, resolvedFlowPayer.kind, resolvedFlowPayer.signer)
+        : { statusCode: 503, success: false, error: 'Circle Gateway payments require an external EOA, an active Circle Wallet signing session, or a funded Session Enclave.', executionTimeMs: 0, costUsdc: 0 } as Awaited<ReturnType<typeof executeX402Call>>
       const settlementVerified = hasVerifiedX402Settlement(r)
       const paymentAccepted = r.payment?.status === 'settlement_pending' && r.success
       const serviceAvailable = isSuccessfulX402ServiceResult(r)
@@ -2305,8 +2499,8 @@ You maintain 100% control of your private keys and assets at all times. Neither 
 • <strong>Audited ERC Standards:</strong>
 Vaults comply strictly with ERC-4626 tokenized vault standards with built-in emergency recovery logic.
 
-• <strong>Local Session Metadata:</strong>
-The displayed session budget is local UI metadata, not an on-chain spending limit. Automated sessions and paid x402 calls are disabled; no x402 charge is made by this client.`,
+• <strong>Scoped Session Keys &amp; x402 Payments:</strong>
+Session budgets and per-transaction caps are enforced client-side for Ask Arco and AI Services before signing (with optional ephemeral Session Enclaves you control and can revoke or sweep anytime). Paid x402 calls settle via Circle Gateway EIP-3009 authorizations signed by your external EOA, Circle Wallet EOA, or a funded Session Enclave.`,
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
@@ -2402,7 +2596,7 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
     // FALLBACK: AI COPILOT LLM & SMART LOCAL NLP INTENT PARSER
     // ─────────────────────────────────────────────────────────────
     else {
-      await handleLLMIntent(queryText, portfolioSnapshot)
+      await handleLLMIntent(queryText, portfolioSnapshot, abortController.signal, historyBeforeTurn)
     }
 
     setCurrentSteps([])

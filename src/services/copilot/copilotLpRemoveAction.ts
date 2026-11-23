@@ -32,6 +32,7 @@ import {
   type CopilotActionContext,
   failedActionReceipt,
   getVerifiedArcReceipt,
+  isPasskeyWalletContext,
   isTransactionHash,
 } from './copilotCommon'
 
@@ -97,7 +98,6 @@ export async function executeCopilotLpRemoveAction(
   const {
     actionPayload,
     activeWallet,
-    activeMsca,
     provider,
     onProgress,
     ucwHandlers,
@@ -249,7 +249,7 @@ export async function executeCopilotLpRemoveAction(
         status: cleanErr.isCanceled ? 'CANCELED' : 'FAILED',
       }
     }
-  } else if (activeMsca) {
+  } else if (isPasskeyWalletContext(context)) {
     // ── B. Passkey / MSCA Execution ──
     try {
       const removeCall = {

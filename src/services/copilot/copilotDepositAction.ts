@@ -25,11 +25,12 @@ import {
   arcTestnetChain,
 } from '../modularWalletService'
 import { addTransaction } from '../../utils/history'
-import { formatCopilotError } from '../../utils/errorUtils'
+import { canceledActionTitle, formatCopilotError, isUserCanceled } from '../../utils/errorUtils'
 import { logger } from '../../utils/logger'
 import {
   type CopilotActionContext,
   failedActionReceipt,
+  isPasskeyWalletContext,
   isPositiveTokenAmount,
   isTransactionHash,
   getVerifiedArcReceipt,
@@ -44,7 +45,6 @@ export async function executeCopilotDepositAction(
   const {
     actionPayload,
     activeWallet,
-    activeMsca,
     provider,
     onProgress,
     ucwHandlers,
@@ -240,7 +240,7 @@ export async function executeCopilotDepositAction(
       gasUsdc: 0,
       settlementLatencyMs: Date.now() - startTime,
       timestamp: Date.now(),
-      errorMessage: `Arc Testnet üzerinde cüzdanınızda (${activeWallet.slice(0, 6)}...${activeWallet.slice(-4)}) yeterli bakiye bulunamadı (Mevcut: ${(Number(onChainBalWei) / 1e6).toFixed(2)} USDC). Lütfen faucet üzerinden bakiye talep edin.`,
+      errorMessage: `Insufficient USDC balance on Arc Testnet for wallet (${activeWallet.slice(0, 6)}...${activeWallet.slice(-4)}) (Available: ${(Number(onChainBalWei) / 1e6).toFixed(2)} USDC). Please claim testnet USDC from the Faucet.`,
     }
   }
 
@@ -318,6 +318,7 @@ export async function executeCopilotDepositAction(
           throw err
         }
         if (approveRes.txHash && isTransactionHash(approveRes.txHash)) {
+          onSubmission?.({ txHash: approveRes.txHash, phase: 'approval' })
           const approveRec = await resilientClient.waitForTransactionReceipt({
             hash: approveRes.txHash as Hex,
             timeout: 20000,
@@ -350,6 +351,7 @@ export async function executeCopilotDepositAction(
         throw err
       }
       if (depositRes.txHash) {
+        onSubmission?.({ txHash: depositRes.txHash, phase: 'spend' })
         realTxHash = depositRes.txHash
       }
     } catch (ucwErr: any) {
@@ -361,7 +363,7 @@ export async function executeCopilotDepositAction(
   }
 
   // B. Passkey MSCA Execution
-  if (!realTxHash && activeMsca) {
+  if (!realTxHash && isPasskeyWalletContext(context)) {
     try {
       const approveCall = {
         to: POOL_CONTRACTS.USDC as Hex,
@@ -399,7 +401,7 @@ export async function executeCopilotDepositAction(
   }
 
   // C. Connected EOA Wallet Execution
-  if (!realTxHash && effectiveProvider) {
+  if (!realTxHash && ucwHandlers?.authSource !== 'ucw' && effectiveProvider) {
     try {
       const { createWalletClient, custom } = await import('viem')
       const walletClient = createWalletClient({
@@ -408,18 +410,38 @@ export async function executeCopilotDepositAction(
         transport: custom(effectiveProvider),
       })
 
-      const approveTx = await walletClient.writeContract({
-        address: POOL_CONTRACTS.USDC,
-        abi: ERC20_ABI,
-        functionName: 'approve',
-        args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
-      })
-      const approveRec = await resilientClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err: unknown) => {
-        console.warn('[copilotExecutionService] EOA vault approve receipt warning:', err)
-        return null
-      })
-      if (!approveRec || approveRec.transactionHash.toLowerCase() !== approveTx.toLowerCase()) throw new Error('Token approval is still pending; deposit was not submitted.')
-      if (approveRec.status !== 'success') throw new Error('Token approval reverted on-chain.')
+      // Check existing allowance before prompting for a redundant USDC approval tx
+      let currentAllowance = 0n
+      try {
+        currentAllowance = (await resilientClient.readContract({
+          address: POOL_CONTRACTS.USDC,
+          abi: ERC20_ABI,
+          functionName: 'allowance',
+          args: [activeWallet as Hex, POOL_CONTRACTS.YIELD_VAULT],
+        })) as bigint
+      } catch (allowanceErr) {
+        console.warn('[copilotExecutionService] EOA USDC allowance check failed, proceeding with approve:', allowanceErr)
+      }
+
+      if (currentAllowance < amountUnits) {
+        const approveTx = await walletClient.writeContract({
+          address: POOL_CONTRACTS.USDC,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [POOL_CONTRACTS.YIELD_VAULT, amountUnits],
+        })
+        onSubmission?.({ txHash: approveTx, phase: 'approval' })
+        const approveRec = await resilientClient.waitForTransactionReceipt({ hash: approveTx, timeout: 15000 }).catch((err: unknown) => {
+          console.warn('[copilotExecutionService] EOA vault approve receipt warning:', err)
+          return null
+        })
+        if (!approveRec || approveRec.transactionHash.toLowerCase() !== approveTx.toLowerCase()) {
+          throw new Error('Token approval is still pending; deposit was not submitted.')
+        }
+        if (approveRec.status !== 'success') {
+          throw new Error('Token approval reverted on-chain.')
+        }
+      }
 
       realTxHash = guardedDepositArgs
         ? await walletClient.writeContract({
@@ -434,14 +456,23 @@ export async function executeCopilotDepositAction(
             functionName: 'deposit',
             args: [amountUnits, activeWallet as Hex],
           })
-      const depRec = await resilientClient.waitForTransactionReceipt({ hash: realTxHash as Hex, timeout: 15000 }).catch((err: unknown) => {
-        console.warn('[copilotExecutionService] EOA vault deposit receipt warning:', err)
-        return null
-      })
-      if (!depRec || depRec.transactionHash.toLowerCase() !== realTxHash.toLowerCase()) throw new Error('Vault deposit is still pending; no success was recorded.')
-      if (depRec.status !== 'success') throw new Error('Vault deposit reverted on-chain.')
+      onSubmission?.({ txHash: realTxHash, phase: 'spend' })
     } catch (e: any) {
       console.warn('[copilotExecutionService] EOA vault transaction error:', e)
+      if (onProgress) onProgress('failed')
+      const cleanErr = formatCopilotError(e)
+      const canceled = cleanErr.isCanceled || isUserCanceled(e)
+      return {
+        id: `rcpt_${canceled ? 'cancel' : 'err'}_${Date.now()}`,
+        actionType: 'deposit',
+        title: canceled ? canceledActionTitle('deposit') : (cleanErr.title || `Deposit Failed: ${amount} USDC`),
+        status: canceled ? 'CANCELED' : 'FAILED',
+        txHash: '',
+        gasUsdc: 0,
+        settlementLatencyMs: Date.now() - startTime,
+        timestamp: Date.now(),
+        errorMessage: cleanErr.message || e?.message || 'Vault deposit failed.',
+      }
     }
   }
 
@@ -456,7 +487,7 @@ export async function executeCopilotDepositAction(
       gasUsdc: 0,
       settlementLatencyMs: Date.now() - startTime,
       timestamp: Date.now(),
-      errorMessage: 'Arc Testnet Real-Yield Vault yatırımı onaylanamadı. Cüzdan bakiyenizi veya token izninizi kontrol edin.',
+      errorMessage: 'Arc Testnet Real-Yield Vault deposit could not be confirmed. Check your wallet balance or token allowance.',
     }
   }
 
@@ -511,7 +542,7 @@ export async function executeCopilotDepositAction(
   const durationMs = Date.now() - startTime
 
   addTransaction({
-    type: 'send',
+    type: 'deposit',
     txHash: realTxHash,
     amount: numberToExactDecimal(amount)!,
     tokenSymbol: 'USDC',

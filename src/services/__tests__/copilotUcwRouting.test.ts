@@ -12,7 +12,10 @@ import {
   getStoredMscaAddress,
 } from '../modularWalletService'
 import { sendToken } from '../sendService'
-import { deductSessionSpend } from '../sessionKeyService'
+import { sendTokenWithMemo } from '../memoService'
+import { deductSessionSpend, getSessionKeyConfig } from '../sessionKeyService'
+import { readSessionSpendLedger } from '../sessionSpendLedger'
+import { MEMO_ABI, MEMO_CONTRACT_ADDRESS } from '../../config/memoConfig'
 import { addTransaction } from '../../utils/history'
 import { executeSwap, getSwapEstimate } from '../swapService'
 import { ARC_TOKENS } from '../../config/arcChain'
@@ -32,7 +35,7 @@ vi.mock('../modularWalletService', () => ({
   sendModularUserOperation: vi.fn(),
   createModularUsdcTransferCall: vi.fn(),
   getModularPublicClient: vi.fn(),
-  arcTestnetChain: {},
+  arcTestnetChain: { id: 5042002, name: 'Arc Testnet' },
 }))
 
 vi.mock('../sendService', () => ({
@@ -40,6 +43,14 @@ vi.mock('../sendService', () => ({
   createHeadlessSessionAdapter: vi.fn(),
   sendToken: vi.fn(),
 }))
+
+vi.mock('../memoService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../memoService')>()
+  return {
+    ...actual,
+    sendTokenWithMemo: vi.fn(),
+  }
+})
 
 vi.mock('../swapService', () => ({
   getSwapEstimate: vi.fn(),
@@ -176,6 +187,16 @@ describe('Ask Arco → Circle UCW routing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(getStoredMscaAddress).mockReturnValue('')
+    vi.mocked(getSessionKeyConfig).mockReturnValue({
+      isActive: false,
+      autoExecute: false,
+      ephemeralPrivateKey: undefined,
+      expiresAt: Date.now() + 3_600_000,
+      maxSpendUsdc: 100,
+      spentUsdc: 0,
+      maxPerTxUsdc: 50,
+      allowedActions: [],
+    } as any)
     vi.mocked(getModularPublicClient).mockReturnValue({
       getTransactionReceipt: vi.fn().mockResolvedValue({
         transactionHash: TX_HASH,
@@ -690,7 +711,7 @@ describe('Ask Arco → Circle UCW routing', () => {
     )
 
     expect(receipt.status).toBe('FAILED')
-    expect(receipt.errorMessage).toContain('yeterli bakiye bulunamadı')
+    expect(receipt.errorMessage).toContain('Insufficient USDC balance')
     expect(executeUcwContract).not.toHaveBeenCalled()
   })
 
@@ -733,6 +754,350 @@ describe('Ask Arco → Circle UCW routing', () => {
 
     expect(executeBridge).toHaveBeenCalledTimes(1)
     expect(receipt.actionType).toBe('bridge')
+  })
+
+  it('does not route EOA vault deposit to Passkey/MSCA when a stale cached MSCA address exists (ARCO-03)', async () => {
+    const STALE_MSCA = '0x9999999999999999999999999999999999999999'
+    vi.mocked(getStoredMscaAddress).mockReturnValue(STALE_MSCA)
+    mockConfirmedDeposit('1')
+
+    const mockProvider = {
+      request: vi.fn().mockImplementation(async ({ method }: { method: string }) => {
+        if (method === 'eth_chainId') return '0x4cef52' // 5042002 (Arc Testnet)
+        if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [UCW_WALLET]
+        if (method === 'eth_sendTransaction') return TX_HASH
+        return null
+      }),
+    }
+
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_deposit',
+        title: 'Deposit 1 USDC into YieldVault',
+        data: { amount: 1 },
+      },
+      UCW_WALLET,
+      mockProvider,
+      undefined,
+      { authSource: 'evm' }
+    )
+
+    expect(sendModularUserOperation).not.toHaveBeenCalled()
+    expect(mockProvider.request.mock.calls.some(([arg]) => arg?.method === 'eth_sendTransaction')).toBe(true)
+    expect(receipt.status).toBe('SUCCESS')
+  })
+
+  it('releases canceled reservation on revision 1 and executes cleanly on revision 2 with exact 1x committed spend (ARCO-04)', async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { store.set(k, String(v)) },
+      removeItem: (k: string) => { store.delete(k) },
+      clear: () => { store.clear() },
+    })
+
+    vi.mocked(getSessionKeyConfig).mockReturnValue({
+      sessionId: 'sess-arco-04',
+      isActive: true,
+      autoExecute: false,
+      expiresAt: Date.now() + 3_600_000,
+      maxSpendUsdc: 100,
+      spentUsdc: 0,
+      reservedUsdc: 0,
+      maxPerTxUsdc: 50,
+      allowedActions: ['send'],
+    } as any)
+
+    mockConfirmedTransfer('USDC', '10')
+    const executeUcwTransfer = vi
+      .fn()
+      .mockResolvedValueOnce({ success: false, error: 'User rejected the request' })
+      .mockResolvedValueOnce({ success: true, txHash: TX_HASH })
+
+    const baseDraft = {
+      type: 'interactive_send' as const,
+      title: 'Send 10 USDC',
+      draftId: 'arco-04-retry-draft',
+      data: { recipient: RECIPIENT, amount: 10, tokenSymbol: 'USDC' },
+    }
+
+    // Attempt 1 (revision 1): user cancels -> ledger releases reservation
+    const attempt1 = await executeDirectCopilotAction(
+      { ...baseDraft, revision: 1 },
+      UCW_WALLET,
+      undefined,
+      undefined,
+      { authSource: 'ucw', executeUcwTransfer }
+    )
+    expect(attempt1.status).toBe('FAILED')
+    expect(executeUcwTransfer).toHaveBeenCalledTimes(1)
+    expect(readSessionSpendLedger(UCW_WALLET).reservations['arco-04-retry-draft:1']?.state).toBe('released')
+
+    // Re-calling with same revision 1 stays idempotent and does NOT enter signer
+    const sameRev = await executeDirectCopilotAction(
+      { ...baseDraft, revision: 1 },
+      UCW_WALLET,
+      undefined,
+      undefined,
+      { authSource: 'ucw', executeUcwTransfer }
+    )
+    expect(sameRev.status).toBe('FAILED')
+    expect(executeUcwTransfer).toHaveBeenCalledTimes(1)
+
+    // Attempt 2 (revision 2, as produced by Try Again): enters signer, succeeds, and commits 1x spend
+    const attempt2 = await executeDirectCopilotAction(
+      { ...baseDraft, revision: 2 },
+      UCW_WALLET,
+      undefined,
+      undefined,
+      { authSource: 'ucw', executeUcwTransfer }
+    )
+    expect(attempt2.status).toBe('SUCCESS')
+    expect(attempt2.txHash).toBe(TX_HASH)
+    expect(executeUcwTransfer).toHaveBeenCalledTimes(2)
+    const ledger = readSessionSpendLedger(UCW_WALLET)
+    expect(ledger.reservations['arco-04-retry-draft:2']?.state).toBe('committed')
+    expect(ledger.spentBySession['sess-arco-04']).toBe(10_000_000)
+  })
+
+  it('routes Passkey/MSCA send with memo through Memo.memo(...) contract (ARCO-05)', async () => {
+    mockConfirmedTransfer('USDC', '10')
+    vi.mocked(getStoredMscaAddress).mockReturnValue(UCW_WALLET)
+    vi.mocked(sendModularUserOperation).mockResolvedValue({ success: true, txHash: TX_HASH })
+
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_send',
+        title: 'Send 10 USDC with memo',
+        data: { recipient: RECIPIENT, amount: 10, tokenSymbol: 'USDC', memo: 'Payroll Oct' },
+      },
+      UCW_WALLET
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(receipt.memo).toBe('Payroll Oct')
+    expect(createModularUsdcTransferCall).not.toHaveBeenCalled()
+    const [{ calls }] = vi.mocked(sendModularUserOperation).mock.calls[0]
+    expect(String(calls[0].to).toLowerCase()).toBe(MEMO_CONTRACT_ADDRESS.toLowerCase())
+    const decoded = decodeFunctionData({ abi: MEMO_ABI, data: calls[0].data! })
+    expect(decoded.functionName).toBe('memo')
+    expect(String((decoded.args as any)[0]).toLowerCase()).toBe(ARC_TOKENS.USDC.toLowerCase())
+  })
+
+  it('routes EOA send with memo through sendTokenWithMemo instead of plain sendToken (ARCO-05)', async () => {
+    mockConfirmedTransfer('EURC', '10')
+    vi.mocked(sendTokenWithMemo).mockResolvedValue({
+      txHash: TX_HASH as `0x${string}`,
+      blockNumber: 123n,
+      memoId: `0x${'1'.repeat(64)}` as `0x${string}`,
+      memoIndex: 7n,
+      memoText: 'Invoice #99',
+      sender: UCW_WALLET as `0x${string}`,
+      target: ARC_TOKENS.EURC as `0x${string}`,
+    })
+
+    const mockProvider = { request: vi.fn() }
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_send',
+        title: 'Send 10 EURC with memo',
+        data: { recipient: RECIPIENT, amount: 10, tokenSymbol: 'EURC', memo: 'Invoice #99' },
+      },
+      UCW_WALLET,
+      mockProvider,
+      undefined,
+      { authSource: 'evm' }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(receipt.memo).toBe('Invoice #99')
+    expect(sendToken).not.toHaveBeenCalled()
+    expect(sendTokenWithMemo).toHaveBeenCalledWith(
+      mockProvider,
+      expect.objectContaining({
+        tokenAddress: ARC_TOKENS.EURC,
+        decimals: 6,
+        recipient: RECIPIENT,
+        amount: '10',
+        memoText: 'Invoice #99',
+      })
+    )
+    expect(addTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'send',
+        memo: 'Invoice #99',
+        memoIndex: 7,
+      })
+    )
+  })
+
+  it('returns CANCELED receipt when user rejects EOA vault deposit in wallet (ARCO-07)', async () => {
+    mockConfirmedDeposit('5')
+    const mockProvider = {
+      request: vi.fn().mockImplementation(async ({ method }: { method: string }) => {
+        if (method === 'eth_chainId') return '0x4cef52'
+        if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [UCW_WALLET]
+        if (method === 'eth_sendTransaction') {
+          const err: any = new Error('User rejected the request.')
+          err.code = 4001
+          throw err
+        }
+        return null
+      }),
+    }
+
+    const receipt = await executeDirectCopilotAction(
+      {
+        type: 'interactive_deposit',
+        title: 'Deposit 5 USDC into YieldVault',
+        data: { amount: 5 },
+      },
+      UCW_WALLET,
+      mockProvider,
+      undefined,
+      { authSource: 'evm' }
+    )
+
+    expect(receipt.status).toBe('CANCELED')
+    expect(receipt.title).toBe('Deposit Cancelled')
+    expect(addTransaction).not.toHaveBeenCalled()
+  })
+
+  it('skips redundant EOA approve when allowance is sufficient, calls onSubmission, and records history type as deposit (ARCO-07)', async () => {
+    const { executeCopilotDepositAction } = await import('../copilot/copilotDepositAction')
+    vi.mocked(getResilientPublicClient).mockReturnValue({
+      readContract: vi.fn().mockImplementation((params: any) => {
+        if (params.functionName === 'allowance') return Promise.resolve(parseUnits('50', 6))
+        if (params.functionName === 'balanceOf') return Promise.resolve(parseUnits('100', 6))
+        return Promise.resolve(parseUnits('5', 6))
+      }),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        transactionHash: TX_HASH,
+        status: 'success',
+        gasUsed: 55_000n,
+        effectiveGasPrice: 20_000_000_000n,
+        logs: [{
+          address: POOL_CONTRACTS.YIELD_VAULT,
+          topics: encodeEventTopics({
+            abi: DEPOSIT_ABI,
+            eventName: 'Deposit',
+            args: { sender: UCW_WALLET as `0x${string}`, owner: UCW_WALLET as `0x${string}` },
+          }),
+          data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [parseUnits('5', 6), parseUnits('5', 6)]),
+        }],
+      }),
+    } as any)
+
+    const sendCalls: any[] = []
+    const mockProvider = {
+      request: vi.fn().mockImplementation(async (req: { method: string; params?: any[] }) => {
+        if (req.method === 'eth_chainId') return '0x4cef52'
+        if (req.method === 'eth_accounts' || req.method === 'eth_requestAccounts') return [UCW_WALLET]
+        if (req.method === 'eth_sendTransaction') {
+          sendCalls.push(req.params?.[0])
+          return TX_HASH
+        }
+        return null
+      }),
+    }
+    const onSubmission = vi.fn()
+
+    const receipt = await executeCopilotDepositAction(
+      {
+        actionPayload: {
+          type: 'interactive_deposit',
+          title: 'Deposit 5 USDC into YieldVault',
+          data: { amount: 5 },
+        },
+        activeWallet: UCW_WALLET,
+        provider: mockProvider,
+        ucwHandlers: { authSource: 'evm' },
+        onSubmission,
+        startTime: Date.now(),
+      },
+      { isActive: false }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(sendCalls).toHaveLength(1)
+    expect(String(sendCalls[0]?.to).toLowerCase()).toBe(POOL_CONTRACTS.YIELD_VAULT.toLowerCase())
+    expect(onSubmission).toHaveBeenCalledTimes(1)
+    expect(onSubmission).toHaveBeenCalledWith({ txHash: TX_HASH, phase: 'spend' })
+    expect(addTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'deposit',
+        txHash: TX_HASH,
+        recipient: POOL_CONTRACTS.YIELD_VAULT,
+      })
+    )
+  })
+
+  it('calls onSubmission for both approval and spend when EOA allowance is zero (ARCO-07)', async () => {
+    const { executeCopilotDepositAction } = await import('../copilot/copilotDepositAction')
+    const APPROVE_HASH = `0x${'b'.repeat(64)}`
+    vi.mocked(getResilientPublicClient).mockReturnValue({
+      readContract: vi.fn().mockImplementation((params: any) => {
+        if (params.functionName === 'allowance') return Promise.resolve(0n)
+        if (params.functionName === 'balanceOf') return Promise.resolve(parseUnits('100', 6))
+        return Promise.resolve(parseUnits('5', 6))
+      }),
+      waitForTransactionReceipt: vi.fn().mockImplementation(({ hash }: { hash: string }) => {
+        if (hash === APPROVE_HASH) {
+          return Promise.resolve({ transactionHash: APPROVE_HASH, status: 'success', logs: [] })
+        }
+        return Promise.resolve({
+          transactionHash: TX_HASH,
+          status: 'success',
+          gasUsed: 55_000n,
+          effectiveGasPrice: 20_000_000_000n,
+          logs: [{
+            address: POOL_CONTRACTS.YIELD_VAULT,
+            topics: encodeEventTopics({
+              abi: DEPOSIT_ABI,
+              eventName: 'Deposit',
+              args: { sender: UCW_WALLET as `0x${string}`, owner: UCW_WALLET as `0x${string}` },
+            }),
+            data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [parseUnits('5', 6), parseUnits('5', 6)]),
+          }],
+        })
+      }),
+    } as any)
+
+    let txIndex = 0
+    const mockProvider = {
+      request: vi.fn().mockImplementation(async ({ method }: { method: string }) => {
+        if (method === 'eth_chainId') return '0x4cef52'
+        if (method === 'eth_accounts' || method === 'eth_requestAccounts') return [UCW_WALLET]
+        if (method === 'eth_sendTransaction') {
+          txIndex += 1
+          return txIndex === 1 ? APPROVE_HASH : TX_HASH
+        }
+        return null
+      }),
+    }
+    const onSubmission = vi.fn()
+
+    const receipt = await executeCopilotDepositAction(
+      {
+        actionPayload: {
+          type: 'interactive_deposit',
+          title: 'Deposit 5 USDC into YieldVault',
+          data: { amount: 5 },
+        },
+        activeWallet: UCW_WALLET,
+        provider: mockProvider,
+        ucwHandlers: { authSource: 'evm' },
+        onSubmission,
+        startTime: Date.now(),
+      },
+      { isActive: false }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(txIndex).toBe(2)
+    expect(onSubmission).toHaveBeenNthCalledWith(1, { txHash: APPROVE_HASH, phase: 'approval' })
+    expect(onSubmission).toHaveBeenNthCalledWith(2, { txHash: TX_HASH, phase: 'spend' })
+    expect(addTransaction).toHaveBeenCalledWith(expect.objectContaining({ type: 'deposit' }))
   })
 })
 

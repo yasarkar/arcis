@@ -167,6 +167,14 @@ export function latestEditableCopilotDraft(history: CopilotMessage[] = []): Copi
       continue
     }
     if (message.role !== 'assistant') continue
+    if (
+      message.preservesActiveDraft &&
+      !message.actionPayload &&
+      !message.receipt &&
+      !message.isExecutingInline
+    ) {
+      continue
+    }
     if (message.receipt || message.isExecutingInline || (message.executionState && message.executionState !== 'idle')) return undefined
     const action = message.actionPayload?.type === 'configure_session'
       ? message.actionPayload.data?.pendingAction as CopilotActionPayload | undefined

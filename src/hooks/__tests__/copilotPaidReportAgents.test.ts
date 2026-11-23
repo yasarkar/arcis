@@ -11,6 +11,9 @@ const harness = vi.hoisted(() => ({
   refs: [] as any[],
   stateIndex: 0,
   refIndex: 0,
+  sessionConfig: { isActive: false, expiresAt: 0, autoExecute: false, sessionPublicKey: undefined as string | undefined },
+  enclaveAccount: null as { address: string } | null,
+  enclaveGatewayBalance: '0.000000',
 }))
 
 vi.mock('react', async (original) => ({
@@ -37,13 +40,20 @@ vi.mock('react', async (original) => ({
 }))
 
 vi.mock('../../services/sessionKeyService', () => ({
-  getSessionKeyConfig: () => ({ isActive: false, expiresAt: 0, autoExecute: false }),
+  getSessionKeyConfig: () => harness.sessionConfig,
   activateSessionKey: vi.fn(),
   revokeSessionKey: vi.fn(),
   toggleSessionAutoExecute: vi.fn(),
   verifySessionLimits: () => ({ allowed: true }),
   setActiveWalletForSession: vi.fn(),
+  COPILOT_SESSION_UPDATED_EVENT: 'arcis-copilot-session-updated',
   SESSION_KEY_UPDATED_EVENT: 'arcis-session-key-updated',
+}))
+vi.mock('../../services/sessionEnclaveService', () => ({
+  getEphemeralSessionAccount: vi.fn(() => harness.enclaveAccount),
+}))
+vi.mock('../../services/gatewayService', () => ({
+  getGatewayTotalBalance: vi.fn(async () => harness.enclaveGatewayBalance),
 }))
 vi.mock('../../services/copilotExecutionService', () => ({ executeDirectCopilotAction: vi.fn() }))
 vi.mock('../../services/portfolioContextService', () => ({
@@ -187,6 +197,9 @@ async function query(
 beforeEach(() => {
   harness.states = []
   harness.refs = []
+  harness.sessionConfig = { isActive: false, expiresAt: 0, autoExecute: false, sessionPublicKey: undefined }
+  harness.enclaveAccount = null
+  harness.enclaveGatewayBalance = '0.000000'
   vi.clearAllMocks()
   vi.useFakeTimers()
   vi.mocked(executeX402Call).mockImplementation(async (service: any) => {
@@ -694,5 +707,60 @@ describe('executing a next-step card in the chat', () => {
 
     expect(executed).toBe(false)
     expect(executeX402Call).not.toHaveBeenCalled()
+  })
+
+  it('falls back to primary external_eoa or ucw_eoa when an active Session Enclave holds 0 Gateway balance (ARCO-09)', async () => {
+    const ENCLAVE_ADDR = '0x9999999999999999999999999999999999999999'
+    harness.sessionConfig = {
+      isActive: true,
+      expiresAt: Date.now() + 3_600_000,
+      autoExecute: false,
+      sessionPublicKey: ENCLAVE_ADDR,
+    }
+    harness.enclaveAccount = { address: ENCLAVE_ADDR }
+    harness.enclaveGatewayBalance = '0.000000'
+
+    // 1. Primary MetaMask/EOA wallet must NOT be hijacked by an unfunded enclave
+    await query('Run a portfolio risk analysis on my wallet.', WALLET, 'evm')
+    expect(vi.mocked(executeX402Call)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(executeX402Call).mock.calls[0][4]).toBe('external_eoa')
+
+    // 2. Primary Circle UCW wallet must NOT be hijacked by an unfunded enclave
+    vi.mocked(executeX402Call).mockClear()
+    harness.states = []
+    harness.refs = []
+    const signTypedData = vi.fn(async () => ({ success: true, signature: `0x${'1'.repeat(130)}` }))
+    await query('Run a portfolio risk analysis on my wallet.', WALLET, 'ucw', { signTypedData })
+    expect(vi.mocked(executeX402Call)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(executeX402Call).mock.calls[0][4]).toBe('ucw_eoa')
+    expect(vi.mocked(executeX402Call).mock.calls[0][5]).toBeTypeOf('function')
+  })
+
+  it('uses session_eoa when the active Session Enclave holds sufficient Gateway USDC or when on Passkey/MSCA (ARCO-09)', async () => {
+    const ENCLAVE_ADDR = '0x9999999999999999999999999999999999999999'
+    harness.sessionConfig = {
+      isActive: true,
+      expiresAt: Date.now() + 3_600_000,
+      autoExecute: false,
+      sessionPublicKey: ENCLAVE_ADDR,
+    }
+    harness.enclaveAccount = { address: ENCLAVE_ADDR }
+    harness.enclaveGatewayBalance = '5.000000'
+
+    // 1. Funded enclave enables zero-popup session_eoa payment even with primary EOA connected
+    await query('Run a portfolio risk analysis on my wallet.', WALLET, 'evm')
+    expect(vi.mocked(executeX402Call)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(executeX402Call).mock.calls[0][4]).toBe('session_eoa')
+    expect(vi.mocked(executeX402Call).mock.calls[0][5]).toBeUndefined()
+
+    // 2. Passkey/MSCA (no primary EOA/UCW payer) routes through active session_eoa
+    vi.mocked(executeX402Call).mockClear()
+    harness.states = []
+    harness.refs = []
+    harness.enclaveGatewayBalance = '0.000000'
+    await render(WALLET, 'passkey' as any).executeQuery('Run a portfolio risk analysis on my wallet.')
+    await vi.runAllTimersAsync()
+    expect(vi.mocked(executeX402Call)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(executeX402Call).mock.calls[0][4]).toBe('session_eoa')
   })
 })

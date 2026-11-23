@@ -364,4 +364,36 @@ describe('executeCopilotLpRemoveAction', () => {
     expect(mockSendModularUserOp).not.toHaveBeenCalled()
     expect(mockWriteContract).not.toHaveBeenCalled()
   })
+
+  it('routes EOA LP removal to injected wallet even when a stale cached MSCA address exists (ARCO-03)', async () => {
+    const STALE_MSCA = '0x9999999999999999999999999999999999999999' as const
+    mockHealthyPoolReads()
+    mockWriteContract.mockResolvedValue(TX_HASH)
+    mockWaitForTransactionReceipt.mockResolvedValue({
+      status: 'success',
+      transactionHash: TX_HASH,
+      logs: [
+        liquidityRemovedLog(
+          POOL_CONTRACTS.STABLE_SWAP_POOL,
+          WALLET,
+          parseUnits('50', 18),
+          parseUnits('50', 6),
+          parseUnits('45', 6)
+        ),
+      ],
+    })
+
+    const receipt = await executeCopilotLpRemoveAction({
+      actionPayload: basePayload,
+      activeWallet: WALLET,
+      activeMsca: STALE_MSCA,
+      ucwHandlers: { authSource: 'evm' },
+      provider: { request: vi.fn() },
+      startTime: Date.now(),
+    })
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(mockSendModularUserOp).not.toHaveBeenCalled()
+    expect(mockWriteContract).toHaveBeenCalledTimes(1)
+  })
 })

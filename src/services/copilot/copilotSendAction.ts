@@ -22,6 +22,8 @@ import {
 } from '../sessionEnclaveService'
 import { tokenAmountToUsd } from '../tokenPriceService'
 import { createViemAdapter, sendToken } from '../sendService'
+import { buildMemoCall, sendTokenWithMemo } from '../memoService'
+import { walletSettingsService } from '../walletSettingsService'
 import {
   sendModularUserOperation,
   createModularUsdcTransferCall,
@@ -34,6 +36,7 @@ import { logger } from '../../utils/logger'
 import {
   type CopilotActionContext,
   failedActionReceipt,
+  isPasskeyWalletContext,
   isTransactionHash,
   resolveCopilotToken,
   readArcSendBalance,
@@ -51,7 +54,6 @@ export async function executeCopilotSendAction(
   const {
     actionPayload,
     activeWallet,
-    activeMsca,
     provider,
     onProgress,
     ucwHandlers,
@@ -64,7 +66,8 @@ export async function executeCopilotSendAction(
   const amount = Number(data.amount)
   const tokenSymbol = resolveCopilotToken(data.tokenSymbol || data.token, 'USDC')
   const recipient = String(data.recipient || data.recipientAddress || data.to || '').trim()
-  const memo = String(data.memo || '')
+  const memo = String(data.memo || '').trim()
+  const hasMemo = memo.length > 0
 
   if (!tokenSymbol) {
     if (onProgress) onProgress('failed')
@@ -139,14 +142,31 @@ export async function executeCopilotSendAction(
           transport: http(ARC_METADATA.rpcHttpUrl),
         })
 
-        const realTxHash = await walletClient.sendTransaction({
-          to: POOL_CONTRACTS.USDC as Address,
-          data: encodeFunctionData({
-            abi: ERC20_ABI,
-            functionName: 'transfer',
-            args: [recipient as Address, parseUnits(numberToExactDecimal(normalizedAmount)!, 6)],
-          }),
-        })
+        const enclaveMemoCall = hasMemo
+          ? buildMemoCall({
+              tokenAddress: POOL_CONTRACTS.USDC as Address,
+              decimals: 6,
+              recipient,
+              amount: numberToExactDecimal(normalizedAmount)!,
+              memoText: memo,
+            })
+          : null
+
+        const realTxHash = await walletClient.sendTransaction(
+          enclaveMemoCall
+            ? {
+                to: enclaveMemoCall.to,
+                data: enclaveMemoCall.data,
+              }
+            : {
+                to: POOL_CONTRACTS.USDC as Address,
+                data: encodeFunctionData({
+                  abi: ERC20_ABI,
+                  functionName: 'transfer',
+                  args: [recipient as Address, parseUnits(numberToExactDecimal(normalizedAmount)!, 6)],
+                }),
+              }
+        )
 
         onSubmission?.({ txHash: realTxHash, phase: 'spend' })
         if (!isTransactionHash(realTxHash)) {
@@ -203,6 +223,7 @@ export async function executeCopilotSendAction(
           recipient,
           userAddress: activeWallet,
           status: 'success',
+          ...(enclaveMemoCall && { memo, memoId: enclaveMemoCall.memoId }),
         })
 
         if (typeof window !== 'undefined') {
@@ -308,27 +329,39 @@ export async function executeCopilotSendAction(
     }
   }
 
-  const isPasskeyMode = Boolean(activeMsca && activeWallet.toLowerCase() === activeMsca.toLowerCase())
+  const isPasskeyMode = isPasskeyWalletContext(context)
   if (isPasskeyMode) {
     if (onProgress) onProgress('routing')
 
     if (onProgress) onProgress('signing')
     if (onProgress) onProgress('broadcasting')
 
-    const tokenAddress = tokenSymbol === 'USDC' ? '' : ARC_TOKENS[tokenSymbol as keyof typeof ARC_TOKENS]
-    if (tokenSymbol !== 'USDC' && !tokenAddress) {
+    const tokenContractAddress = ARC_TOKENS[tokenSymbol as keyof typeof ARC_TOKENS] as Address | undefined
+    const tokenAddress = tokenSymbol === 'USDC' ? '' : tokenContractAddress
+    if ((tokenSymbol !== 'USDC' && !tokenAddress) || (hasMemo && !tokenContractAddress)) {
       if (onProgress) onProgress('failed')
       return failedActionReceipt('send', 'Unsupported Token', `No Arc Testnet contract address is configured for ${tokenSymbol}.`, startTime)
     }
+    const passkeyMemoCall = hasMemo && tokenContractAddress
+      ? buildMemoCall({
+          tokenAddress: tokenContractAddress,
+          decimals: COPILOT_SEND_DECIMALS[tokenSymbol] ?? 6,
+          recipient,
+          amount: numberToExactDecimal(normalizedAmount)!,
+          memoText: memo,
+        })
+      : null
     let realTxHash = ''
     if (!realTxHash) {
       // Modular UserOp with Paymaster
-      const call = tokenSymbol === 'USDC'
-        ? createModularUsdcTransferCall(recipient as Hex, normalizedAmount)
-        : {
-            to: tokenAddress as Hex,
-            data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [recipient as Hex, tokenUnits(normalizedAmount, tokenSymbol)] }),
-          }
+      const call = passkeyMemoCall
+        ? { to: passkeyMemoCall.to, data: passkeyMemoCall.data }
+        : tokenSymbol === 'USDC'
+          ? createModularUsdcTransferCall(recipient as Hex, normalizedAmount)
+          : {
+              to: tokenAddress as Hex,
+              data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [recipient as Hex, tokenUnits(normalizedAmount, tokenSymbol)] }),
+            }
       const userOpRes = await sendModularUserOperation({
         calls: [call],
         paymaster: true,
@@ -370,6 +403,7 @@ export async function executeCopilotSendAction(
       recipient,
       userAddress: activeWallet,
       status: 'success',
+      ...(passkeyMemoCall && { memo, memoId: passkeyMemoCall.memoId }),
     })
 
     if (typeof window !== 'undefined') {
@@ -387,7 +421,7 @@ export async function executeCopilotSendAction(
       fromToken: tokenSymbol,
       amountIn: normalizedAmount,
       recipient,
-      memo,
+      memo: hasMemo ? memo : undefined,
       gasUsdc: fee.feeUsdc ?? 0,
       actualGasUsdc: fee.feeUsdc,
       baseFeeUsdc: fee.baseFeeUsdcExact,
@@ -426,15 +460,39 @@ export async function executeCopilotSendAction(
     if (onProgress) onProgress('signing')
     if (onProgress) onProgress('broadcasting')
 
-    const sendRes = await sendToken(
-      effectiveProvider,
-      'Arc_Testnet',
-      tokenSymbol,
-      recipient,
-      numberToExactDecimal(normalizedAmount)!
-    )
+    let realTxHash = ''
+    let eoaMemoId: string | undefined
+    let eoaMemoIndex: number | undefined
 
-    const realTxHash = (sendRes as any)?.txHash || (sendRes as any)?.transactionHash || ''
+    if (hasMemo) {
+      const tokenContractAddress = ARC_TOKENS[tokenSymbol as keyof typeof ARC_TOKENS] as Address | undefined
+      if (!tokenContractAddress) {
+        if (onProgress) onProgress('failed')
+        return failedActionReceipt('send', 'Unsupported Token', `No Arc Testnet contract address is configured for ${tokenSymbol}.`, startTime)
+      }
+      const speedTier = walletSettingsService.getCopilotSpeedTier(activeWallet)
+      const memoRes = await sendTokenWithMemo(effectiveProvider, {
+        tokenAddress: tokenContractAddress,
+        decimals: COPILOT_SEND_DECIMALS[tokenSymbol] ?? 6,
+        recipient,
+        amount: numberToExactDecimal(normalizedAmount)!,
+        memoText: memo,
+        tier: speedTier,
+      })
+      realTxHash = memoRes.txHash
+      eoaMemoId = memoRes.memoId
+      eoaMemoIndex = memoRes.memoIndex !== undefined ? Number(memoRes.memoIndex) : undefined
+    } else {
+      const sendRes = await sendToken(
+        effectiveProvider,
+        'Arc_Testnet',
+        tokenSymbol,
+        recipient,
+        numberToExactDecimal(normalizedAmount)!
+      )
+      realTxHash = (sendRes as any)?.txHash || (sendRes as any)?.transactionHash || ''
+    }
+
     onSubmission?.({ txHash: realTxHash, phase: 'spend' })
     if (!isTransactionHash(realTxHash)) {
       if (onProgress) onProgress('failed')
@@ -466,6 +524,11 @@ export async function executeCopilotSendAction(
       recipient,
       userAddress: activeWallet,
       status: 'success',
+      ...(hasMemo && {
+        memo,
+        ...(eoaMemoId && { memoId: eoaMemoId }),
+        ...(eoaMemoIndex !== undefined && { memoIndex: eoaMemoIndex }),
+      }),
     })
 
     if (typeof window !== 'undefined') {
@@ -483,7 +546,7 @@ export async function executeCopilotSendAction(
       fromToken: tokenSymbol,
       amountIn: normalizedAmount,
       recipient,
-      memo,
+      memo: hasMemo ? memo : undefined,
       gasUsdc: fee.feeUsdc ?? 0,
       actualGasUsdc: fee.feeUsdc,
       baseFeeUsdc: fee.baseFeeUsdcExact,

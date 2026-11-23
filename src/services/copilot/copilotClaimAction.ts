@@ -32,6 +32,7 @@ import {
   type CopilotActionContext,
   failedActionReceipt,
   getVerifiedArcReceipt,
+  isPasskeyWalletContext,
   isTransactionHash,
 } from './copilotCommon'
 import { formatClaimPoolSummary, scanClaimableCopilotFees } from './copilotClaimQuote'
@@ -112,7 +113,6 @@ export async function executeCopilotClaimFeesAction(
   const {
     actionPayload,
     activeWallet,
-    activeMsca,
     provider,
     onProgress,
     ucwHandlers,
@@ -194,7 +194,7 @@ export async function executeCopilotClaimFeesAction(
   }
 
   // ── A. Passkey / Modular Smart Account (Single Atomic Batched UserOp) ──
-  if (activeMsca && ucwHandlers?.authSource !== 'ucw') {
+  if (isPasskeyWalletContext(context)) {
     try {
       const calls = claimablePools.map((item) => ({
         to: item.poolAddress as Hex,

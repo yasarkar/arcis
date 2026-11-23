@@ -214,7 +214,8 @@ export async function queryArcisLLM(
   userPrompt: string,
   walletAddress?: string,
   chatHistory?: CopilotMessage[],
-  portfolioSnapshot?: PortfolioSnapshot
+  portfolioSnapshot?: PortfolioSnapshot,
+  signal?: AbortSignal
 ): Promise<LLMResult> {
   const startTime = Date.now()
   const intent = classifyCopilotIntent(userPrompt)
@@ -235,18 +236,26 @@ export async function queryArcisLLM(
     isExplicitTransactionCommand(userPrompt) ? resolveLiveMaxFeePerGas() : Promise.resolve(undefined),
   ])
 
+  if (signal?.aborted) {
+    const abortErr = new Error('Copilot request aborted')
+    abortErr.name = 'AbortError'
+    throw abortErr
+  }
+
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (customApiKey) headers.Authorization = `Bearer ${customApiKey}`
     let res = await fetch('/api/copilot', {
       method: 'POST', headers,
+      ...(signal ? { signal } : {}),
       body: JSON.stringify({ userPrompt, walletAddress, livePrices, chatHistory, portfolio }),
     })
     // If the BYOK credential is rejected, retry through the server-owned key.
-    if (!res.ok && customApiKey) {
+    if (!res.ok && customApiKey && !signal?.aborted) {
       res = await fetch('/api/copilot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        ...(signal ? { signal } : {}),
         body: JSON.stringify({ userPrompt, walletAddress, livePrices, chatHistory, portfolio }),
       })
     }
@@ -261,7 +270,7 @@ export async function queryArcisLLM(
       }
     } else {
       const data = await res.json().catch(() => ({}))
-      if (customApiKey && !data.fallbackToLocal) {
+      if (customApiKey && !data.fallbackToLocal && !signal?.aborted) {
         try {
           const llmResult = await callCopilotLLM(userPrompt, customApiKey, walletAddress, livePrices, chatHistory, portfolio)
           const safeResult = await quoteResult(
@@ -273,7 +282,10 @@ export async function queryArcisLLM(
         }
       }
     }
-  } catch (err) {
+  } catch (err: any) {
+    if (signal?.aborted || err?.name === 'AbortError') {
+      throw err
+    }
     console.warn('Backend /api/copilot call failed, falling back to local NLP engine:', err)
   }
 

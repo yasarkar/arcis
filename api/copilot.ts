@@ -27,6 +27,17 @@ import {
 // Any other Authorization value is ignored, so an arbitrary header can never be forwarded
 // upstream as the provider key. Keys are never logged.
 const BYOK_KEY_PATTERN = /^sk-(or-)?[A-Za-z0-9_-]{16,}$/
+const MAX_USER_PROMPT_CHARS = 2_000
+const MAX_HISTORY_TURNS = 6
+const MAX_HISTORY_ITEM_CHARS = 1_200
+const UPSTREAM_TIMEOUT_MS = 25_000
+const DEFAULT_COPILOT_MAX_TOKENS = 1_200
+
+function resolveCopilotMaxTokens(raw?: string): number {
+  const parsed = Number.parseInt(String(raw || '').trim(), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_COPILOT_MAX_TOKENS
+  return Math.min(4_096, Math.max(256, parsed))
+}
 
 export async function POST(req: Request) {
   try {
@@ -92,6 +103,16 @@ export async function POST(req: Request) {
       )
     }
 
+    if (userPrompt.length > MAX_USER_PROMPT_CHARS) {
+      return apiError(
+        `userPrompt exceeds the maximum allowed length of ${MAX_USER_PROMPT_CHARS} characters.`,
+        'PROMPT_TOO_LONG',
+        400,
+        null,
+        { fallbackToLocal: true }
+      )
+    }
+
     const intent = classifyCopilotIntent(userPrompt)
     if (intent.kind === 'cancel' || intent.kind === 'ambiguous') return apiSuccess({ message: intent.message, source: 'local-nlp' })
     if (intent.kind === 'correction') {
@@ -130,7 +151,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
 - When the user asks exploratory questions about their portfolio, balance, what to do with funds, advice, or strategy ("portföyümü analiz et", "ne yapmalıyım", "strateji öner", "portfolio status", "where to get yield"), analyze their exact real-time liquid vs staked vs cross-chain balances from the snapshot above:
   - If the user has idle USDC on Arc Testnet (> $50), recommend depositing into the Real-Yield Vault (8.42% APY) while keeping sufficient liquidity for gas/swaps, and call execute_deposit_yield.
   - If the user has cross-chain USDC on Circle Gateway, recommend bridging to Arc Testnet for instant sub-second finality, and call execute_bridge.
-  - If the user has $0 balance and specifically asks how to get started or requests free testnet funds, recommend opening the faucet to claim 1,000 free testnet USDC, and call execute_faucet.
+  - If the user has $0 balance and specifically asks how to get started or requests free testnet funds, recommend clicking the Faucet button in the top header to claim free testnet USDC.
 - CONTEXT & MULTI-TURN DIALOGUE:
   - You have full awareness of the recent conversation history.
   - If the user corrects or updates a previous action (e.g. "actually make it 250", "swap to WETH instead"), seamlessly resolve parameters and trigger the updated tool call.
@@ -231,26 +252,15 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         type: 'function',
         function: {
           name: 'execute_bridge',
-          description: 'Bridge USDC via Circle Gateway between Arc Testnet and other chains (e.g. Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia, Solana Devnet)',
+          description: 'Bridge USDC via Circle CCTP between Arc Testnet and supported EVM testnets (e.g. Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia, Optimism Sepolia, Polygon Amoy, Avalanche Fuji)',
           parameters: {
             type: 'object',
             properties: {
-              fromChain: { type: 'string', description: 'Source chain name e.g. Arc Testnet, Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia, Solana Devnet' },
-              toChain: { type: 'string', description: 'Destination chain name e.g. Ethereum Sepolia, Arc Testnet, Base Sepolia, Arbitrum Sepolia, Solana Devnet' },
+              fromChain: { type: 'string', description: 'Source EVM chain name e.g. Arc Testnet, Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia, Optimism Sepolia, Polygon Amoy, Avalanche Fuji' },
+              toChain: { type: 'string', description: 'Destination EVM chain name e.g. Ethereum Sepolia, Arc Testnet, Base Sepolia, Arbitrum Sepolia, Optimism Sepolia, Polygon Amoy, Avalanche Fuji' },
               amount: { type: 'number', description: 'Amount of USDC to transfer' },
             },
             required: ['amount'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'execute_faucet',
-          description: 'Open Faucet to claim 1,000 testnet USDC',
-          parameters: {
-            type: 'object',
-            properties: {},
           },
         },
       },
@@ -286,14 +296,14 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
     headers['HTTP-Referer'] = 'https://arcis.finance'
     headers['X-Title'] = 'Arcis Protocol'
 
-    const cleanHistory = (chatHistory || [])
-      .slice(-6)
-      .filter((m: any) => m.content && m.content.trim() !== '')
+    const cleanHistory = (Array.isArray(chatHistory) ? chatHistory : [])
+      .slice(-MAX_HISTORY_TURNS)
+      .filter((m: any) => typeof m?.content === 'string' && m.content.trim() !== '')
       .map((m: any) => ({
         // CopilotMessage carries `role`, not `sender`. Client-supplied history may only be a user
         // or assistant turn — never `system`, which would hand it instruction-level authority.
         role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.content,
+        content: m.content.slice(0, MAX_HISTORY_ITEM_CHARS),
       }))
 
     const messages = [
@@ -302,25 +312,53 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       { role: 'user', content: userPrompt },
     ]
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: modelName,
-        messages,
-        tools: ARC_COPILOT_TOOLS,
-        tool_choice: intent.kind === 'read-only' ? 'none' : 'auto',
-        temperature: 0.3,
-        max_tokens: 650,
-      }),
-    })
+    const maxTokens = resolveCopilotMaxTokens(globalEnv.COPILOT_MAX_OUTPUT_TOKENS)
+    const upstreamSignal =
+      typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
+        : undefined
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '')
+    let response: Response
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        ...(upstreamSignal ? { signal: upstreamSignal } : {}),
+        body: JSON.stringify({
+          model: modelName,
+          messages,
+          tools: ARC_COPILOT_TOOLS,
+          tool_choice: intent.kind === 'read-only' ? 'none' : 'auto',
+          temperature: 0.3,
+          max_tokens: maxTokens,
+        }),
+      })
+    } catch (fetchErr: any) {
+      const isTimeout =
+        fetchErr?.name === 'TimeoutError' ||
+        fetchErr?.name === 'AbortError' ||
+        Boolean(upstreamSignal?.aborted)
       return Response.json(
         {
           success: false,
-          error: `AI Provider HTTP ${response.status}: ${errText}`,
+          error: isTimeout
+            ? 'AI Provider request timed out. Falling back to local Copilot engine.'
+            : 'AI Provider is temporarily unreachable. Falling back to local Copilot engine.',
+          code: isTimeout ? 'UPSTREAM_TIMEOUT' : 'UPSTREAM_UNREACHABLE',
+          fallbackToLocal: true,
+        },
+        { status: isTimeout ? 504 : 502 }
+      )
+    }
+
+    if (!response.ok) {
+      // Drain upstream body safely without echoing raw provider internals to the client
+      await response.text().catch(() => '')
+      return Response.json(
+        {
+          success: false,
+          error: `AI Provider returned HTTP ${response.status}. Falling back to local Copilot engine.`,
+          code: 'UPSTREAM_PROVIDER_ERROR',
           fallbackToLocal: true,
         },
         { status: 502 }
@@ -497,15 +535,6 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         if (!outputMessage) {
           outputMessage = `I prepared the Circle Gateway bridge transfer. You can confirm the transfer by clicking the card below.`
         }
-      } else if (funcName === 'execute_faucet') {
-        actionPayload = {
-          type: 'faucet',
-          title: '💧 Claim 1,000 Testnet USDC',
-          data: {},
-        }
-        if (!outputMessage) {
-          outputMessage = `I have prepared your testnet balance claim. You can claim <strong>1,000 free testnet USDC</strong> below with zero gas fees.`
-        }
       } else if (funcName === 'execute_send') {
         const recipient = args.recipient || ''
         const source = sourceLabel
@@ -576,7 +605,7 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
   } catch (error: any) {
     console.error('[Copilot API Error]:', error)
     return apiError(
-      error.message || 'Server error occurred in Copilot processing.',
+      'Server error occurred in Copilot processing.',
       'COPILOT_SERVER_ERROR',
       500,
       null,

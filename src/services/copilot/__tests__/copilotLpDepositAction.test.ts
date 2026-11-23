@@ -1,13 +1,14 @@
 // src/services/copilot/__tests__/copilotLpDepositAction.test.ts
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { encodeAbiParameters, encodeEventTopics, parseUnits } from 'viem'
-import { POOL_CONTRACTS, STABLE_SWAP_ABI } from '../../../config/poolsConfig'
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, parseUnits } from 'viem'
+import { ERC20_ABI, POOL_CONTRACTS, STABLE_SWAP_ABI } from '../../../config/poolsConfig'
 import { getCopilotLpPoolById } from '../../../utils/copilotPoolParser'
 
 const mockReadContract = vi.fn()
 const mockWaitForTransactionReceipt = vi.fn()
 const mockEstimateContractGas = vi.fn(async () => 250_000n)
 const mockWriteContract = vi.fn()
+const mockSendTransaction = vi.fn()
 const mockSendModularUserOp = vi.fn()
 const mockAddTransaction = vi.fn()
 
@@ -62,6 +63,7 @@ vi.mock('viem', async (importOriginal) => {
     ...actual,
     createWalletClient: vi.fn(() => ({
       writeContract: mockWriteContract,
+      sendTransaction: mockSendTransaction,
     })),
   }
 })
@@ -413,5 +415,243 @@ describe('executeCopilotLpDepositAction', () => {
     expect(executeUcwContract).toHaveBeenCalledTimes(2)
     expect(executeUcwContract.mock.calls[0][0].abiFunctionSignature).toBe('swap(address,address,uint256,uint256)')
     expect(executeUcwContract.mock.calls[1][0].abiFunctionSignature).toBe('addLiquidity(uint256,uint256,uint256)')
+  })
+
+  it('forwards minted LP tokens from Session Enclave to activeWallet after 1-Click Zap (ARCO-02)', async () => {
+    const ENCLAVE = '0x3333333333333333333333333333333333333333' as const
+    const SWAP_TX = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const
+    const FWD_TX = '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' as const
+    const LP_MINTED = parseUnits('99.5', 18)
+
+    const sessionEnclave = await import('../../sessionEnclaveService')
+    vi.mocked(sessionEnclave.getEphemeralSessionAccount).mockReturnValueOnce({ address: ENCLAVE } as any)
+    vi.mocked(sessionEnclave.fetchEnclaveUsdcBalance).mockResolvedValueOnce(200)
+
+    const pool = getCopilotLpPoolById('usdc-eurc-stable-pool')!
+    let eurcReadCount = 0
+    mockReadContract.mockImplementation(async ({ address, functionName }: any) => {
+      if (functionName === 'reserveA') return parseUnits('10000', 6)
+      if (functionName === 'reserveB') return parseUnits('10000', 6)
+      if (functionName === 'totalLp') return parseUnits('20000', 18)
+      if (functionName === 'paused') return false
+      if (functionName === 'allowance') return parseUnits('100000', 6)
+      if (functionName === 'balanceOf') {
+        if (String(address).toLowerCase() === POOL_CONTRACTS.EURC.toLowerCase()) {
+          eurcReadCount += 1
+          return eurcReadCount === 1 ? 0n : parseUnits('49.9', 6)
+        }
+        if (String(address).toLowerCase() === pool.contractAddress.toLowerCase()) {
+          return LP_MINTED
+        }
+        return parseUnits('500', 6)
+      }
+      return 0n
+    })
+
+    mockSendTransaction
+      .mockResolvedValueOnce(SWAP_TX)
+      .mockResolvedValueOnce(TX_HASH)
+      .mockResolvedValueOnce(FWD_TX)
+
+    mockWaitForTransactionReceipt.mockImplementation(async ({ hash }: any) => {
+      if (hash === SWAP_TX) return { status: 'success', transactionHash: SWAP_TX, logs: [] }
+      if (hash === FWD_TX) return { status: 'success', transactionHash: FWD_TX, logs: [] }
+      return {
+        status: 'success',
+        transactionHash: TX_HASH,
+        logs: [
+          buildLiquidityAddedLog(
+            pool.contractAddress,
+            ENCLAVE,
+            parseUnits('50', 6),
+            parseUnits('49.9', 6),
+            LP_MINTED
+          ),
+        ],
+      }
+    })
+
+    const receipt = await executeCopilotLpDepositAction(
+      {
+        actionPayload: {
+          type: 'interactive_lp_deposit',
+          title: 'Zap 100 USDC into USDC / EURC LP',
+          data: {
+            poolId: 'usdc-eurc-stable-pool',
+            poolName: pool.name,
+            poolAddress: pool.contractAddress,
+            lpMode: 'zap',
+            tokenA: 'USDC',
+            tokenB: 'EURC',
+            amountA: 100,
+            slippageBps: 50,
+            minLpSharesRaw: parseUnits('98', 18).toString(),
+          },
+        },
+        activeWallet: WALLET,
+        provider: { request: vi.fn() },
+        budgetManaged: true,
+        startTime: Date.now(),
+      },
+      { isActive: true }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(receipt.txHash).toBe(TX_HASH)
+    expect(receipt.subtitle).toBe('Executed via Session Key (Zero-Popup 1-Click Zap)')
+    expect(mockWriteContract).not.toHaveBeenCalled()
+
+    // 3 enclave txs: swap, addLiquidity, and ERC-20 LP transfer to activeWallet
+    expect(mockSendTransaction).toHaveBeenCalledTimes(3)
+    const forwardCall = mockSendTransaction.mock.calls[2][0]
+    expect(String(forwardCall.to).toLowerCase()).toBe(pool.contractAddress.toLowerCase())
+    const decodedForward = decodeFunctionData({ abi: ERC20_ABI, data: forwardCall.data })
+    expect(decodedForward.functionName).toBe('transfer')
+    expect(String(decodedForward.args[0]).toLowerCase()).toBe(WALLET.toLowerCase())
+    expect(decodedForward.args[1]).toBe(LP_MINTED)
+  })
+
+  it('discloses enclave custody without triggering a duplicate fallback deposit if LP transfer fails (ARCO-02)', async () => {
+    const ENCLAVE = '0x3333333333333333333333333333333333333333' as const
+    const SWAP_TX = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const
+    const LP_MINTED = parseUnits('99.5', 18)
+
+    const sessionEnclave = await import('../../sessionEnclaveService')
+    vi.mocked(sessionEnclave.getEphemeralSessionAccount).mockReturnValueOnce({ address: ENCLAVE } as any)
+    vi.mocked(sessionEnclave.fetchEnclaveUsdcBalance).mockResolvedValueOnce(200)
+
+    const pool = getCopilotLpPoolById('usdc-eurc-stable-pool')!
+    let eurcReadCount = 0
+    mockReadContract.mockImplementation(async ({ address, functionName }: any) => {
+      if (functionName === 'reserveA') return parseUnits('10000', 6)
+      if (functionName === 'reserveB') return parseUnits('10000', 6)
+      if (functionName === 'totalLp') return parseUnits('20000', 18)
+      if (functionName === 'paused') return false
+      if (functionName === 'allowance') return parseUnits('100000', 6)
+      if (functionName === 'balanceOf') {
+        if (String(address).toLowerCase() === POOL_CONTRACTS.EURC.toLowerCase()) {
+          eurcReadCount += 1
+          return eurcReadCount === 1 ? 0n : parseUnits('49.9', 6)
+        }
+        if (String(address).toLowerCase() === pool.contractAddress.toLowerCase()) {
+          return LP_MINTED
+        }
+        return parseUnits('500', 6)
+      }
+      return 0n
+    })
+
+    mockSendTransaction
+      .mockResolvedValueOnce(SWAP_TX)
+      .mockResolvedValueOnce(TX_HASH)
+      .mockRejectedValueOnce(new Error('Forward gas estimation reverted'))
+
+    mockWaitForTransactionReceipt.mockImplementation(async ({ hash }: any) => {
+      if (hash === SWAP_TX) return { status: 'success', transactionHash: SWAP_TX, logs: [] }
+      return {
+        status: 'success',
+        transactionHash: TX_HASH,
+        logs: [
+          buildLiquidityAddedLog(
+            pool.contractAddress,
+            ENCLAVE,
+            parseUnits('50', 6),
+            parseUnits('49.9', 6),
+            LP_MINTED
+          ),
+        ],
+      }
+    })
+
+    const receipt = await executeCopilotLpDepositAction(
+      {
+        actionPayload: {
+          type: 'interactive_lp_deposit',
+          title: 'Zap 100 USDC into USDC / EURC LP',
+          data: {
+            poolId: 'usdc-eurc-stable-pool',
+            poolName: pool.name,
+            poolAddress: pool.contractAddress,
+            lpMode: 'zap',
+            tokenA: 'USDC',
+            tokenB: 'EURC',
+            amountA: 100,
+            slippageBps: 50,
+            minLpSharesRaw: parseUnits('98', 18).toString(),
+          },
+        },
+        activeWallet: WALLET,
+        provider: { request: vi.fn() },
+        budgetManaged: true,
+        startTime: Date.now(),
+      },
+      { isActive: true }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(receipt.txHash).toBe(TX_HASH)
+    expect(receipt.subtitle).toContain('remain at enclave 0x3333...3333')
+    // Must NOT fall back to connected wallet and double-deposit
+    expect(mockWriteContract).not.toHaveBeenCalled()
+  })
+
+  it('routes EOA dual LP deposit to injected wallet even when a stale cached MSCA address exists (ARCO-03)', async () => {
+    const STALE_MSCA = '0x9999999999999999999999999999999999999999' as const
+    const pool = getCopilotLpPoolById('usdc-eurc-stable-pool')!
+    mockReadContract.mockImplementation(async ({ functionName }: any) => {
+      if (functionName === 'reserveA') return parseUnits('10000', 6)
+      if (functionName === 'reserveB') return parseUnits('10000', 6)
+      if (functionName === 'totalLp') return parseUnits('20000', 18)
+      if (functionName === 'paused') return false
+      if (functionName === 'balanceOf') return parseUnits('1000', 6)
+      if (functionName === 'allowance') return parseUnits('1000', 6)
+      return 0n
+    })
+
+    mockWriteContract.mockResolvedValue(TX_HASH)
+    mockWaitForTransactionReceipt.mockResolvedValue({
+      status: 'success',
+      transactionHash: TX_HASH,
+      logs: [
+        buildLiquidityAddedLog(
+          pool.contractAddress,
+          WALLET,
+          parseUnits('50', 6),
+          parseUnits('50', 6),
+          parseUnits('100', 18)
+        ),
+      ],
+    })
+
+    const receipt = await executeCopilotLpDepositAction(
+      {
+        actionPayload: {
+          type: 'interactive_lp_deposit',
+          title: 'Add Liquidity: USDC / EURC',
+          data: {
+            poolId: 'usdc-eurc-stable-pool',
+            poolName: pool.name,
+            poolAddress: pool.contractAddress,
+            lpMode: 'dual',
+            tokenA: 'USDC',
+            tokenB: 'EURC',
+            amountA: 50,
+            amountB: 50,
+            slippageBps: 50,
+            minLpSharesRaw: parseUnits('99', 18).toString(),
+          },
+        },
+        activeWallet: WALLET,
+        activeMsca: STALE_MSCA,
+        ucwHandlers: { authSource: 'evm' },
+        provider: { request: vi.fn() },
+        startTime: Date.now(),
+      },
+      { isActive: true }
+    )
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(mockSendModularUserOp).not.toHaveBeenCalled()
+    expect(mockWriteContract).toHaveBeenCalledTimes(1)
   })
 })

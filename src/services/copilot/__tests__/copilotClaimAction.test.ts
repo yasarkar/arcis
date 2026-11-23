@@ -315,4 +315,35 @@ describe('executeCopilotClaimFeesAction', () => {
     expect(receipt.poolId).toBe('usdc-eurc-stable-pool')
     expect(receipt.poolName).toBe('USDC / EURC')
   })
+
+  it('routes EOA fee claim to injected wallet even when a stale cached MSCA address exists (ARCO-03)', async () => {
+    const STALE_MSCA = '0x9999999999999999999999999999999999999999' as const
+    mockReadContract.mockImplementation(async ({ address, functionName }: any) => {
+      if (functionName === 'pendingYield') return 0n
+      if (functionName === 'pendingFees' && address === POOL_CONTRACTS.STABLE_SWAP_POOL) {
+        return [parseUnits('1.5', 6), parseUnits('1', 6)]
+      }
+      return [0n, 0n]
+    })
+
+    mockWriteContract.mockResolvedValueOnce(TX_HASH_1)
+    mockWaitForTransactionReceipt.mockResolvedValueOnce({
+      status: 'success',
+      transactionHash: TX_HASH_1,
+      logs: [feesHarvestedLog(POOL_CONTRACTS.STABLE_SWAP_POOL, WALLET, parseUnits('1.5', 6), parseUnits('1', 6))],
+    })
+
+    const receipt = await executeCopilotClaimFeesAction({
+      actionPayload: { type: 'interactive_claim_fees', title: 'Claim All Fees', data: { claimScope: 'all' } },
+      activeWallet: WALLET,
+      activeMsca: STALE_MSCA,
+      ucwHandlers: { authSource: 'evm' },
+      provider: { request: vi.fn() },
+      startTime: Date.now(),
+    })
+
+    expect(receipt.status).toBe('SUCCESS')
+    expect(mockSendModularUserOp).not.toHaveBeenCalled()
+    expect(mockWriteContract).toHaveBeenCalledTimes(1)
+  })
 })

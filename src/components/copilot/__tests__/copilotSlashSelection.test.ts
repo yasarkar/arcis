@@ -13,6 +13,7 @@ vi.mock('../../../hooks/useClearOnWalletDisconnect', () => ({ useClearOnWalletDi
 vi.mock('../../../services/soundService', () => ({ playSound: vi.fn(), soundService: { isEnabled: () => false, isMuted: () => true } }))
 
 import ArcCopilotDrawer from '../ArcCopilotDrawer'
+import { COPILOT_SLASH_COMMANDS } from '../../../config/copilotSlashCommands'
 
 function findElement(node: React.ReactNode, predicate: (element: React.ReactElement<any>) => boolean): React.ReactElement<any> | undefined {
   for (const child of React.Children.toArray(node)) {
@@ -151,6 +152,18 @@ describe('Ask Arco slash command selection on Enter & Tab', () => {
     expect(html).not.toContain('/swap')
     expect(html).not.toContain('/vault')
     expect(html).not.toContain('/clear')
+  })
+
+  it('keeps every slash command syntax aligned with its command name and omits removed commands (ARCO-11)', () => {
+    for (const item of COPILOT_SLASH_COMMANDS) {
+      expect(item.syntax.startsWith(item.command)).toBe(true)
+    }
+    const addLp = COPILOT_SLASH_COMMANDS.find((c) => c.command === '/add-lp')
+    expect(addLp?.syntax).toBe('/add-lp [amount] [pool]')
+    const commands = COPILOT_SLASH_COMMANDS.map((c) => c.command)
+    expect(commands).not.toContain('/faucet')
+    expect(commands).not.toContain('/gateway')
+    expect(commands).not.toContain('/settings')
   })
 })
 

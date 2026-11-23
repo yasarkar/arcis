@@ -223,4 +223,31 @@ describe('A02 new commands versus draft revisions', () => {
     // Yield vault withdrawal must NOT be hijacked by LP removal
     expect(classifyCopilotIntent('withdraw 50 USDC from vault')).not.toEqual({ kind: 'command', action: 'lp_remove' })
   })
+
+  it('skips preservesActiveDraft validation replies in latestEditableCopilotDraft without weakening cancel/normal reply stops (ARCO-08)', () => {
+    const base = history(swap)
+    const invalidCorrectionTurn: CopilotMessage[] = [
+      { id: 'u1', role: 'user', content: 'değiştir', timestamp: 1 },
+      { id: 'a1', role: 'assistant', content: 'Specify the field to change.', timestamp: 2, preservesActiveDraft: true },
+    ]
+    expect(latestEditableCopilotDraft([...base, ...invalidCorrectionTurn])).toEqual(swap)
+
+    // Still stops if the user cancels afterward
+    expect(
+      latestEditableCopilotDraft([
+        ...base,
+        ...invalidCorrectionTurn,
+        { id: 'u2', role: 'user', content: 'cancel', timestamp: 3 },
+      ])
+    ).toBeUndefined()
+
+    // Still stops on any regular non-preserving assistant message
+    expect(
+      latestEditableCopilotDraft([
+        ...base,
+        ...invalidCorrectionTurn,
+        { id: 'a2', role: 'assistant', content: 'Normal reply.', timestamp: 3 },
+      ])
+    ).toBeUndefined()
+  })
 })

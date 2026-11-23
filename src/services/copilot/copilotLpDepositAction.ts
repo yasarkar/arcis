@@ -54,6 +54,7 @@ import { logger } from '../../utils/logger'
 import {
   type CopilotActionContext,
   failedActionReceipt,
+  isPasskeyWalletContext,
   isPositiveTokenAmount,
   isTransactionHash,
   getVerifiedArcReceipt,
@@ -126,7 +127,6 @@ export async function executeCopilotLpDepositAction(
   const {
     actionPayload,
     activeWallet,
-    activeMsca,
     provider,
     onProgress,
     ucwHandlers,
@@ -406,6 +406,46 @@ export async function executeCopilotLpDepositAction(
           const lpMintedRaw = decoded?.lpMinted ?? minLp
           const lpMintedFormatted = Number(formatUnits(lpMintedRaw, 18)).toFixed(6)
           const poolSharePct = calculatePoolShare(lpMintedRaw, totalLp + lpMintedRaw)
+
+          // Forward minted LP tokens from the ephemeral enclave to activeWallet so the user's
+          // primary wallet owns the position (required for Remove LP, Claim Fees, and portfolio reads).
+          // All Arc V4 pool LP tokens inherit ERC20 and checkpoint LpFeeAccounting inside `_update`.
+          let forwardedToWallet = activeWallet.toLowerCase() === ephemeralAccount.address.toLowerCase()
+          if (!forwardedToWallet) {
+            try {
+              const enclaveLpBal = (await resilientClient.readContract({
+                address: poolAddress,
+                abi: ERC20_ABI,
+                functionName: 'balanceOf',
+                args: [ephemeralAccount.address],
+              }).catch(() => lpMintedRaw)) as bigint
+              const lpToForward = enclaveLpBal > 0n ? enclaveLpBal : lpMintedRaw
+              if (lpToForward > 0n) {
+                const forwardHash = await walletClient.sendTransaction({
+                  to: poolAddress as Hex,
+                  data: encodeFunctionData({
+                    abi: ERC20_ABI,
+                    functionName: 'transfer',
+                    args: [activeWallet as Address, lpToForward],
+                  }),
+                })
+                const forwardRec = await resilientClient
+                  .waitForTransactionReceipt({ hash: forwardHash, timeout: 20000 })
+                  .catch(() => null)
+                if (forwardRec?.status === 'success') {
+                  forwardedToWallet = true
+                } else {
+                  log.warn('Enclave LP token transfer to activeWallet did not confirm as success:', {
+                    forwardHash,
+                    status: forwardRec?.status,
+                  })
+                }
+              }
+            } catch (fwdErr) {
+              log.warn('Could not forward minted LP tokens from enclave to activeWallet:', fwdErr)
+            }
+          }
+
           const fee = await resolveArcActualFeeUsdc(addHash)
           const durationMs = Date.now() - startTime
 
@@ -433,11 +473,15 @@ export async function executeCopilotLpDepositAction(
           }
           if (onProgress) onProgress('confirmed')
 
+          const enclaveShort = `${ephemeralAccount.address.slice(0, 6)}...${ephemeralAccount.address.slice(-4)}`
+
           return {
             id: `rcpt_${Date.now()}`,
             actionType: 'deposit',
             title: `${pool.name} LP Deposit Completed`,
-            subtitle: 'Executed via Session Key (Zero-Popup 1-Click Zap)',
+            subtitle: forwardedToWallet
+              ? 'Executed via Session Key (Zero-Popup 1-Click Zap)'
+              : `LP minted via Session Key, but transfer to your wallet did not confirm; LP shares remain at enclave ${enclaveShort}`,
             status: 'SUCCESS',
             txHash: addHash,
             fromToken: tokenA.symbol,
@@ -640,7 +684,7 @@ export async function executeCopilotLpDepositAction(
   }
 
   // ── B. Passkey / Modular Smart Account (MSCA) Execution ──
-  if (!realTxHash && activeMsca) {
+  if (!realTxHash && isPasskeyWalletContext(context)) {
     try {
       if (lpMode === 'zap') {
         const { halfUsdc, remainingUsdc, minSwapOut } = computeZapSwapParams()
@@ -737,7 +781,7 @@ export async function executeCopilotLpDepositAction(
   }
 
   // ── C. Injected EOA Wallet Execution ──
-  if (!realTxHash && effectiveProvider) {
+  if (!realTxHash && ucwHandlers?.authSource !== 'ucw' && effectiveProvider) {
     try {
       const { createWalletClient: createBrowserWalletClient, custom } = await import('viem')
       const walletClient = createBrowserWalletClient({
@@ -860,7 +904,7 @@ export async function executeCopilotLpDepositAction(
     return failedActionReceipt(
       'deposit',
       `LP Deposit Failed: ${pool.name}`,
-      'Arc Testnet likidite ekleme işlemi onaylanamadı. Cüzdan bağlantınızı veya token bakiyenizi kontrol edin.',
+      'Arc Testnet LP deposit could not be confirmed. Check your wallet connection or token balances.',
       startTime
     )
   }
