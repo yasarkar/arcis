@@ -10,7 +10,7 @@
 
 export const COPILOT_EXECUTION_POLICY =
   'Prepare an explicit transactional command that names its amount — and, for a transfer, its recipient — by calling the matching tool ' +
-  '(execute_send, execute_swap, execute_deposit_yield, execute_bridge), and never answer such a command with a faucet message; ' +
+  '(execute_send, execute_swap, execute_deposit_yield, execute_add_liquidity, execute_remove_liquidity, execute_claim_fees, execute_bridge), and never answer such a command with a faucet message; ' +
   'the execution engine and session-key limits validate the real-time balance. ' +
   'This never authorises acting on a question, a hypothetical, a negated/cancelled request (e.g. "…yapma", "don\'t send"), ' +
   'or a command missing an amount or recipient — ask for the missing parameter instead. ' +

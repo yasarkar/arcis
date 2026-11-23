@@ -15,6 +15,7 @@ import {
   highSlippageWarning,
   isFirstTimeRecipient,
   largeShareWarning,
+  lpDepositActionWarnings,
   newRecipientWarning,
   sendActionWarnings,
   swapActionWarnings,
@@ -138,6 +139,25 @@ describe('composed warning sets', () => {
       'large-share-of-balance',
     ])
     expect(depositActionWarnings({ amount: 10, balances: { USDC: 100 } })).toEqual([])
+  })
+
+  it('lp deposit: flags slippage, token A share, token B share, and ratio imbalance', () => {
+    const warnings = lpDepositActionWarnings({
+      lpMode: 'dual',
+      tokenA: 'EURC',
+      tokenB: 'WETH',
+      amountA: 80,
+      amountB: 0.6,
+      slippageBps: 150,
+      donationPct: 1.8,
+      balances: { EURC: 100, WETH: 1 },
+    })
+    expect(warnings.map((w) => w.code).sort()).toEqual([
+      'high-slippage',
+      'large-share-of-balance',
+      'large-share-of-balance-b',
+      'lp-imbalance',
+    ])
   })
 })
 

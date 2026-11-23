@@ -1,6 +1,7 @@
 import type { CopilotActionPayload, CopilotMessage } from '../types/marketplace.js'
+import { isLpPoolPrompt, resolveCopilotLpPoolFromPrompt } from './copilotPoolParser.js'
 
-export type TransactionIntent = 'send' | 'swap' | 'deposit' | 'bridge'
+export type TransactionIntent = 'send' | 'swap' | 'deposit' | 'lp_deposit' | 'lp_remove' | 'claim_fees' | 'bridge'
 export type CopilotIntent =
   | { kind: 'cancel' | 'read-only' | 'ambiguous'; message: string }
   | { kind: 'command'; action: TransactionIntent }
@@ -17,6 +18,68 @@ export function extractCopilotMemo(prompt: string): string | undefined {
   return prompt.match(/(?:\bmemo\b|\breference\b|(?:^|\s)(?:not|açıklama)\s*[:=])\s*[:=]?\s*["']?([^"'\n]+)["']?/i)?.[1]?.trim()
 }
 
+/**
+ * True when the instruction asks to claim/harvest accrued pool fees or vault yield
+ * (e.g. "claim all fees", "harvest all", "tüm fee'leri topla", "ücretleri topla").
+ * Never hijacks faucet claims ("claim faucet", "claim 1000 USDC").
+ */
+export function isClaimFeesPrompt(instructionText: string): boolean {
+  const lower = instructionText
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ç/g, 'c')
+
+  if (/\b(?:faucet|musluk|testnet\s+usdc)\b/.test(lower)) return false
+
+  const hasClaimVerb =
+    /\b(?:claim|harvest|collect|topla[a-z]*|hasat|cek[a-z]*|al)\b/.test(lower)
+  const hasRewardNoun =
+    /\b(?:fee[a-z']*s?|ucret[a-z]*|reward[a-z]*|odul[a-z]*|yield[a-z]*|getiri[a-z]*|kazanc[a-z]*|earning[a-z]*|accrued|birikmis|pending)\b/.test(lower)
+
+  if (hasClaimVerb && hasRewardNoun) return true
+  if (/\b(?:claim\s+all|harvest\s+all|collect\s+all|tumunu\s+topla|hepsini\s+topla|butun\s+fee|tum\s+fee)\b/.test(lower)) {
+    return true
+  }
+  return false
+}
+/**
+ * True when the instruction asks to remove / withdraw LP liquidity from an AMM pool
+ * (e.g. "remove 50% LP from USDC/EURC", "USDC/EURC havuzundan tüm LP'yi çek", "likidite çek").
+ */
+export function isLpRemovePrompt(instructionText: string): boolean {
+  if (isClaimFeesPrompt(instructionText)) return false
+  const lower = instructionText
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ç/g, 'c')
+
+  // Never hijack Yield Vault withdrawals when no LP pool pair or LP keyword is mentioned
+  const explicitVaultOnly =
+    /\b(?:vault|yield\s*vault|kasa|af-?usdc)\b/.test(lower) &&
+    !/\b(?:lp|liquidity|likidite|stableswap)\b/.test(lower) &&
+    resolveCopilotLpPoolFromPrompt(instructionText).status !== 'matched'
+  if (explicitVaultOnly) return false
+
+  const hasRemoveVerb =
+    /\b(?:remove|withdraw|exit|unstake|pull|cek[a-z]*|kaldir[a-z]*|cikar[a-z]*|boz[a-z]*)\b/.test(lower) ||
+    /\bgeri\s+al\b/.test(lower)
+  if (!hasRemoveVerb) return false
+
+  const hasLpCue =
+    /\b(?:lp[a-z']*s?|liquidity|likidite|stableswap|havuz[a-z]*|pool[a-z']*)\b/.test(lower) ||
+    resolveCopilotLpPoolFromPrompt(instructionText).status === 'matched'
+
+  return hasLpCue
+}
+
 /** Fail closed: quoted examples, questions and negation never authorize a tool call. */
 export function classifyCopilotIntent(prompt: string): CopilotIntent {
   const text = copilotInstructionText(prompt).toLowerCase().replace(/ı/g, 'i').replace(/’/g, "'")
@@ -24,8 +87,9 @@ export function classifyCopilotIntent(prompt: string): CopilotIntent {
   const has = (...terms: string[]) => terms.some(term => words.includes(term))
   if (has('not', 'dont', 'never', 'cancel', 'stop', 'abort', 'iptal', 'vazgeç', 'vazgec', 'yapma',
     'gönderme', 'gonderme', 'yollama', 'ödeme', 'odeme', 'yatirma', 'aktarma', 'çevirme', 'cevirme',
-    'dönüştürme', 'donusturme', 'alma', 'satma') || /\bdon['’]?t\b/.test(text) ||
-    /\b(?:istemiyorum|yapmayin|göndermeyin|göndermesin|yatirmayin|aktarmayin|etme|etmeyin|durdur|vazgeçtim|vazgectim)\b/.test(text)) {
+    'dönüştürme', 'donusturme', 'alma', 'satma', 'ekleme', 'toplama', 'çekme', 'cekme',
+    'kaldırma', 'kaldirma', 'çıkarma', 'çikarma', 'cikarma', 'bozma') || /\bdon['’]?t\b/.test(text) ||
+    /\b(?:istemiyorum|yapmayin|göndermeyin|göndermesin|yatirmayin|aktarmayin|eklemeyin|toplamayin|çekmeyin|cekmeyin|kaldırmayın|kaldirmayin|çikarmayin|cikarmayin|etme|etmeyin|durdur|vazgeçtim|vazgectim)\b/.test(text)) {
     return { kind: 'cancel', message: `${NO_ACTION} This message does not authorize execution. Unsubmitted drafts are canceled; already submitted transactions cannot be undone here.` }
   }
   const isStrategyOrPortfolio =
@@ -48,9 +112,25 @@ export function classifyCopilotIntent(prompt: string): CopilotIntent {
   }
 
   const actions: TransactionIntent[] = []
+  const instruction = copilotInstructionText(prompt)
+  const isClaim = isClaimFeesPrompt(instruction)
+  const isLpRemove = !isClaim && isLpRemovePrompt(instruction)
   if (has('send', 'transfer', 'gönder', 'gonder', 'yolla', 'pay', 'öde', 'ode')) actions.push('send')
-  if (has('swap', 'takas', 'trade', 'convert', 'çevir', 'cevir', 'dönüştür', 'donustur', 'buy', 'sell', 'al', 'almak', 'sat', 'satmak')) actions.push('swap')
-  if (has('deposit', 'yatir', 'stake', 'vault', 'kasa')) actions.push('deposit')
+  if (
+    has('swap', 'takas', 'trade', 'convert', 'çevir', 'cevir', 'dönüştür', 'donustur', 'buy', 'sell', 'sat', 'satmak') ||
+    (!isClaim && !isLpRemove && has('al', 'almak'))
+  ) {
+    actions.push('swap')
+  }
+  if (isClaim) {
+    actions.push('claim_fees')
+  } else if (isLpRemove) {
+    actions.push('lp_remove')
+  } else if (isLpPoolPrompt(instruction)) {
+    actions.push('lp_deposit')
+  } else if (has('deposit', 'yatir', 'stake', 'vault', 'kasa')) {
+    actions.push('deposit')
+  }
   if (has('bridge', 'köprü', 'kopru', 'köprüle', 'koprule', 'aktar')) actions.push('bridge')
 
   if (actions.length > 1) {
@@ -69,6 +149,9 @@ export function copilotActionIntent(action?: CopilotActionPayload): TransactionI
     case 'interactive_send': case 'send': return 'send'
     case 'interactive_swap': case 'trade': return 'swap'
     case 'interactive_deposit': case 'zap': return 'deposit'
+    case 'interactive_lp_deposit': return 'lp_deposit'
+    case 'interactive_lp_remove': return 'lp_remove'
+    case 'interactive_claim_fees': return 'claim_fees'
     case 'interactive_bridge': case 'bridge': return 'bridge'
     default: return undefined
   }
@@ -88,7 +171,11 @@ export function latestEditableCopilotDraft(history: CopilotMessage[] = []): Copi
     const action = message.actionPayload?.type === 'configure_session'
       ? message.actionPayload.data?.pendingAction as CopilotActionPayload | undefined
       : message.actionPayload
-    return copilotActionIntent(action) && Number(action?.data?.amount) > 0 ? action : undefined
+    const hasDraftMagnitude =
+      Number(action?.data?.amount) > 0 ||
+      Number(action?.data?.removePercent) > 0 ||
+      Number(action?.data?.lpAmount) > 0
+    return copilotActionIntent(action) && hasDraftMagnitude ? action : undefined
   }
   return undefined
 }

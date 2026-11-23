@@ -54,6 +54,10 @@ export function canceledActionTitle(actionType?: string): string {
       return 'Swap Cancelled'
     case 'deposit':
       return 'Deposit Cancelled'
+    case 'withdraw':
+      return 'LP Removal Cancelled'
+    case 'claim':
+      return 'Fee Claim Cancelled'
     case 'bridge':
       return 'Bridge Cancelled'
     case 'faucet':

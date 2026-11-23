@@ -11,7 +11,7 @@ import {
   STABLE_SWAP_ANN_MULTIPLIER,
   STABLE_SWAP_LP_FEE_BPS,
   CONSTANT_PRODUCT_LP_FEE_BPS,
-} from '../config/poolsConfig'
+} from '../config/poolsConfig.js'
 
 /**
  * Computes the Curve Stableswap invariant D for a 2-token pool.

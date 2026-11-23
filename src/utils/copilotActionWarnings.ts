@@ -13,7 +13,12 @@
 
 import { areAddressesEqual } from './recentRecipients'
 
-export type CopilotActionWarningCode = 'new-recipient' | 'large-share-of-balance' | 'high-slippage'
+export type CopilotActionWarningCode =
+  | 'new-recipient'
+  | 'large-share-of-balance'
+  | 'large-share-of-balance-b'
+  | 'high-slippage'
+  | 'lp-imbalance'
 
 export interface CopilotActionWarning {
   code: CopilotActionWarningCode
@@ -156,4 +161,41 @@ export function depositActionWarnings(input: {
 }): CopilotActionWarning[] {
   const large = largeShareWarning(input.amount, availableBalanceFor(input.balances, 'USDC'), 'USDC')
   return large ? [large] : []
+}
+
+export interface LpDepositWarningInput {
+  lpMode?: 'zap' | 'dual'
+  tokenA?: string
+  tokenB?: string
+  amountA?: number
+  amountB?: number
+  slippageBps?: number | null
+  donationPct?: number | null
+  balances?: CopilotAvailableBalances | null
+}
+
+export function lpDepositActionWarnings(input: LpDepositWarningInput): CopilotActionWarning[] {
+  const warnings: CopilotActionWarning[] = []
+  const slippage = highSlippageWarning(input.slippageBps)
+  if (slippage) warnings.push(slippage)
+
+  const tokA = input.tokenA || 'USDC'
+  const largeA = largeShareWarning(input.amountA, availableBalanceFor(input.balances, tokA), tokA)
+  if (largeA) warnings.push(largeA)
+
+  if (input.lpMode === 'dual' && input.tokenB && typeof input.amountB === 'number' && input.amountB > 0) {
+    const largeB = largeShareWarning(input.amountB, availableBalanceFor(input.balances, input.tokenB), input.tokenB)
+    if (largeB) {
+      warnings.push({ ...largeB, code: 'large-share-of-balance-b' })
+    }
+  }
+
+  if (typeof input.donationPct === 'number' && Number.isFinite(input.donationPct) && input.donationPct >= 1) {
+    warnings.push({
+      code: 'lp-imbalance',
+      message: `Dual amounts are slightly off the live pool ratio (~${input.donationPct.toFixed(1)}% imbalance). Rebalancing avoids excess value going to existing LPs.`,
+    })
+  }
+
+  return warnings
 }
