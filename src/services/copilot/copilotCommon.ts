@@ -170,7 +170,7 @@ export function failedActionReceipt(
 
 export function budgetActionType(payload: CopilotActionPayload): SessionActionType | undefined {
   if (['interactive_swap', 'trade'].includes(payload.type)) return 'swap'
-  if (['interactive_deposit', 'view_pool'].includes(payload.type)) return 'deposit'
+  if (['interactive_deposit', 'interactive_lp_deposit', 'view_pool'].includes(payload.type)) return 'deposit'
   if (['interactive_bridge', 'bridge'].includes(payload.type)) return 'bridge'
   if (['interactive_send', 'send', 'interactive_batch_send'].includes(payload.type)) return 'send'
   return undefined

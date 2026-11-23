@@ -6,6 +6,9 @@ import { numberToExactDecimal } from '../../utils/copilotAmount'
 import { exactSwapOutputUnits, swapMinimumUnits, swapPercentToBps } from '../../utils/swapSlippage'
 import { ARC_GAS_LIMITS, calculateArcGasCostFromFee, getDynamicArcGasOptions } from '../arcGasService'
 import { getSwapEstimate } from '../swapService'
+import { getCopilotLpPoolById } from '../../utils/copilotPoolParser'
+import { getCopilotLpQuote } from './copilotLpQuote'
+import { getCopilotLpRemoveQuote } from './copilotLpRemoveQuote'
 
 export interface CopilotExecutionSettingsSnapshot {
   copilotSlippage: number
@@ -20,6 +23,10 @@ function gasLimitForDraft(payload: CopilotActionPayload): bigint {
     const tokenSymbol = String(data.tokenSymbol || data.token || 'USDC').toUpperCase()
     if (hasMemo) return ARC_GAS_LIMITS.memoTransfer
     return tokenSymbol === 'USDC' ? ARC_GAS_LIMITS.nativeTransfer : ARC_GAS_LIMITS.erc20Transfer
+  }
+  if (type === 'interactive_claim_fees') {
+    const count = Array.isArray(data.claimPools) && data.claimPools.length > 0 ? data.claimPools.length : 1
+    return ARC_GAS_LIMITS.contractInteraction * BigInt(count)
   }
   return ARC_GAS_LIMITS.contractInteraction
 }
@@ -49,8 +56,11 @@ export async function syncDraftWithExecutionSettings(
     draft.type === 'send' ||
     draft.type === 'interactive_batch_send'
   const isDeposit = draft.type === 'interactive_deposit' || draft.type === 'view_pool'
+  const isLpDeposit = draft.type === 'interactive_lp_deposit'
+  const isLpRemove = draft.type === 'interactive_lp_remove'
+  const isClaimFees = draft.type === 'interactive_claim_fees'
 
-  if (!isSwap && !isSend && !isDeposit) return null
+  if (!isSwap && !isSend && !isDeposit && !isLpDeposit && !isLpRemove && !isClaimFees) return null
 
   const data = draft.data
   const nextData: Record<string, any> = { ...data }
@@ -130,6 +140,91 @@ export async function syncDraftWithExecutionSettings(
       nextTitle = `🔄 Confirm Swap: ${amount} ${fromToken}${
         estimatedOut === undefined ? '' : ` ➔ ${estimatedOut} ${toToken}`
       }`
+    }
+  }
+
+  // 1b. Update LP Pool Deposit slippage, live minLpShares, and fee estimate
+  if (isLpDeposit) {
+    let slippageBps: number
+    try {
+      slippageBps = swapPercentToBps(settings.copilotSlippage)
+    } catch {
+      return null
+    }
+    nextData.slippage = undefined
+    nextData.slippageBps = slippageBps
+
+    const pool = getCopilotLpPoolById(data.poolId)
+    if (pool) {
+      const lpRes = await getCopilotLpQuote({
+        pool,
+        mode: data.lpMode === 'zap' ? 'zap' : 'dual',
+        amountA: typeof data.amountA === 'number' ? data.amountA : Number(data.amount),
+        amountB: typeof data.amountB === 'number' ? data.amountB : undefined,
+        amountADecimal: typeof data.amountADecimal === 'string' ? data.amountADecimal : undefined,
+        amountBDecimal: typeof data.amountBDecimal === 'string' ? data.amountBDecimal : undefined,
+        autoMatchCounter: Boolean(data.autoMatchCounter),
+        anchorSide: data.anchorSide === 'B' ? 'B' : 'A',
+        slippageBps,
+        speedTier: settings.copilotSpeedTier,
+      })
+      if (lpRes.ok) {
+        nextData.amountA = lpRes.quote.amountA
+        nextData.amountADecimal = lpRes.quote.amountADecimal
+        if (lpRes.quote.amountB !== undefined) nextData.amountB = lpRes.quote.amountB
+        if (lpRes.quote.amountBDecimal !== undefined) nextData.amountBDecimal = lpRes.quote.amountBDecimal
+        nextData.estimatedLpOut = lpRes.quote.estimatedLpOut
+        nextData.minLpShares = lpRes.quote.minLpShares
+        nextData.minLpSharesRaw = lpRes.quote.minLpSharesRaw
+        nextData.poolSharePct = lpRes.quote.poolSharePct
+        nextData.donationPct = lpRes.quote.donationPct
+        if (lpRes.quote.estimatedFeeUsdc) nextData.estimatedFeeUsdc = lpRes.quote.estimatedFeeUsdc
+        if (lpRes.quote.feeEstimateSource) nextData.feeEstimateSource = lpRes.quote.feeEstimateSource
+        return { ...draft, title: nextTitle, data: nextData }
+      }
+    }
+  }
+
+  // 1c. Update LP Removal slippage, live minOutA/minOutB, and fee estimate
+  if (isLpRemove && walletAddress) {
+    let slippageBps: number
+    try {
+      slippageBps = swapPercentToBps(settings.copilotSlippage)
+    } catch {
+      return null
+    }
+    nextData.slippage = undefined
+    nextData.slippageBps = slippageBps
+
+    const pool = getCopilotLpPoolById(data.poolId)
+    if (pool) {
+      const remRes = await getCopilotLpRemoveQuote({
+        walletAddress,
+        pool,
+        removeMode: data.removeMode === 'lp' ? 'lp' : data.removeMode === 'usd' ? 'usd' : 'percent',
+        removePercent: typeof data.removePercent === 'number' ? data.removePercent : undefined,
+        lpAmount: typeof data.lpAmount === 'number' ? data.lpAmount : undefined,
+        lpAmountDecimal: typeof data.lpAmountDecimal === 'string' ? data.lpAmountDecimal : undefined,
+        usdAmount: typeof data.estimatedWithdrawUsd === 'number' && data.removeMode === 'usd' ? data.estimatedWithdrawUsd : undefined,
+        slippageBps,
+        speedTier: settings.copilotSpeedTier,
+      })
+      if (remRes.ok) {
+        nextData.removePercent = remRes.quote.removePercent
+        nextData.lpAmount = remRes.quote.lpAmount
+        nextData.lpAmountDecimal = remRes.quote.lpAmountDecimal
+        nextData.lpAmountRaw = remRes.quote.lpAmountRaw
+        nextData.estimatedOutA = remRes.quote.estimatedOutA
+        nextData.estimatedOutB = remRes.quote.estimatedOutB
+        nextData.minOutA = remRes.quote.minOutA
+        nextData.minOutB = remRes.quote.minOutB
+        nextData.minOutARaw = remRes.quote.minOutARaw
+        nextData.minOutBRaw = remRes.quote.minOutBRaw
+        nextData.estimatedWithdrawUsd = remRes.quote.estimatedWithdrawUsd
+        if (remRes.quote.estimatedFeeUsdc) nextData.estimatedFeeUsdc = remRes.quote.estimatedFeeUsdc
+        if (remRes.quote.feeEstimateSource) nextData.feeEstimateSource = remRes.quote.feeEstimateSource
+        return { ...draft, title: nextTitle, data: nextData }
+      }
     }
   }
 
