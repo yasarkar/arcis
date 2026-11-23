@@ -43,7 +43,7 @@ export type ExecutionProgressState =
 
 export interface InlineExecutionReceipt {
   id: string
-  actionType: 'swap' | 'deposit' | 'bridge' | 'send' | 'faucet' | 'ai_service'
+  actionType: 'swap' | 'deposit' | 'withdraw' | 'claim' | 'bridge' | 'send' | 'faucet' | 'ai_service'
   title: string
   subtitle?: string
   status: 'SUCCESS' | 'PENDING' | 'FAILED' | 'CANCELED'
@@ -64,6 +64,31 @@ export interface InlineExecutionReceipt {
   amountOut?: number
   rate?: number
   apy?: string
+  // LP Pool Deposit specific receipt fields
+  poolId?: string
+  poolName?: string
+  lpMode?: 'zap' | 'dual'
+  lpTokenSymbol?: string
+  lpMinted?: string
+  poolSharePct?: number
+  tokenB?: string
+  amountB?: number
+  // LP Remove / Withdraw receipt fields
+  lpBurned?: string
+  receivedAmountA?: string
+  receivedAmountB?: string
+  withdrawnUsd?: number
+  // Claim Fees / Harvest receipt fields
+  claimedPools?: Array<{
+    poolId: string
+    poolName: string
+    summary: string
+    usdValue: number
+    txHash?: string
+  }>
+  failedPools?: string[]
+  totalClaimedUsd?: number
+  txCount?: number
   fromChain?: string
   toChain?: string
   recipient?: string

@@ -211,6 +211,7 @@ describe('transaction tool amount validation', () => {
     ['execute_swap', { fromToken: 'USDC', toToken: 'EURC', amount: 0 }],
     ['execute_deposit_yield', {}],
     ['execute_deposit_yield', { amount: 0 }],
+    ['execute_add_liquidity', { poolId: 'usdc-eurc-stable-pool' }],
     ['execute_bridge', {}],
     ['execute_bridge', { amount: -1 }],
   ])('does not create an executable %s action for missing or invalid amounts', async (name, args) => {
@@ -222,7 +223,7 @@ describe('transaction tool amount validation', () => {
     const res = await POST(new Request('http://localhost/api/copilot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': nextIp() },
-      body: JSON.stringify({ userPrompt: name === 'execute_swap' ? 'swap USDC to EURC' : name === 'execute_bridge' ? 'bridge USDC from Arc to Base' : 'deposit USDC' }),
+      body: JSON.stringify({ userPrompt: name === 'execute_swap' ? 'swap USDC to EURC' : name === 'execute_bridge' ? 'bridge USDC from Arc to Base' : name === 'execute_add_liquidity' ? 'zap USDC into USDC/EURC pool' : 'deposit USDC' }),
     }))
     const body = await res.json()
 
@@ -341,6 +342,9 @@ describe('cirBTC token contract', () => {
     const body = JSON.parse(init.body as string) as { messages: Array<{ content: string }>; tools: unknown }
     expect(body.messages[0].content).toContain('cirBTC')
     expect(JSON.stringify(body.tools)).toContain('cirBTC')
+    expect(JSON.stringify(body.tools)).toContain('execute_add_liquidity')
+    expect(JSON.stringify(body.tools)).toContain('execute_claim_fees')
+    expect(JSON.stringify(body.tools)).toContain('execute_remove_liquidity')
     // Arc has no WBTC deployment, so the send tool must not list it as sendable.
     expect(JSON.stringify(body.tools)).not.toContain('WETH/WBTC')
     expect(JSON.stringify(body.tools)).not.toContain('WETH, WBTC')

@@ -114,11 +114,28 @@ export type CopilotActionType =
   | 'marketplace'
   | 'interactive_swap'
   | 'interactive_deposit'
+  | 'interactive_lp_deposit'
+  | 'interactive_lp_remove'
+  | 'interactive_claim_fees'
   | 'interactive_bridge'
   | 'interactive_send'
   | 'interactive_batch_send'
   | 'configure_session'
   | 'unsupported_bridge'
+
+export interface CopilotClaimablePoolItem {
+  poolId: string
+  poolName: string
+  poolAddress: string
+  isVault: boolean
+  tokenA: string
+  tokenB?: string
+  feeADecimal: string
+  feeBDecimal?: string
+  feeARaw: string
+  feeBRaw?: string
+  estimatedUsd: number
+}
 
 export interface CopilotActionPayload {
   /** Unsubmitted transaction identity; revisions never inherit a different action's draft. */
@@ -145,6 +162,45 @@ export interface CopilotActionPayload {
     toChain?: string
     apy?: string
     estimatedYieldUsdcYearly?: number
+    // LP Pool Deposit specific fields
+    poolId?: string
+    poolName?: string
+    poolAddress?: string
+    lpMode?: 'zap' | 'dual'
+    tokenA?: string
+    tokenB?: string
+    amountA?: number
+    amountB?: number
+    amountADecimal?: string
+    amountBDecimal?: string
+    autoMatchCounter?: boolean
+    anchorSide?: 'A' | 'B'
+    lpTokenSymbol?: string
+    estimatedLpOut?: string
+    minLpShares?: string
+    minLpSharesRaw?: string
+    poolSharePct?: number
+    feeTierPercent?: number
+    impermanentLossRisk?: string
+    donationPct?: number
+    // LP Remove specific fields
+    removeMode?: 'percent' | 'lp' | 'usd'
+    removePercent?: number
+    lpAmount?: number
+    lpAmountDecimal?: string
+    lpAmountRaw?: string
+    userLpBalanceDecimal?: string
+    estimatedOutA?: string
+    estimatedOutB?: string
+    minOutA?: string
+    minOutB?: string
+    minOutARaw?: string
+    minOutBRaw?: string
+    estimatedWithdrawUsd?: number
+    // Claim Fees / Harvest specific fields
+    claimScope?: 'all' | 'single'
+    claimPools?: CopilotClaimablePoolItem[]
+    totalClaimableUsd?: number
     [key: string]: any
   }
 }

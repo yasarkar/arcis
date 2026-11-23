@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import React, { useMemo, useState } from 'react'
+import { formatUnits, parseUnits } from 'viem'
 import { getChainDisplayName, getChainIconId } from '../../config/chainMeta'
 import { getExplorerName, getExplorerTxUrl } from '../../config/sendConfig'
 import { TOKEN_ICON_MAP } from '../../config/tokenIcons'
@@ -46,7 +47,7 @@ export function resolveReceiptTokenIcon(symbol?: string, explicitIcon?: string):
   return undefined
 }
 
-export type ReceiptOperationType = 'send' | 'swap' | 'bridge' | 'deposit' | 'ai_service' | 'faucet'
+export type ReceiptOperationType = 'send' | 'swap' | 'bridge' | 'deposit' | 'withdraw' | 'claim' | 'ai_service' | 'faucet'
 export type ReceiptVisualStatus = 'success' | 'pending'
 
 export interface UnifiedSuccessReceiptProps {
@@ -121,8 +122,25 @@ export interface UnifiedSuccessReceiptProps {
   memoId?: string
   blockNumber?: string
 
-  // Extra type-specific payload (APY row for deposits, service summary for ai_service calls)
+  // Extra type-specific payload (APY row for deposits, LP pool fields, service summary for ai_service calls)
   apy?: string
+  poolName?: string
+  lpTokenSymbol?: string
+  lpMinted?: string
+  lpBurned?: string
+  withdrawnUsd?: number
+  poolSharePct?: number
+  amountB?: string
+  tokenB?: string
+  claimedPools?: Array<{
+    poolId: string
+    poolName: string
+    summary: string
+    usdValue: number
+    txHash?: string
+  }>
+  failedPools?: string[]
+  txCount?: number
   serviceSummary?: string
 
   /** Verified on-chain network fee in USDC (gasUsed × effectiveGasPrice), pre-formatted. */
@@ -219,6 +237,17 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
 
   // Extra type-specific payload
   apy,
+  poolName,
+  lpTokenSymbol,
+  lpMinted,
+  lpBurned,
+  withdrawnUsd,
+  poolSharePct,
+  amountB,
+  tokenB,
+  claimedPools,
+  failedPools,
+  txCount,
   serviceSummary,
 }) => {
   const [copiedRecipient, setCopiedRecipient] = useState(false)
@@ -293,9 +322,13 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           ? status === 'pending' ? 'Source Burn Confirmed but Destination Mint Pending.' : 'Bridge Finalized!'
           : type === 'deposit'
             ? 'Deposit Finalized!'
-            : type === 'faucet'
-              ? 'Faucet Claim Completed Successfully'
-              : 'Service Call Finalized!')
+            : type === 'withdraw'
+              ? 'LP Liquidity Removed'
+              : type === 'claim'
+              ? 'All Fees Claimed Successfully'
+              : type === 'faucet'
+                ? 'Faucet Claim Completed Successfully'
+                : 'Service Call Finalized!')
 
   const defaultSubtitle =
     subtitle ||
@@ -313,9 +346,13 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
               : `USDC cross-chain delivery finalized on ${toChainDisplayName || 'destination chain'} via Circle CCTP`
           : type === 'deposit'
             ? 'Yield vault deposit confirmed onchain'
-            : type === 'faucet'
-              ? 'Testnet funds successfully credited to your wallet'
-              : 'AI service executed and settled onchain')
+            : type === 'withdraw'
+              ? 'LP shares burned and underlying tokens returned to your wallet'
+              : type === 'claim'
+              ? 'Accrued pool fees and yield credited directly to your wallet'
+              : type === 'faucet'
+                ? 'Testnet funds successfully credited to your wallet'
+                : 'AI service executed and settled onchain')
 
   // Icons resolution
   const resolvedTokenIcon = resolveReceiptTokenIcon(tokenSymbol, tokenIcon)
@@ -351,9 +388,13 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
           ? 'BRIDGE AGAIN'
           : type === 'deposit'
             ? 'DEPOSIT AGAIN'
-            : type === 'faucet'
-              ? 'CLAIM AGAIN'
-              : 'CALL AGAIN')
+            : type === 'withdraw'
+              ? 'REMOVE LP AGAIN'
+              : type === 'claim'
+              ? 'CHECK FEES AGAIN'
+              : type === 'faucet'
+                ? 'CLAIM AGAIN'
+                : 'CALL AGAIN')
 
   const ActionIcon =
     type === 'send'
@@ -519,31 +560,226 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
             </>
           ) : type === 'deposit' ? (
             <>
+
               {/* Deposit: Deposited Amount */}
-              <div className={`flex items-center justify-between ${apy ? (isInline ? 'pb-2 border-b border-slate-800/80' : 'pb-3 border-b border-white/[0.06]') : ''}`}>
-                <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>Deposited Amount</div>
-                <div className="flex items-center gap-1.5">
-                  {resolvedTokenIcon && (
-                    <img
-                      src={resolvedTokenIcon}
-                      alt={tokenSymbol}
-                      className={`${isInline ? 'w-5 h-5' : 'w-5 h-5 sm:w-6 sm:h-6'} object-contain rounded-full`}
-                    />
+              <div className={`flex items-center justify-between ${apy || lpMinted || amountB ? (isInline ? 'pb-2 border-b border-slate-800/80' : 'pb-3 border-b border-white/[0.06]') : ''}`}>
+                <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>
+                  {amountB && tokenB ? 'Supplied Assets' : 'Deposited Amount'}
+                </div>
+                <div className="flex flex-col items-end gap-0.5">
+                  <div className="flex items-center gap-1.5">
+                    {resolvedTokenIcon && (
+                      <img
+                        src={resolvedTokenIcon}
+                        alt={tokenSymbol}
+                        className={`${isInline ? 'w-5 h-5' : 'w-5 h-5 sm:w-6 sm:h-6'} object-contain rounded-full`}
+                      />
+                    )}
+                    <span className={`font-bold ${isInline ? 'text-xs sm:text-sm' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
+                      {formatSubscriptZero(amount)} {tokenSymbol}
+                    </span>
+                  </div>
+                  {amountB && tokenB && (
+                    <div className="flex items-center gap-1.5">
+                      {resolveReceiptTokenIcon(tokenB) && (
+                        <img
+                          src={resolveReceiptTokenIcon(tokenB)}
+                          alt={tokenB}
+                          className={`${isInline ? 'w-4 h-4' : 'w-5 h-5'} object-contain rounded-full`}
+                        />
+                      )}
+                      <span className={`font-bold ${isInline ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} text-slate-200 tabular-nums`}>
+                        + {formatSubscriptZero(amountB)} {tokenB}
+                      </span>
+                    </div>
                   )}
-                  <span className={`font-bold ${isInline ? 'text-xs sm:text-sm' : 'text-base sm:text-lg'} text-white tabular-nums`} title={amount ? String(amount) : undefined}>
-                    {formatSubscriptZero(amount)} {tokenSymbol}
-                  </span>
                 </div>
               </div>
 
-              {/* Deposit: Vault APY */}
+              {/* Deposit: LP Tokens Minted */}
+              {lpMinted && (
+                <div className={`flex items-center justify-between ${apy || poolSharePct != null ? (isInline ? 'pb-2 border-b border-slate-800/80' : 'pb-3 border-b border-white/[0.06]') : ''}`}>
+                  <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>LP Received</div>
+                  <span className={`font-bold ${isInline ? 'text-xs' : 'text-xs sm:text-sm'} text-white tabular-nums`}>
+                    +{formatSubscriptZero(lpMinted)} {lpTokenSymbol || 'LP'}
+                  </span>
+                </div>
+              )}
+
+              {/* Deposit: Vault / Pool APY */}
               {apy && (
                 <div className="flex items-center justify-between">
-                  <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>Yield Vault APY</div>
+                  <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>
+                    {poolName ? 'Est. Pool Yield' : 'Yield Vault APY'}
+                  </div>
                   <span className={`font-bold ${isInline ? 'text-xs' : 'text-xs sm:text-sm'} text-white tabular-nums`}>{apy}</span>
                 </div>
               )}
             </>
+          ) : type === 'withdraw' ? (
+            <>
+              {/* Withdraw / Remove LP: Received Token A + Token B with icons + small USD */}
+              <div className={`text-left space-y-1.5 overflow-x-auto ${lpBurned ? (isInline ? 'pb-2 border-b border-slate-800/80' : 'pb-3 border-b border-white/[0.06]') : ''}`}>
+                <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>
+                  You Received
+                </div>
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                  <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                    {resolvedTokenIcon && (
+                      <img
+                        src={resolvedTokenIcon}
+                        alt={tokenSymbol}
+                        className={`${isInline ? 'w-4 h-4' : 'w-5 h-5'} object-contain rounded-full shrink-0`}
+                      />
+                    )}
+                    <span className={`font-bold ${isInline ? 'text-xs sm:text-sm' : 'text-base sm:text-lg'} text-white tabular-nums`}>
+                      {formatSubscriptZero(amount)} {tokenSymbol}
+                    </span>
+                  </div>
+                  {amountB && tokenB && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="w-4 h-4 rounded-full bg-slate-800/90 border border-slate-700/70 flex items-center justify-center text-[10px] font-bold text-indigo-300 shrink-0 select-none"
+                      >
+                        +
+                      </span>
+                      <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                        {resolveReceiptTokenIcon(tokenB) && (
+                          <img
+                            src={resolveReceiptTokenIcon(tokenB)}
+                            alt={tokenB}
+                            className={`${isInline ? 'w-4 h-4' : 'w-5 h-5'} object-contain rounded-full shrink-0`}
+                          />
+                        )}
+                        <span className={`font-bold ${isInline ? 'text-xs sm:text-sm' : 'text-base sm:text-lg'} text-white tabular-nums`}>
+                          {formatSubscriptZero(amountB)} {tokenB}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                {withdrawnUsd != null && Number.isFinite(withdrawnUsd) && withdrawnUsd > 0 && (
+                  <div className="text-[10px] font-mono text-slate-400 tabular-nums">
+                    ≈ ${withdrawnUsd.toFixed(2)} USD
+                  </div>
+                )}
+              </div>
+
+              {lpBurned && (
+                <div className="flex items-center justify-between text-xs pt-0.5">
+                  <span className="text-slate-400">LP Burned</span>
+                  <span className="font-bold text-slate-200 tabular-nums">
+                    {formatSubscriptZero(lpBurned)} {lpTokenSymbol || 'LP'}
+                  </span>
+                </div>
+              )}
+            </>
+          ) : type === 'claim' ? (
+            (() => {
+              const decimalsForSymbol = (sym: string): number => {
+                const upper = sym.toUpperCase()
+                if (upper === 'CIRBTC') return 8
+                if (upper === 'WETH' || upper === 'ETH') return 18
+                return 6
+              }
+              const trimDecimal = (units: bigint, decimals: number): string => {
+                const raw = formatUnits(units, decimals)
+                const [whole, frac = ''] = raw.split('.')
+                const maxFrac = decimals >= 18 ? 8 : Math.min(decimals, 6)
+                const trimmed = frac.slice(0, maxFrac).replace(/0+$/, '')
+                return trimmed ? `${whole}.${trimmed}` : whole
+              }
+
+              const totals = new Map<string, { raw: bigint; decimals: number }>()
+              for (const poolItem of claimedPools || []) {
+                const segments = String(poolItem.summary || '').split('+')
+                for (const seg of segments) {
+                  const m = seg.trim().match(/^(\d+(?:\.\d+)?)\s+([A-Za-z0-9-]+)$/)
+                  if (!m) continue
+                  const [, numStr, symbol] = m
+                  const dec = decimalsForSymbol(symbol)
+                  try {
+                    const raw = parseUnits(numStr, dec)
+                    if (raw <= 0n) continue
+                    const existing = totals.get(symbol)
+                    if (existing) existing.raw += raw
+                    else totals.set(symbol, { raw, decimals: dec })
+                  } catch {
+                    // Ignore unparseable segment
+                  }
+                }
+              }
+
+              const harvestedCoins = Array.from(totals.entries()).map(([symbol, entry]) => ({
+                symbol,
+                decimal: trimDecimal(entry.raw, entry.decimals),
+              }))
+
+              const hasExtraFooter = (txCount != null && txCount > 1) || Boolean(failedPools && failedPools.length > 0)
+
+              return (
+                <>
+                  {/* Claim Fees: Total Harvested with inline coin icons + small USD subtitle */}
+                  <div className={`text-left space-y-1.5 overflow-x-auto ${hasExtraFooter ? (isInline ? 'pb-2 border-b border-slate-800/80' : 'pb-3 border-b border-white/[0.06]') : ''}`}>
+                    <div className={isInline ? 'text-[10px] text-slate-400 uppercase font-semibold' : 'text-xs sm:text-sm text-slate-400'}>
+                      Total Harvested
+                    </div>
+                    {harvestedCoins.length > 0 ? (
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        {harvestedCoins.map((coin, idx) => {
+                          const coinIcon = resolveReceiptTokenIcon(coin.symbol)
+                          return (
+                            <div key={coin.symbol} className="flex items-center gap-2 shrink-0">
+                              {idx > 0 && (
+                                <span
+                                  aria-hidden="true"
+                                  className="w-4 h-4 rounded-full bg-slate-800/90 border border-slate-700/70 flex items-center justify-center text-[10px] font-bold text-indigo-300 shrink-0 select-none"
+                                >
+                                  +
+                                </span>
+                              )}
+                              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                {coinIcon && (
+                                  <img
+                                    src={coinIcon}
+                                    alt={coin.symbol}
+                                    className={`${isInline ? 'w-4 h-4' : 'w-5 h-5'} object-contain rounded-full shrink-0`}
+                                  />
+                                )}
+                                <span className={`font-bold ${isInline ? 'text-xs sm:text-sm' : 'text-base sm:text-lg'} text-white tabular-nums`}>
+                                  {formatSubscriptZero(coin.decimal)} {coin.symbol}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <span className={`font-bold ${isInline ? 'text-xs sm:text-sm' : 'text-base sm:text-lg'} text-white tabular-nums`}>
+                        ${amount ? String(amount) : '0.0000'} USD
+                      </span>
+                    )}
+                    <div className="text-[10px] font-mono text-slate-400 tabular-nums">
+                      ≈ ${amount ? String(amount) : '0.0000'} USD
+                    </div>
+                  </div>
+
+                  {txCount != null && txCount > 1 && (
+                    <div className="flex items-center justify-between text-[11px] pt-0.5">
+                      <span className="text-slate-400">Transactions</span>
+                      <span className="font-mono text-slate-200 tabular-nums">{txCount} confirmed</span>
+                    </div>
+                  )}
+
+                  {failedPools && failedPools.length > 0 && (
+                    <div className="text-[10px] text-amber-300 pt-1 border-t border-slate-800/60">
+                      Skipped/Failed: {failedPools.join(', ')}
+                    </div>
+                  )}
+                </>
+              )
+            })()
           ) : type === 'ai_service' ? (
             <>
               {/* AI Service: Amount Paid */}

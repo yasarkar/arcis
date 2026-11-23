@@ -30,7 +30,7 @@ import {
 } from '../services/x402/institutionalReport'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload, CopilotActionType } from '../types/marketplace'
 import type { Recommendation } from '../services/x402/nextActions'
-import type { SessionKeyConfig, SessionActionType } from '../types/sessionKey'
+import type { SessionKeyConfig, SessionActionType, InlineExecutionReceipt } from '../types/sessionKey'
 import { formatCopilotError, canceledActionTitle } from '../utils/errorUtils'
 import { formatX402FailureNote } from '../utils/x402FailureDiagnosis'
 import { classifyCopilotIntent, copilotActionIntent, invalidateCopilotDrafts } from '../utils/copilotIntent'
@@ -47,6 +47,30 @@ function normalizeActionType(type?: CopilotActionType | string): SessionActionTy
   if (type === 'zap' || type.includes('deposit')) return 'deposit'
   if (type.includes('bridge')) return 'bridge'
   return 'send'
+}
+
+/** Computes the USD equivalent of a Copilot action payload for session limit checks. */
+function estimateActionSpendUsd(action: CopilotActionPayload): number {
+  const actionType = normalizeActionType(action.type)
+  const data = action.data || {}
+  if (action.type === 'interactive_lp_deposit') {
+    const tokenA = String(data.tokenA || 'USDC')
+    const amountA = Number(data.amountA ?? data.amount) || 0
+    const usdA = tokenAmountToUsd(tokenA, amountA)
+    const usdB =
+      data.lpMode === 'dual' && data.tokenB && Number(data.amountB) > 0
+        ? tokenAmountToUsd(String(data.tokenB), Number(data.amountB))
+        : 0
+    return usdA + usdB
+  }
+  const amount = Number(data.amount) || 0
+  const tokenForLimit =
+    actionType === 'swap'
+      ? String(data.fromToken || 'USDC')
+      : actionType === 'send'
+        ? String(data.tokenSymbol || data.token || 'USDC')
+        : 'USDC'
+  return tokenAmountToUsd(tokenForLimit, amount)
 }
 
 const formatUsdReportValue = (value: unknown): string =>
@@ -74,7 +98,7 @@ const isPaidOrSettled = (result: any): boolean =>
 export function isTransactionalAction(type?: CopilotActionType | string): boolean {
   if (!type) return false
   const t = type.toLowerCase()
-  if (t === 'unsupported_bridge') return false
+  if (t === 'unsupported_bridge' || t === 'interactive_claim_fees' || t === 'interactive_lp_remove') return false
   return (
     t === 'trade' ||
     t === 'zap' ||
@@ -264,25 +288,20 @@ export function useArcCopilot(
     if (activeConfig.isActive && Date.now() <= activeConfig.expiresAt && pendingActionRef.current) {
       const pending = pendingActionRef.current
       const pendingType = normalizeActionType(pending.type)
-      const pendingAmount = Number(pending.data?.amount) || 0
-      const pendingToken =
-        pendingType === 'swap'
-          ? String(pending.data?.fromToken || 'USDC')
-          : pendingType === 'send'
-            ? String(pending.data?.tokenSymbol || pending.data?.token || 'USDC')
-            : 'USDC'
-      const limitCheck = verifySessionLimits(pendingType, tokenAmountToUsd(pendingToken, pendingAmount), walletAddress)
+      const limitCheck = verifySessionLimits(pendingType, estimateActionSpendUsd(pending), walletAddress)
       if (!limitCheck.allowed) return
 
       pendingActionRef.current = null
       const pendingName =
         pending.type.includes('swap') || pending.type === 'trade'
           ? 'Swap'
-          : pending.type.includes('deposit') || pending.type === 'zap'
-            ? 'Vault Deposit'
-            : pending.type.includes('bridge')
-              ? 'Bridge'
-              : 'Send'
+          : pending.type === 'interactive_lp_deposit'
+            ? 'LP Deposit'
+            : pending.type.includes('deposit') || pending.type === 'zap'
+              ? 'Vault Deposit'
+              : pending.type.includes('bridge')
+                ? 'Bridge'
+                : 'Send'
 
       const resumeMsg: CopilotMessage = {
         id: 'assistant-resume-' + Date.now(),
@@ -302,13 +321,6 @@ export function useArcCopilot(
 
     const isSessionActive = activeConfig.isActive && Date.now() <= activeConfig.expiresAt
     const actionType = normalizeActionType(activeDraft.type)
-    const amount = Number(activeDraft.data?.amount) || 0
-    const tokenForLimit =
-      actionType === 'swap'
-        ? String(activeDraft.data?.fromToken || 'USDC')
-        : actionType === 'send'
-          ? String(activeDraft.data?.tokenSymbol || activeDraft.data?.token || 'USDC')
-          : 'USDC'
 
     if (!isSessionActive) {
       setMessages(invalidateCopilotDrafts)
@@ -332,7 +344,7 @@ export function useArcCopilot(
       return
     }
 
-    const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
+    const check = verifySessionLimits(actionType, estimateActionSpendUsd(activeDraft), walletAddress)
     if (!check.allowed) {
       setMessages(invalidateCopilotDrafts)
       pendingActionRef.current = activeDraft
@@ -537,14 +549,7 @@ export function useArcCopilot(
       }
 
       const actionType = normalizeActionType(actionPayload.type)
-      const amount = Number(actionPayload.data?.amount) || 0
-      const tokenForLimit =
-        actionType === 'swap'
-          ? String(actionPayload.data?.fromToken || 'USDC')
-          : actionType === 'send'
-            ? String(actionPayload.data?.tokenSymbol || actionPayload.data?.token || 'USDC')
-            : 'USDC'
-      const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
+      const check = verifySessionLimits(actionType, estimateActionSpendUsd(actionPayload), walletAddress)
 
       if (!check.allowed) {
         pendingActionRef.current = actionPayload
@@ -619,7 +624,12 @@ export function useArcCopilot(
       setSessionConfig(getSessionKeyConfig(walletAddress, 'copilot'))
     } catch (err: any) {
       const cleanErr = formatCopilotError(err)
-      const dynamicActionType = normalizeActionType(actionPayload?.type)
+      const dynamicActionType: InlineExecutionReceipt['actionType'] =
+        actionPayload?.type === 'interactive_claim_fees'
+          ? 'claim'
+          : actionPayload?.type === 'interactive_lp_remove'
+            ? 'withdraw'
+            : normalizeActionType(actionPayload?.type)
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === msgId
@@ -675,11 +685,13 @@ export function useArcCopilot(
           const actionName =
             action.type.includes('swap') || action.type === 'trade'
               ? 'Swap'
-              : action.type.includes('deposit') || action.type === 'zap'
-                ? 'Vault Deposit'
-                : action.type.includes('bridge')
-                  ? 'Bridge'
-                  : 'Send'
+              : action.type === 'interactive_lp_deposit'
+                ? 'LP Deposit'
+                : action.type.includes('deposit') || action.type === 'zap'
+                  ? 'Vault Deposit'
+                  : action.type.includes('bridge')
+                    ? 'Bridge'
+                    : 'Send'
 
           const assistantMsg: CopilotMessage = {
             id: assistantMsgId,
@@ -701,18 +713,9 @@ export function useArcCopilot(
         }
 
         const actionType = normalizeActionType(action.type)
-        const amount = Number(action.data?.amount) || 0
-        // Session limits are denominated in USD: value the input token (e.g. cirBTC) instead of
-        // counting its raw units 1:1 against the ceiling.
-        const tokenForLimit =
-          actionType === 'swap'
-            ? String(action.data?.fromToken || 'USDC')
-            : actionType === 'send'
-              ? String(action.data?.tokenSymbol || action.data?.token || 'USDC')
-              : 'USDC'
 
         if (isSessionActive) {
-          const check = verifySessionLimits(actionType, tokenAmountToUsd(tokenForLimit, amount), walletAddress)
+          const check = verifySessionLimits(actionType, estimateActionSpendUsd(action), walletAddress)
           if (!check.allowed) {
             pendingActionRef.current = action
             const actionName = actionType.charAt(0).toUpperCase() + actionType.slice(1)

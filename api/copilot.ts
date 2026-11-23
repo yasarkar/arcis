@@ -114,7 +114,11 @@ Arcis features:
 - Gas Currency: ${arcTestnet.nativeCurrency.symbol} (no ETH needed; network fees are paid in USDC at the live Arc base fee)
 - Speed: <500ms deterministic sub-second finality
 - Supported Tokens: USDC, EURC, WETH, cirBTC, af-USDC (there is NO WBTC on Arc Testnet — never use WBTC; the Bitcoin asset is cirBTC)
-- Real-Yield Vault (af-USDC): 8.42% APY compound real yield
+- Real-Yield Vault (af-USDC): 8.42% APY compound real yield (single-asset USDC)
+- AMM Liquidity Pools (6 live pools):
+  • USDC/EURC (StableSwap 0.12%, Zap + Dual), USDC/cirBTC (0.25%, Zap + Dual), USDC/WETH (0.30%, Zap + Dual)
+  • EURC/WETH (0.30%, Dual only), EURC/cirBTC (0.25%, Dual only), cirBTC/WETH (0.30%, Dual only)
+  • 1-Click Zap is USDC-only on the 3 USDC-paired pools; cross-pair pools require Dual-Asset liquidity (auto-matched from live pool reserves when one token amount is given).
 - Circle Gateway: Instant cross-chain unified balance across Ethereum, Base, Arbitrum, Solana, Polygon
 - Live Real-Time Market Prices: 1 EURC ≈ ${livePrices.EURC || 1.08} USDC, 1 WETH ≈ ${livePrices.WETH || 2650} USDC, 1 cirBTC ≈ ${livePrices.CIRBTC || livePrices.WBTC || 63000} USDC
 
@@ -169,6 +173,57 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
               amount: { type: 'number', description: 'Amount of USDC to deposit' },
             },
             required: ['amount'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'execute_add_liquidity',
+          description: 'Add liquidity (LP deposit) to one of the 6 Arcis AMM pools (USDC/EURC, USDC/cirBTC, USDC/WETH, EURC/WETH, EURC/cirBTC, cirBTC/WETH) via 1-Click Zap (USDC-only on USDC pairs) or Dual-Asset deposit. Never use WBTC — Arc uses cirBTC.',
+          parameters: {
+            type: 'object',
+            properties: {
+              poolId: { type: 'string', description: 'Pool id (usdc-eurc-stable-pool, usdc-cirbtc-pool, usdc-weth-pool, eurc-weth-pool, eurc-cirbtc-pool, cirbtc-weth-pool)' },
+              tokenA: { type: 'string', description: 'First pool token symbol (USDC, EURC, cirBTC)' },
+              tokenB: { type: 'string', description: 'Second pool token symbol (EURC, cirBTC, WETH)' },
+              mode: { type: 'string', enum: ['zap', 'dual'], description: 'zap for single-sided USDC on USDC pairs, dual for two-token liquidity' },
+              amountA: { type: 'number', description: 'Amount of first token' },
+              amountB: { type: 'number', description: 'Optional amount of second token (omit to auto-match live pool ratio)' },
+              slippage: { type: 'number', description: 'Optional slippage tolerance percentage e.g. 0.5' },
+            },
+            required: ['amountA'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'execute_remove_liquidity',
+          description: 'Remove / withdraw LP liquidity from one of the 6 Arcis AMM pools (USDC/EURC, USDC/cirBTC, USDC/WETH, EURC/WETH, EURC/cirBTC, cirBTC/WETH) by percentage (1-100) or exact LP amount. Never use WBTC — Arc uses cirBTC.',
+          parameters: {
+            type: 'object',
+            properties: {
+              poolId: { type: 'string', description: 'Pool id (usdc-eurc-stable-pool, usdc-cirbtc-pool, usdc-weth-pool, eurc-weth-pool, eurc-cirbtc-pool, cirbtc-weth-pool)' },
+              tokenA: { type: 'string' },
+              tokenB: { type: 'string' },
+              percent: { type: 'number', description: 'Percentage of LP position to remove (1-100)' },
+              lpAmount: { type: 'number', description: 'Exact LP token amount to remove' },
+              slippage: { type: 'number', description: 'Optional slippage tolerance percentage e.g. 0.5' },
+            },
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'execute_claim_fees',
+          description: 'Claim / harvest all accrued LP swap fees and Yield Vault rewards across every Arc pool in one action (or a single pool when poolId is specified). Principal stays staked.',
+          parameters: {
+            type: 'object',
+            properties: {
+              poolId: { type: 'string', description: 'Optional poolId to harvest a single pool; omit to claim all accrued fees across all pools and vault.' },
+            },
           },
         },
       },
@@ -284,7 +339,15 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
       const toolCall = message.tool_calls[0]
       const funcName = toolCall.function?.name
       if (intent.kind === 'read-only') return apiSuccess({ message: intent.message, source: 'local-nlp' })
-      const toolIntent: Record<string, string> = { execute_send: 'send', execute_swap: 'swap', execute_deposit_yield: 'deposit', execute_bridge: 'bridge' }
+      const toolIntent: Record<string, string> = {
+        execute_send: 'send',
+        execute_swap: 'swap',
+        execute_deposit_yield: 'deposit',
+        execute_add_liquidity: 'lp_deposit',
+        execute_remove_liquidity: 'lp_remove',
+        execute_claim_fees: 'claim_fees',
+        execute_bridge: 'bridge',
+      }
       if (toolIntent[funcName] && (intent.kind !== 'command' || intent.action !== toolIntent[funcName])) {
         return apiSuccess({ message: 'No transaction prepared / İşlem hazırlanmadı. The tool does not match an explicit new command.', source: 'local-nlp' })
       }
@@ -295,10 +358,14 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         console.error('Failed to parse AI tool arguments:', e)
       }
 
+      let localLpPrepared: { message: string; actionPayload?: any } | undefined
       if (toolIntent[funcName]) {
         // The model cannot inherit old token/recipient/chain fields for a new command.
         const local = parseLocalIntentFallback(userPrompt, walletAddress, livePrices, undefined, portfolio)
         if (!local.actionPayload) return apiSuccess({ message: local.message, source: 'local-nlp' })
+        if (funcName === 'execute_add_liquidity') {
+          localLpPrepared = local
+        }
         const data = local.actionPayload.data!
         args = { ...data, token: data.tokenSymbol }
       }
@@ -374,6 +441,45 @@ CHIEF DEFI STRATEGIST & PORTFOLIO RULES:
         }
         if (!outputMessage) {
           outputMessage = `I have prepared your Real-Yield Vault allocation. Click below to lock in your vault deposit.`
+        }
+      } else if (funcName === 'execute_add_liquidity') {
+        const prepared = localLpPrepared || parseLocalIntentFallback(userPrompt, walletAddress, livePrices, undefined, portfolio)
+        if (!prepared.actionPayload) {
+          return apiSuccess({ message: prepared.message, source: sourceLabel })
+        }
+        const quoted = await attachLiveQuote(prepared, walletAddress, portfolio)
+        if (!quoted.actionPayload) {
+          return apiSuccess({ message: quoted.message, source: sourceLabel })
+        }
+        actionPayload = quoted.actionPayload
+        if (!outputMessage) {
+          outputMessage = quoted.message
+        }
+      } else if (funcName === 'execute_remove_liquidity') {
+        const prepared = parseLocalIntentFallback(userPrompt, walletAddress, livePrices, undefined, portfolio)
+        if (!prepared.actionPayload) {
+          return apiSuccess({ message: prepared.message, source: sourceLabel })
+        }
+        const quoted = await attachLiveQuote(prepared, walletAddress, portfolio)
+        if (!quoted.actionPayload) {
+          return apiSuccess({ message: quoted.message, source: sourceLabel })
+        }
+        actionPayload = quoted.actionPayload
+        if (!outputMessage) {
+          outputMessage = quoted.message
+        }
+      } else if (funcName === 'execute_claim_fees') {
+        const prepared = parseLocalIntentFallback(userPrompt, walletAddress, livePrices, undefined, portfolio)
+        if (!prepared.actionPayload) {
+          return apiSuccess({ message: prepared.message, source: sourceLabel })
+        }
+        const quoted = await attachLiveQuote(prepared, walletAddress, portfolio)
+        if (!quoted.actionPayload) {
+          return apiSuccess({ message: quoted.message, source: sourceLabel })
+        }
+        actionPayload = quoted.actionPayload
+        if (!outputMessage) {
+          outputMessage = quoted.message
         }
       } else if (funcName === 'execute_bridge') {
         const fromChain = args.fromChain || 'Ethereum Sepolia'

@@ -107,10 +107,12 @@ export function computeMinLpShares(
   if (!POOL_VERSION_V4) return 0n
   const st = (poolState || {})[poolAddress] as any
   const slipBps = poolSlippageBps(slippage)
+  const tokenADecimals =
+    pool.tokens?.[0]?.decimals ?? (pool.id === 'cirbtc-weth-pool' ? 8 : 6)
   const counterDecimals =
-    counterDecimalsInput ?? pool.tokens?.[1]?.decimals ?? (pool.id === 'usdc-cirbtc-pool' ? 8 : pool.id === 'usdc-weth-pool' ? 18 : 6)
+    counterDecimalsInput ?? pool.tokens?.[1]?.decimals ?? (pool.id === 'usdc-cirbtc-pool' || pool.id === 'eurc-cirbtc-pool' ? 8 : (pool.id === 'usdc-weth-pool' || pool.id === 'eurc-weth-pool' || pool.id === 'cirbtc-weth-pool') ? 18 : 6)
 
-  const reserveARaw = st?.reserveA ? parseUnits(st.reserveA, 6) : 0n
+  const reserveARaw = st?.reserveA ? parseUnits(st.reserveA, tokenADecimals) : 0n
   const totalLpRaw = st?.totalLp ? parseUnits(st.totalLp, 18) : 0n
   let expectedLp: bigint = 0n
 
