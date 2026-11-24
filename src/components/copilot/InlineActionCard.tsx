@@ -176,6 +176,8 @@ export function buildActionAgainCommand(
   }
 
   if (actionType === 'claim') {
+    const hasFailedPools = Array.isArray(receipt?.failedPools) && receipt.failedPools.length > 0
+    if (receipt && !hasFailedPools) return null
     const scope = actionPayload?.data?.claimScope
     const poolName = actionPayload?.data?.poolName
     if (scope === 'single' && poolName) {

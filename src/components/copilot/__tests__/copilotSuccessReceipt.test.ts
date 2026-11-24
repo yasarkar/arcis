@@ -223,6 +223,30 @@ describe('CopilotSuccessReceipt adapter', () => {
     expect(html).toContain('2.25 EURC') // 1 + 1.25 aggregated
     expect(html).toContain('≈ $5.0800 USD')
     expect(html).toContain('>+<')
+    // Full harvest leaves 0 claimable fees — omit any repeat CTA button.
+    expect(html).not.toContain('Check Fees Again')
+    expect(html).not.toContain('Retry Remaining Fees')
+  })
+
+  it('shows Retry Remaining Fees only when a claim receipt reports failed pools', () => {
+    const html = render({
+      actionType: 'claim',
+      title: 'Fees Partially Claimed',
+      totalClaimedUsd: 2.58,
+      txCount: 1,
+      claimedPools: [
+        {
+          poolId: 'usdc-eurc-stable-pool',
+          poolName: 'USDC / EURC',
+          summary: '1.500000 USDC + 1.000000 EURC',
+          usdValue: 2.58,
+        },
+      ],
+      failedPools: ['USDC Yield Vault: User rejected signature'],
+    })
+
+    expect(html).toContain('Retry Remaining Fees')
+    expect(html).not.toContain('Check Fees Again')
   })
 
   it('expands dynamically for withdraw (Remove LP) receipts with side-by-side received tokens, USD subtotal, and LP Burned', () => {

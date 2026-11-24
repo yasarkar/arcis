@@ -313,7 +313,8 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
         />
       )
 
-    case 'claim':
+    case 'claim': {
+      const hasFailedPools = Array.isArray(receipt.failedPools) && receipt.failedPools.length > 0
       return (
         <UnifiedSuccessReceipt
           type="claim"
@@ -327,12 +328,13 @@ function ReceiptTemplate({ receipt, feeProps, onActionAgain }: ReceiptTemplatePr
           txHash={receipt.txHash || undefined}
           explorerUrl={explorerUrl}
           connectedAddress={receipt.userAddress || receipt.sender}
-          onActionAgain={onActionAgain || (() => {})}
-          actionButtonText="Check Fees Again"
+          onActionAgain={hasFailedPools ? (onActionAgain || (() => {})) : undefined}
+          actionButtonText={hasFailedPools ? 'Retry Remaining Fees' : undefined}
           isInline
           {...feeProps}
         />
       )
+    }
 
     case 'ai_service':
       return (

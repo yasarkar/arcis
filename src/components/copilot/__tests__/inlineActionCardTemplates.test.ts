@@ -349,6 +349,38 @@ describe('InlineActionCard Institutional Templates', () => {
     expect(html).toContain('Confirm Claim All (2)')
     expect(html).not.toContain('disabled=""')
     expect(buildActionAgainCommand(undefined, { type: 'interactive_claim_fees', title: '', data: { claimScope: 'all' } })).toBe('claim all fees')
+    expect(
+      buildActionAgainCommand(
+        {
+          id: 'r1',
+          actionType: 'claim',
+          title: 'All Fees Claimed',
+          status: 'SUCCESS',
+          txHash: '0x1',
+          gasUsdc: 0.001,
+          settlementLatencyMs: 500,
+          timestamp: 1,
+          failedPools: [],
+        },
+        { type: 'interactive_claim_fees', title: '', data: { claimScope: 'all' } }
+      )
+    ).toBeNull()
+    expect(
+      buildActionAgainCommand(
+        {
+          id: 'r2',
+          actionType: 'claim',
+          title: 'Fees Partially Claimed',
+          status: 'SUCCESS',
+          txHash: '0x2',
+          gasUsdc: 0.001,
+          settlementLatencyMs: 500,
+          timestamp: 1,
+          failedPools: ['USDC Yield Vault: Rejected'],
+        },
+        { type: 'interactive_claim_fees', title: '', data: { claimScope: 'all' } }
+      )
+    ).toBe('claim all fees')
   })
 
   it('renders an AMM LP Remove confirmation card with side-by-side You Receive, You Remove, and slippage guard', () => {

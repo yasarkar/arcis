@@ -64,7 +64,7 @@ export interface UnifiedSuccessReceiptProps {
   titleSubline?: string
   subtitle?: string
   status?: ReceiptVisualStatus
-  onActionAgain: () => void
+  onActionAgain?: () => void
   actionButtonText?: string
   onClose?: () => void
   isInline?: boolean
@@ -1189,40 +1189,42 @@ export const UnifiedSuccessReceipt: React.FC<UnifiedSuccessReceiptProps> = ({
       </div>
 
       {/* ── CARD FOOTER: ACTION BUTTONS ── */}
-      <div className={isInline ? 'mt-3 space-y-1.5' : 'mt-5 pt-1 space-y-2'}>
-        {status === 'pending' ? (
-          <div className={`w-full ${isInline ? 'py-2.5 px-3' : 'py-3.5 px-4'} rounded-xl text-xs font-bold text-amber-200 bg-amber-500/10 border border-amber-500/25 flex items-center justify-center gap-2`}>
-            <Loader2 className={`${isInline ? 'w-3.5 h-3.5' : 'w-4 h-4'} animate-spin`} />
-            <span>Awaiting Destination Confirmation</span>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={onActionAgain}
-            className={`w-full ${
-              isInline ? 'py-2.5 px-3' : 'py-3.5 px-4'
-            } rounded-xl text-xs font-bold text-white transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg hover:brightness-110 hover:scale-[1.01] active:scale-[0.98]`}
-            style={{
-              fontFamily: 'var(--font-app)',
-              background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-              boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
-            }}
-          >
-            <ActionIcon className="w-3.5 h-3.5" />
-            <span className="tracking-wide">{defaultBtnText}</span>
-          </button>
-        )}
+      {(status === 'pending' || Boolean(onActionAgain) || (!isInline && Boolean(onClose))) && (
+        <div className={isInline ? 'mt-3 space-y-1.5' : 'mt-5 pt-1 space-y-2'}>
+          {status === 'pending' ? (
+            <div className={`w-full ${isInline ? 'py-2.5 px-3' : 'py-3.5 px-4'} rounded-xl text-xs font-bold text-amber-200 bg-amber-500/10 border border-amber-500/25 flex items-center justify-center gap-2`}>
+              <Loader2 className={`${isInline ? 'w-3.5 h-3.5' : 'w-4 h-4'} animate-spin`} />
+              <span>Awaiting Destination Confirmation</span>
+            </div>
+          ) : onActionAgain ? (
+            <button
+              type="button"
+              onClick={onActionAgain}
+              className={`w-full ${
+                isInline ? 'py-2.5 px-3' : 'py-3.5 px-4'
+              } rounded-xl text-xs font-bold text-white transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg hover:brightness-110 hover:scale-[1.01] active:scale-[0.98]`}
+              style={{
+                fontFamily: 'var(--font-app)',
+                background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+              }}
+            >
+              <ActionIcon className="w-3.5 h-3.5" />
+              <span className="tracking-wide">{defaultBtnText}</span>
+            </button>
+          ) : null}
 
-        {!isInline && onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full text-center text-xs text-slate-400 hover:text-white py-1 transition-colors cursor-pointer"
-          >
-            Close
-          </button>
-        )}
-      </div>
+          {!isInline && onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full text-center text-xs text-slate-400 hover:text-white py-1 transition-colors cursor-pointer"
+            >
+              Close
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
