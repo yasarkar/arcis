@@ -17,6 +17,8 @@ describe('normalizeCircleBlockchain fail-closed mapping (critical fix #2)', () =
     expect(normalizeCircleBlockchain('Avalanche_Fuji')).toBe('AVAX-FUJI')
     expect(normalizeCircleBlockchain('Polygon_Amoy_Testnet')).toBe('MATIC-AMOY')
     expect(normalizeCircleBlockchain('Polygon_Amoy')).toBe('MATIC-AMOY')
+    expect(normalizeCircleBlockchain('Unichain_Sepolia')).toBe('UNI-SEPOLIA')
+    expect(normalizeCircleBlockchain('Monad_Testnet')).toBe('MONAD-TESTNET')
   })
 
   it('keeps the documented empty/undefined default', () => {
@@ -31,19 +33,22 @@ describe('normalizeCircleBlockchain fail-closed mapping (critical fix #2)', () =
 
   it('never guesses a substitute chain for unknown networks', () => {
     // regression: these used to collapse into ETH-SEPOLIA (wrong-chain transfer risk)
-    expect(() => normalizeCircleBlockchain('Unichain_Sepolia')).toThrow()
     expect(() => normalizeCircleBlockchain('World_Chain_Sepolia')).toThrow()
     expect(() => normalizeCircleBlockchain('Linea_Sepolia')).toThrow()
     expect(() => normalizeCircleBlockchain('HyperEVM_Testnet')).toThrow()
     expect(() => normalizeCircleBlockchain('Sei_Testnet')).toThrow()
     expect(() => normalizeCircleBlockchain('Sonic_Testnet')).toThrow()
+    expect(() => normalizeCircleBlockchain('Cronos_Testnet')).toThrow()
+    expect(() => normalizeCircleBlockchain('Plasma_Testnet')).toThrow()
   })
 
   it('flags exactly the Circle-UCW-capable chains', () => {
     expect(isCircleUcwChain('Arc_Testnet')).toBe(true)
     expect(isCircleUcwChain('Base_Sepolia')).toBe(true)
-    expect(isCircleUcwChain('Unichain_Sepolia')).toBe(false)
+    expect(isCircleUcwChain('Unichain_Sepolia')).toBe(true)
+    expect(isCircleUcwChain('Monad_Testnet')).toBe(true)
     expect(isCircleUcwChain('HyperEVM_Testnet')).toBe(false)
+    expect(isCircleUcwChain('Cronos_Testnet')).toBe(false)
     expect(isCircleUcwChain(undefined)).toBe(false)
   })
 })
@@ -73,9 +78,11 @@ describe('SendModal Gateway mode network restrictions & safeguards', () => {
     expect(sendModalSource).toMatch(/Circle Gateway is not supported on/)
   })
 
-  it('disables non-Gateway networks when sendMode is gateway', () => {
-    expect(sendModalSource).toMatch(/sendMode === 'gateway' && !supportedByGateway/)
-    expect(sendModalSource).toMatch(/disabledReason: 'Gateway Unsupported'/)
+  it('filters out non-Gateway and unsupported wallet networks dynamically via walletNetworkResolver', () => {
+    expect(sendModalSource).toContain('getWalletSupportedChains(')
+    expect(sendModalSource).toContain("surface: 'send'")
+    expect(sendModalSource).toContain('mode: sendMode')
+    expect(sendModalSource).toContain('getChainSupportedTokens(')
   })
 
   it('locks CTA button with explicit message if an unsupported Gateway network is active', () => {

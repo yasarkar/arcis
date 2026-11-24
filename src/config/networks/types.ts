@@ -41,6 +41,8 @@ export interface NetworkCapabilities {
   unifiedBalance?: boolean
   /** Circle User-Controlled Wallet challenge signing support */
   ucw: boolean
+  /** Circle Modular Smart Account (Passkey / ERC-4337) bundler & paymaster support */
+  modular?: boolean
   /** Circle Onramp widget support (Arc) */
   onramp?: boolean
   /** Circle Earn protocol support (Arc) */

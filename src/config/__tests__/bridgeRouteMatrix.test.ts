@@ -73,7 +73,7 @@ const RECORDED_REGISTRY_ROWS: RegistryRow[] = [
  * re-measuring and editing this probe, never by drifting quietly.
  */
 const RECORDED_USDC_ROUTE_PROBE = {
-  measuredOn: '2026-10-14',
+  measuredOn: '2026-11-24',
   pairs: BRIDGE_SELECTABLE_CHAINS.filter((chain) => chain !== 'Arc_Testnet').flatMap(
     (chain) =>
       [
@@ -204,8 +204,8 @@ describe('CCTP route matrix — registry deployments', () => {
 })
 
 describe('CCTP route matrix — USDC reach (live-measured)', () => {
-  it('pins the recorded probe: all 22 Arc Testnet <-> chain pairs resolved', () => {
-    expect(RECORDED_USDC_ROUTE_PROBE.pairs).toHaveLength(22)
+  it('pins the recorded probe: all 42 Arc Testnet <-> forwarder-verified EVM CCTP chain pairs resolved', () => {
+    expect(RECORDED_USDC_ROUTE_PROBE.pairs).toHaveLength(42)
     expect(RECORDED_USDC_ROUTE_PROBE.failures).toEqual([])
 
     for (const [from, to] of RECORDED_USDC_ROUTE_PROBE.pairs) {
@@ -267,6 +267,7 @@ describe('CCTP route matrix — selection helpers', () => {
       'Base_Sepolia',
       'Avalanche_Fuji',
       'World_Chain_Sepolia',
+      'Ink_Testnet',
     ])
     expect(filterReachableDestinations('WETH', 'Arc_Testnet', BRIDGE_SELECTABLE_CHAINS)).toEqual([
       'Ethereum_Sepolia',
@@ -285,6 +286,7 @@ describe('CCTP route matrix — selection helpers', () => {
       'Ethereum_Sepolia',
       'Avalanche_Fuji',
       'World_Chain_Sepolia',
+      'Ink_Testnet',
     ])
   })
 

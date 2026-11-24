@@ -19,7 +19,17 @@ import { useQueryClient } from '@tanstack/react-query'
 import { redisCache } from '../services/redisCacheService'
 import { useWalletTestnetBalances } from '../hooks/useWalletTestnetBalances'
 import { createViemAdapter } from '../services/sendService'
-import { getSwapEstimate, executeSwap, getSupportedSwapChains } from '../services/swapService'
+import {
+  getSwapEstimate,
+  executeSwap,
+  getSupportedSwapChains,
+  resolveSupportedSwapChain,
+  resolveArcNativeRoute,
+} from '../services/swapService'
+import {
+  getChainSupportedTokens,
+  resolveSupportedToken,
+} from '../config/networks/walletNetworkResolver'
 import { addTransaction } from '../utils/history'
 import { getArcPublicClient, getResilientPublicClient } from '../services/rpc'
 import {
@@ -119,25 +129,25 @@ export default function SwapModal({
   const queryClient = useQueryClient()
   const [isPrivateSwap, setIsPrivateSwap] = useState(false)
 
-  // Dynamic Chain Selector
-  const [selectedChain, setSelectedChain] = useState(initialChainKey || 'Arc_Testnet')
+  // Dynamic Chain Selector (testnet-only: defaults and snaps unsupported chains to Arc_Testnet)
+  const [selectedChain, setSelectedChain] = useState(() => resolveSupportedSwapChain(initialChainKey, true))
   const [showChainModal, setShowChainModal] = useState(false)
 
   // Sync selectedChain when initialChainKey updates (e.g. from Portfolio quick action)
   useEffect(() => {
     if (initialChainKey) {
-      if (authSource === 'ucw' && initialChainKey !== 'Arc_Testnet') {
-        setSelectedChain('Arc_Testnet')
-      } else {
-        setSelectedChain(initialChainKey)
-      }
+      const resolved = resolveSupportedSwapChain(initialChainKey, true)
+      setSelectedChain(authSource === 'ucw' ? 'Arc_Testnet' : resolved)
     }
   }, [initialChainKey, initialChainNonce, authSource])
 
-  // Enforce Arc Testnet when UCW wallet is connected
+  // Enforce Arc Testnet when UCW wallet is connected or if an unsupported chain was set
   useEffect(() => {
+    const resolved = resolveSupportedSwapChain(selectedChain, true)
     if (authSource === 'ucw' && selectedChain !== 'Arc_Testnet') {
       setSelectedChain('Arc_Testnet')
+    } else if (resolved !== selectedChain) {
+      setSelectedChain(resolved)
     }
   }, [authSource, selectedChain])
 
@@ -313,19 +323,20 @@ export default function SwapModal({
     return isValidEvmAddress(recipient)
   }, [recipient, isDestSolana, isDestInjective])
 
-  const supportedChains = useMemo(() => getSupportedSwapChains(), [])
+  // Testnet-only swap chains (excludes all mainnet chains; only Arc Testnet is supported on testnet)
+  const supportedChains = useMemo(() => getSupportedSwapChains(true), [])
 
-  // When UCW wallet is connected: Arc Testnet is prioritized at the top and selected
+  // Prioritize Arc Testnet; never include mainnet networks in the Swap selector
   const availableSwapChains = useMemo(() => {
     const arcChain = supportedChains.find((c) => c.chain === 'Arc_Testnet') || {
       chain: 'Arc_Testnet',
       name: 'Arc Testnet',
     }
-    const otherChains = supportedChains.filter((c) => c.chain !== 'Arc_Testnet')
+    const otherTestnetChains = supportedChains.filter((c) => c.chain !== 'Arc_Testnet')
 
     if (authSource === 'ucw') {
       const formattedArc = [{ ...arcChain, disabled: false }]
-      const formattedOthers = otherChains.map((c) => ({
+      const formattedOthers = otherTestnetChains.map((c) => ({
         ...c,
         disabled: true,
         disabledReason: 'EVM Req.',
@@ -333,7 +344,7 @@ export default function SwapModal({
       return [...formattedArc, ...formattedOthers]
     }
 
-    return [arcChain, ...otherChains]
+    return [arcChain, ...otherTestnetChains]
   }, [supportedChains, authSource])
 
   // Reset modal state on open
@@ -412,15 +423,64 @@ export default function SwapModal({
   const isShortOnlyByGasBuffer =
     reservesGasBuffer && isInsufficient && amountInNum <= flooredBalance + 1e-9
 
+  // Dynamically derive swappable tokens from Master Network Registry + active Arc pools
+  const supportedSwapTokenDescriptors = useMemo(() => {
+    const allChainTokens = getChainSupportedTokens({
+      surface: 'swap',
+      chainKey: fromChain,
+      authSource,
+    })
+    if (fromChain !== 'Arc_Testnet') return allChainTokens
+    return allChainTokens.filter((candidate) =>
+      allChainTokens.some(
+        (other) =>
+          other.symbol !== candidate.symbol &&
+          Boolean(resolveArcNativeRoute(candidate.symbol, other.symbol))
+      )
+    )
+  }, [fromChain, authSource])
+
+  // Clamp tokenIn / tokenOut whenever the selected chain's supported swap tokens change
+  useEffect(() => {
+    if (supportedSwapTokenDescriptors.length === 0) return
+    const nextIn = resolveSupportedToken(tokenIn, supportedSwapTokenDescriptors, 'USDC')
+    if (nextIn !== tokenIn) {
+      setTokenIn(nextIn)
+    }
+    const validOut = supportedSwapTokenDescriptors.some(
+      (t) => t.symbol === tokenOut && t.symbol !== nextIn
+    )
+    if (!validOut) {
+      const fallbackOut = supportedSwapTokenDescriptors.find((t) => t.symbol !== nextIn)?.symbol
+      if (fallbackOut) setTokenOut(fallbackOut)
+    }
+  }, [supportedSwapTokenDescriptors, tokenIn, tokenOut])
+
   // Token list for selector modal
   const tokenList: TokenItem[] = useMemo(
-    () => [
-      { symbol: 'USDC', name: 'USD Coin', icon: TOKEN_ICONS.USDC, balance: usdcWalletBalance },
-      { symbol: 'EURC', name: 'Euro Coin', icon: TOKEN_ICONS.EURC, balance: eurcWalletBalance },
-      { symbol: 'cirBTC', name: 'Circle Bitcoin', icon: TOKEN_ICONS.cirBTC, balance: cirbtcWalletBalance },
-      { symbol: 'WETH', name: 'Wrapped Ether', icon: TOKEN_ICONS.WETH, balance: wethWalletBalance },
-    ],
-    [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, wethWalletBalance]
+    () =>
+      supportedSwapTokenDescriptors.map((descriptor) => ({
+        symbol: descriptor.symbol,
+        name: descriptor.name,
+        icon: TOKEN_ICONS[descriptor.symbol],
+        balance:
+          descriptor.symbol === 'USDC'
+            ? usdcWalletBalance
+            : descriptor.symbol === 'EURC'
+              ? eurcWalletBalance
+              : descriptor.symbol === 'cirBTC'
+                ? cirbtcWalletBalance
+                : descriptor.symbol === 'WETH'
+                  ? wethWalletBalance
+                  : '0.00',
+      })),
+    [
+      supportedSwapTokenDescriptors,
+      usdcWalletBalance,
+      eurcWalletBalance,
+      cirbtcWalletBalance,
+      wethWalletBalance,
+    ]
   )
 
   // Swap Direction Switch
@@ -1375,8 +1435,8 @@ export default function SwapModal({
         onSelectToken={(sym) => {
           setTokenIn(sym)
           if (sym === tokenOut) {
-            const others = ['USDC', 'EURC', 'cirBTC', 'WETH'].filter((t) => t !== sym)
-            setTokenOut(others[0])
+            const others = tokenList.map((t) => t.symbol).filter((t) => t !== sym)
+            if (others[0]) setTokenOut(others[0])
           }
         }}
         title="Pay with"
@@ -1390,8 +1450,8 @@ export default function SwapModal({
         onSelectToken={(sym) => {
           setTokenOut(sym)
           if (sym === tokenIn) {
-            const others = ['USDC', 'EURC', 'cirBTC', 'WETH'].filter((t) => t !== sym)
-            setTokenIn(others[0])
+            const others = tokenList.map((t) => t.symbol).filter((t) => t !== sym)
+            if (others[0]) setTokenIn(others[0])
           }
         }}
         title="Receive"
@@ -1402,7 +1462,7 @@ export default function SwapModal({
         onClose={() => setShowChainModal(false)}
         chains={availableSwapChains}
         selectedChain={selectedChain}
-        onSelectChain={(chainKey) => setSelectedChain(chainKey)}
+        onSelectChain={(chainKey) => setSelectedChain(resolveSupportedSwapChain(chainKey, true))}
         getChainIconId={getChainIconId}
         title="Select Network"
       />

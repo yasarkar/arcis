@@ -26,6 +26,10 @@ export const CIRCLE_UCW_BLOCKCHAIN_MAP: Record<string, string> = {
   Polygon_Amoy_Testnet: 'MATIC-AMOY',
   Polygon_Amoy: 'MATIC-AMOY',
   Polygon: 'MATIC',
+  Unichain_Sepolia: 'UNI-SEPOLIA',
+  Unichain: 'UNI',
+  Monad_Testnet: 'MONAD-TESTNET',
+  Monad: 'MONAD',
   Solana_Devnet: 'SOL-DEVNET',
   Solana: 'SOL',
 }

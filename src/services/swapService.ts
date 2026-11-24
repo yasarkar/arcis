@@ -264,7 +264,9 @@ function resolveTokenAddr(chain: string, symbol: string): string {
 function isMainnetSwapChain(chain?: string): boolean {
   if (!chain) return false
   const network = getNetwork(chain)
-  return Boolean(network && network.testnet === false)
+  if (network) return network.testnet === false
+  const sdkChain = kit.getSupportedChains('swap').find((c) => c.chain === chain)
+  return Boolean(sdkChain && sdkChain.isTestnet === false)
 }
 
 /**
@@ -302,14 +304,33 @@ async function buildSwapTo(
 }
 
 /**
- * Dynamic Chain Loading
+ * Dynamic Chain Loading — defaults to the active app environment (IS_TESTNET)
+ * so testnet builds never expose mainnet swap chains in the UI.
  */
-export function getSupportedSwapChains(isTestnet?: boolean): ChainDefinition[] {
+export function getSupportedSwapChains(isTestnet: boolean = IS_TESTNET): ChainDefinition[] {
   const chains = kit.getSupportedChains('swap')
-  if (isTestnet !== undefined) {
-    return chains.filter((c) => c.isTestnet === isTestnet)
+  return chains.filter((c) => c.isTestnet === isTestnet)
+}
+
+/**
+ * Returns true if the given chain key is supported for swaps in the active environment.
+ */
+export function isSwapChainSupported(chainKey?: string, isTestnet: boolean = IS_TESTNET): boolean {
+  if (!chainKey) return false
+  return getSupportedSwapChains(isTestnet).some((c) => c.chain === chainKey)
+}
+
+/**
+ * Resolves a requested chain key (e.g. from portfolio deep-links) to a supported swap chain,
+ * falling back to Arc_Testnet in testnet mode so unsupported or mainnet chains are never selected.
+ */
+export function resolveSupportedSwapChain(chainKey?: string, isTestnet: boolean = IS_TESTNET): string {
+  const supported = getSupportedSwapChains(isTestnet)
+  if (chainKey && supported.some((c) => c.chain === chainKey)) {
+    return chainKey
   }
-  return chains
+  const defaultChain = isTestnet ? 'Arc_Testnet' : 'Arc'
+  return supported.find((c) => c.chain === defaultChain)?.chain || supported[0]?.chain || defaultChain
 }
 
 /**

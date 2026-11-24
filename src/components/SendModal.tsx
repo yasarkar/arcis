@@ -33,6 +33,12 @@ import {
   getChainIconId,
   getExplorerTxUrl,
 } from '../config/sendConfig'
+import {
+  getChainSupportedTokens,
+  getWalletSupportedChains,
+  resolveSupportedToken,
+  resolveWalletSupportedChain,
+} from '../config/networks/walletNetworkResolver'
 import { OkbIcon, PhrsIcon, SonicIcon, TOKEN_ICON_MAP, WethIcon, XplIcon } from '../config/tokenIcons'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useClearOnWalletDisconnect } from '../hooks/useClearOnWalletDisconnect'
@@ -46,12 +52,12 @@ import { sendUsdcWithMemo } from '../services/memoService'
 import { getResilientPublicClient, resilientGetBalance, resilientReadContract } from '../services/rpc'
 import { estimateGas, resolveNativeActualFee, sendToken } from '../services/sendService'
 import { gatewayMaxFeeUsdc } from '../utils/bridgeAmountUtils'
-import { isCircleUcwChain, normalizeCircleBlockchain } from '../utils/circleBlockchain'
+import { normalizeCircleBlockchain } from '../utils/circleBlockchain'
 import { normalizeAppError } from '../utils/errorNormalizer'
 import { addTransaction } from '../utils/history'
 import { logger } from '../utils/logger'
 import { saveRecipient } from '../utils/recentRecipients'
-import { CHAIN_NATIVE_MAP, getCleanNativeTokenName, getDisplayTokenSymbol } from '../utils/tokenUtils'
+import { CHAIN_NATIVE_MAP, getDisplayTokenSymbol } from '../utils/tokenUtils'
 import { useBroadcast } from './BroadcastNotification'
 import { ChainIcon } from './common/ChainIcon'
 import { SpeedFeeSelector } from './common/SpeedFeeSelector'
@@ -312,27 +318,39 @@ export default function SendModal({
   const [recipientError, setRecipientError] = useState<string | null>(null)
   const [amount, setAmount] = useState('')
 
-  // Dynamic Chain Selector
-  const [selectedChain, setSelectedChain] = useState(initialChainKey || 'Arc_Testnet')
+  // Dynamic Chain Selector (filtered by connected wallet type & active send mode)
+  const supportedChainKeys = useMemo(
+    () =>
+      getWalletSupportedChains({
+        surface: 'send',
+        authSource,
+        mode: sendMode,
+      }),
+    [authSource, sendMode]
+  )
+
+  const [selectedChain, setSelectedChain] = useState(() =>
+    resolveWalletSupportedChain(
+      initialChainKey,
+      getWalletSupportedChains({ surface: 'send', authSource, mode: 'direct' })
+    )
+  )
   const [showChainModal, setShowChainModal] = useState(false)
 
   // Sync selectedChain when initialChainKey updates (e.g. from Portfolio quick action)
   useEffect(() => {
-    if (initialChainKey && SUPPORTED_SEND_CHAINS.some((c) => c.chain === initialChainKey)) {
-      if (authSource === 'ucw' && initialChainKey.toLowerCase().includes('solana')) {
-        setSelectedChain('Arc_Testnet')
-      } else {
-        setSelectedChain(initialChainKey)
-      }
+    if (initialChainKey) {
+      setSelectedChain(resolveWalletSupportedChain(initialChainKey, supportedChainKeys))
     }
-  }, [initialChainKey, initialChainNonce, authSource])
+  }, [initialChainKey, initialChainNonce, supportedChainKeys])
 
-  // Fallback to Arc Testnet if UCW wallet is connected and an unsupported non-EVM chain is selected
+  // Clamp selectedChain whenever connected wallet or send mode changes
   useEffect(() => {
-    if (authSource === 'ucw' && selectedChain.toLowerCase().includes('solana')) {
-      setSelectedChain('Arc_Testnet')
+    const resolved = resolveWalletSupportedChain(selectedChain, supportedChainKeys)
+    if (resolved !== selectedChain) {
+      setSelectedChain(resolved)
     }
-  }, [authSource, selectedChain])
+  }, [selectedChain, supportedChainKeys])
 
   // Fallback to Gateway mode when Solana is selected, since Solana transfers ride Circle Gateway unified balance
   useEffect(() => {
@@ -341,41 +359,13 @@ export default function SendModal({
     }
   }, [sendMode, selectedChain])
 
-  // Fallback to Arc Testnet if in Gateway mode and an unsupported Gateway chain is currently selected
-  useEffect(() => {
-    if (sendMode === 'gateway' && GATEWAY_DOMAINS[selectedChain] === undefined) {
-      setSelectedChain('Arc_Testnet')
-    }
-  }, [sendMode, selectedChain])
-
-  // Circle UCW can only execute on whitelisted chains (Solana additionally stays
-  // EVM-only); Gateway mode only operates on networks supporting Circle Gateway.
-  // Unsupported chains are disabled so a transfer can never be signed for the wrong blockchain.
+  // Only present testnet chains actually supported by the connected wallet & active mode
   const availableSendChains = useMemo(() => {
-    return SUPPORTED_SEND_CHAINS.map((c) => {
-      const isSolana = c.chain.toLowerCase().includes('solana')
-      const supportedByUcw = isCircleUcwChain(c.chain)
-      const supportedByGateway = GATEWAY_DOMAINS[c.chain] !== undefined
-
-      if (authSource === 'ucw' && (isSolana || !supportedByUcw)) {
-        return {
-          ...c,
-          disabled: true,
-          disabledReason: isSolana ? 'EVM Only' : 'Not supported by Circle UCW',
-        }
-      }
-
-      if (sendMode === 'gateway' && !supportedByGateway) {
-        return {
-          ...c,
-          disabled: true,
-          disabledReason: 'Gateway Unsupported',
-        }
-      }
-
-      return c
-    })
-  }, [authSource, sendMode])
+    const chainByKey = new Map(SUPPORTED_SEND_CHAINS.map((c) => [c.chain, c]))
+    return supportedChainKeys
+      .map((key) => chainByKey.get(key))
+      .filter((c): c is (typeof SUPPORTED_SEND_CHAINS)[number] => Boolean(c))
+  }, [supportedChainKeys])
 
   // Address validation helpers (EVM checksum, Solana base58, Injective bech32)
   // live at module scope above so they can be unit tested.
@@ -499,6 +489,18 @@ export default function SendModal({
   const cirbtcWalletBalance = walletBalances[selectedChain]?.cirbtc || '0.00000'
   const wethWalletBalance = walletBalances[selectedChain]?.weth || '0.0000'
 
+  // Dynamically supported tokens for the selected network, wallet, and send mode
+  const supportedTokenDescriptors = useMemo(
+    () =>
+      getChainSupportedTokens({
+        surface: 'send',
+        chainKey: selectedChain,
+        authSource,
+        mode: sendMode,
+      }),
+    [selectedChain, authSource, sendMode]
+  )
+
   // Reset custom token state if switching to Gateway mode
   useEffect(() => {
     if (sendMode === 'gateway') {
@@ -507,18 +509,14 @@ export default function SendModal({
     }
   }, [sendMode, isCustom, token])
 
-  // Reset to USDC if selected token is not supported on the active chain
+  // Reset to a supported token if selected token is not supported on the active chain/mode
   useEffect(() => {
-    if (sendMode === 'gateway' || isCustom) return
-    const net = getNetwork(selectedChain)
-    if (!net) return
-    const supported = Object.keys(net.tokens)
-    const nativeSym = CHAIN_NATIVE_MAP[selectedChain]?.symbol || net.nativeCurrency?.symbol
-    const isTargetNative = Boolean(nativeSym && token === nativeSym)
-    if (token !== 'USDC' && token !== 'NATIVE' && !supported.includes(token) && !isTargetNative) {
-      setToken('USDC')
+    if (sendMode === 'gateway' || isCustom || token === 'NATIVE') return
+    const resolved = resolveSupportedToken(token, supportedTokenDescriptors)
+    if (resolved !== token) {
+      setToken(resolved)
     }
-  }, [selectedChain, sendMode, isCustom, token])
+  }, [sendMode, isCustom, token, supportedTokenDescriptors])
 
   const nativeSymbol = CHAIN_NATIVE_MAP[selectedChain]?.symbol
   const isNative =
@@ -1385,48 +1383,45 @@ export default function SendModal({
     setAmount(truncateToDecimal(calculated, amountDecimals))
   }
 
-  // Token list for selector modal (derived dynamically from the active network configuration
-  // in Master Network Registry; only tokens actually deployed on this network are offered).
+  // Token list for selector modal (derived dynamically from walletNetworkResolver
+  // backed by Master Network Registry; Gateway mode exposes USDC only).
   const tokenList: TokenItem[] = useMemo(() => {
-    const net = getNetwork(selectedChain)
-    const list: TokenItem[] = []
+    return supportedTokenDescriptors.map((descriptor) => {
+      const sym = descriptor.symbol
+      const icon = TOKEN_ICONS[sym] || TOKEN_ICON_MAP[sym]
+      const balance =
+        sendMode === 'gateway'
+          ? gatewayTotalBalance || '0.00'
+          : sym === 'USDC'
+            ? usdcWalletBalance
+            : sym === 'EURC'
+              ? eurcWalletBalance
+              : sym === 'cirBTC'
+                ? cirbtcWalletBalance
+                : sym === 'WETH'
+                  ? wethWalletBalance
+                  : descriptor.isNative
+                    ? nativeBalance
+                    : '0.00'
 
-    // 1. USDC is supported across Arc & Circle send networks
-    const hasUsdc = net ? Boolean(net.tokens.USDC) : true
-    if (hasUsdc) {
-      list.push({ symbol: 'USDC', name: 'USD Coin', icon: TOKEN_ICONS.USDC, balance: usdcWalletBalance })
-    }
-
-    // 2. EURC: only include if the network configuration has EURC deployed
-    if (net?.tokens.EURC) {
-      list.push({ symbol: 'EURC', name: 'Euro Coin', icon: TOKEN_ICONS.EURC, balance: eurcWalletBalance })
-    }
-
-    // 3. cirBTC: only include if the network configuration has cirBTC deployed
-    if (net?.tokens.cirBTC) {
-      list.push({ symbol: 'cirBTC', name: 'Circle Bitcoin', icon: TOKEN_ICONS.cirBTC, balance: cirbtcWalletBalance })
-    }
-
-    // 4. WETH: only include if the network configuration has WETH deployed
-    if (net?.tokens.WETH) {
-      list.push({ symbol: 'WETH', name: 'Wrapped Ether', icon: TOKEN_ICONS.WETH || TOKEN_ICON_MAP.WETH, balance: wethWalletBalance })
-    }
-
-    // 5. Native gas asset when distinct from USDC (e.g. Sepolia ETH, AVAX, POL, INJ, etc.)
-    const nativeInfo = CHAIN_NATIVE_MAP[selectedChain] || net?.nativeCurrency
-    if (nativeInfo && nativeInfo.symbol !== 'USDC' && !net?.tokens[nativeInfo.symbol]) {
-      const nativeIcon = TOKEN_ICON_MAP[nativeInfo.symbol] || TOKEN_ICONS[nativeInfo.symbol]
-      list.push({
-        symbol: nativeInfo.symbol,
-        name: getCleanNativeTokenName(nativeInfo.symbol),
-        icon: nativeIcon,
-        web3TokenSymbol: nativeIcon ? undefined : nativeInfo.symbol.toLowerCase(),
-        balance: nativeBalance,
-      })
-    }
-
-    return list
-  }, [usdcWalletBalance, eurcWalletBalance, cirbtcWalletBalance, wethWalletBalance, nativeBalance, selectedChain])
+      return {
+        symbol: sym,
+        name: descriptor.name,
+        icon,
+        web3TokenSymbol: !icon && descriptor.isNative ? sym.toLowerCase() : undefined,
+        balance,
+      }
+    })
+  }, [
+    supportedTokenDescriptors,
+    sendMode,
+    gatewayTotalBalance,
+    usdcWalletBalance,
+    eurcWalletBalance,
+    cirbtcWalletBalance,
+    wethWalletBalance,
+    nativeBalance,
+  ])
 
   // Mode Options
   const modeOptions: ModeOption[] = [

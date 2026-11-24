@@ -144,13 +144,14 @@ describe('Centralized Master Network Registry', () => {
       expect(gatewayNetworks.some((n) => n.key === 'Plasma_Testnet')).toBe(false)
     })
 
-    it('filters ucw-capable networks', () => {
+    it('filters ucw-capable networks aligned with Circle UCW SDK', () => {
       const ucwNetworks = getNetworksByCapability('ucw', true)
       expect(ucwNetworks.some((n) => n.key === 'Arc_Testnet')).toBe(true)
       expect(ucwNetworks.some((n) => n.key === 'Base_Sepolia')).toBe(true)
+      expect(ucwNetworks.some((n) => n.key === 'Unichain_Sepolia')).toBe(true)
       expect(ucwNetworks.some((n) => n.key === 'Monad_Testnet')).toBe(true)
-      expect(ucwNetworks.some((n) => n.key === 'Cronos_Testnet')).toBe(true)
-      expect(ucwNetworks.some((n) => n.key === 'Plasma_Testnet')).toBe(true)
+      expect(ucwNetworks.some((n) => n.key === 'Cronos_Testnet')).toBe(false)
+      expect(ucwNetworks.some((n) => n.key === 'Plasma_Testnet')).toBe(false)
       expect(ucwNetworks.some((n) => n.key === 'Ink_Testnet')).toBe(false)
     })
   })
@@ -168,16 +169,16 @@ describe('Centralized Master Network Registry', () => {
         'Avalanche_Fuji',
         'Unichain_Sepolia',
         'Solana_Devnet',
-        'Cronos_Testnet',
-        'Plasma_Testnet',
+        'Monad_Testnet',
       ]
 
-      expect(circleWalletChains.length).toBe(11)
+      expect(circleWalletChains.length).toBe(10)
       for (const k of expectedCircleWalletChains) {
         expect(supportsAdapter(k, 'circleWallets')).toBe(true)
       }
       expect(supportsAdapter('Codex_Testnet', 'circleWallets')).toBe(false)
-      expect(supportsAdapter('Monad_Testnet', 'circleWallets')).toBe(false)
+      expect(supportsAdapter('Cronos_Testnet', 'circleWallets')).toBe(false)
+      expect(supportsAdapter('Plasma_Testnet', 'circleWallets')).toBe(false)
     })
 
     it('accurately resolves Viem and Ethers adapter support across all EVM chains', () => {

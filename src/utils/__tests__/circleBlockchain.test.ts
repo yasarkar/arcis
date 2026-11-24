@@ -12,6 +12,8 @@ describe('normalizeCircleBlockchain — shared fail-closed chain map', () => {
     expect(normalizeCircleBlockchain('Ethereum_Sepolia')).toBe('ETH-SEPOLIA')
     expect(normalizeCircleBlockchain('Avalanche_Fuji')).toBe('AVAX-FUJI')
     expect(normalizeCircleBlockchain('Polygon_Amoy')).toBe('MATIC-AMOY')
+    expect(normalizeCircleBlockchain('Unichain_Sepolia')).toBe('UNI-SEPOLIA')
+    expect(normalizeCircleBlockchain('Monad_Testnet')).toBe('MONAD-TESTNET')
   })
 
   it('is idempotent for already-canonical Circle identifiers', () => {
@@ -38,12 +40,13 @@ describe('normalizeCircleBlockchain — shared fail-closed chain map', () => {
 
   it('throws for chains Circle UCW cannot sign on', () => {
     expect(() => normalizeCircleBlockchain('Unknown_Chain')).toThrow(/not supported/i)
-    expect(() => normalizeCircleBlockchain('Unichain_Sepolia')).toThrow(/not supported/i)
     expect(() => normalizeCircleBlockchain('World_Chain_Sepolia')).toThrow(/not supported/i)
     expect(() => normalizeCircleBlockchain('HyperEVM_Testnet')).toThrow(/not supported/i)
     expect(() => normalizeCircleBlockchain('Sei_Testnet')).toThrow(/not supported/i)
     expect(() => normalizeCircleBlockchain('Sonic_Testnet')).toThrow(/not supported/i)
     expect(() => normalizeCircleBlockchain('Linea_Sepolia')).toThrow(/not supported/i)
+    expect(() => normalizeCircleBlockchain('Cronos_Testnet')).toThrow(/not supported/i)
+    expect(() => normalizeCircleBlockchain('Plasma_Testnet')).toThrow(/not supported/i)
   })
 
   it('keeps the documented empty default', () => {
@@ -56,8 +59,10 @@ describe('isCircleUcwChain', () => {
   it('flags exactly the Circle-UCW-capable chains', () => {
     expect(isCircleUcwChain('Arc_Testnet')).toBe(true)
     expect(isCircleUcwChain('Base_Sepolia')).toBe(true)
-    expect(isCircleUcwChain('Unichain_Sepolia')).toBe(false)
+    expect(isCircleUcwChain('Unichain_Sepolia')).toBe(true)
+    expect(isCircleUcwChain('Monad_Testnet')).toBe(true)
     expect(isCircleUcwChain('Sei_Testnet')).toBe(false)
+    expect(isCircleUcwChain('Cronos_Testnet')).toBe(false)
     expect(isCircleUcwChain(undefined)).toBe(false)
     expect(isCircleUcwChain('')).toBe(false)
   })

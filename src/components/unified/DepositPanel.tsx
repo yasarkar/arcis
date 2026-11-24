@@ -22,6 +22,10 @@ import {
   GATEWAY_WALLET_ABI,
   USDC_ADDRESSES,
 } from '../../config/gatewayConfig'
+import {
+  getWalletSupportedChains,
+  resolveWalletSupportedChain,
+} from '../../config/networks/walletNetworkResolver'
 import { setAutoSwitchPaused } from '../../hooks/useAutoSwitchArcChain'
 import type { ExecuteContractCallParams } from '../../hooks/useUserControlledWallet'
 import type { WalletBalancesRecord } from '../../hooks/useWalletTestnetBalances'
@@ -172,12 +176,27 @@ export default function DepositPanel({
     return () => window.cancelAnimationFrame(frame)
   }, [showChainDropdown])
 
-  // Passkey wallets are bound to the active Arc network: lock the selector defensively.
+  const walletDepositChains = useMemo(
+    () =>
+      getWalletSupportedChains({
+        surface: 'deposit',
+        authSource: activeAuthSource,
+        mode: 'gateway',
+      }).filter((chainKey) => Boolean(USDC_ADDRESSES[chainKey])),
+    [activeAuthSource]
+  )
+
+  // Clamp depositChain whenever connected wallet changes (e.g. passkey → Arc only, UCW → UCW ∩ Gateway)
   useEffect(() => {
-    if (activeAuthSource === 'passkey' && !isArcChainKey(depositChain)) {
-      setDepositChain(DEFAULT_DEPOSIT_CHAIN)
+    const resolved = resolveWalletSupportedChain(
+      depositChain,
+      walletDepositChains,
+      DEFAULT_DEPOSIT_CHAIN
+    )
+    if (resolved !== depositChain) {
+      setDepositChain(resolved)
     }
-  }, [activeAuthSource, depositChain])
+  }, [walletDepositChains, depositChain])
 
   const targetChainDef = CHAIN_DEFS[depositChain]
   const isWrongDepositChain = Boolean(
@@ -208,12 +227,12 @@ export default function DepositPanel({
 
   const sortedDepositChains = useMemo(
     () => sortDepositChains(
-      DEPOSIT_CHAIN_OPTIONS,
+      walletDepositChains,
       walletBalances,
       getChainDisplayName,
       DEFAULT_DEPOSIT_CHAIN
     ),
-    [walletBalances]
+    [walletDepositChains, walletBalances]
   )
 
   const resetDepositError = () => {

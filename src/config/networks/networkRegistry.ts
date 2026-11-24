@@ -321,7 +321,7 @@ export const lineaSepolia = defineChain({
 })
 
 export const plumeTestnet = defineChain({
-  id: 98864,
+  id: 98867,
   name: 'Plume Testnet',
   nativeCurrency: { name: 'Plume ETH', symbol: 'ETH', decimals: 18 },
   rpcUrls: {
@@ -340,7 +340,7 @@ export const plumeTestnet = defineChain({
 })
 
 export const injectiveTestnet = defineChain({
-  id: 14801,
+  id: 1439,
   name: 'Injective Testnet',
   nativeCurrency: { name: 'Injective', symbol: 'INJ', decimals: 18 },
   rpcUrls: {
@@ -530,6 +530,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       gateway: true,
       unifiedBalance: true,
       ucw: true,
+      modular: true,
       onramp: true,
       earn: true,
       borrow: true,
@@ -852,7 +853,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'SnowTrace', url: 'https://testnet.snowtrace.io' },
     tokens: {
       USDC: '0x5425890298aed601595a70ab815c96711a31bc65',
-      EURC: '0x3231Cb76718CDeF2155FC47b5286d82e6eDA273f',
+      EURC: '0x5E44db7996c682E92a960b65AC713a54AD815c6B',
     },
     tokenDecimals: { USDC: 6, EURC: 6 },
     ui: {
@@ -1009,7 +1010,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       swap: false,
       gateway: true,
       unifiedBalance: true,
-      ucw: false,
+      ucw: true,
       faucet: true,
       privacy: false,
     },
@@ -1070,8 +1071,9 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'Worldscan', url: 'https://sepolia.worldscan.org' },
     tokens: {
       USDC: '0x66145f38cBAC35Ca6F1Dfb4914dF98F1614aeA88',
+      EURC: '0xe479EcA5740Ac65d6E1823bea2f1C08Bc14e954F',
     },
-    tokenDecimals: { USDC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6 },
     ui: {
       iconId: 'world',
       name: 'World Chain Sepolia',
@@ -1113,8 +1115,9 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     blockExplorers: { name: 'Solana Explorer', url: 'https://explorer.solana.com/?cluster=devnet' },
     tokens: {
       USDC: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+      EURC: 'HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr',
     },
-    tokenDecimals: { USDC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6 },
     ui: {
       iconId: 'solana',
       name: 'Solana Devnet',
@@ -1131,6 +1134,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     shortName: 'MON',
     chainId: monadTestnet.id,
     testnet: true,
+    cctpDomain: 15,
     circleBlockchain: 'MONAD-TESTNET',
     capabilities: {
       send: true,
@@ -1145,7 +1149,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     adapters: {
       viem: true,
       ethers: true,
-      circleWallets: false,
+      circleWallets: true,
       solana: false,
     },
     nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
@@ -1155,7 +1159,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Monad Explorer', url: 'https://testnet.monadexplorer.com' },
     tokens: {
-      USDC: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
+      USDC: '0x534b2f3A21130d7a60830c2Df862319e593943A3',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1173,6 +1177,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     shortName: 'INK',
     chainId: inkTestnet.id,
     testnet: true,
+    cctpDomain: 21,
     circleBlockchain: 'INK-TESTNET',
     capabilities: {
       send: true,
@@ -1197,9 +1202,10 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Ink Explorer', url: 'https://explorer.sepolia.inkonchain.com' },
     tokens: {
-      USDC: '0x266854124190e44720D45B3878bc165eb3f01C60',
+      USDC: '0xFabab97dCE620294D2B0b0e46C68964e326300Ac',
+      EURC: '0x14e4Ae1e59676865C8C76362E2D13156880315D6',
     },
-    tokenDecimals: { USDC: 6 },
+    tokenDecimals: { USDC: 6, EURC: 6 },
     ui: {
       iconId: 'ink',
       name: 'Ink Sepolia',
@@ -1215,6 +1221,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     shortName: 'LINEA',
     chainId: lineaSepolia.id,
     testnet: true,
+    cctpDomain: 11,
     circleBlockchain: 'LINEA-SEPOLIA',
     capabilities: {
       send: true,
@@ -1239,7 +1246,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'LineaScan', url: 'https://sepolia.lineascan.build' },
     tokens: {
-      USDC: '0xfe224d5154de6F536F52f010C223C2a07530e84B',
+      USDC: '0xfece4462d57bd51a6a552365a011b95f0e16d9b7',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1257,6 +1264,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     shortName: 'PLUME',
     chainId: plumeTestnet.id,
     testnet: true,
+    cctpDomain: 22,
     circleBlockchain: 'PLUME-TESTNET',
     capabilities: {
       send: true,
@@ -1281,7 +1289,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Plume Explorer', url: 'https://testnet-explorer.plumenetwork.xyz' },
     tokens: {
-      USDC: '0xbA228a0c6CF5Cd2b9f4F74d64b79c0926D2e3B2e',
+      USDC: '0xcB5f30e335672893c7eb944B374c196392C19D18',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1299,6 +1307,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     shortName: 'INJ',
     chainId: injectiveTestnet.id,
     testnet: true,
+    cctpDomain: 29,
     circleBlockchain: 'INJECTIVE-TESTNET',
     capabilities: {
       send: true,
@@ -1323,7 +1332,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Injective Explorer', url: 'https://testnet.explorer.injective.network' },
     tokens: {
-      USDC: '0x7B66C729eE944749f7B13F89a5A4E99F0Bfff191',
+      USDC: '0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1341,6 +1350,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     shortName: 'XDC',
     chainId: xdcApothem.id,
     testnet: true,
+    cctpDomain: 18,
     circleBlockchain: 'XDC-TESTNET',
     capabilities: {
       send: true,
@@ -1365,7 +1375,7 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
     },
     blockExplorers: { name: 'Blocksscan', url: 'https://apothem.blocksscan.io' },
     tokens: {
-      USDC: '0x3234Ff14f44621C1Ea3E6ECA4a194165682ffe5a',
+      USDC: '0xb5AB69F7bBada22B28e79C8FFAECe55eF1c771D4',
     },
     tokenDecimals: { USDC: 6 },
     ui: {
@@ -1434,14 +1444,14 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       swap: false,
       gateway: false,
       unifiedBalance: false,
-      ucw: true,
+      ucw: false,
       faucet: true,
       privacy: false,
     },
     adapters: {
       viem: true,
       ethers: true,
-      circleWallets: true,
+      circleWallets: false,
       solana: false,
     },
     nativeCurrency: { name: 'Cronos', symbol: 'tCRO', decimals: 18 },
@@ -1610,14 +1620,14 @@ export const TESTNET_NETWORKS: Record<string, NetworkConfig> = {
       swap: false,
       gateway: false,
       unifiedBalance: false,
-      ucw: true,
+      ucw: false,
       faucet: true,
       privacy: false,
     },
     adapters: {
       viem: true,
       ethers: true,
-      circleWallets: true,
+      circleWallets: false,
       solana: false,
     },
     nativeCurrency: { name: 'Plasma', symbol: 'XPL', decimals: 18 },
@@ -1703,6 +1713,7 @@ export const MAINNET_NETWORKS: Record<string, NetworkConfig> = {
       gateway: true,
       unifiedBalance: true,
       ucw: true,
+      modular: true,
       onramp: true,
       earn: true,
       borrow: true,

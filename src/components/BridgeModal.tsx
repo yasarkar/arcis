@@ -55,17 +55,19 @@ import {
   CHAIN_DEFS,
   getChainDisplayName,
   getChainIconId,
-  BRIDGE_SELECTABLE_CHAINS,
   isBridgeSelectableChain,
   resolveCanonicalChainKey,
 } from '../config/bridgeConfig'
 import {
-  filterBridgeableTokens,
-  filterReachableDestinations,
-  filterReachableSources,
   getUcwBridgeMechanism,
   isBridgeRouteSupported,
 } from '../config/bridgeRouteMatrix'
+import {
+  getChainSupportedTokens,
+  getWalletSupportedChains,
+  resolveSupportedToken,
+  resolveWalletSupportedChain,
+} from '../config/networks/walletNetworkResolver'
 import {
   getBridgeFeeRecipient,
   isBridgePlatformFeeCharged,
@@ -185,34 +187,88 @@ export default function BridgeModal({
     updateWalletSettings({ bridgeSpeedTier: tier })
   }
 
+  // Wallet & mode-aware universes for source and destination selectors
+  const walletSourceUniverse = useMemo(
+    () =>
+      getWalletSupportedChains({
+        surface: 'bridge',
+        authSource,
+        mode: bridgeMode,
+        side: 'source',
+      }),
+    [authSource, bridgeMode]
+  )
+
+  const walletDestUniverse = useMemo(
+    () =>
+      getWalletSupportedChains({
+        surface: 'bridge',
+        authSource,
+        mode: bridgeMode,
+        side: 'destination',
+      }),
+    [authSource, bridgeMode]
+  )
+
   const initialSelectableChain = useMemo(() => {
     const canonical = initialSourceChain ? resolveCanonicalChainKey(initialSourceChain) : ''
-    return isBridgeSelectableChain(canonical) ? canonical : ''
-  }, [initialSourceChain])
+    return isBridgeSelectableChain(canonical) && walletSourceUniverse.includes(canonical)
+      ? canonical
+      : ''
+  }, [initialSourceChain, walletSourceUniverse])
 
   const [sourceChain, setSourceChain] = useState(() =>
-    initialSelectableChain || 'Arc_Testnet'
+    resolveWalletSupportedChain(initialSelectableChain || 'Arc_Testnet', walletSourceUniverse)
   )
-  const [destChain, setDestChain] = useState(() =>
-    initialSelectableChain && initialSelectableChain !== 'Arc_Testnet'
-      ? 'Arc_Testnet'
-      : 'Base_Sepolia'
-  )
+  const [destChain, setDestChain] = useState(() => {
+    const preferredDest =
+      initialSelectableChain && initialSelectableChain !== 'Arc_Testnet'
+        ? 'Arc_Testnet'
+        : 'Base_Sepolia'
+    return resolveWalletSupportedChain(
+      preferredDest,
+      walletDestUniverse.filter((c) => c !== (initialSelectableChain || 'Arc_Testnet')),
+      preferredDest
+    )
+  })
 
   useEffect(() => {
     if (!initialSourceChain) return
-    if (!isBridgeSelectableChain(initialSelectableChain)) {
-      setSourceChain('Arc_Testnet')
-      setDestChain('Base_Sepolia')
+    if (!initialSelectableChain) {
+      const nextSrc = resolveWalletSupportedChain('Arc_Testnet', walletSourceUniverse)
+      const nextDst = resolveWalletSupportedChain(
+        'Base_Sepolia',
+        walletDestUniverse.filter((c) => c !== nextSrc),
+        'Base_Sepolia'
+      )
+      setSourceChain(nextSrc)
+      setDestChain(nextDst)
       return
     }
     setSourceChain(initialSelectableChain)
-    if (initialSelectableChain === 'Arc_Testnet') {
-      setDestChain('Base_Sepolia')
-    } else {
-      setDestChain('Arc_Testnet')
+    const targetDest = initialSelectableChain === 'Arc_Testnet' ? 'Base_Sepolia' : 'Arc_Testnet'
+    setDestChain(
+      resolveWalletSupportedChain(
+        targetDest,
+        walletDestUniverse.filter((c) => c !== initialSelectableChain),
+        targetDest
+      )
+    )
+  }, [initialSourceChain, initialChainNonce, initialSelectableChain, walletSourceUniverse, walletDestUniverse])
+
+  // Clamp sourceChain and destChain whenever connected wallet or bridge mode changes
+  useEffect(() => {
+    const validSource = resolveWalletSupportedChain(sourceChain, walletSourceUniverse)
+    if (validSource !== sourceChain) {
+      setSourceChain(validSource)
     }
-  }, [initialSourceChain, initialChainNonce, initialSelectableChain])
+    const destCandidates = walletDestUniverse.filter((c) => c !== validSource)
+    const fallbackDest = validSource === 'Arc_Testnet' ? 'Base_Sepolia' : 'Arc_Testnet'
+    const validDest = resolveWalletSupportedChain(destChain, destCandidates, fallbackDest)
+    if (validDest !== destChain) {
+      setDestChain(validDest)
+    }
+  }, [sourceChain, destChain, walletSourceUniverse, walletDestUniverse])
 
   const [amount, setAmount] = useState('')
   const [recipient, setRecipient] = useState('')
@@ -278,63 +334,67 @@ export default function BridgeModal({
     return '0.00'
   }, [selectedToken, bridgeMode, sourceWalletBalance, sourceGatewayBalance, walletBalances, sourceChain])
 
-  const pairBridgeableTokens = useMemo(
-    () => filterBridgeableTokens(['USDC', 'EURC', 'WETH', 'ETH', 'cirBTC'], sourceChain, [destChain]),
-    [sourceChain, destChain]
-  )
-
   const isTokenAvailableOnSource = (symbol: string) =>
     canUcwBridgeTokenFrom(sourceChain, symbol)
 
+  const supportedBridgeTokenDescriptors = useMemo(
+    () =>
+      getChainSupportedTokens({
+        surface: 'bridge',
+        chainKey: sourceChain,
+        destChainKey: destChain,
+        authSource,
+        mode: bridgeMode,
+        canAutoWrapEth: isSourceEthAutoWrap,
+      }),
+    [sourceChain, destChain, authSource, bridgeMode, isSourceEthAutoWrap]
+  )
+
+  useEffect(() => {
+    if (supportedBridgeTokenDescriptors.length === 0) return
+    const resolved = resolveSupportedToken(selectedToken, supportedBridgeTokenDescriptors, 'USDC')
+    if (resolved !== selectedToken) {
+      setSelectedToken(resolved as SupportedBridgeToken)
+    }
+  }, [supportedBridgeTokenDescriptors, selectedToken])
+
   const availableBridgeTokens = useMemo<TokenItem[]>(() => {
-    const usdcItem: TokenItem = {
-      symbol: 'USDC',
-      name: 'USD Coin',
-      icon: TOKEN_ICON_MAP.USDC || UsdcIcon,
-      balance: bridgeMode === 'gateway' ? sourceGatewayBalance : sourceWalletBalance,
-    }
+    return supportedBridgeTokenDescriptors.map((descriptor) => {
+      const sym = descriptor.symbol
+      const icon =
+        sym === 'ETH'
+          ? TOKEN_ICON_MAP.ETH || TOKEN_ICON_MAP.WETH
+          : TOKEN_ICON_MAP[sym] || UsdcIcon
+      const balance =
+        sym === 'USDC'
+          ? bridgeMode === 'gateway'
+            ? sourceGatewayBalance
+            : sourceWalletBalance
+          : sym === 'EURC'
+            ? walletBalances[sourceChain]?.eurc || '0.00'
+            : sym === 'WETH'
+              ? walletBalances[sourceChain]?.weth || '0.0000'
+              : sym === 'ETH'
+                ? walletBalances[sourceChain]?.nativeAmount || '0.0000'
+                : sym === 'cirBTC'
+                  ? walletBalances[sourceChain]?.cirbtc || '0.00000'
+                  : '0.00'
 
-    if (!canBridgeNonUsdc) {
-      return [usdcItem]
-    }
-
-    const tokens: TokenItem[] = [
-      usdcItem,
-      {
-        symbol: 'EURC',
-        name: 'Euro Coin',
-        icon: TOKEN_ICON_MAP.EURC,
-        balance: walletBalances[sourceChain]?.eurc || '0.00',
-      },
-      {
-        symbol: 'WETH',
-        name: 'Wrapped Ether',
-        icon: TOKEN_ICON_MAP.WETH,
-        balance: walletBalances[sourceChain]?.weth || '0.0000',
-      },
-    ]
-
-    if (isSourceEthAutoWrap) {
-      tokens.push({
-        symbol: 'ETH',
-        name: 'Ethereum (Auto-Wrap)',
-        icon: TOKEN_ICON_MAP.ETH || TOKEN_ICON_MAP.WETH,
-        balance: walletBalances[sourceChain]?.nativeAmount || '0.0000',
-      })
-    }
-
-    tokens.push({
-      symbol: 'cirBTC',
-      name: 'Circle Bitcoin',
-      icon: TOKEN_ICON_MAP.cirBTC,
-      balance: walletBalances[sourceChain]?.cirbtc || '0.00000',
+      return {
+        symbol: sym,
+        name: descriptor.name,
+        icon,
+        balance,
+      }
     })
-
-    return tokens.filter(
-      (token) => pairBridgeableTokens.includes(token.symbol) && isTokenAvailableOnSource(token.symbol)
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canBridgeNonUsdc, isSourceEthAutoWrap, bridgeMode, sourceGatewayBalance, sourceWalletBalance, walletBalances, sourceChain, pairBridgeableTokens, authSource])
+  }, [
+    supportedBridgeTokenDescriptors,
+    bridgeMode,
+    sourceGatewayBalance,
+    sourceWalletBalance,
+    walletBalances,
+    sourceChain,
+  ])
 
   const platformFeeAmount = isUsdc ? getBridgePlatformFeeValue(amount) : 0
   const platformFeeCharged = isUsdc && isBridgePlatformFeeCharged({ bridgeMode, authSource })
@@ -531,22 +591,37 @@ export default function BridgeModal({
   ])
 
   const sourceChainsList = useMemo(() => {
-    return filterReachableSources(selectedToken, destChain, BRIDGE_SELECTABLE_CHAINS).map((c) => ({
+    return getWalletSupportedChains({
+      surface: 'bridge',
+      authSource,
+      mode: bridgeMode,
+      side: 'source',
+      pairedChain: destChain,
+      token: selectedToken,
+    }).map((c) => ({
       chain: c,
       name: getChainDisplayName(c),
     }))
-  }, [selectedToken, destChain])
+  }, [authSource, bridgeMode, selectedToken, destChain])
 
   const destChainsList = useMemo(() => {
-    return filterReachableDestinations(selectedToken, sourceChain, BRIDGE_SELECTABLE_CHAINS).map(
-      (c) => ({
-        chain: c,
-        name: getChainDisplayName(c),
-      })
-    )
-  }, [selectedToken, sourceChain])
+    return getWalletSupportedChains({
+      surface: 'bridge',
+      authSource,
+      mode: bridgeMode,
+      side: 'destination',
+      pairedChain: sourceChain,
+      token: selectedToken,
+    }).map((c) => ({
+      chain: c,
+      name: getChainDisplayName(c),
+    }))
+  }, [authSource, bridgeMode, selectedToken, sourceChain])
 
   const handleSwapChains = () => {
+    if (!walletSourceUniverse.includes(destChain) || !walletDestUniverse.includes(sourceChain)) {
+      return
+    }
     setSourceChain(destChain)
     setDestChain(sourceChain)
     setError(null)

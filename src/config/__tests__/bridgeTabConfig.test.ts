@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   BRIDGE_SELECTABLE_CHAINS,
+  BRIDGE_GATEWAY_SELECTABLE_CHAINS,
   BRIDGE_CHAIN_META,
   getBridgeChainDisplayName,
   isBridgeSelectableChain,
@@ -22,12 +23,14 @@ describe('BRIDGE_SELECTABLE_CHAINS', () => {
     expect(BRIDGE_SELECTABLE_CHAINS).not.toContain('Solana')
   })
 
-  it('is a strict subset of the Gateway-supported chains', () => {
-    for (const chainKey of BRIDGE_SELECTABLE_CHAINS) {
+  it('keeps Gateway bridge chains as a strict EVM subset of GATEWAY_SUPPORTED_CHAINS and Direct CCTP covering all 22 forwarder-verified EVM testnets', () => {
+    expect(BRIDGE_SELECTABLE_CHAINS.length).toBe(22)
+    for (const chainKey of BRIDGE_GATEWAY_SELECTABLE_CHAINS) {
       expect(GATEWAY_SUPPORTED_CHAINS).toContain(chainKey)
+      expect(BRIDGE_SELECTABLE_CHAINS).toContain(chainKey)
     }
-    // Solana exists upstream but is filtered only for the Bridge tab.
-    expect(GATEWAY_SUPPORTED_CHAINS.length).toBeGreaterThan(BRIDGE_SELECTABLE_CHAINS.length - 1)
+    // Solana exists in GATEWAY_SUPPORTED_CHAINS but is filtered out on the EVM-only Bridge surface.
+    expect(GATEWAY_SUPPORTED_CHAINS.length).toBe(BRIDGE_GATEWAY_SELECTABLE_CHAINS.length + 1)
   })
 
   it('only offers chains that render in the selector (meta + display name)', () => {

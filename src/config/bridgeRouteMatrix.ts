@@ -28,8 +28,8 @@ export type NonUsdcBridgeToken = 'EURC' | 'WETH' | 'cirBTC'
 
 /**
  * Chains a USDC bridge can actually complete, measured live from Arc Testnet in
- * both directions (2026-10-14, `useForwarder: true`, the app's own
- * `kit.estimateBridge` path): all 22 checks resolved.
+ * both directions via `npm run verify:cctp-routes` (2026-11-24, `useForwarder: true`,
+ * the app's own `kit.estimateBridge` path): all 42 pairs across 22 EVM testnets resolved.
  *
  * USDC rides standard CCTPv2, whose route table is local to the SDK, so nothing
  * here is registry-gated — but "the SDK knows the route" is not the same as "this
@@ -50,6 +50,16 @@ export const USDC_BRIDGE_CHAINS: readonly string[] = [
   'Sonic_Testnet',
   'Unichain_Sepolia',
   'World_Chain_Sepolia',
+  'Monad_Testnet',
+  'Ink_Testnet',
+  'Linea_Sepolia',
+  'Plume_Testnet',
+  'XDC_Apothem',
+  'Codex_Testnet',
+  'Cronos_Testnet',
+  'Edge_Testnet',
+  'Plasma_Testnet',
+  'X_Layer_Testnet',
 ]
 
 /**
@@ -59,6 +69,12 @@ export const USDC_BRIDGE_CHAINS: readonly string[] = [
 export const USDC_EXCLUDED_CHAINS: Readonly<Record<string, string>> = {
   Solana_Devnet:
     'CCTP does support Solana, but this app cannot deliver there: the Bridge tab is EVM-only (wallet balances, destination-delivery verification and address handling), so no USDC route is offered.',
+  Injective_Testnet:
+    'Circle CCTP Forwarding Service is not supported on Injective Testnet as a destination, so forwarder-based direct bridges from Arc Testnet cannot complete automatically.',
+  Morph_Testnet:
+    'Circle CCTP Forwarding Service is not supported on Morph Hoodi Testnet as a destination, so forwarder-based direct bridges from Arc Testnet cannot complete automatically.',
+  Pharos_Testnet:
+    'Circle CCTP Forwarding Service is not supported on Pharos Atlantic Testnet as a destination, so forwarder-based direct bridges from Arc Testnet cannot complete automatically.',
 }
 
 /**
