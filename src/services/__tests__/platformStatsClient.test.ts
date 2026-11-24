@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  PLATFORM_STATS_SESSION_MAX_AGE_MS,
   normalizePlatformStats,
   readCachedPlatformStats,
   cachePlatformStats,
@@ -72,5 +73,33 @@ describe('platform stats client', () => {
     storage.setItem('arcis_platform_stats_v1', '{not json')
     vi.stubGlobal('sessionStorage', storage)
     expect(readCachedPlatformStats()).toBeNull()
+  })
+
+  it('expires cached platform stats after 60 seconds', () => {
+    vi.stubGlobal('sessionStorage', createStorageMock())
+    const t0 = 1_760_900_000_000
+    cachePlatformStats(SNAPSHOT, t0)
+    expect(readCachedPlatformStats(t0 + PLATFORM_STATS_SESSION_MAX_AGE_MS)).toEqual(SNAPSHOT)
+    expect(readCachedPlatformStats(t0 + PLATFORM_STATS_SESSION_MAX_AGE_MS + 1)).toBeNull()
+  })
+
+  it('clears the session cache when the server reports unavailable', () => {
+    vi.stubGlobal('sessionStorage', createStorageMock())
+    const t0 = 1_760_900_000_000
+    cachePlatformStats(SNAPSHOT, t0)
+    expect(readCachedPlatformStats(t0 + 1000)).toEqual(SNAPSHOT)
+
+    cachePlatformStats(
+      {
+        source: 'unavailable',
+        acceptedCalls: 0,
+        settledCalls: 0,
+        volumeUsdc: 0,
+        byService: [],
+        updatedAt: null,
+      },
+      t0 + 2000
+    )
+    expect(readCachedPlatformStats(t0 + 2000)).toBeNull()
   })
 })

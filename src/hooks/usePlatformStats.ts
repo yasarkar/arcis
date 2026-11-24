@@ -1,99 +1,81 @@
 // src/hooks/usePlatformStats.ts
-// Reads the protocol-wide paid-call counter that the AI Services hero card shows.
+// Reads the protocol-wide paid-call counter that the AI Services hero card shows via TanStack Query.
 //
-// The previous figure was this browser's own call tally, which reads as a protocol metric while
-// being per-device. This hook keeps the shared server value authoritative and only applies a local
-// optimistic increment for a call the user just paid for.
+// The shared server value is authoritative: `sessionStorage` (max 60s) only provides initialData
+// when fresh, and an `unavailable` server response immediately replaces it so the card shows `—`.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PlatformStatsSnapshot } from '../types/x402'
+import { X402_PLATFORM_STATS_QUERY_KEY } from '../config/queryKeys'
 import {
   fetchPlatformStats,
   platformStatsPollIntervalMs,
-  readCachedPlatformStats,
+  readCachedPlatformStatsEntry,
   subscribeToPlatformCalls,
 } from '../services/platformStatsClient'
 
 export function usePlatformStats() {
-  const [snapshot, setSnapshot] = useState<PlatformStatsSnapshot | null>(() => readCachedPlatformStats())
-  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const queryClient = useQueryClient()
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const initialEntry = useMemo(() => readCachedPlatformStatsEntry(), [])
 
-  const load = useCallback(async () => {
-    const next = await fetchPlatformStats()
-    if (next) setSnapshot(next)
-    setIsLoading(false)
-  }, [])
-
-  const refresh = useCallback(() => {
-    setIsLoading(true)
-    return load()
-  }, [load])
+  const { data, isLoading, refetch } = useQuery<PlatformStatsSnapshot | null>({
+    queryKey: X402_PLATFORM_STATS_QUERY_KEY,
+    queryFn: async ({ signal }) => {
+      const next = await fetchPlatformStats(signal)
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
+      return next
+    },
+    ...(initialEntry
+      ? {
+          initialData: initialEntry.snapshot,
+          initialDataUpdatedAt: initialEntry.cachedAt,
+        }
+      : {}),
+    staleTime: 15_000,
+    refetchInterval: platformStatsPollIntervalMs(),
+    refetchIntervalInBackground: false,
+    gcTime: 1000 * 60 * 5,
+    retry: 1,
+  })
 
   useEffect(() => {
-    let cancelled = false
-    let pollTimer: ReturnType<typeof setInterval> | null = null
-
-    const run = async () => {
-      const next = await fetchPlatformStats()
-      if (cancelled) return
-      if (next) setSnapshot(next)
-      setIsLoading(false)
-    }
-
-    const startPolling = () => {
-      if (pollTimer) return
-      pollTimer = setInterval(() => {
-        if (typeof document === 'undefined' || document.visibilityState === 'visible') void run()
-      }, platformStatsPollIntervalMs())
-    }
-
-    const stopPolling = () => {
-      if (!pollTimer) return
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-
-    const handleVisibility = () => {
-      if (typeof document === 'undefined') return
-      if (document.visibilityState === 'visible') {
-        void run()
-        startPolling()
-      } else {
-        stopPolling()
-      }
-    }
-
-    void run()
-    startPolling()
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibility)
-
     const unsubscribe = subscribeToPlatformCalls(() => {
-      setSnapshot((current) =>
-        current && current.source !== 'unavailable'
-          ? { ...current, acceptedCalls: current.acceptedCalls + 1 }
-          : current
+      queryClient.setQueryData<PlatformStatsSnapshot | null>(
+        X402_PLATFORM_STATS_QUERY_KEY,
+        (current) =>
+          current && current.source !== 'unavailable'
+            ? { ...current, acceptedCalls: current.acceptedCalls + 1 }
+            : current ?? null
       )
       // The server writes its own increment inside the same request; a short delayed read replaces
       // the optimistic value with the ledger value instead of stacking on top of it.
       if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
       settleTimerRef.current = setTimeout(() => {
         settleTimerRef.current = null
-        void run()
+        void queryClient.invalidateQueries({ queryKey: X402_PLATFORM_STATS_QUERY_KEY })
       }, 1500)
     })
 
     return () => {
-      cancelled = true
-      stopPolling()
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', handleVisibility)
       if (settleTimerRef.current) {
         clearTimeout(settleTimerRef.current)
         settleTimerRef.current = null
       }
       unsubscribe()
     }
-  }, [])
+  }, [queryClient])
 
-  return { snapshot, isLoading, refresh }
+  const refresh = useCallback(async () => {
+    await refetch()
+  }, [refetch])
+
+  return {
+    snapshot: data ?? null,
+    isLoading,
+    refresh,
+  }
 }

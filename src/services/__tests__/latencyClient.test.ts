@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  LATENCY_SESSION_MAX_AGE_MS,
   cacheLatency,
   fetchLatency,
   normalizeLatencySnapshot,
@@ -83,5 +84,33 @@ describe('shared latency client', () => {
 
     expect(await fetchLatency()).toEqual(SNAPSHOT)
     expect(readCachedLatency()).toEqual(SNAPSHOT)
+  })
+
+  it('expires cached latency after 60 seconds', () => {
+    vi.stubGlobal('sessionStorage', createStorageMock())
+    const t0 = 1_792_608_240_000
+    cacheLatency(SNAPSHOT, t0)
+    expect(readCachedLatency(t0 + LATENCY_SESSION_MAX_AGE_MS)).toEqual(SNAPSHOT)
+    expect(readCachedLatency(t0 + LATENCY_SESSION_MAX_AGE_MS + 1)).toBeNull()
+  })
+
+  it('clears the cached reading when the server reports unavailable', async () => {
+    vi.stubGlobal('sessionStorage', createStorageMock())
+    cacheLatency(SNAPSHOT)
+    expect(readCachedLatency()).toEqual(SNAPSHOT)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ source: 'unavailable' }) }))
+    )
+
+    const result = await fetchLatency()
+    expect(result).toEqual({
+      source: 'unavailable',
+      avgLatencyMs: null,
+      sampleCount: 0,
+      measuredAt: null,
+    })
+    expect(readCachedLatency()).toBeNull()
   })
 })

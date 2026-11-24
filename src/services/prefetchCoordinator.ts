@@ -5,35 +5,60 @@ import {
   fetchWalletTestnetBalancesData,
   walletTestnetBalancesQueryKey,
 } from '../hooks/useWalletTestnetBalances'
-import { prefetchHistory } from '../utils/history'
+import { fetchX402RuntimeConfig } from '../hooks/useX402Config'
+import { fetchPlatformStats } from './platformStatsClient'
+import { fetchLatency } from './latencyClient'
+import { fetchReportDigests } from './reportDigestClient'
+import { fetchHistoryResult } from '../utils/history'
 import { getLivePortfolioSnapshot } from './portfolioContextService'
+import { normalizeWalletAddress } from '../utils/address'
+import {
+  X402_PLATFORM_STATS_QUERY_KEY,
+  X402_RUNTIME_CONFIG_QUERY_KEY,
+  X402_SHARED_LATENCY_QUERY_KEY,
+  portfolioSnapshotQueryKey,
+  reportDigestsQueryKey,
+  walletHistoryQueryKey,
+} from '../config/queryKeys'
 
 /**
  * Background cache-warming coordinator for Arcis.
- * Ensures zero-latency navigation by prefetching wallet-independent data
- * on initial page visit, and wallet-dependent data immediately upon wallet connection.
+ * Ensures low-latency navigation by prefetching global protocol data on initial page visit
+ * and wallet-dependent data through canonical TanStack Query keys upon wallet connection.
  */
 
 /**
- * Prefetches all global / wallet-independent on-chain state:
+ * Prefetches all global / wallet-independent state on app launch:
  * - Liquidity Pools state (TVL, APYs, reserve balances, live token prices)
+ * - AI Services hero card metrics (shared paid-call ledger + shared Arc RPC latency)
+ * - Public x402 runtime readiness config
  */
 export async function prefetchGlobalData(queryClient: QueryClient): Promise<void> {
+  if (!queryClient) return
   try {
-    await prefetchPoolsData(queryClient)
+    await Promise.allSettled([
+      prefetchPoolsData(queryClient),
+      queryClient.prefetchQuery({
+        queryKey: X402_PLATFORM_STATS_QUERY_KEY,
+        queryFn: () => fetchPlatformStats(),
+        staleTime: 15_000,
+      }),
+      queryClient.prefetchQuery({
+        queryKey: X402_SHARED_LATENCY_QUERY_KEY,
+        queryFn: () => fetchLatency(),
+        staleTime: 25_000,
+      }),
+      queryClient.prefetchQuery({
+        queryKey: X402_RUNTIME_CONFIG_QUERY_KEY,
+        queryFn: () => fetchX402RuntimeConfig(),
+        staleTime: 60_000,
+      }),
+    ])
   } catch (err) {
     console.warn('[prefetchCoordinator] Error during global data prefetch:', err)
   }
 }
 
-/**
- * Prefetches all wallet-dependent data across multi-chain & DeFi systems:
- * - Circle Gateway unified balances (13 supported domains)
- * - Native & token testnet balances across 13 chains
- * - User Arc liquidity pool & vault positions
- * - Transaction history from explorer/indexer
- * - Live portfolio snapshot (Ask Arcis Copilot AI context)
- */
 /** Token subset for the connect-time essential prefetch (USDC drives deposit validation). */
 export const ESSENTIAL_BALANCE_TOKENS = ['USDC'] as const
 
@@ -48,9 +73,8 @@ export async function prefetchEssentialWalletData(
   queryClient: QueryClient,
   walletAddress: string
 ): Promise<void> {
-  if (!walletAddress || !walletAddress.trim()) return
-
-  const normalizedAddress = walletAddress.trim().toLowerCase()
+  const normalizedAddress = normalizeWalletAddress(walletAddress)
+  if (!normalizedAddress) return
 
   await Promise.allSettled([
     queryClient.prefetchQuery({
@@ -67,22 +91,22 @@ export async function prefetchEssentialWalletData(
 }
 
 /**
- * P06: deferred wallet data — full multi-chain record, pool positions,
- * history, and portfolio snapshot. Safe to run idle/deferred because every
- * panel self-fetches on mount; the worst case without this warm-up is the
- * same latency as no prefetch at all.
+ * P06: deferred wallet data — full multi-chain record, pool positions (single Multicall3),
+ * transaction history, x402 report digests, and portfolio snapshot.
+ * Every query shares the exact canonical key consumed by its panel hook.
  */
 export async function prefetchDeferredWalletData(
   queryClient: QueryClient,
   walletAddress: string
 ): Promise<void> {
-  if (!walletAddress || !walletAddress.trim()) return
-
-  const normalizedAddress = walletAddress.trim().toLowerCase()
+  const normalizedAddress = normalizeWalletAddress(walletAddress)
+  if (!normalizedAddress) return
 
   await Promise.allSettled([
-    prefetchHistory(normalizedAddress).catch((err) => {
-      console.warn('[prefetchCoordinator] History prefetch failed:', err)
+    queryClient.prefetchQuery({
+      queryKey: walletHistoryQueryKey(normalizedAddress),
+      queryFn: () => fetchHistoryResult(normalizedAddress),
+      staleTime: 15_000,
     }),
     queryClient.prefetchQuery({
       queryKey: walletTestnetBalancesQueryKey(normalizedAddress),
@@ -90,8 +114,15 @@ export async function prefetchDeferredWalletData(
       staleTime: 15_000,
     }),
     prefetchUserWalletPoolsData(queryClient, normalizedAddress),
-    getLivePortfolioSnapshot(normalizedAddress).catch((err) => {
-      console.warn('[prefetchCoordinator] Portfolio snapshot prefetch failed:', err)
+    queryClient.prefetchQuery({
+      queryKey: reportDigestsQueryKey(normalizedAddress),
+      queryFn: () => fetchReportDigests(normalizedAddress),
+      staleTime: 20_000,
+    }),
+    queryClient.prefetchQuery({
+      queryKey: portfolioSnapshotQueryKey(normalizedAddress),
+      queryFn: () => getLivePortfolioSnapshot(normalizedAddress),
+      staleTime: 15_000,
     }),
   ])
 }
@@ -100,37 +131,46 @@ export async function prefetchAllWalletData(
   queryClient: QueryClient,
   walletAddress: string
 ): Promise<void> {
-  if (!walletAddress || !walletAddress.trim()) return
-
-  const normalizedAddress = walletAddress.trim().toLowerCase()
+  const normalizedAddress = normalizeWalletAddress(walletAddress)
+  if (!normalizedAddress) return
 
   await Promise.allSettled([
     // 1. Transaction history
-    prefetchHistory(normalizedAddress).catch((err) => {
-      console.warn('[prefetchCoordinator] History prefetch failed:', err)
+    queryClient.prefetchQuery({
+      queryKey: walletHistoryQueryKey(normalizedAddress),
+      queryFn: () => fetchHistoryResult(normalizedAddress),
+      staleTime: 15_000,
     }),
 
-    // 2. Gateway unified cross-chain balances (same key/normalization as `useGatewayBalance`)
+    // 2. Gateway unified cross-chain balances
     queryClient.prefetchQuery({
       queryKey: gatewayBalancesQueryKey(normalizedAddress),
       queryFn: () => fetchGatewayBalancesData(normalizedAddress),
       staleTime: 10_000,
     }),
 
-    // 3. Multi-chain testnet balances (same key/normalization as `useWalletTestnetBalances`, so
-    // the deposit panel can reuse this record instead of re-reading every chain)
+    // 3. Multi-chain testnet balances
     queryClient.prefetchQuery({
       queryKey: walletTestnetBalancesQueryKey(normalizedAddress),
       queryFn: () => fetchWalletTestnetBalancesData(normalizedAddress),
       staleTime: 15_000,
     }),
 
-    // 4. On-chain Arc pool positions & token balances
+    // 4. On-chain Arc pool positions & token balances (single Multicall3)
     prefetchUserWalletPoolsData(queryClient, normalizedAddress),
 
-    // 5. Portfolio snapshot for Copilot & DeFi advisory
-    getLivePortfolioSnapshot(normalizedAddress).catch((err) => {
-      console.warn('[prefetchCoordinator] Portfolio snapshot prefetch failed:', err)
+    // 5. x402 paid report digests for AI Services shelf
+    queryClient.prefetchQuery({
+      queryKey: reportDigestsQueryKey(normalizedAddress),
+      queryFn: () => fetchReportDigests(normalizedAddress),
+      staleTime: 20_000,
+    }),
+
+    // 6. Portfolio snapshot for Copilot & DeFi advisory
+    queryClient.prefetchQuery({
+      queryKey: portfolioSnapshotQueryKey(normalizedAddress),
+      queryFn: () => getLivePortfolioSnapshot(normalizedAddress),
+      staleTime: 15_000,
     }),
   ])
 }

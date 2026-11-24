@@ -2,7 +2,8 @@
 // Client access to `GET /api/x402/stats`.
 //
 // The number this returns is shared by every visitor, so it is not derived from anything local:
-// the browser cache only exists to paint the last known value while the request is in flight.
+// the bounded 60-second sessionStorage cache only paints a recent live reading while revalidating,
+// and an `unavailable` response immediately clears it so the card renders a dash (`—`).
 
 import type { PlatformStatsSnapshot, PlatformStatsServiceRow } from '../types/x402'
 
@@ -11,8 +12,16 @@ export const PLATFORM_STATS_ENDPOINT = '/api/x402/stats'
 /** Fired by the local execution path after a paid call succeeds, so the card can update at once. */
 export const PLATFORM_CALL_RECORDED_EVENT = 'arcis:platform-stats:call-recorded'
 
+/** Maximum age for a sessionStorage first-paint snapshot (60 seconds). */
+export const PLATFORM_STATS_SESSION_MAX_AGE_MS = 60_000
+
 const PLATFORM_STATS_CACHE_KEY = 'arcis_platform_stats_v1'
 const PLATFORM_STATS_POLL_MS = 30_000
+
+export interface CachedPlatformStatsEntry {
+  snapshot: PlatformStatsSnapshot
+  cachedAt: number
+}
 
 function toCount(value: unknown): number {
   const parsed = Number(value)
@@ -48,19 +57,57 @@ export function normalizePlatformStats(body: unknown): PlatformStatsSnapshot | n
   }
 }
 
-export function readCachedPlatformStats(): PlatformStatsSnapshot | null {
+export function clearCachedPlatformStats(): void {
+  try {
+    sessionStorage.removeItem(PLATFORM_STATS_CACHE_KEY)
+  } catch {
+    // Storage unavailable or blocked; nothing to clear.
+  }
+}
+
+export function readCachedPlatformStatsEntry(now: number = Date.now()): CachedPlatformStatsEntry | null {
   try {
     const raw = sessionStorage.getItem(PLATFORM_STATS_CACHE_KEY)
     if (!raw) return null
-    return normalizePlatformStats(JSON.parse(raw))
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return null
+
+    // Envelope format: { snapshot, cachedAt }
+    if ('snapshot' in parsed && 'cachedAt' in parsed) {
+      const cachedAt = Number(parsed.cachedAt)
+      if (!Number.isFinite(cachedAt) || cachedAt <= 0 || now - cachedAt > PLATFORM_STATS_SESSION_MAX_AGE_MS) {
+        clearCachedPlatformStats()
+        return null
+      }
+      const snapshot = normalizePlatformStats(parsed.snapshot)
+      if (!snapshot || snapshot.source === 'unavailable') {
+        clearCachedPlatformStats()
+        return null
+      }
+      return { snapshot, cachedAt }
+    }
+
+    // Legacy raw snapshot without cachedAt cannot prove freshness -> expire it.
+    clearCachedPlatformStats()
+    return null
   } catch {
     return null
   }
 }
 
-export function cachePlatformStats(snapshot: PlatformStatsSnapshot): void {
+export function readCachedPlatformStats(now: number = Date.now()): PlatformStatsSnapshot | null {
+  return readCachedPlatformStatsEntry(now)?.snapshot ?? null
+}
+
+export function cachePlatformStats(snapshot: PlatformStatsSnapshot, now: number = Date.now()): void {
+  // Never keep a stale positive figure when the server reports unavailable.
+  if (snapshot.source === 'unavailable') {
+    clearCachedPlatformStats()
+    return
+  }
   try {
-    sessionStorage.setItem(PLATFORM_STATS_CACHE_KEY, JSON.stringify(snapshot))
+    const entry: CachedPlatformStatsEntry = { snapshot, cachedAt: now }
+    sessionStorage.setItem(PLATFORM_STATS_CACHE_KEY, JSON.stringify(entry))
   } catch {
     // A full/blocked storage quota only costs the instant first paint.
   }

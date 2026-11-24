@@ -18,14 +18,10 @@ import {
   FileJson,
 } from 'lucide-react'
 import {
-  getHistory,
-  fetchHistoryResult,
-  isHistoryLoaded,
   historyDisplayTxHash,
-  ARCIS_HISTORY_UPDATED_EVENT,
-  LEGACY_ARC_HISTORY_UPDATED_EVENT,
   type HistoryItem,
 } from '../utils/history'
+import { useWalletHistory } from '../hooks/useWalletHistory'
 import { DEFAULT_TOKEN_PRICES } from '../services/tokenPriceService'
 import { useLiveTokenPrices } from '../hooks/useLiveTokenPrices'
 import { usePrivacy } from '../hooks/usePrivacy'
@@ -89,24 +85,20 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
   // shared link restores the same view.
   const [initialUrlState] = useState(readHistoryUrlState)
 
-  const [history, setHistory] = useState<HistoryItem[]>(() =>
-    activeWalletAddress ? getHistory(activeWalletAddress) : []
-  )
-  const [isLoading, setIsLoading] = useState<boolean>(() =>
-    Boolean(activeWalletAddress && !isHistoryLoaded(activeWalletAddress))
-  )
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null)
+  const {
+    history,
+    isLoading,
+    isRefreshing,
+    fetchError,
+    lastSyncedAt,
+    refresh: refreshWalletHistory,
+  } = useWalletHistory(activeWalletAddress)
   const [filter, setFilter] = useState<HistoryFilterType>(initialUrlState.type)
   const [searchTerm, setSearchTerm] = useState(initialUrlState.q)
   // P1-6: without a debounce every keystroke re-filters the whole table.
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(initialUrlState.q)
   const [hoveredRecipient, setHoveredRecipient] = useState<string | null>(null)
   const [timeFormat, setTimeFormat] = useState<'relative' | 'utc'>('relative')
-
-  // A failed server read must never masquerade as "no transactions".
-  const [fetchError, setFetchError] = useState<string | null>(null)
-  const [reloadToken, setReloadToken] = useState(0)
 
   // Live prices convert EURC / wETH / cirBTC rows into USDC-equivalent values for
   // the amount filter and amount sort. `DEFAULT_TOKEN_PRICES` covers the first paint.
@@ -371,22 +363,6 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
     return () => clearInterval(interval)
   }, [timeFormat])
 
-  // Coming back to the tab silently revalidates, so an old list is not mistaken for current.
-  useEffect(() => {
-    if (!activeWalletAddress) return
-    const revalidate = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-      setIsRefreshing(true)
-      setReloadToken((token) => token + 1)
-    }
-    window.addEventListener('focus', revalidate)
-    document.addEventListener('visibilitychange', revalidate)
-    return () => {
-      window.removeEventListener('focus', revalidate)
-      document.removeEventListener('visibilitychange', revalidate)
-    }
-  }, [activeWalletAddress])
-
   // `?tx=` deep link: open that transaction's receipt once the row is available.
   useEffect(() => {
     if (!deepLinkedTx || isReceiptModalOpen) return
@@ -403,74 +379,16 @@ export default function HistoryTable({ walletAddress }: HistoryTableProps = {}) 
     }
   }, [deepLinkedTx, history, isReceiptModalOpen])
 
-  // Load transactions strictly filtered by active wallet
-  useEffect(() => {
-    let isMounted = true
-
-    if (!activeWalletAddress) {
-      setHistory([])
-      setIsLoading(false)
-      setIsRefreshing(false)
-      setLastSyncedAt(null)
-      return
-    }
-
-    // Immediate in-memory render strictly for active wallet
-    setHistory(getHistory(activeWalletAddress))
-    setIsLoading(!isHistoryLoaded(activeWalletAddress))
-    setFetchError(null)
-
-    // Asynchronous network fetch: every cursor page, not just the first one.
-    fetchHistoryResult(activeWalletAddress)
-      .then((result) => {
-        if (!isMounted) return
-        setHistory(result.items)
-        setIsLoading(false)
-        setIsRefreshing(false)
-        setFetchError(result.ok ? null : result.error || 'History could not be loaded.')
-        if (result.ok) setLastSyncedAt(Date.now())
-      })
-      .catch((err) => {
-        console.warn('[HistoryTable] Error fetching server transactions:', err)
-        if (isMounted) {
-          setIsLoading(false)
-          setIsRefreshing(false)
-          setFetchError('History could not be loaded.')
-        }
-      })
-
-    const handleUpdate = (e?: Event) => {
-      if (!isMounted || !activeWalletAddress) return
-      const targetUser = (e as CustomEvent<{ userAddress?: string }>)?.detail?.userAddress
-      if (targetUser && targetUser.toLowerCase().trim() !== activeWalletAddress) {
-        return
-      }
-      setHistory(getHistory(activeWalletAddress))
-    }
-
-    window.addEventListener(ARCIS_HISTORY_UPDATED_EVENT, handleUpdate)
-    window.addEventListener(LEGACY_ARC_HISTORY_UPDATED_EVENT, handleUpdate)
-    return () => {
-      isMounted = false
-      window.removeEventListener(ARCIS_HISTORY_UPDATED_EVENT, handleUpdate)
-      window.removeEventListener(LEGACY_ARC_HISTORY_UPDATED_EVENT, handleUpdate)
-    }
-  }, [activeWalletAddress, reloadToken])
-
   const handleRetryFetch = useCallback(() => {
     if (!activeWalletAddress) return
-    setFetchError(null)
-    setIsLoading(!isHistoryLoaded(activeWalletAddress))
-    setIsRefreshing(true)
-    setReloadToken((token) => token + 1)
-  }, [activeWalletAddress])
+    void refreshWalletHistory()
+  }, [activeWalletAddress, refreshWalletHistory])
 
   // P1-2: a manual refresh keeps the current rows visible (no skeleton) and spins the icon.
   const handleRefresh = useCallback(() => {
     if (!activeWalletAddress) return
-    setIsRefreshing(true)
-    setReloadToken((token) => token + 1)
-  }, [activeWalletAddress])
+    void refreshWalletHistory()
+  }, [activeWalletAddress, refreshWalletHistory])
 
   const handlePageSizeChange = useCallback((size: number) => {
     setPageSize(size)

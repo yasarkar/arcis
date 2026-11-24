@@ -1,66 +1,47 @@
 // src/hooks/useSharedLatency.ts
-// Reads the one latency figure the AI Services hero card shows.
+// Reads the one shared latency figure the AI Services hero card shows via TanStack Query.
 //
-// The previous value was this browser's own probe average: every visitor measured their own network
-// and the card called it a protocol metric. This hook keeps the server's shared reading
-// authoritative and polls it while the tab is visible.
+// The server's shared reading is authoritative: `sessionStorage` (max 60s) only provides
+// initialData when fresh, and an `unavailable` server response immediately replaces it so the
+// card renders a dash (`—`).
 
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { LatencySnapshot } from '../types/x402'
+import { X402_SHARED_LATENCY_QUERY_KEY } from '../config/queryKeys'
 import {
   fetchLatency,
   latencyPollIntervalMs,
-  readCachedLatency,
+  readCachedLatencyEntry,
 } from '../services/latencyClient'
 
 export function useSharedLatency() {
-  const [snapshot, setSnapshot] = useState<LatencySnapshot | null>(() => readCachedLatency())
-  const [isLoading, setIsLoading] = useState<boolean>(true)
+  const initialEntry = useMemo(() => readCachedLatencyEntry(), [])
 
-  useEffect(() => {
-    let cancelled = false
-    let pollTimer: ReturnType<typeof setInterval> | null = null
-
-    const run = async () => {
-      const next = await fetchLatency()
-      if (cancelled) return
-      if (next) setSnapshot(next)
-      setIsLoading(false)
-    }
-
-    const startPolling = () => {
-      if (pollTimer) return
-      pollTimer = setInterval(() => {
-        if (typeof document === 'undefined' || document.visibilityState === 'visible') void run()
-      }, latencyPollIntervalMs())
-    }
-
-    const stopPolling = () => {
-      if (!pollTimer) return
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-
-    const handleVisibility = () => {
-      if (typeof document === 'undefined') return
-      if (document.visibilityState === 'visible') {
-        void run()
-        startPolling()
-      } else {
-        stopPolling()
+  const { data, isLoading } = useQuery<LatencySnapshot | null>({
+    queryKey: X402_SHARED_LATENCY_QUERY_KEY,
+    queryFn: async ({ signal }) => {
+      const next = await fetchLatency(signal)
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
       }
-    }
+      return next
+    },
+    ...(initialEntry
+      ? {
+          initialData: initialEntry.snapshot,
+          initialDataUpdatedAt: initialEntry.cachedAt,
+        }
+      : {}),
+    staleTime: 25_000,
+    refetchInterval: latencyPollIntervalMs(),
+    refetchIntervalInBackground: false,
+    gcTime: 1000 * 60 * 5,
+    retry: 1,
+  })
 
-    void run()
-    startPolling()
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibility)
-
-    return () => {
-      cancelled = true
-      stopPolling()
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', handleVisibility)
-    }
-  }, [])
-
-  return { snapshot, isLoading }
+  return {
+    snapshot: data ?? null,
+    isLoading,
+  }
 }

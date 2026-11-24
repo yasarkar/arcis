@@ -272,6 +272,9 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['gatewayBalances'] })
     queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances'] })
     queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] })
+    queryClient.invalidateQueries({ queryKey: ['onchainPoolBalances'] })
+    queryClient.invalidateQueries({ queryKey: ['userPoolPositions'] })
+    queryClient.invalidateQueries({ queryKey: ['portfolioSnapshot'] })
     if (walletAddress) {
       prefetchAllWalletData(queryClient, walletAddress).catch((err) => {
         // Best-effort prefetch: the panels fetch their own data, so a failed warm-up only costs the
@@ -310,9 +313,9 @@ export default function App() {
       })
     }
     if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
-      idleHandle = window.requestIdleCallback(runDeferred, { timeout: 3000 })
+      idleHandle = window.requestIdleCallback(runDeferred, { timeout: 800 })
     } else {
-      fallbackTimer = setTimeout(runDeferred, 2000)
+      fallbackTimer = setTimeout(runDeferred, 500)
     }
     return () => {
       if (idleHandle !== null && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {

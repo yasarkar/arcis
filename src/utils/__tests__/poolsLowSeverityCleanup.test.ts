@@ -33,9 +33,11 @@ describe('D2 — optimistic updates never price cirBTC at $1', () => {
 })
 
 describe('D3 — price trust is refreshed on every cache read', () => {
-  it('recomputes priceUnavailable from the live feed instead of returning the cached flag', () => {
+  it('recomputes priceUnavailable from the live feed instead of returning a stale cached flag', () => {
+    expect(usePoolsSource).toMatch(/const freshTrusted = isLivePriceAvailable\(\)/)
     expect(usePoolsSource).toMatch(/priceUnavailable: !freshTrusted/)
-    expect(usePoolsSource).toMatch(/Object\.entries\(cached\)\.map/)
+    // No secondary per-wallet redisCache layer bypassing TanStack Query invalidation.
+    expect(usePoolsSource).not.toMatch(/arcis:pools:positions:/)
   })
 })
 

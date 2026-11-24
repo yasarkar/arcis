@@ -28,7 +28,7 @@ import {
   resilientWaitForReceipt,
   resilientWriteContract,
 } from '../services/rpc'
-import { getCachedTokenPrice } from '../services/tokenPriceService'
+import { getCachedTokenPrice, isLivePriceAvailable } from '../services/tokenPriceService'
 import { recordClientSwapVolume } from '../utils/poolVolumeUtils'
 import { fetchTotalPoolTransactionCount, recordOptimisticPoolTx } from '../services/poolEventsIndexer'
 import { useLiveTokenPrices } from './useLiveTokenPrices'
@@ -42,6 +42,8 @@ import {
   isDeployed,
   measureVaultYieldApy,
   ONCHAIN_POOL_STATE_QUERY_KEY,
+  onchainPoolBalancesQueryKey,
+  userPoolPositionsQueryKey,
   getLastKnownPoolState,
   fetchOnchainPoolState,
   fetchOnchainPoolBalances,
@@ -57,6 +59,11 @@ import {
   type PoolWithdrawResult,
   type UserPoolPosition,
 } from '../services/pools'
+import { normalizeWalletAddress } from '../utils/address'
+import {
+  LIVE_TOKEN_PRICES_QUERY_KEY,
+  TOTAL_POOL_TX_COUNT_QUERY_KEY,
+} from '../config/queryKeys'
 
 export function usePoolsData(
   walletAddress: string,
@@ -71,7 +78,8 @@ export function usePoolsData(
   }>
 ) {
   const queryClient = useQueryClient()
-  const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
+  const normalizedWalletAddress = normalizeWalletAddress(walletAddress)
+  const isAddressValid = Boolean(normalizedWalletAddress && normalizedWalletAddress.startsWith('0x'))
 
   // ── Live Market Prices (CoinGecko Simple Price API with Redis cache) ──────
   const { data: tokenPrices } = useLiveTokenPrices()
@@ -121,8 +129,8 @@ export function usePoolsData(
     isLoading: isBalancesLoading,
     refetch: refetchOnchainBalances,
   } = useQuery({
-    queryKey: ['onchainPoolBalances', walletAddress],
-    queryFn: () => fetchOnchainPoolBalances(walletAddress),
+    queryKey: onchainPoolBalancesQueryKey(normalizedWalletAddress),
+    queryFn: () => fetchOnchainPoolBalances(normalizedWalletAddress),
     enabled: isAddressValid,
     staleTime: 30_000,
     refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 60_000),
@@ -147,9 +155,9 @@ export function usePoolsData(
     data: userPoolPositions,
     refetch: refetchUserPositions,
   } = useQuery({
-    queryKey: ['userPoolPositions', walletAddress],
+    queryKey: userPoolPositionsQueryKey(normalizedWalletAddress),
     queryFn: () =>
-      fetchUserPoolPositions(walletAddress, onchainPoolState, {
+      fetchUserPoolPositions(normalizedWalletAddress, onchainPoolState, {
         btc: liveBtcPrice,
         eurc: liveEurcPrice,
         weth: liveWethPrice,
@@ -162,7 +170,7 @@ export function usePoolsData(
 
   // ── Real on-chain total pool transactions ─────────────────────────────────
   const { data: totalPoolTxCount = 0 } = useQuery({
-    queryKey: ['totalPoolTxCount'],
+    queryKey: TOTAL_POOL_TX_COUNT_QUERY_KEY,
     queryFn: () => fetchTotalPoolTransactionCount(publicClient),
     staleTime: 25_000,
     refetchInterval: () => (typeof document !== 'undefined' && document.hidden ? false : 30_000),
@@ -360,6 +368,17 @@ export function usePoolsData(
           : '8.42% Incentive APY (Est.) • Arcis Revenue Strategy'
       }
 
+      const rawPosition = userPoolPositions?.[pool.id]
+      const freshTrusted = isLivePriceAvailable()
+      const userPosition = rawPosition
+        ? rawPosition.isLpPosition
+          ? {
+              ...rawPosition,
+              priceUnavailable: !freshTrusted || !(parseFloat(totalLp) > 0),
+            }
+          : rawPosition
+        : undefined
+
       return {
         ...pool,
         tvlUsd,
@@ -370,7 +389,7 @@ export function usePoolsData(
         exchangeRate,
         reserves,
         totalLp,
-        userPosition: userPoolPositions?.[pool.id] || undefined,
+        userPosition,
       }
     })
   }, [onchainPoolState, userPoolPositions, liveBtcPrice, liveEurcPrice, liveWethPrice, volumeRevision])
@@ -502,29 +521,23 @@ export function usePoolsData(
   // ── Invalidate Caches Helper ──────────────────────────────────────────────
   const invalidatePoolCaches = useCallback(async () => {
     try {
-      await Promise.all([
-        redisCache.del('arcis:pools:state'),
-        walletAddress ? redisCache.del(`arcis:pools:balances:${walletAddress}`) : Promise.resolve(),
-        walletAddress ? redisCache.del(`arcis:pools:balances:${walletAddress.toLowerCase()}`) : Promise.resolve(),
-        walletAddress ? redisCache.del(`arcis:pools:positions:${walletAddress}`) : Promise.resolve(),
-        walletAddress ? redisCache.del(`arcis:pools:positions:${walletAddress.toLowerCase()}`) : Promise.resolve(),
-      ])
+      await redisCache.del('arcis:pools:state')
     } catch (delErr) {
       console.warn('[usePoolsData] Redis cache purge warning:', delErr)
     }
 
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['onchainPoolBalances'] }),
-      queryClient.invalidateQueries({ queryKey: ['onchainPoolState'] }),
+      queryClient.invalidateQueries({ queryKey: ONCHAIN_POOL_STATE_QUERY_KEY }),
       queryClient.invalidateQueries({ queryKey: ['userPoolPositions'] }),
       queryClient.invalidateQueries({ queryKey: ['walletTestnetBalances'] }),
-      queryClient.invalidateQueries({ queryKey: ['liveTokenPrices'] }),
+      queryClient.invalidateQueries({ queryKey: LIVE_TOKEN_PRICES_QUERY_KEY }),
       queryClient.invalidateQueries({ queryKey: ['gatewayBalances'] }),
-      queryClient.invalidateQueries({ queryKey: ['totalPoolTxCount'] }),
+      queryClient.invalidateQueries({ queryKey: TOTAL_POOL_TX_COUNT_QUERY_KEY }),
     ])
 
     setVolumeRevision((prev) => prev + 1)
-  }, [queryClient, walletAddress])
+  }, [queryClient])
 
   // Debounced cache invalidator
   const debounceInvalidateTimerRef = useRef<any>(null)

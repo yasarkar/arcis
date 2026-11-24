@@ -3,6 +3,7 @@ import {
   formatUnits,
   parseUnits,
   erc20Abi,
+  type Abi,
   type Address,
 } from 'viem'
 import {
@@ -28,8 +29,19 @@ import {
 } from '../tokenPriceService'
 import { safeStorage, poolsLog, type UserPoolPosition } from './poolTypes'
 import { isDeployed } from './poolUtils'
+import { normalizeWalletAddress } from '../../utils/address'
+import {
+  LIVE_TOKEN_PRICES_QUERY_KEY,
+  ONCHAIN_POOL_STATE_QUERY_KEY,
+  onchainPoolBalancesQueryKey,
+  userPoolPositionsQueryKey,
+} from '../../config/queryKeys'
 
-export const ONCHAIN_POOL_STATE_QUERY_KEY = ['onchainPoolState'] as const
+export {
+  ONCHAIN_POOL_STATE_QUERY_KEY,
+  onchainPoolBalancesQueryKey,
+  userPoolPositionsQueryKey,
+}
 
 /**
  * Retrieves last persisted on-chain pool state from localStorage for instantaneous 0ms first-paint.
@@ -270,11 +282,11 @@ export async function fetchOnchainPoolState(): Promise<Record<string, any>> {
     try {
       const totalYieldAbi = [
         {
-          type: 'function',
           name: 'totalYieldDistributed',
+          type: 'function',
           stateMutability: 'view',
           inputs: [],
-          outputs: [{ type: 'uint256' }],
+          outputs: [{ name: '', type: 'uint256' }],
         },
       ] as const
 
@@ -330,7 +342,7 @@ export async function prefetchPoolsData(queryClient: QueryClient): Promise<void>
       staleTime: 30_000,
     }),
     queryClient.prefetchQuery({
-      queryKey: ['liveTokenPrices'],
+      queryKey: LIVE_TOKEN_PRICES_QUERY_KEY,
       queryFn: getLiveTokenPrices,
       staleTime: 30_000,
     }),
@@ -338,115 +350,112 @@ export async function prefetchPoolsData(queryClient: QueryClient): Promise<void>
 }
 
 /**
- * Reads real wallet token balances (USDC, EURC, cirBTC, WETH) on Arc Testnet.
+ * Reads real wallet token balances (USDC, EURC, cirBTC, WETH) on Arc Testnet
+ * in a single Multicall3 round-trip.
  */
 export async function fetchOnchainPoolBalances(
   walletAddress: string
 ): Promise<{ usdc: string; eurc: string; cirbtc: string; weth: string }> {
-  const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
+  const normalizedAddress = normalizeWalletAddress(walletAddress)
+  const isAddressValid = Boolean(normalizedAddress && normalizedAddress.startsWith('0x'))
   if (!isAddressValid) {
     return { usdc: '0.00', eurc: '0.00', cirbtc: '0.0000', weth: '0.0000' }
   }
 
-  const cacheKey = `arcis:pools:balances:${walletAddress}`
-  const cached = await redisCache.get<any>(cacheKey)
-  if (cached) {
-    return cached
-  }
-
   const publicClient = getArcPublicClient()
-  const targetAddr = walletAddress as `0x${string}`
+  const targetAddr = normalizedAddress as `0x${string}`
+
+  const calls = [
+    { address: POOL_CONTRACTS.USDC as Address, abi: erc20Abi, functionName: 'balanceOf', args: [targetAddr] },
+    { address: POOL_CONTRACTS.EURC as Address, abi: erc20Abi, functionName: 'balanceOf', args: [targetAddr] },
+    { address: POOL_CONTRACTS.cirBTC as Address, abi: erc20Abi, functionName: 'balanceOf', args: [targetAddr] },
+    { address: POOL_CONTRACTS.WETH as Address, abi: erc20Abi, functionName: 'balanceOf', args: [targetAddr] },
+  ]
+
   let usdcFormatted = '0.00'
   let eurcFormatted = '0.00'
-  let cirbtcFormatted = '0.0000'
+  let cirbtcFormatted = '0.000000'
   let wethFormatted = '0.0000'
 
   try {
-    const usdcRaw = (await resilientReadContract(publicClient, {
-      address: POOL_CONTRACTS.USDC,
-      abi: erc20Abi,
-      functionName: 'balanceOf',
-      args: [targetAddr],
-    })) as bigint
-    usdcFormatted = parseFloat(formatUnits(usdcRaw, 6)).toFixed(2)
+    const results = await resilientMulticall<bigint>(publicClient, calls, { allowFailure: true })
+
+    if (results[0]?.status === 'success') {
+      usdcFormatted = parseFloat(formatUnits(results[0].result, 6)).toFixed(2)
+    } else if (results[0]?.error) {
+      console.warn('[usePoolsData] USDC balance read failed:', results[0].error)
+    }
+
+    if (results[1]?.status === 'success') {
+      eurcFormatted = parseFloat(formatUnits(results[1].result, 6)).toFixed(2)
+    } else if (results[1]?.error) {
+      console.warn('[usePoolsData] EURC balance read failed:', results[1].error)
+    }
+
+    if (results[2]?.status === 'success') {
+      const btcVal = parseFloat(formatUnits(results[2].result, 8))
+      cirbtcFormatted = btcVal > 0 ? (btcVal < 0.0001 ? btcVal.toFixed(8) : btcVal.toFixed(6)) : '0.000000'
+    } else if (results[2]?.error) {
+      console.warn('[usePoolsData] cirBTC balance read failed:', results[2].error)
+    }
+
+    if (results[3]?.status === 'success') {
+      const wethVal = parseFloat(formatUnits(results[3].result, 18))
+      wethFormatted = wethVal > 0 ? (wethVal < 0.0001 ? wethVal.toFixed(6) : wethVal.toFixed(4)) : '0.0000'
+    } else if (results[3]?.error) {
+      console.warn('[usePoolsData] WETH balance read failed:', results[3].error)
+    }
   } catch (err) {
-    console.warn('[usePoolsData] USDC read failed:', err)
+    console.warn('[usePoolsData] Arc Testnet token balance multicall failed:', err)
   }
 
-  try {
-    const eurcRaw = (await resilientReadContract(publicClient, {
-      address: POOL_CONTRACTS.EURC,
-      abi: erc20Abi,
-      functionName: 'balanceOf',
-      args: [targetAddr],
-    })) as bigint
-    eurcFormatted = parseFloat(formatUnits(eurcRaw, 6)).toFixed(2)
-  } catch {
-    eurcFormatted = '0.00'
-  }
-
-  try {
-    const cirbtcRaw = (await resilientReadContract(publicClient, {
-      address: POOL_CONTRACTS.cirBTC,
-      abi: erc20Abi,
-      functionName: 'balanceOf',
-      args: [targetAddr],
-    })) as bigint
-    const btcVal = parseFloat(formatUnits(cirbtcRaw, 8))
-    cirbtcFormatted = btcVal > 0 ? (btcVal < 0.0001 ? btcVal.toFixed(8) : btcVal.toFixed(6)) : '0.000000'
-  } catch {
-    cirbtcFormatted = '0.000000'
-  }
-
-  try {
-    const wethRaw = (await resilientReadContract(publicClient, {
-      address: POOL_CONTRACTS.WETH,
-      abi: erc20Abi,
-      functionName: 'balanceOf',
-      args: [targetAddr],
-    })) as bigint
-    const wethVal = parseFloat(formatUnits(wethRaw, 18))
-    wethFormatted = wethVal > 0 ? (wethVal < 0.0001 ? wethVal.toFixed(6) : wethVal.toFixed(4)) : '0.0000'
-  } catch {
-    wethFormatted = '0.0000'
-  }
-
-  const result = {
+  return {
     usdc: usdcFormatted,
     eurc: eurcFormatted,
     cirbtc: cirbtcFormatted,
     weth: wethFormatted,
   }
-  await redisCache.set(cacheKey, result, 20)
-  return result
+}
+
+interface AmmPositionSpec {
+  poolId: string
+  label: string
+  address: Address
+  abi: Abi
+  decimalsA: number
+  decimalsB: number
+  priceA: number
+  priceB: number
+  formatA: (val: number) => string
+  formatB: (val: number) => string
+}
+
+function formatEarnedRewards(earnedUsd: number): string {
+  if (earnedUsd <= 0) return '0.00'
+  return earnedUsd < 0.0001 ? earnedUsd.toFixed(6) : earnedUsd.toFixed(4)
+}
+
+function formatHighPrecisionToken(val: number): string {
+  return val < 0.001 ? val.toFixed(6) : val.toFixed(4)
 }
 
 /**
- * Reads real user pool positions (ERC-4626 YieldVault, StableSwap LP, ConstantProduct LP) on Arc Testnet.
+ * Reads real user pool positions (ERC-4626 YieldVault, StableSwap LP, ConstantProduct LP)
+ * on Arc Testnet in a single atomic Multicall3 round-trip (plus one conditional `previewRedeem`
+ * call only when the wallet actually holds YieldVault shares).
  */
 export async function fetchUserPoolPositions(
   walletAddress: string,
   passedPoolState?: Record<string, any>,
   passedPrices?: { btc?: number; eurc?: number; weth?: number; eth?: number }
 ): Promise<Record<string, UserPoolPosition>> {
-  const isAddressValid = Boolean(walletAddress && walletAddress.startsWith('0x'))
+  const normalizedAddress = normalizeWalletAddress(walletAddress)
+  const isAddressValid = Boolean(normalizedAddress && normalizedAddress.startsWith('0x'))
   if (!isAddressValid) return {}
-  const targetAddr = walletAddress as `0x${string}`
-  const cacheKey = `arcis:pools:positions:${walletAddress.toLowerCase()}`
 
-  const cached = await redisCache.get<Record<string, UserPoolPosition>>(cacheKey)
-  if (cached && Object.keys(cached).length > 0) {
-    const freshTrusted = isLivePriceAvailable()
-    return Object.fromEntries(
-      Object.entries(cached).map(([k, v]) => [
-        k,
-        v.isLpPosition ? { ...v, priceUnavailable: !freshTrusted } : v,
-      ])
-    )
-  }
-
+  const targetAddr = normalizedAddress as Address
   const publicClient = getArcPublicClient()
-  const onchainPoolState = passedPoolState || (await fetchOnchainPoolState())
+
   const liveEurcPrice =
     passedPrices?.eurc && passedPrices.eurc > 0 ? passedPrices.eurc : getCachedTokenPrice('EURC')
   const liveBtcPrice =
@@ -459,29 +468,215 @@ export async function fetchUserPoolPositions(
       : getCachedTokenPrice('WETH') || getCachedTokenPrice('ETH') || 2600
   const isValuationTrusted = isLivePriceAvailable()
 
+  const cirBtcPool = ARCIS_POOLS.find((p) => p.id === 'usdc-cirbtc-pool')
+  const cpAddress = (cirBtcPool?.contractAddress || POOL_CONTRACTS.CONSTANT_PRODUCT_POOL) as Address
+
+  const allAmmSpecs: AmmPositionSpec[] = [
+    {
+      poolId: 'usdc-eurc-stable-pool',
+      label: 'StableSwap',
+      address: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
+      abi: STABLE_SWAP_ABI as Abi,
+      decimalsA: 6,
+      decimalsB: 6,
+      priceA: 1,
+      priceB: liveEurcPrice,
+      formatA: (v: number) => v.toFixed(2),
+      formatB: (v: number) => v.toFixed(2),
+    },
+    {
+      poolId: cirBtcPool?.id || 'usdc-cirbtc-pool',
+      label: 'ConstantProduct',
+      address: cpAddress,
+      abi: CONSTANT_PRODUCT_ABI as Abi,
+      decimalsA: 6,
+      decimalsB: 8,
+      priceA: 1,
+      priceB: liveBtcPrice,
+      formatA: (v: number) => v.toFixed(2),
+      formatB: formatHighPrecisionToken,
+    },
+    {
+      poolId: 'usdc-weth-pool',
+      label: 'WETH ConstantProduct',
+      address: POOL_CONTRACTS.WETH_POOL as Address,
+      abi: CONSTANT_PRODUCT_ABI as Abi,
+      decimalsA: 6,
+      decimalsB: 18,
+      priceA: 1,
+      priceB: liveEthPrice,
+      formatA: (v: number) => v.toFixed(2),
+      formatB: formatHighPrecisionToken,
+    },
+    {
+      poolId: 'eurc-weth-pool',
+      label: 'EURC/WETH ConstantProduct',
+      address: POOL_CONTRACTS.EURC_WETH_POOL as Address,
+      abi: CONSTANT_PRODUCT_ABI as Abi,
+      decimalsA: 6,
+      decimalsB: 18,
+      priceA: liveEurcPrice,
+      priceB: liveEthPrice,
+      formatA: (v: number) => v.toFixed(2),
+      formatB: formatHighPrecisionToken,
+    },
+    {
+      poolId: 'eurc-cirbtc-pool',
+      label: 'EURC/cirBTC ConstantProduct',
+      address: POOL_CONTRACTS.EURC_CIRBTC_POOL as Address,
+      abi: CONSTANT_PRODUCT_ABI as Abi,
+      decimalsA: 6,
+      decimalsB: 8,
+      priceA: liveEurcPrice,
+      priceB: liveBtcPrice,
+      formatA: (v: number) => v.toFixed(2),
+      formatB: formatHighPrecisionToken,
+    },
+    {
+      poolId: 'cirbtc-weth-pool',
+      label: 'cirBTC/WETH ConstantProduct',
+      address: POOL_CONTRACTS.CIRBTC_WETH_POOL as Address,
+      abi: CONSTANT_PRODUCT_ABI as Abi,
+      decimalsA: 8,
+      decimalsB: 18,
+      priceA: liveBtcPrice,
+      priceB: liveEthPrice,
+      formatA: formatHighPrecisionToken,
+      formatB: formatHighPrecisionToken,
+    },
+  ]
+  const ammSpecs = allAmmSpecs.filter((spec) => isDeployed(spec.address))
+
+  const hasVault = isDeployed(POOL_CONTRACTS.YIELD_VAULT)
+
+  const calls: Array<{
+    address: Address
+    abi: Abi
+    functionName: string
+    args?: readonly unknown[]
+  }> = []
+
+  // Slot layout for YieldVault (if deployed)
+  let vaultSlots:
+    | {
+        balanceOf: number
+        totalAssets: number
+        totalSupply: number
+        decimals: number
+        pendingYield?: number
+      }
+    | null = null
+
+  if (hasVault) {
+    const base = calls.length
+    calls.push(
+      { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI as Abi, functionName: 'balanceOf', args: [targetAddr] },
+      { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI as Abi, functionName: 'totalAssets' },
+      { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI as Abi, functionName: 'totalSupply' },
+      { address: POOL_CONTRACTS.YIELD_VAULT as Address, abi: YIELD_VAULT_ABI as Abi, functionName: 'decimals' }
+    )
+    vaultSlots = {
+      balanceOf: base,
+      totalAssets: base + 1,
+      totalSupply: base + 2,
+      decimals: base + 3,
+    }
+    if (POOL_VERSION_V4) {
+      vaultSlots.pendingYield = calls.length
+      calls.push({
+        address: POOL_CONTRACTS.YIELD_VAULT as Address,
+        abi: YIELD_VAULT_ABI as Abi,
+        functionName: 'pendingYield',
+        args: [targetAddr],
+      })
+    }
+  }
+
+  // Slot layout for every deployed AMM pool
+  const ammSlotLayouts = ammSpecs.map((spec) => {
+    const base = calls.length
+    calls.push(
+      { address: spec.address, abi: spec.abi, functionName: 'balanceOf', args: [targetAddr] },
+      { address: spec.address, abi: spec.abi, functionName: 'reserveA' },
+      { address: spec.address, abi: spec.abi, functionName: 'reserveB' },
+      { address: spec.address, abi: spec.abi, functionName: 'totalLp' },
+      { address: spec.address, abi: spec.abi, functionName: 'unclaimedFeeA' },
+      { address: spec.address, abi: spec.abi, functionName: 'unclaimedFeeB' }
+    )
+    let pendingFees: number | undefined
+    if (POOL_VERSION_V4) {
+      pendingFees = calls.length
+      calls.push({
+        address: spec.address,
+        abi: spec.abi,
+        functionName: 'pendingFees',
+        args: [targetAddr],
+      })
+    }
+    return {
+      spec,
+      balanceOf: base,
+      reserveA: base + 1,
+      reserveB: base + 2,
+      totalLp: base + 3,
+      unclaimedFeeA: base + 4,
+      unclaimedFeeB: base + 5,
+      pendingFees,
+    }
+  })
+
+  if (calls.length === 0) return {}
+
+  let results: Array<{ status: 'success' | 'failure'; result?: any; error?: Error }> = []
+  try {
+    results = await resilientMulticall<any>(publicClient, calls, { allowFailure: true })
+  } catch (err) {
+    console.warn('[usePoolsData] User pool positions multicall failed:', err)
+    return {}
+  }
+
   const positions: Record<string, UserPoolPosition> = {}
+  const now = Date.now()
 
   // 1. YieldVault (ERC-4626)
-  if (isDeployed(POOL_CONTRACTS.YIELD_VAULT)) {
-    try {
-      const sharesRaw = (await resilientReadContract(publicClient, {
-        address: POOL_CONTRACTS.YIELD_VAULT,
-        abi: YIELD_VAULT_ABI,
-        functionName: 'balanceOf',
-        args: [targetAddr],
-      })) as bigint
-
+  if (vaultSlots) {
+    const sharesEntry = results[vaultSlots.balanceOf]
+    if (sharesEntry?.status !== 'success') {
+      if (sharesEntry?.error) {
+        console.warn('[usePoolsData] YieldVault user balance read failed:', sharesEntry.error)
+      }
+    } else {
+      const sharesRaw = sharesEntry.result as bigint
       if (sharesRaw > 0n) {
-        let assetsUsdc = 0
-        let userEarnedUsd = 0
-        const vaultStateSnapshot = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
+        const vaultStateSnapshot = passedPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
+        const decimalsEntry = results[vaultSlots.decimals]
         const shareDecimals =
-          typeof vaultStateSnapshot?.shareDecimals === 'number'
+          decimalsEntry?.status === 'success' && typeof decimalsEntry.result === 'number'
+            ? decimalsEntry.result
+            : typeof vaultStateSnapshot?.shareDecimals === 'number'
             ? vaultStateSnapshot.shareDecimals
             : VAULT_SHARE_DECIMALS
-        const principalUsdc = parseFloat(formatUnits(sharesRaw, shareDecimals))
 
+        const principalUsdc = parseFloat(formatUnits(sharesRaw, shareDecimals))
+        const totalAssetsEntry = results[vaultSlots.totalAssets]
+        const totalSupplyEntry = results[vaultSlots.totalSupply]
+
+        const liveTotalAssets =
+          totalAssetsEntry?.status === 'success'
+            ? (totalAssetsEntry.result as bigint)
+            : vaultStateSnapshot?.totalAssets
+            ? parseUnits(vaultStateSnapshot.totalAssets, 6)
+            : 0n
+        const liveTotalSupply =
+          totalSupplyEntry?.status === 'success'
+            ? (totalSupplyEntry.result as bigint)
+            : vaultStateSnapshot?.totalSupply
+            ? parseUnits(vaultStateSnapshot.totalSupply, shareDecimals)
+            : 0n
+
+        let assetsUsdc = 0
         let rawVaultProfit = 0
+
         try {
           const previewAssets = (await resilientReadContract(publicClient, {
             address: POOL_CONTRACTS.YIELD_VAULT,
@@ -493,25 +688,10 @@ export async function fetchUserPoolPositions(
           if (assetsUsdc > principalUsdc) {
             rawVaultProfit = assetsUsdc - principalUsdc
           }
-        } catch {
-          let totalAssets = 0n
-          let totalSupply = 0n
-          try {
-            const [ta, ts] = await Promise.all([
-              resilientReadContract(publicClient, { address: POOL_CONTRACTS.YIELD_VAULT, abi: YIELD_VAULT_ABI, functionName: 'totalAssets' }),
-              resilientReadContract(publicClient, { address: POOL_CONTRACTS.YIELD_VAULT, abi: YIELD_VAULT_ABI, functionName: 'totalSupply' }),
-            ])
-            totalAssets = ta as bigint
-            totalSupply = ts as bigint
-          } catch (e) {
-            console.warn('[usePoolsData] YieldVault direct stats fetch warning:', e)
-            const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
-            totalAssets = vaultState?.totalAssets ? parseUnits(vaultState.totalAssets, 6) : 0n
-            totalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, shareDecimals) : 0n
-          }
-
-          if (totalSupply > 0n && totalAssets > 0n) {
-            const userAssetsRaw = (sharesRaw * totalAssets) / totalSupply
+        } catch (previewErr) {
+          console.warn('[usePoolsData] YieldVault previewRedeem fallback to share ratio:', previewErr)
+          if (liveTotalSupply > 0n && liveTotalAssets > 0n) {
+            const userAssetsRaw = (sharesRaw * liveTotalAssets) / liveTotalSupply
             assetsUsdc = parseFloat(formatUnits(userAssetsRaw, 6))
             if (assetsUsdc > principalUsdc) {
               rawVaultProfit = assetsUsdc - principalUsdc
@@ -521,33 +701,18 @@ export async function fetchUserPoolPositions(
           }
         }
 
-        let liveTotalSupply = 0n
-        try {
-          liveTotalSupply = (await resilientReadContract(publicClient, {
-            address: POOL_CONTRACTS.YIELD_VAULT,
-            abi: YIELD_VAULT_ABI,
-            functionName: 'totalSupply',
-          })) as bigint
-        } catch {
-          const vaultState = onchainPoolState?.[POOL_CONTRACTS.YIELD_VAULT]
-          liveTotalSupply = vaultState?.totalSupply ? parseUnits(vaultState.totalSupply, shareDecimals) : 0n
-        }
+        const poolSharePct =
+          liveTotalSupply > 0n
+            ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(2))))
+            : 0
 
-        const poolSharePct = liveTotalSupply > 0n
-          ? Math.min(100, Math.max(0, parseFloat(((Number(sharesRaw) / Number(liveTotalSupply)) * 100).toFixed(2))))
-          : 0
-
-        if (POOL_VERSION_V4) {
-          try {
-            const pendingRaw = (await resilientReadContract(publicClient, {
-              address: POOL_CONTRACTS.YIELD_VAULT,
-              abi: YIELD_VAULT_ABI,
-              functionName: 'pendingYield',
-              args: [targetAddr],
-            })) as bigint
-            userEarnedUsd = parseFloat(formatUnits(pendingRaw || 0n, 6))
-          } catch (e) {
-            console.warn('[usePoolsData] YieldVault pendingYield read failed:', e)
+        let userEarnedUsd = 0
+        if (vaultSlots.pendingYield !== undefined) {
+          const pendingEntry = results[vaultSlots.pendingYield]
+          if (pendingEntry?.status === 'success') {
+            userEarnedUsd = parseFloat(formatUnits((pendingEntry.result as bigint) || 0n, 6))
+          } else if (pendingEntry?.error) {
+            console.warn('[usePoolsData] YieldVault pendingYield read failed:', pendingEntry.error)
           }
         }
 
@@ -555,630 +720,116 @@ export async function fetchUserPoolPositions(
           poolId: 'usdc-yield-vault',
           stakedAmount: assetsUsdc.toFixed(2),
           stakedUsd: assetsUsdc,
-          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
+          earnedRewards: formatEarnedRewards(userEarnedUsd),
           earnedUsd: userEarnedUsd,
-          lastUpdatedTimestamp: Date.now(),
+          lastUpdatedTimestamp: now,
           lpTokenBalance: formatUnits(sharesRaw, shareDecimals),
           poolSharePct,
           earnedFeesUsd: rawVaultProfit,
         }
       }
-    } catch (err) {
-      console.warn('[usePoolsData] YieldVault user balance read failed:', err)
     }
   }
 
-  // 2. StableSwapPool (USDC / EURC LP)
-  if (isDeployed(POOL_CONTRACTS.STABLE_SWAP_POOL)) {
-    try {
-      const lpRaw = (await resilientReadContract(publicClient, {
-        address: POOL_CONTRACTS.STABLE_SWAP_POOL,
-        abi: STABLE_SWAP_ABI,
-        functionName: 'balanceOf',
-        args: [targetAddr],
-      })) as bigint
+  // 2. Deployed AMM Pools (decoded from the same single Multicall3 response)
+  for (const layout of ammSlotLayouts) {
+    const { spec } = layout
+    const lpEntry = results[layout.balanceOf]
+    if (lpEntry?.status !== 'success') {
+      if (lpEntry?.error) {
+        console.warn(`[usePoolsData] ${spec.label} user balance read failed:`, lpEntry.error)
+      }
+      continue
+    }
 
-      if (lpRaw > 0n) {
-        let reserveA = 0n
-        let reserveB = 0n
-        let totalLp = 0n
-        let unclaimedA = 0n
-        let unclaimedB = 0n
+    const lpRaw = lpEntry.result as bigint
+    if (lpRaw <= 0n) continue
 
-        try {
-          const [rA, rB, tLp, uA, uB] = await Promise.all([
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveA' }),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'reserveB' }),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'totalLp' }),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeA' }),
-            resilientReadContract(publicClient, { address: POOL_CONTRACTS.STABLE_SWAP_POOL, abi: STABLE_SWAP_ABI, functionName: 'unclaimedFeeB' }),
-          ])
-          reserveA = rA as bigint
-          reserveB = rB as bigint
-          totalLp = tLp as bigint
-          unclaimedA = (uA as bigint) || 0n
-          unclaimedB = (uB as bigint) || 0n
-        } catch (e) {
-          console.warn('[usePoolsData] StableSwap direct reserves fetch warning:', e)
-          const poolState = onchainPoolState?.[POOL_CONTRACTS.STABLE_SWAP_POOL]
-          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
-          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 6) : 0n
-          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
-          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 6) : 0n
-        }
+    const poolState = passedPoolState?.[spec.address]
+    const reserveAEntry = results[layout.reserveA]
+    const reserveBEntry = results[layout.reserveB]
+    const totalLpEntry = results[layout.totalLp]
+    const unclaimedAEntry = results[layout.unclaimedFeeA]
+    const unclaimedBEntry = results[layout.unclaimedFeeB]
 
-        let stakedUsd = 0
-        let userA = 0
-        let userB = 0
-        let poolSharePct = 0
-        let userEarnedUsd = 0
-        let rawFeeShareUsd = 0
+    const reservesComplete =
+      reserveAEntry?.status === 'success' &&
+      reserveBEntry?.status === 'success' &&
+      totalLpEntry?.status === 'success'
 
-        if (totalLp > 0n) {
-          const userARaw = (reserveA * lpRaw) / totalLp
-          const userBRaw = (reserveB * lpRaw) / totalLp
-          userA = parseFloat(formatUnits(userARaw, 6))
-          userB = parseFloat(formatUnits(userBRaw, 6))
-          const exchangeRate = liveEurcPrice
-          stakedUsd = userA + userB * exchangeRate
-          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+    let reserveA = 0n
+    let reserveB = 0n
+    let totalLp = 0n
+    let unclaimedA = 0n
+    let unclaimedB = 0n
 
-          const ufA = parseFloat(formatUnits(unclaimedA, 6))
-          const ufB = parseFloat(formatUnits(unclaimedB, 6))
-          const totalPoolUnclaimedUsd = ufA + ufB * liveEurcPrice
-          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+    if (reservesComplete) {
+      reserveA = reserveAEntry.result as bigint
+      reserveB = reserveBEntry.result as bigint
+      totalLp = totalLpEntry.result as bigint
+      unclaimedA = unclaimedAEntry?.status === 'success' ? ((unclaimedAEntry.result as bigint) || 0n) : 0n
+      unclaimedB = unclaimedBEntry?.status === 'success' ? ((unclaimedBEntry.result as bigint) || 0n) : 0n
+    } else {
+      console.warn(`[usePoolsData] ${spec.label} multicall reserves incomplete; falling back to cached pool state`)
+      totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
+      reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, spec.decimalsA) : 0n
+      reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, spec.decimalsB) : 0n
+      unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, spec.decimalsA) : 0n
+      unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, spec.decimalsB) : 0n
+    }
 
-          if (POOL_VERSION_V4) {
-            try {
-              const pending = (await resilientReadContract(publicClient, {
-                address: POOL_CONTRACTS.STABLE_SWAP_POOL,
-                abi: STABLE_SWAP_ABI,
-                functionName: 'pendingFees',
-                args: [targetAddr],
-              })) as readonly [bigint, bigint]
-              const claimableUsd =
-                parseFloat(formatUnits(pending?.[0] || 0n, 6)) +
-                parseFloat(formatUnits(pending?.[1] || 0n, 6)) * liveEurcPrice
-              rawFeeShareUsd = claimableUsd
-              userEarnedUsd = claimableUsd
-            } catch (e) {
-              console.warn('[usePoolsData] StableSwap pendingFees read failed:', e)
-            }
-          }
-        } else {
-          stakedUsd = 0
-        }
+    let stakedUsd = 0
+    let userA = 0
+    let userB = 0
+    let poolSharePct = 0
+    let userEarnedUsd = 0
+    let rawFeeShareUsd = 0
 
-        positions['usdc-eurc-stable-pool'] = {
-          poolId: 'usdc-eurc-stable-pool',
-          stakedAmount: stakedUsd.toFixed(2),
-          stakedUsd,
-          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-          earnedUsd: userEarnedUsd,
-          lastUpdatedTimestamp: Date.now(),
-          isLpPosition: true,
-          lpTokenBalance: formatUnits(lpRaw, 18),
-          poolSharePct,
-          tokenAStaked: userA.toFixed(2),
-          tokenBStaked: userB.toFixed(2),
-          earnedFeesUsd: rawFeeShareUsd,
-          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
+    if (totalLp > 0n) {
+      const userARaw = (reserveA * lpRaw) / totalLp
+      const userBRaw = (reserveB * lpRaw) / totalLp
+      userA = parseFloat(formatUnits(userARaw, spec.decimalsA))
+      userB = parseFloat(formatUnits(userBRaw, spec.decimalsB))
+      stakedUsd = userA * spec.priceA + userB * spec.priceB
+      poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
+
+      const ufA = parseFloat(formatUnits(unclaimedA, spec.decimalsA))
+      const ufB = parseFloat(formatUnits(unclaimedB, spec.decimalsB))
+      const totalPoolUnclaimedUsd = ufA * spec.priceA + ufB * spec.priceB
+      rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
+
+      if (layout.pendingFees !== undefined) {
+        const pendingEntry = results[layout.pendingFees]
+        if (pendingEntry?.status === 'success') {
+          const pending = pendingEntry.result as readonly [bigint, bigint]
+          const claimableUsd =
+            parseFloat(formatUnits(pending?.[0] || 0n, spec.decimalsA)) * spec.priceA +
+            parseFloat(formatUnits(pending?.[1] || 0n, spec.decimalsB)) * spec.priceB
+          rawFeeShareUsd = claimableUsd
+          userEarnedUsd = claimableUsd
+        } else if (pendingEntry?.error) {
+          console.warn(`[usePoolsData] ${spec.label} pendingFees read failed:`, pendingEntry.error)
         }
       }
-    } catch (err) {
-      console.warn('[usePoolsData] StableSwap user balance read failed:', err)
+    }
+
+    positions[spec.poolId] = {
+      poolId: spec.poolId,
+      stakedAmount: stakedUsd.toFixed(2),
+      stakedUsd,
+      earnedRewards: formatEarnedRewards(userEarnedUsd),
+      earnedUsd: userEarnedUsd,
+      lastUpdatedTimestamp: now,
+      isLpPosition: true,
+      lpTokenBalance: formatUnits(lpRaw, 18),
+      poolSharePct,
+      tokenAStaked: spec.formatA(userA),
+      tokenBStaked: spec.formatB(userB),
+      earnedFeesUsd: rawFeeShareUsd,
+      priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
     }
   }
 
-  // 3. ConstantProductPool (USDC / cirBTC LP)
-  const cirBtcPool = ARCIS_POOLS.find((p) => p.id === 'usdc-cirbtc-pool')
-  const cpAddress = cirBtcPool?.contractAddress || POOL_CONTRACTS.CONSTANT_PRODUCT_POOL
-  if (isDeployed(cpAddress)) {
-    try {
-      const lpRaw = (await resilientReadContract(publicClient, {
-        address: cpAddress,
-        abi: CONSTANT_PRODUCT_ABI,
-        functionName: 'balanceOf',
-        args: [targetAddr],
-      })) as bigint
-      if (lpRaw > 0n) {
-        let reserveA = 0n
-        let reserveB = 0n
-        let totalLp = 0n
-        let unclaimedA = 0n
-        let unclaimedB = 0n
-
-        try {
-          const [rA, rB, tLp, uA, uB] = await Promise.all([
-            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
-            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
-            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
-            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
-            resilientReadContract(publicClient, { address: cpAddress, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
-          ])
-          reserveA = rA as bigint
-          reserveB = rB as bigint
-          totalLp = tLp as bigint
-          unclaimedA = (uA as bigint) || 0n
-          unclaimedB = (uB as bigint) || 0n
-        } catch (e) {
-          console.warn('[usePoolsData] ConstantProduct direct reserves fetch warning:', e)
-          const poolState = onchainPoolState?.[cpAddress]
-          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
-          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 8) : 0n
-          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
-          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 8) : 0n
-        }
-
-        let stakedUsd = 0
-        let userA = 0
-        let userB = 0
-        let poolSharePct = 0
-        let userEarnedUsd = 0
-        let rawFeeShareUsd = 0
-
-        if (totalLp > 0n) {
-          const userARaw = (reserveA * lpRaw) / totalLp
-          const userBRaw = (reserveB * lpRaw) / totalLp
-          userA = parseFloat(formatUnits(userARaw, 6))
-          userB = parseFloat(formatUnits(userBRaw, 8))
-          const btcPrice = liveBtcPrice
-          stakedUsd = userA + userB * btcPrice
-          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
-
-          const ufA = parseFloat(formatUnits(unclaimedA, 6))
-          const ufB = parseFloat(formatUnits(unclaimedB, 8))
-          const totalPoolUnclaimedUsd = ufA + ufB * liveBtcPrice
-          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-
-          if (POOL_VERSION_V4) {
-            try {
-              const pending = (await resilientReadContract(publicClient, {
-                address: cpAddress,
-                abi: CONSTANT_PRODUCT_ABI,
-                functionName: 'pendingFees',
-                args: [targetAddr],
-              })) as readonly [bigint, bigint]
-              const claimableUsd =
-                parseFloat(formatUnits(pending?.[0] || 0n, 6)) +
-                parseFloat(formatUnits(pending?.[1] || 0n, 8)) * liveBtcPrice
-              rawFeeShareUsd = claimableUsd
-              userEarnedUsd = claimableUsd
-            } catch (e) {
-              console.warn('[usePoolsData] ConstantProduct pendingFees read failed:', e)
-            }
-          }
-        } else {
-          stakedUsd = 0
-        }
-
-        const poolIdKey = cirBtcPool?.id || 'usdc-cirbtc-pool'
-        positions[poolIdKey] = {
-          poolId: poolIdKey,
-          stakedAmount: stakedUsd.toFixed(2),
-          stakedUsd,
-          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-          earnedUsd: userEarnedUsd,
-          lastUpdatedTimestamp: Date.now(),
-          isLpPosition: true,
-          lpTokenBalance: formatUnits(lpRaw, 18),
-          poolSharePct,
-          tokenAStaked: userA.toFixed(2),
-          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
-          earnedFeesUsd: rawFeeShareUsd,
-          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
-        }
-      }
-    } catch (err) {
-      console.warn('[usePoolsData] ConstantProduct user balance read failed:', err)
-    }
-  }
-
-  // 4. ConstantProductPool (USDC/WETH) user balance read
-  const wethPoolAddress = POOL_CONTRACTS.WETH_POOL
-  if (isDeployed(wethPoolAddress)) {
-    try {
-      const lpRaw = (await resilientReadContract(publicClient, {
-        address: wethPoolAddress as Address,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [targetAddr],
-      })) as bigint
-
-      if (lpRaw > 0n) {
-        let reserveA = 0n
-        let reserveB = 0n
-        let totalLp = 0n
-        let unclaimedA = 0n
-        let unclaimedB = 0n
-
-        try {
-          const [rA, rB, tLp, uA, uB] = await Promise.all([
-            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
-            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
-            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
-            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
-            resilientReadContract(publicClient, { address: wethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
-          ])
-          reserveA = rA as bigint
-          reserveB = rB as bigint
-          totalLp = tLp as bigint
-          unclaimedA = (uA as bigint) || 0n
-          unclaimedB = (uB as bigint) || 0n
-        } catch (e) {
-          const poolState = onchainPoolState?.[wethPoolAddress]
-          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
-          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 18) : 0n
-          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
-          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 18) : 0n
-        }
-
-        let stakedUsd = 0
-        let userA = 0
-        let userB = 0
-        let poolSharePct = 0
-        let userEarnedUsd = 0
-        let rawFeeShareUsd = 0
-
-        if (totalLp > 0n) {
-          const userARaw = (reserveA * lpRaw) / totalLp
-          const userBRaw = (reserveB * lpRaw) / totalLp
-          userA = parseFloat(formatUnits(userARaw, 6))
-          userB = parseFloat(formatUnits(userBRaw, 18))
-          stakedUsd = userA + userB * liveEthPrice
-          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
-
-          const ufA = parseFloat(formatUnits(unclaimedA, 6))
-          const ufB = parseFloat(formatUnits(unclaimedB, 18))
-          const totalPoolUnclaimedUsd = ufA + ufB * liveEthPrice
-          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-
-          if (POOL_VERSION_V4) {
-            try {
-              const pending = (await resilientReadContract(publicClient, {
-                address: wethPoolAddress as Address,
-                abi: CONSTANT_PRODUCT_ABI,
-                functionName: 'pendingFees',
-                args: [targetAddr],
-              })) as readonly [bigint, bigint]
-              const claimableUsd =
-                parseFloat(formatUnits(pending?.[0] || 0n, 6)) +
-                parseFloat(formatUnits(pending?.[1] || 0n, 18)) * liveEthPrice
-              rawFeeShareUsd = claimableUsd
-              userEarnedUsd = claimableUsd
-            } catch (e) {
-              console.warn('[usePoolsData] WETH ConstantProduct pendingFees read failed:', e)
-            }
-          }
-        }
-
-        positions['usdc-weth-pool'] = {
-          poolId: 'usdc-weth-pool',
-          stakedAmount: stakedUsd.toFixed(2),
-          stakedUsd,
-          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-          earnedUsd: userEarnedUsd,
-          lastUpdatedTimestamp: Date.now(),
-          isLpPosition: true,
-          lpTokenBalance: formatUnits(lpRaw, 18),
-          poolSharePct,
-          tokenAStaked: userA.toFixed(2),
-          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
-          earnedFeesUsd: rawFeeShareUsd,
-          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
-        }
-      }
-    } catch (err) {
-      console.warn('[usePoolsData] WETH ConstantProduct user balance read failed:', err)
-    }
-  }
-
-  // 5. ConstantProductPool (EURC/WETH) user balance read
-  const eurcWethPoolAddress = POOL_CONTRACTS.EURC_WETH_POOL
-  if (isDeployed(eurcWethPoolAddress)) {
-    try {
-      const lpRaw = (await resilientReadContract(publicClient, {
-        address: eurcWethPoolAddress as Address,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [targetAddr],
-      })) as bigint
-
-      if (lpRaw > 0n) {
-        let reserveA = 0n
-        let reserveB = 0n
-        let totalLp = 0n
-        let unclaimedA = 0n
-        let unclaimedB = 0n
-
-        try {
-          const [rA, rB, tLp, uA, uB] = await Promise.all([
-            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
-            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
-            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
-            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
-            resilientReadContract(publicClient, { address: eurcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
-          ])
-          reserveA = rA as bigint
-          reserveB = rB as bigint
-          totalLp = tLp as bigint
-          unclaimedA = (uA as bigint) || 0n
-          unclaimedB = (uB as bigint) || 0n
-        } catch (e) {
-          const poolState = onchainPoolState?.[eurcWethPoolAddress]
-          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
-          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 18) : 0n
-          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
-          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 18) : 0n
-        }
-
-        let stakedUsd = 0
-        let userA = 0
-        let userB = 0
-        let poolSharePct = 0
-        let userEarnedUsd = 0
-        let rawFeeShareUsd = 0
-
-        if (totalLp > 0n) {
-          const userARaw = (reserveA * lpRaw) / totalLp
-          const userBRaw = (reserveB * lpRaw) / totalLp
-          userA = parseFloat(formatUnits(userARaw, 6))
-          userB = parseFloat(formatUnits(userBRaw, 18))
-          stakedUsd = userA * liveEurcPrice + userB * liveEthPrice
-          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
-
-          const ufA = parseFloat(formatUnits(unclaimedA, 6))
-          const ufB = parseFloat(formatUnits(unclaimedB, 18))
-          const totalPoolUnclaimedUsd = ufA * liveEurcPrice + ufB * liveEthPrice
-          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-
-          if (POOL_VERSION_V4) {
-            try {
-              const pending = (await resilientReadContract(publicClient, {
-                address: eurcWethPoolAddress as Address,
-                abi: CONSTANT_PRODUCT_ABI,
-                functionName: 'pendingFees',
-                args: [targetAddr],
-              })) as readonly [bigint, bigint]
-              const claimableUsd =
-                parseFloat(formatUnits(pending?.[0] || 0n, 6)) * liveEurcPrice +
-                parseFloat(formatUnits(pending?.[1] || 0n, 18)) * liveEthPrice
-              rawFeeShareUsd = claimableUsd
-              userEarnedUsd = claimableUsd
-            } catch (e) {
-              console.warn('[usePoolsData] EURC/WETH ConstantProduct pendingFees read failed:', e)
-            }
-          }
-        }
-
-        positions['eurc-weth-pool'] = {
-          poolId: 'eurc-weth-pool',
-          stakedAmount: stakedUsd.toFixed(2),
-          stakedUsd,
-          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-          earnedUsd: userEarnedUsd,
-          lastUpdatedTimestamp: Date.now(),
-          isLpPosition: true,
-          lpTokenBalance: formatUnits(lpRaw, 18),
-          poolSharePct,
-          tokenAStaked: userA.toFixed(2),
-          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
-          earnedFeesUsd: rawFeeShareUsd,
-          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
-        }
-      }
-    } catch (err) {
-      console.warn('[usePoolsData] EURC/WETH ConstantProduct user balance read failed:', err)
-    }
-  }
-
-  // 6. ConstantProductPool (EURC/cirBTC) user balance read
-  const eurcCirBtcPoolAddress = POOL_CONTRACTS.EURC_CIRBTC_POOL
-  if (isDeployed(eurcCirBtcPoolAddress)) {
-    try {
-      const lpRaw = (await resilientReadContract(publicClient, {
-        address: eurcCirBtcPoolAddress as Address,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [targetAddr],
-      })) as bigint
-
-      if (lpRaw > 0n) {
-        let reserveA = 0n
-        let reserveB = 0n
-        let totalLp = 0n
-        let unclaimedA = 0n
-        let unclaimedB = 0n
-
-        try {
-          const [rA, rB, tLp, uA, uB] = await Promise.all([
-            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
-            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
-            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
-            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
-            resilientReadContract(publicClient, { address: eurcCirBtcPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
-          ])
-          reserveA = rA as bigint
-          reserveB = rB as bigint
-          totalLp = tLp as bigint
-          unclaimedA = (uA as bigint) || 0n
-          unclaimedB = (uB as bigint) || 0n
-        } catch (e) {
-          const poolState = onchainPoolState?.[eurcCirBtcPoolAddress]
-          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 6) : 0n
-          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 8) : 0n
-          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 6) : 0n
-          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 8) : 0n
-        }
-
-        let stakedUsd = 0
-        let userA = 0
-        let userB = 0
-        let poolSharePct = 0
-        let userEarnedUsd = 0
-        let rawFeeShareUsd = 0
-
-        if (totalLp > 0n) {
-          const userARaw = (reserveA * lpRaw) / totalLp
-          const userBRaw = (reserveB * lpRaw) / totalLp
-          userA = parseFloat(formatUnits(userARaw, 6))
-          userB = parseFloat(formatUnits(userBRaw, 8))
-          stakedUsd = userA * liveEurcPrice + userB * liveBtcPrice
-          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
-
-          const ufA = parseFloat(formatUnits(unclaimedA, 6))
-          const ufB = parseFloat(formatUnits(unclaimedB, 8))
-          const totalPoolUnclaimedUsd = ufA * liveEurcPrice + ufB * liveBtcPrice
-          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-
-          if (POOL_VERSION_V4) {
-            try {
-              const pending = (await resilientReadContract(publicClient, {
-                address: eurcCirBtcPoolAddress as Address,
-                abi: CONSTANT_PRODUCT_ABI,
-                functionName: 'pendingFees',
-                args: [targetAddr],
-              })) as readonly [bigint, bigint]
-              const claimableUsd =
-                parseFloat(formatUnits(pending?.[0] || 0n, 6)) * liveEurcPrice +
-                parseFloat(formatUnits(pending?.[1] || 0n, 8)) * liveBtcPrice
-              rawFeeShareUsd = claimableUsd
-              userEarnedUsd = claimableUsd
-            } catch (e) {
-              console.warn('[usePoolsData] EURC/cirBTC ConstantProduct pendingFees read failed:', e)
-            }
-          }
-        }
-
-        positions['eurc-cirbtc-pool'] = {
-          poolId: 'eurc-cirbtc-pool',
-          stakedAmount: stakedUsd.toFixed(2),
-          stakedUsd,
-          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-          earnedUsd: userEarnedUsd,
-          lastUpdatedTimestamp: Date.now(),
-          isLpPosition: true,
-          lpTokenBalance: formatUnits(lpRaw, 18),
-          poolSharePct,
-          tokenAStaked: userA.toFixed(2),
-          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
-          earnedFeesUsd: rawFeeShareUsd,
-          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
-        }
-      }
-    } catch (err) {
-      console.warn('[usePoolsData] EURC/cirBTC ConstantProduct user balance read failed:', err)
-    }
-  }
-
-  // 7. ConstantProductPool (cirBTC/WETH) user balance read
-  const cirBtcWethPoolAddress = POOL_CONTRACTS.CIRBTC_WETH_POOL
-  if (isDeployed(cirBtcWethPoolAddress)) {
-    try {
-      const lpRaw = (await resilientReadContract(publicClient, {
-        address: cirBtcWethPoolAddress as Address,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [targetAddr],
-      })) as bigint
-
-      if (lpRaw > 0n) {
-        let reserveA = 0n
-        let reserveB = 0n
-        let totalLp = 0n
-        let unclaimedA = 0n
-        let unclaimedB = 0n
-
-        try {
-          const [rA, rB, tLp, uA, uB] = await Promise.all([
-            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveA' }),
-            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'reserveB' }),
-            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'totalLp' }),
-            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeA' }),
-            resilientReadContract(publicClient, { address: cirBtcWethPoolAddress as Address, abi: CONSTANT_PRODUCT_ABI, functionName: 'unclaimedFeeB' }),
-          ])
-          reserveA = rA as bigint
-          reserveB = rB as bigint
-          totalLp = tLp as bigint
-          unclaimedA = (uA as bigint) || 0n
-          unclaimedB = (uB as bigint) || 0n
-        } catch (e) {
-          const poolState = onchainPoolState?.[cirBtcWethPoolAddress]
-          totalLp = poolState?.totalLp ? parseUnits(poolState.totalLp, 18) : 0n
-          reserveA = poolState?.reserveA ? parseUnits(poolState.reserveA, 8) : 0n
-          reserveB = poolState?.reserveB ? parseUnits(poolState.reserveB, 18) : 0n
-          unclaimedA = poolState?.unclaimedFeeA ? parseUnits(poolState.unclaimedFeeA, 8) : 0n
-          unclaimedB = poolState?.unclaimedFeeB ? parseUnits(poolState.unclaimedFeeB, 18) : 0n
-        }
-
-        let stakedUsd = 0
-        let userA = 0
-        let userB = 0
-        let poolSharePct = 0
-        let userEarnedUsd = 0
-        let rawFeeShareUsd = 0
-
-        if (totalLp > 0n) {
-          const userARaw = (reserveA * lpRaw) / totalLp
-          const userBRaw = (reserveB * lpRaw) / totalLp
-          userA = parseFloat(formatUnits(userARaw, 8))
-          userB = parseFloat(formatUnits(userBRaw, 18))
-          stakedUsd = userA * liveBtcPrice + userB * liveEthPrice
-          poolSharePct = Math.min(100, Math.max(0, parseFloat(((Number(lpRaw) / Number(totalLp)) * 100).toFixed(2))))
-
-          const ufA = parseFloat(formatUnits(unclaimedA, 8))
-          const ufB = parseFloat(formatUnits(unclaimedB, 18))
-          const totalPoolUnclaimedUsd = ufA * liveBtcPrice + ufB * liveEthPrice
-          rawFeeShareUsd = poolSharePct > 0 ? (totalPoolUnclaimedUsd * poolSharePct) / 100 : 0
-
-          if (POOL_VERSION_V4) {
-            try {
-              const pending = (await resilientReadContract(publicClient, {
-                address: cirBtcWethPoolAddress as Address,
-                abi: CONSTANT_PRODUCT_ABI,
-                functionName: 'pendingFees',
-                args: [targetAddr],
-              })) as readonly [bigint, bigint]
-              const claimableUsd =
-                parseFloat(formatUnits(pending?.[0] || 0n, 8)) * liveBtcPrice +
-                parseFloat(formatUnits(pending?.[1] || 0n, 18)) * liveEthPrice
-              rawFeeShareUsd = claimableUsd
-              userEarnedUsd = claimableUsd
-            } catch (e) {
-              console.warn('[usePoolsData] cirBTC/WETH ConstantProduct pendingFees read failed:', e)
-            }
-          }
-        }
-
-        positions['cirbtc-weth-pool'] = {
-          poolId: 'cirbtc-weth-pool',
-          stakedAmount: stakedUsd.toFixed(2),
-          stakedUsd,
-          earnedRewards: userEarnedUsd > 0 ? (userEarnedUsd < 0.0001 ? userEarnedUsd.toFixed(6) : userEarnedUsd.toFixed(4)) : '0.00',
-          earnedUsd: userEarnedUsd,
-          lastUpdatedTimestamp: Date.now(),
-          isLpPosition: true,
-          lpTokenBalance: formatUnits(lpRaw, 18),
-          poolSharePct,
-          tokenAStaked: userA < 0.001 ? userA.toFixed(6) : userA.toFixed(4),
-          tokenBStaked: userB < 0.001 ? userB.toFixed(6) : userB.toFixed(4),
-          earnedFeesUsd: rawFeeShareUsd,
-          priceUnavailable: !isValuationTrusted || !(totalLp > 0n),
-        }
-      }
-    } catch (err) {
-      console.warn('[usePoolsData] cirBTC/WETH ConstantProduct user balance read failed:', err)
-    }
-  }
-
-  if (Object.keys(positions).length > 0) {
-    await redisCache.set(cacheKey, positions, 20)
-  }
   return positions
 }
 
@@ -1189,16 +840,17 @@ export async function prefetchUserWalletPoolsData(
   queryClient: QueryClient,
   walletAddress: string
 ): Promise<void> {
-  if (!queryClient || !walletAddress || !walletAddress.startsWith('0x')) return
+  const normalizedAddress = normalizeWalletAddress(walletAddress)
+  if (!queryClient || !normalizedAddress || !normalizedAddress.startsWith('0x')) return
   await Promise.allSettled([
     queryClient.prefetchQuery({
-      queryKey: ['onchainPoolBalances', walletAddress],
-      queryFn: () => fetchOnchainPoolBalances(walletAddress),
+      queryKey: onchainPoolBalancesQueryKey(normalizedAddress),
+      queryFn: () => fetchOnchainPoolBalances(normalizedAddress),
       staleTime: 30_000,
     }),
     queryClient.prefetchQuery({
-      queryKey: ['userPoolPositions', walletAddress],
-      queryFn: () => fetchUserPoolPositions(walletAddress),
+      queryKey: userPoolPositionsQueryKey(normalizedAddress),
+      queryFn: () => fetchUserPoolPositions(normalizedAddress),
       staleTime: 20_000,
     }),
   ])

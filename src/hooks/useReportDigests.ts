@@ -1,11 +1,13 @@
 // src/hooks/useReportDigests.ts
-// Loads this wallet's report digests from the server and runs them through the shared engine.
+// Loads this wallet's report digests from the server via TanStack Query and runs them through
+// the shared recommendation engine.
 //
 // The shelf never keeps its own tally: the paid calls are remembered by the tollgate, and this
 // hook only reads them back. `refreshKey` is the settlement reference of the last paid call, so a
-// successful run re-reads the store instead of asking the browser to trust its own receipt.
+// successful run invalidates the query instead of asking the browser to trust its own receipt.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Recommendation } from '../services/x402/nextActions'
 import {
   recommendationsFromDigests,
@@ -13,6 +15,8 @@ import {
   type ReportDigestStore,
 } from '../services/x402/reportDigest'
 import { fetchReportDigests } from '../services/reportDigestClient'
+import { normalizeWalletAddress } from '../utils/address'
+import { reportDigestsQueryKey } from '../config/queryKeys'
 
 export interface ReportDigestState {
   store: ReportDigestStore | null
@@ -27,38 +31,34 @@ export function useReportDigests(
   address?: string,
   refreshKey?: string | number | null
 ): ReportDigestState {
-  const [store, setStore] = useState<ReportDigestStore | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const queryClient = useQueryClient()
+  const normalizedAddress = normalizeWalletAddress(address)
+  const isValidAddress = /^0x[0-9a-f]{40}$/.test(normalizedAddress)
+  const queryKey = useMemo(() => reportDigestsQueryKey(normalizedAddress), [normalizedAddress])
 
+  const { data, isLoading } = useQuery<ReportDigestStore>({
+    queryKey,
+    queryFn: ({ signal }) => fetchReportDigests(normalizedAddress, { signal }),
+    enabled: isValidAddress,
+    staleTime: 20_000,
+    gcTime: 1000 * 60 * 5,
+    retry: 1,
+  })
+
+  // When a newly settled paid call updates `refreshKey`, re-read the wallet's digests from the server.
+  const prevRefreshKeyRef = useRef<string | number | null | undefined>(refreshKey)
   useEffect(() => {
-    if (!address) {
-      setStore(null)
-      return
-    }
+    const prev = prevRefreshKeyRef.current
+    prevRefreshKeyRef.current = refreshKey
+    if (!isValidAddress || refreshKey == null || refreshKey === prev) return
+    void queryClient.invalidateQueries({ queryKey })
+  }, [isValidAddress, refreshKey, queryClient, queryKey])
 
-    const controller = new AbortController()
-    let active = true
-    setIsLoading(true)
-
-    fetchReportDigests(address, { signal: controller.signal })
-      .then((next) => {
-        if (active) setStore(next)
-      })
-      .finally(() => {
-        if (active) setIsLoading(false)
-      })
-
-    return () => {
-      active = false
-      controller.abort()
-    }
-  }, [address, refreshKey])
-
+  const store = isValidAddress ? (data ?? null) : null
   const digests = store?.digests ?? []
 
   const byService = useMemo(
     () => new Map(digests.map((digest) => [digest.serviceId, digest])),
-    // The digest array identity changes only when the store is replaced.
     [store]
   )
 
@@ -69,5 +69,5 @@ export function useReportDigests(
     [store]
   )
 
-  return { store, digests, byService, recommendations, isLoading }
+  return { store, digests, byService, recommendations, isLoading: isValidAddress && isLoading }
 }

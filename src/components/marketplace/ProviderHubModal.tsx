@@ -19,11 +19,11 @@ import { createPortal } from 'react-dom'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
 import { soundService } from '../../services/soundService'
 import {
-  fetchCanonicalProviderLedger,
   getAccumulatedYieldVaultFees,
   getStoredProviderEarnings,
   withdrawProviderEarningsApi,
 } from '../../services/x402PaymentEngine'
+import { useProviderLedger } from '../../hooks/useProviderLedger'
 import type { UcwTypedDataChallenge } from '../../services/ucwChallengeSigner'
 import type { x402Service } from '../../types/marketplace'
 import type { ProviderLedger } from '../../types/x402'
@@ -62,13 +62,18 @@ export default function ProviderHubModal({
   const [isClaiming, setIsClaiming] = useState<boolean>(false)
   const [claimError, setClaimError] = useState<string | null>(null)
   const [claimedTxHash, setClaimedTxHash] = useState<string | null>(null)
-  const [isLoadingLedger, setIsLoadingLedger] = useState<boolean>(false)
   // Per-service rows come straight from the shared ledger, never inferred from provider totals.
   const [serviceRows, setServiceRows] = useState<ProviderLedger['services']>([])
 
   const activeAddress = walletAddress || ''
 
-  const refreshData = () => {
+  const {
+    ledger: canonicalLedger,
+    isLoading: isLoadingLedger,
+    refresh: refreshCanonicalLedger,
+  } = useProviderLedger(activeAddress, { enabled: isOpen })
+
+  const refreshLocalEarnings = () => {
     const earnings = getStoredProviderEarnings()
     const providerData = (activeAddress ? earnings[activeAddress.toLowerCase()] : null) || {
       totalCallsServed: 0,
@@ -82,34 +87,29 @@ export default function ProviderHubModal({
   }
 
   useEffect(() => {
-    if (isOpen) {
-      refreshData()
-      setClaimSuccess(false)
-      setClaimError(null)
-      setClaimedTxHash(null)
+    if (!isOpen) return
+    setClaimSuccess(false)
+    setClaimError(null)
+    setClaimedTxHash(null)
+    refreshLocalEarnings()
+  }, [isOpen, activeAddress])
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (canonicalLedger) {
+      // Circle acceptance is not final settlement: pending stays visible until the
+      // reconciler matches the transfer and moves it to available.
+      setPendingUsdc(Number(canonicalLedger.pendingUsdc) || 0)
+      setWithdrawnUsdc(Number(canonicalLedger.withdrawnUsdc) || 0)
+      setServiceRows(Array.isArray(canonicalLedger.services) ? canonicalLedger.services : [])
+      refreshLocalEarnings()
+    } else {
       // Never show the previous wallet's settlement figures while the new ledger loads.
       setPendingUsdc(0)
       setWithdrawnUsdc(0)
       setServiceRows([])
-      if (activeAddress) {
-        setIsLoadingLedger(true)
-        fetchCanonicalProviderLedger(activeAddress)
-          .then((ledger) => {
-            // Circle acceptance is not final settlement: pending stays visible until the
-            // reconciler matches the transfer and moves it to available.
-            if (ledger) {
-              setPendingUsdc(Number(ledger.pendingUsdc) || 0)
-              setWithdrawnUsdc(Number(ledger.withdrawnUsdc) || 0)
-              setServiceRows(Array.isArray(ledger.services) ? ledger.services : [])
-            }
-          })
-          .finally(() => {
-            setIsLoadingLedger(false)
-            refreshData()
-          })
-      }
     }
-  }, [isOpen, activeAddress])
+  }, [isOpen, canonicalLedger, activeAddress])
 
   if (!isOpen) return null
 
@@ -158,7 +158,8 @@ export default function ProviderHubModal({
 
       soundService.play('success')
       setClaimSuccess(true)
-      refreshData()
+      refreshLocalEarnings()
+      void refreshCanonicalLedger()
       setTimeout(() => setClaimSuccess(false), 6000)
     } catch (err: any) {
       setClaimError(err.message || 'Provider ledger operation failed')

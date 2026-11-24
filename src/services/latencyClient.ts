@@ -2,15 +2,24 @@
 // Client access to `GET /api/x402/latency`.
 //
 // The AI Services card shows one latency figure for every visitor, so it reads the deployment's
-// shared measurement instead of averaging this browser's own probes. The cache only paints the last
-// known value while the request is in flight.
+// shared measurement instead of averaging this browser's own probes. The bounded 60-second
+// sessionStorage cache only paints a recent live reading while revalidating, and an `unavailable`
+// response immediately clears it so the card renders a dash (`—`).
 
 import type { LatencySnapshot } from '../types/x402'
 
 export const LATENCY_ENDPOINT = '/api/x402/latency'
 
+/** Maximum age for a sessionStorage first-paint snapshot (60 seconds). */
+export const LATENCY_SESSION_MAX_AGE_MS = 60_000
+
 const LATENCY_CACHE_KEY = 'arcis_shared_latency_v1'
 const LATENCY_POLL_MS = 30_000
+
+export interface CachedLatencyEntry {
+  snapshot: LatencySnapshot
+  cachedAt: number
+}
 
 function toNonNegativeNumber(value: unknown): number | null {
   const parsed = Number(value)
@@ -45,19 +54,56 @@ export function normalizeLatencySnapshot(body: unknown): LatencySnapshot | null 
   }
 }
 
-export function readCachedLatency(): LatencySnapshot | null {
+export function clearCachedLatency(): void {
+  try {
+    sessionStorage.removeItem(LATENCY_CACHE_KEY)
+  } catch {
+    // Storage unavailable or blocked; nothing to clear.
+  }
+}
+
+export function readCachedLatencyEntry(now: number = Date.now()): CachedLatencyEntry | null {
   try {
     const raw = sessionStorage.getItem(LATENCY_CACHE_KEY)
     if (!raw) return null
-    return normalizeLatencySnapshot(JSON.parse(raw))
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return null
+
+    if ('snapshot' in parsed && 'cachedAt' in parsed) {
+      const cachedAt = Number(parsed.cachedAt)
+      if (!Number.isFinite(cachedAt) || cachedAt <= 0 || now - cachedAt > LATENCY_SESSION_MAX_AGE_MS) {
+        clearCachedLatency()
+        return null
+      }
+      const snapshot = normalizeLatencySnapshot(parsed.snapshot)
+      if (!snapshot || snapshot.source === 'unavailable') {
+        clearCachedLatency()
+        return null
+      }
+      return { snapshot, cachedAt }
+    }
+
+    // Legacy raw snapshot without cachedAt cannot prove freshness -> expire it.
+    clearCachedLatency()
+    return null
   } catch {
     return null
   }
 }
 
-export function cacheLatency(snapshot: LatencySnapshot): void {
+export function readCachedLatency(now: number = Date.now()): LatencySnapshot | null {
+  return readCachedLatencyEntry(now)?.snapshot ?? null
+}
+
+export function cacheLatency(snapshot: LatencySnapshot, now: number = Date.now()): void {
+  // Never keep a stale positive reading when the server reports unavailable.
+  if (snapshot.source === 'unavailable') {
+    clearCachedLatency()
+    return
+  }
   try {
-    sessionStorage.setItem(LATENCY_CACHE_KEY, JSON.stringify(snapshot))
+    const entry: CachedLatencyEntry = { snapshot, cachedAt: now }
+    sessionStorage.setItem(LATENCY_CACHE_KEY, JSON.stringify(entry))
   } catch {
     // A full/blocked storage quota only costs the instant first paint.
   }
