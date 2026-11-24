@@ -12,7 +12,11 @@ if (typeof (globalThis as any).localStorage === 'undefined') {
 import { describe, it, expect, vi } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import SessionKeyModal from '../SessionKeyModal'
+import SessionKeyModal, {
+  computeSingleTxPresetValue,
+  resolveInitialBudgetInput,
+  snapToNearestSingleTxPreset,
+} from '../SessionKeyModal'
 import type { SessionKeyConfig } from '../../../types/sessionKey'
 
 vi.mock('react-dom', async () => {
@@ -198,6 +202,88 @@ describe('SessionKeyModal Centered Screen Overlay', () => {
     expect(html).toContain('SESSION ENCLAVE')
     expect(html).toContain('Autonomous Mode')
     expect(html).toContain('Zero-Popup')
+  })
+
+  it('computes exact distinct single-tx presets for 25 USDC budget (10% = 2.5, 25% = 6.25, 50% = 12.5, Max = 25) and highlights only one chip', () => {
+    expect(computeSingleTxPresetValue(25, 0.1)).toBe(2.5)
+    expect(computeSingleTxPresetValue(25, 0.25)).toBe(6.25)
+    expect(computeSingleTxPresetValue(25, 0.5)).toBe(12.5)
+    expect(computeSingleTxPresetValue(25, 1.0)).toBe(25)
+
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: {
+          ...mockConfig,
+          maxSpendUsdc: 25,
+          maxPerTxUsdc: 2.5,
+        },
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('2.5 USDC')
+    expect(html).toContain('(10% of cap)')
+    // Only the 10% chip should carry the active selected highlight class, not 25%
+    const activeChipMatches = html.match(/bg-\[rgba\(152,150,255,0\.22\)\]/g) || []
+    expect(activeChipMatches).toHaveLength(1)
+  })
+
+  it('resets 6-decimal on-chain enclave dust maxSpendUsdc (e.g. 162.952572) to a clean preset instead of Custom', () => {
+    expect(resolveInitialBudgetInput(162.952572, true)).toEqual({ budgetUsdc: 25, isCustom: false })
+    expect(resolveInitialBudgetInput(162.952572, false)).toEqual({ budgetUsdc: 100, isCustom: false })
+    expect(resolveInitialBudgetInput(75, false)).toEqual({ budgetUsdc: 75, isCustom: true })
+    expect(resolveInitialBudgetInput(100, true)).toEqual({ budgetUsdc: 100, isCustom: false })
+
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: {
+          ...mockConfig,
+          isActive: true,
+          maxSpendUsdc: 162.952572,
+          maxPerTxUsdc: 50,
+        },
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).not.toContain('placeholder="Enter custom budget in USDC"')
+    expect(html).not.toContain('value="162.952572"')
+    expect(html).toContain('25 USDC')
+  })
+
+  it('snaps off-preset initial maxPerTxUsdc (e.g. 15% of cap) to the nearest 10/25/50/100% preset on open', () => {
+    expect(snapToNearestSingleTxPreset(15, 100)).toBe(10) // 15% -> 10%
+    expect(snapToNearestSingleTxPreset(20, 100)).toBe(25) // 20% -> 25%
+    expect(snapToNearestSingleTxPreset(3.75, 25)).toBe(2.5) // 15% of 25 -> 10% (2.5)
+    expect(snapToNearestSingleTxPreset(50, 100)).toBe(50) // exact 50%
+
+    const html = renderToStaticMarkup(
+      React.createElement(SessionKeyModal, {
+        isOpen: true,
+        onClose: () => {},
+        sessionConfig: {
+          ...mockConfig,
+          maxSpendUsdc: 100,
+          maxPerTxUsdc: 15,
+        },
+        onActivateSession: async () => mockConfig,
+        onRevokeSession: () => {},
+        onToggleAutoExecute: () => {},
+      })
+    )
+
+    expect(html).toContain('(10% of cap)')
+    expect(html).toContain('10 USDC')
+    const activeChipMatches = html.match(/bg-\[rgba\(152,150,255,0\.22\)\]/g) || []
+    expect(activeChipMatches).toHaveLength(1)
   })
 })
 

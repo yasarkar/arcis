@@ -44,6 +44,57 @@ import type { SessionActionType, SessionKeyConfig } from '../../types/sessionKey
 import { formatErrorMessage, isUserCanceledError } from '../../utils/errorNormalizer'
 import { useBroadcast } from '../BroadcastNotification'
 
+const BUDGET_PRESETS = [25, 50, 100, 250] as const
+
+export function resolveInitialBudgetInput(
+  storedMaxSpendUsdc?: number,
+  isActive?: boolean
+): { budgetUsdc: number; isCustom: boolean } {
+  const val = Number(storedMaxSpendUsdc)
+  if (!Number.isFinite(val) || val <= 0) {
+    return { budgetUsdc: 100, isCustom: false }
+  }
+  if ((BUDGET_PRESETS as readonly number[]).includes(val)) {
+    return { budgetUsdc: val, isCustom: false }
+  }
+  // If stored maxSpendUsdc carries >2 decimal places (e.g. 162.952572 from raw on-chain enclave
+  // balance dust), reset the funding/budget selector to a clean preset instead of forcing Custom.
+  const hasSubCentDust = Math.abs(Math.round(val * 100) - val * 100) > 1e-6
+  if (hasSubCentDust) {
+    return { budgetUsdc: isActive ? 25 : 100, isCustom: false }
+  }
+  return { budgetUsdc: val, isCustom: true }
+}
+
+export function computeSingleTxPresetValue(budgetUsdc: number, ratio: number): number {
+  const safeBudget = Number.isFinite(budgetUsdc) && budgetUsdc > 0 ? budgetUsdc : 0
+  if (safeBudget <= 0) return 0
+  if (ratio >= 1) return Math.round(safeBudget * 100) / 100
+  const raw = safeBudget * ratio
+  return Math.max(0.25, Math.min(safeBudget, Math.round(raw * 100) / 100))
+}
+
+export function snapToNearestSingleTxPreset(
+  storedMaxPerTx: number | undefined,
+  budgetUsdc: number
+): number {
+  const ratios = [0.1, 0.25, 0.5, 1.0]
+  const candidates = ratios.map((ratio) => computeSingleTxPresetValue(budgetUsdc, ratio))
+  const fallback = computeSingleTxPresetValue(budgetUsdc, 0.5)
+  const val = Number(storedMaxPerTx)
+  if (!Number.isFinite(val) || val <= 0) return fallback
+  let best = candidates[0]
+  let bestDiff = Math.abs(val - best)
+  for (let i = 1; i < candidates.length; i++) {
+    const diff = Math.abs(val - candidates[i])
+    if (diff < bestDiff) {
+      best = candidates[i]
+      bestDiff = diff
+    }
+  }
+  return best
+}
+
 function formatFriendlyFundingError(err: unknown): string {
   if (isUserCanceledError(err)) {
     return 'Transaction request was cancelled in your wallet. No funds were transferred.'
@@ -115,16 +166,20 @@ export default function SessionKeyModal({
   onToggleAutoExecute,
 }: SessionKeyModalProps) {
   const { addBroadcast, updateBroadcast } = useBroadcast()
-  const [budgetUsdc, setBudgetUsdc] = useState<number>(sessionConfig.maxSpendUsdc || 100)
+  const initialIsActive = Boolean(sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt)
+  const initialBudget = resolveInitialBudgetInput(sessionConfig.maxSpendUsdc, initialIsActive)
+  const [budgetUsdc, setBudgetUsdc] = useState<number>(initialBudget.budgetUsdc)
   const [durationHours, setDurationHours] = useState<number>(24)
-  const [maxPerTx, setMaxPerTx] = useState<number>(sessionConfig.maxPerTxUsdc || 50)
+  const [maxPerTx, setMaxPerTx] = useState<number>(
+    snapToNearestSingleTxPreset(sessionConfig.maxPerTxUsdc, initialBudget.budgetUsdc)
+  )
   const [allowedActions, setAllowedActions] = useState<SessionActionType[]>(
     Array.isArray(sessionConfig.allowedActions)
       ? sessionConfig.allowedActions
       : ['swap', 'deposit', 'bridge', 'send']
   )
   const [autoExecute, setAutoExecute] = useState<boolean>(sessionConfig.autoExecute ?? false)
-  const [isCustomBudget, setIsCustomBudget] = useState<boolean>(false)
+  const [isCustomBudget, setIsCustomBudget] = useState<boolean>(initialBudget.isCustom)
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false)
   const [timeRemainingText, setTimeRemainingText] = useState<string>('')
@@ -151,8 +206,12 @@ export default function SessionKeyModal({
     const syncSessionState = () => {
       setShowForceReset(false)
       const fresh = getSessionKeyConfig(walletAddress, 'copilot')
-      setBudgetUsdc(fresh.maxSpendUsdc || 100)
-      setMaxPerTx(fresh.maxPerTxUsdc || 50)
+      const isFreshActive = Boolean(fresh.isActive && Date.now() <= fresh.expiresAt)
+      const resolvedBudget = resolveInitialBudgetInput(fresh.maxSpendUsdc, isFreshActive)
+      setBudgetUsdc(resolvedBudget.budgetUsdc)
+      setMaxPerTx(
+        snapToNearestSingleTxPreset(fresh.maxPerTxUsdc, resolvedBudget.budgetUsdc)
+      )
       if (Array.isArray(fresh.allowedActions) && fresh.allowedActions.length > 0) {
         setAllowedActions(fresh.allowedActions)
       } else {
@@ -160,9 +219,8 @@ export default function SessionKeyModal({
       }
       setAutoExecute(fresh.autoExecute ?? false)
       setIsConfirmOpen(false)
-      setIsCustomBudget(![25, 50, 100, 250].includes(fresh.maxSpendUsdc || 100))
+      setIsCustomBudget(resolvedBudget.isCustom)
 
-      const isFreshActive = Boolean(fresh.isActive && Date.now() <= fresh.expiresAt)
       const hasActiveSession = isFreshActive
 
       const targetPub = hasActiveSession
@@ -477,9 +535,10 @@ export default function SessionKeyModal({
 
     try {
       const currentMax = Number(sessionConfig.maxSpendUsdc) || 0
-      const newMaxSpend = isCurrentlyActive
+      const rawMaxSpend = isCurrentlyActive
         ? Math.max(liveBal, currentMax + toFund)
         : Math.max(liveBal, targetAmount)
+      const newMaxSpend = Math.round(rawMaxSpend * 100) / 100
 
       await onActivateSession({
         userApproved: true,
@@ -753,13 +812,15 @@ export default function SessionKeyModal({
   const spentPercent =
     maxSpend > 0 ? Math.min(100, Math.round(((maxSpend - displayRemaining) / maxSpend) * 100)) : 0
   const visibleEnabledCount = ACTION_OPTIONS.filter((act) => allowedActions.includes(act.id)).length
-  const minSliderVal = 5
-  const maxSliderVal = Math.max(5, budgetUsdc)
+  const safeBudget = Math.max(0.25, Number(budgetUsdc) || 0)
+  const sliderStep = safeBudget <= 250 ? 0.25 : 1
+  const minSliderVal = Math.min(safeBudget, sliderStep)
+  const maxSliderVal = Math.max(minSliderVal, safeBudget)
   const sliderProgress =
     maxSliderVal > minSliderVal
       ? Math.min(100, Math.max(0, ((maxPerTx - minSliderVal) / (maxSliderVal - minSliderVal)) * 100))
       : 100
-  const capPercent = Math.round((maxPerTx / Math.max(1, budgetUsdc)) * 100)
+  const capPercent = Math.round((maxPerTx / Math.max(0.25, safeBudget)) * 100)
   const toFund = Number(budgetUsdc)
 
   return createPortal(
@@ -1027,9 +1088,17 @@ export default function SessionKeyModal({
                     type="button"
                     onClick={() => {
                       soundService.play('pop')
+                      const currentRatio = budgetUsdc > 0 ? maxPerTx / budgetUsdc : 0.5
+                      const matchedPreset = SINGLE_TX_PRESETS.find(
+                        ({ ratio }) => Math.abs(maxPerTx - computeSingleTxPresetValue(budgetUsdc, ratio)) < 1e-6
+                      )
                       setIsCustomBudget(false)
                       setBudgetUsdc(amt)
-                      if (maxPerTx > amt) setMaxPerTx(amt)
+                      if (matchedPreset) {
+                        setMaxPerTx(computeSingleTxPresetValue(amt, matchedPreset.ratio))
+                      } else {
+                        setMaxPerTx(snapToNearestSingleTxPreset(amt * currentRatio, amt))
+                      }
                     }}
                     className={`py-2 px-1 rounded-xl text-xs font-semibold font-mono transition-all duration-200 cursor-pointer border text-center ${isSelected
                       ? 'text-white border-[rgba(152,150,255,0.6)] bg-[rgba(152,150,255,0.18)] shadow-[0_0_16px_rgba(152,150,255,0.25)]'
@@ -1205,9 +1274,9 @@ export default function SessionKeyModal({
                   type="range"
                   min={minSliderVal}
                   max={maxSliderVal}
-                  step={5}
-                  value={maxPerTx}
-                  onChange={(e) => setMaxPerTx(Number(e.target.value))}
+                  step={sliderStep}
+                  value={Math.min(maxSliderVal, Math.max(minSliderVal, maxPerTx))}
+                  onChange={(e) => setMaxPerTx(Math.round(Number(e.target.value) * 100) / 100)}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20 m-0 p-0"
                   aria-label="Single transaction threshold in USDC"
                 />
@@ -1216,11 +1285,8 @@ export default function SessionKeyModal({
               {/* Lower Control Bar: Min / Preset Chips / Max */}
               <div className="flex items-center justify-start gap-1.5 text-[11px] font-mono">
                 {SINGLE_TX_PRESETS.map(({ label, ratio }) => {
-                  const targetVal =
-                    ratio === 1.0
-                      ? maxSliderVal
-                      : Math.max(5, Math.min(maxSliderVal, Math.round((budgetUsdc * ratio) / 5) * 5))
-                  const isSelected = maxPerTx === targetVal
+                  const targetVal = computeSingleTxPresetValue(safeBudget, ratio)
+                  const isSelected = Math.abs(maxPerTx - targetVal) < 1e-6
                   return (
                     <button
                       key={label}
