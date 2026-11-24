@@ -186,12 +186,12 @@ export async function getCopilotLpRemoveQuote(
       ? poolSlippageBps(input.slippageBps / 100)
       : POOL_DEFAULT_SLIPPAGE_BPS
 
-  let userLpRaw = 0n
-  let reserveA = 0n
-  let reserveB = 0n
-  let totalLp = 0n
-  let paused = false
-  let prices: Record<string, number> = { ...DEFAULT_TOKEN_PRICES }
+  let userLpRaw: bigint
+  let reserveA: bigint
+  let reserveB: bigint
+  let totalLp: bigint
+  let paused: boolean
+  let prices: Record<string, number>
 
   try {
     const [lpBal, rA, rB, tLp, p, livePrices] = await Promise.all([
@@ -254,7 +254,7 @@ export async function getCopilotLpRemoveQuote(
     Number(formatUnits(userOutBFull, tokenB.decimals)) * tokenUsdPrice(tokenB.symbol, prices)
   const userLpBalanceDecimal = trimUnits(userLpRaw, 18)
 
-  let lpToRemoveRaw = 0n
+  let lpToRemoveRaw: bigint
 
   if (removeMode === 'percent') {
     const pct = Number(input.removePercent)

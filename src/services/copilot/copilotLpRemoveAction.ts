@@ -146,11 +146,11 @@ export async function executeCopilotLpRemoveAction(
   const resilientClient = getResilientPublicClient('Arc_Testnet')
 
   // Step 1: Verify live LP balance, reserves, and paused state right before signing
-  let userLpRaw = 0n
-  let reserveA = 0n
-  let reserveB = 0n
-  let totalLp = 0n
-  let paused = false
+  let userLpRaw: bigint
+  let reserveA: bigint
+  let reserveB: bigint
+  let totalLp: bigint
+  let paused: boolean
   try {
     const [bal, rA, rB, tLp, p] = await Promise.all([
       resilientClient.readContract({ address: poolAddress, abi: STABLE_SWAP_ABI, functionName: 'balanceOf', args: [activeWallet as Address] }) as Promise<bigint>,

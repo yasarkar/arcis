@@ -157,10 +157,10 @@ export async function getCopilotLpQuote(input: LpQuoteInput): Promise<LpQuoteRes
 
   const client = getResilientPublicClient('Arc_Testnet')
 
-  let reserveA = 0n
-  let reserveB = 0n
-  let totalLp = 0n
-  let isPaused = false
+  let reserveA: bigint
+  let reserveB: bigint
+  let totalLp: bigint
+  let isPaused: boolean
 
   try {
     const [rA, rB, tLp, paused] = await Promise.all([
