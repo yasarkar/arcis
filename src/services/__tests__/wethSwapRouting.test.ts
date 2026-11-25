@@ -159,4 +159,49 @@ describe('WETH / USDC Swap Route & Math on Arc Testnet', () => {
     expect(estimate.estimatedOutput).toBe(expectedOutStr)
     expect(parseFloat(estimate.estimatedOutput)).toBeCloseTo(22.66, 1)
   })
+
+  it('uses reserveA -> reserveB (isTokenAIn) for non-USDC pools when selling tokenA (EURC -> WETH, EURC -> cirBTC, cirBTC -> WETH)', async () => {
+    // 1. EURC -> WETH (6-dec tokenA -> 18-dec tokenB)
+    const eurcReserveA = 100_000_000_000n // 100,000 EURC
+    const wethReserveB = 40n * 10n ** 18n // 40 WETH
+    vi.mocked(resilientReadContract)
+      .mockResolvedValueOnce(eurcReserveA)
+      .mockResolvedValueOnce(wethReserveB)
+
+    const eurcWethRoute = resolveArcNativeRoute('EURC', 'WETH')
+    expect(eurcWethRoute?.isTokenAIn).toBe(true)
+    expect(resolveArcNativeRoute('WETH', 'EURC')?.isTokenAIn).toBe(false)
+
+    const eurcWethEst = await getSwapEstimate({
+      fromChain: 'Arc_Testnet',
+      tokenIn: 'EURC',
+      tokenOut: 'WETH',
+      amountIn: '1000',
+    })
+    const eurcNetIn = 1_000_000_000n - (1_000_000_000n * 30n) / 10000n
+    const expectedWethOut = (wethReserveB * eurcNetIn) / (eurcReserveA + eurcNetIn)
+    expect(eurcWethEst.estimatedOutput).toBe(formatUnits(expectedWethOut, 18))
+    expect(parseFloat(eurcWethEst.estimatedOutput)).toBeCloseTo(0.395, 2)
+
+    // 2. cirBTC -> WETH (8-dec tokenA -> 18-dec tokenB)
+    const btcReserveA = 200_000_000n // 2 cirBTC
+    const wethReserveB2 = 60n * 10n ** 18n // 60 WETH
+    vi.mocked(resilientReadContract)
+      .mockResolvedValueOnce(btcReserveA)
+      .mockResolvedValueOnce(wethReserveB2)
+
+    expect(resolveArcNativeRoute('cirBTC', 'WETH')?.isTokenAIn).toBe(true)
+    expect(resolveArcNativeRoute('WETH', 'cirBTC')?.isTokenAIn).toBe(false)
+
+    const btcWethEst = await getSwapEstimate({
+      fromChain: 'Arc_Testnet',
+      tokenIn: 'cirBTC',
+      tokenOut: 'WETH',
+      amountIn: '0.1',
+    })
+    const btcNetIn = 10_000_000n - (10_000_000n * 30n) / 10000n
+    const expectedWethOut2 = (wethReserveB2 * btcNetIn) / (btcReserveA + btcNetIn)
+    expect(btcWethEst.estimatedOutput).toBe(formatUnits(expectedWethOut2, 18))
+    expect(parseFloat(btcWethEst.estimatedOutput)).toBeCloseTo(2.85, 1)
+  })
 })

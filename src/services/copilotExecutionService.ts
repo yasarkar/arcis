@@ -177,7 +177,7 @@ export async function executeDirectCopilotAction(
     const config = getSessionKeyConfig(wallet, 'copilot')
     if (!config.isActive) {
       // A revoke/reset does not make previously submitted principal disappear.
-      if (config.reservedUsdc === Infinity || (typeof localStorage !== 'undefined' && outstandingSpendMicros(readSessionSpendLedger(wallet)) > 0)) throw new Error('Unresolved wallet budget reservations require reconciliation before another transaction.')
+      if (config.reservedUsdc === Infinity || (typeof localStorage !== 'undefined' && outstandingSpendMicros(readSessionSpendLedger(wallet)) > 0)) throw new Error('You have a pending transaction reserving part of your wallet budget. Please check or reconcile its status before starting another transaction.')
       return executeCopilotActionUnreserved(actionPayload, walletAddress, provider, onProgress, ucwHandlers)
     }
     const data = actionPayload.data || {}
@@ -204,8 +204,8 @@ export async function executeDirectCopilotAction(
     const fingerprint = JSON.stringify([actionType, token, data.toToken, data.amount, data.recipient || data.recipientAddress, data.fromChain, data.toChain, data.memo, data.slippageBps, data.minReceived, data.poolId, data.lpMode, data.amountA, data.amountB, data.minLpSharesRaw])
     id = `${actionPayload.draftId || fingerprint}:${actionPayload.revision || 1}`
     const prior = await admitSessionSpend(wallet, () => getSessionKeyConfig(wallet, 'copilot'), { id, actionType, amountMicros: spendMicros(usd), fingerprint, action: actionPayload })
-    const pendingReceipt = (): InlineExecutionReceipt => ({ id: `rcpt_reservation_${id}`, actionType, title: 'Transaction Reserved — Reconciliation Required', status: 'PENDING', txHash: prior.txHash || '', userOpHash: prior.userOpHash, reservationId: id, reservationWallet: wallet, gasUsdc: 0, timestamp: Date.now(), settlementLatencyMs: Date.now() - started, errorMessage: 'This intent already holds budget; no second signer was called.' })
-    if (prior.state === 'committed' || prior.state === 'released') return prior.receipt || failedActionReceipt(actionType, 'Intent Already Settled', 'Prepare a new draft to authorize a new transaction.', started)
+    const pendingReceipt = (): InlineExecutionReceipt => ({ id: `rcpt_reservation_${id}`, actionType, title: 'Transaction Pending — Status Check Required', status: 'PENDING', txHash: prior.txHash || '', userOpHash: prior.userOpHash, reservationId: id, reservationWallet: wallet, gasUsdc: 0, timestamp: Date.now(), settlementLatencyMs: Date.now() - started, errorMessage: 'This transaction is already pending and holding reserved budget. No duplicate signature was requested.' })
+    if (prior.state === 'committed' || prior.state === 'released') return prior.receipt || failedActionReceipt(actionType, 'Transaction Already Finalized', 'This transaction was already completed or canceled. Please start a new transaction.', started)
     if (!await claimSessionSpend(wallet, id)) return await reconcileCopilotReservation(wallet, id) || prior.receipt || pendingReceipt()
     claimed = true
     const actualProvider = provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
@@ -223,7 +223,7 @@ export async function executeDirectCopilotAction(
     const reverted = /confirmed.*reverted|swap reverted on arc|confirmed.*receipt.*revert|price moved beyond slippage|slippage tolerance|liquidity may be insufficient|approved minimum|execution reverted/i.test(result.errorMessage || '')
     const safePreflight = !signerEntered || (!txHash && !userOpHash && /slippage|price moved|insufficient|approved minimum|not submitted|no transaction|quote moved/i.test(result.errorMessage || '')) || (phase === 'approval' && /no swap|not submitted|no transaction|approved minimum/i.test(result.errorMessage || ''))
     if ((result.status === 'FAILED' || result.status === 'CANCELED') && !canceled && !reverted && !safePreflight) {
-      result = { ...result, status: 'PENDING', title: 'Transaction Outcome Unknown — Budget Reserved', txHash: result.txHash || txHash || '', userOpHash, errorMessage: result.errorMessage || 'Signer outcome requires reconciliation; retry will not submit again.' }
+      result = { ...result, status: 'PENDING', title: 'Transaction Status Pending — Budget Reserved', txHash: result.txHash || txHash || '', userOpHash, errorMessage: result.errorMessage || 'The transaction status could not be confirmed yet. Please check its status before retrying so it is not sent twice.' }
     }
     await updateSessionSpend(wallet, id, { state: result.status === 'SUCCESS' ? 'committed' : result.status === 'PENDING' ? 'pending' : 'released', receipt: result, txHash: result.txHash || txHash, userOpHash: result.userOpHash || userOpHash, phase })
     return result
@@ -346,8 +346,8 @@ async function executeCopilotActionUnreserved(
   if (onProgress) onProgress('failed')
   return failedActionReceipt(
     'send',
-    actionPayload.title || 'Action Not Executed',
-    `Unsupported action type: '${actType}'. No on-chain transaction was performed.`,
+    actionPayload.title || 'Action Not Supported',
+    `This action (${actType}) is not supported for direct execution. No transaction was sent.`,
     startTime
   )
 }

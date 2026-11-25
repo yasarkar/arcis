@@ -577,7 +577,8 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.executionSizing.advisoryOnly).toBe(true)
     expect(data.riskRegister.map((e: any) => e.id)).toContain('HIGH_RESERVE_SANDWICH_EXPOSURE')
     expect(actionablePayload?.type).toBe('swap')
-    expect(actionablePayload?.details.amountIn).toBe(100_000)
+    expect(actionablePayload?.details.amountIn).toBe(25_000)
+    expect(actionablePayload?.details.totalAmountIn).toBe(100_000)
   })
 
   it('compares direct vs 2-hop routes and selects the route with higher real output', async () => {
@@ -627,6 +628,243 @@ describe('generateLiveServiceData — no invented estimates or risk figures', ()
     expect(data.status).toBe('UNAVAILABLE')
     expect(actionablePayload).toBeUndefined()
     expect(data.riskRegister[0].id).toBe('INVALID_TRADE_PARAMS')
+  })
+
+  it('does not flag HIGH_SLIPPAGE_RISK when pool pricing is more favorable than oracle benchmark', async () => {
+    state.prices = { USDC: 1, EURC: 1.0 }
+    state.reserves = { reserveA: usdc(500_000), reserveB: usdc(500_000) }
+    // Effective rate 1.02 EURC/USDC beats 1.00 oracle benchmark by 2% (favorable)
+    vi.mocked(getSwapEstimate).mockResolvedValue({
+      estimatedOutput: '510',
+      rate: '1.02',
+      stopLimit: '507',
+      fees: [],
+    } as any)
+
+    const { data } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'USDC',
+      toToken: 'EURC',
+      amount: 500,
+    })
+
+    expect(data.status).toBe('ROUTE_OPTIMIZED')
+    expect(data.signedPriceImpactPct).toBeLessThan(0)
+    expect(data.overallPriceImpactPct).toBe(0)
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('OPTIMAL_SLIPPAGE_ROUTE')
+    expect(data.riskRegister.map((e: any) => e.id)).not.toContain('HIGH_SLIPPAGE_RISK')
+  })
+
+  it('prefers direct route when 2-hop gross gain does not cover extra Arc gas cost', async () => {
+    const { resolveArcNativeRoute } = await import('../swapService')
+    vi.mocked(resolveArcNativeRoute).mockImplementation((a: string, b: string) => {
+      const key = [a.toUpperCase(), b.toUpperCase()].sort().join('/')
+      const pools: Record<string, string> = {
+        'EURC/WETH': '0x00000000000000000000000000000000000000e1',
+        'EURC/USDC': '0x00000000000000000000000000000000000000d1',
+        'USDC/WETH': '0x00000000000000000000000000000000000000f1',
+      }
+      return pools[key] ? ({ poolAddress: pools[key] } as any) : null
+    })
+    state.prices = { USDC: 1, EURC: 1.0, WETH: 3000 }
+    state.reserves = { reserveA: usdc(100_000), reserveB: 50n * 10n ** 18n }
+
+    // 10 EURC -> WETH: 2-hop yields only $0.0003 more gross than direct, but 2nd hop costs $0.0024 gas
+    vi.mocked(getSwapEstimate).mockImplementation(async (params: any) => {
+      const pair = `${params.tokenIn.toUpperCase()}->${params.tokenOut.toUpperCase()}`
+      if (pair === 'EURC->WETH') return { estimatedOutput: '0.003333', rate: '0.0003333', stopLimit: '0.0033', fees: [] } as any
+      if (pair === 'EURC->USDC') return { estimatedOutput: '10.0', rate: '1.0', stopLimit: '9.9', fees: [] } as any
+      if (pair === 'USDC->WETH') return { estimatedOutput: '0.0033331', rate: '0.00033331', stopLimit: '0.0033', fees: [] } as any
+      throw new Error('no route')
+    })
+
+    const { data } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'EURC',
+      toToken: 'WETH',
+      amount: 10,
+    })
+
+    expect(data.status).toBe('ROUTE_OPTIMIZED')
+    expect(data.recommendedHops).toBe(1)
+    expect(data.recommendedPath).toBe('EURC → WETH')
+  })
+
+  it('measures 2-hop bottleneck pool reserve exposure and targets Step 1 in actionablePayload', async () => {
+    const { resolveArcNativeRoute } = await import('../swapService')
+    const { resilientReadContract } = await import('../rpc')
+    const POOL_EURC_WETH = '0x00000000000000000000000000000000000000e1'
+    const POOL_EURC_USDC = '0x00000000000000000000000000000000000000d1'
+    const POOL_USDC_WETH = '0x00000000000000000000000000000000000000f1'
+
+    vi.mocked(resolveArcNativeRoute).mockImplementation((a: string, b: string) => {
+      const key = [a.toUpperCase(), b.toUpperCase()].sort().join('/')
+      const pools: Record<string, string> = {
+        'EURC/WETH': POOL_EURC_WETH,
+        'EURC/USDC': POOL_EURC_USDC,
+        'USDC/WETH': POOL_USDC_WETH,
+      }
+      return pools[key] ? ({ poolAddress: pools[key] } as any) : null
+    })
+    state.prices = { USDC: 1, EURC: 1.0, WETH: 3000 }
+
+    // Direct EURC/WETH & leg 1 EURC/USDC are deep (1,000,000), but leg 2 USDC/WETH has only 50,000 USDC -> 20% exposure!
+    const origImpl = vi.mocked(resilientReadContract).getMockImplementation()
+    try {
+      vi.mocked(resilientReadContract).mockImplementation(async (_client: any, params: any) => {
+        const addr = String(params.address).toLowerCase()
+        if (addr === POOL_USDC_WETH) {
+          if (params.functionName === 'reserveA') return usdc(50_000)
+          if (params.functionName === 'reserveB') return 20n * 10n ** 18n
+        }
+        if (addr === POOL_EURC_USDC || addr === POOL_EURC_WETH) {
+          if (params.functionName === 'reserveA') return usdc(1_000_000)
+          if (params.functionName === 'reserveB') return usdc(1_000_000)
+        }
+        return origImpl ? origImpl(_client, params) : 0n
+      })
+
+      vi.mocked(getSwapEstimate).mockImplementation(async (params: any) => {
+        const pair = `${params.tokenIn.toUpperCase()}->${params.tokenOut.toUpperCase()}`
+        if (pair === 'EURC->WETH') return { estimatedOutput: '3.0', rate: '0.0003', stopLimit: '2.9', fees: [] } as any
+        if (pair === 'EURC->USDC') return { estimatedOutput: '10000', rate: '1.0', stopLimit: '9900', fees: [] } as any
+        if (pair === 'USDC->WETH') return { estimatedOutput: '3.3', rate: '0.00033', stopLimit: '3.2', fees: [] } as any
+        throw new Error('no route')
+      })
+
+      const { data, actionablePayload } = await generateLiveServiceData(slippageOptimizerManifest, {
+        fromToken: 'EURC',
+        toToken: 'WETH',
+        amount: 10_000,
+      })
+
+      expect(data.status).toBe('ROUTE_OPTIMIZED')
+      expect(data.recommendedHops).toBe(2)
+      expect(data.tradeReserveExposurePct).toBe(20)
+      expect(data.sandwichRiskLevel).toBe('HIGH')
+      expect(data.bottleneckPool?.toLowerCase()).toBe(POOL_USDC_WETH)
+      expect(data.executionSizing.recommendedBatchCount).toBe(8)
+      expect(actionablePayload?.details.fromToken).toBe('EURC')
+      expect(actionablePayload?.details.toToken).toBe('USDC')
+      expect(actionablePayload?.details.step).toBe(1)
+      expect(actionablePayload?.details.amountIn).toBe(1250)
+    } finally {
+      if (origImpl) vi.mocked(resilientReadContract).mockImplementation(origImpl)
+    }
+  })
+
+  it('escalates severe slippage to HIGH, formats expectedOutput with dot decimals, and warns honestly when batch cap is exceeded', async () => {
+    const { resolveArcNativeRoute } = await import('../swapService')
+    vi.mocked(resolveArcNativeRoute).mockReturnValue({
+      poolAddress: '0x4fB42dBbA5AD26723106bd56cA647dEb4a75Cd90',
+    } as any)
+    state.prices = { USDC: 1, WETH: 1670 }
+    state.reserves = { reserveA: usdc(293.235076), reserveB: 10n ** 17n }
+    vi.mocked(getSwapEstimate).mockResolvedValue({
+      estimatedOutput: '0.056813',
+      rate: '0.000114',
+      stopLimit: '0.0565',
+      fees: [],
+    } as any)
+
+    const { data } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'USDC',
+      toToken: 'WETH',
+      amount: 500,
+    })
+
+    expect(data.expectedOutput).toBe('0.0568 WETH')
+    expect(data.executionSizing.recommendedBatchCount).toBe(10)
+    expect(data.executionSizing.note).toContain('exceeding current pool capacity')
+    expect(data.executionSizing.note).not.toContain('~2.5%')
+    const slippageFinding = data.riskRegister.find((e: any) => e.id === 'HIGH_SLIPPAGE_RISK')
+    expect(slippageFinding?.severity).toBe('HIGH')
+  })
+
+  it('separates pure AMM curve impact from oracle pricing and flags large curve slippage even when pool beats oracle', async () => {
+    const { resolveArcNativeRoute } = await import('../swapService')
+    vi.mocked(resolveArcNativeRoute).mockReturnValue({
+      poolAddress: '0x4fB42dBbA5AD26723106bd56cA647dEb4a75Cd90',
+    } as any)
+    // Pool has 1,000 USDC / 1 WETH (spot $1,000/WETH) while oracle is $2,000/WETH (favorable vs oracle),
+    // but a 200 USDC order moves the constant-product curve by ~16.6% AMM price impact!
+    state.prices = { USDC: 1, WETH: 2000 }
+    state.reserves = { reserveA: usdc(1_000), reserveB: 10n ** 18n }
+    vi.mocked(getSwapEstimate).mockImplementation(async (params: any) => {
+      const amt = Number(params.amountIn)
+      const afterFee = amt * 0.997
+      const out = (1 * afterFee) / (1000 + afterFee)
+      return {
+        estimatedOutput: out.toFixed(6),
+        rate: (out / amt).toFixed(6),
+        stopLimit: (out * 0.995).toFixed(6),
+        fees: [],
+      } as any
+    })
+
+    const { data, actionablePayload } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'USDC',
+      toToken: 'WETH',
+      amount: 200,
+      slippageTolerancePct: 5, // exceeds Arc DEX 2% max — must clamp cleanly
+    })
+
+    expect(data.status).toBe('ROUTE_OPTIMIZED')
+    expect(data.signedPriceImpactPct).toBeLessThan(0) // favorable vs oracle
+    expect(data.ammPriceImpactPct).toBeGreaterThan(15) // true AMM curve impact disclosed!
+    expect(data.poolFeePct).toBe(0.3)
+    expect(data.riskRegister.map((e: any) => e.id)).toContain('HIGH_SLIPPAGE_RISK')
+    // Batch 1 (25 USDC of 8 batches) gets real non-linear AMM curve quote (> 0.166 / 8 = 0.02078)
+    expect(data.executionSizing.recommendedBatchCount).toBe(8)
+    expect(data.executionSizing.perBatchExpectedOutput).toBeGreaterThan(0.023)
+    expect(data.executionSizing.perBatchAmmPriceImpactPct).toBeLessThan(data.ammPriceImpactPct)
+    expect(data.executionSizing.suggestedMaxSlippagePct).toBe(2)
+    expect(data.executionSizing.slippageClampedFromPct).toBe(5)
+    expect(data.executionSizing.note).toContain('spacing batches over time')
+    expect(data.executionSizing.note).toContain('same cumulative AMM curve output')
+    expect(actionablePayload?.details.estimatedOut).toBe(data.executionSizing.perBatchExpectedOutput)
+  })
+
+  it('attaches Step 2 handoff metadata in actionablePayload.details.nextStep for 2-hop routes', async () => {
+    const { resolveArcNativeRoute } = await import('../swapService')
+    const POOL_EURC_WETH = '0x00000000000000000000000000000000000000e1'
+    const POOL_EURC_USDC = '0x00000000000000000000000000000000000000d1'
+    const POOL_USDC_WETH = '0x00000000000000000000000000000000000000f1'
+
+    vi.mocked(resolveArcNativeRoute).mockImplementation((a: string, b: string) => {
+      const key = [a.toUpperCase(), b.toUpperCase()].sort().join('/')
+      const pools: Record<string, string> = {
+        'EURC/WETH': POOL_EURC_WETH,
+        'EURC/USDC': POOL_EURC_USDC,
+        'USDC/WETH': POOL_USDC_WETH,
+      }
+      return pools[key] ? ({ poolAddress: pools[key] } as any) : null
+    })
+    state.prices = { USDC: 1, EURC: 1.1, WETH: 3000 }
+    state.reserves = { reserveA: usdc(1_000_000), reserveB: 500n * 10n ** 18n }
+
+    vi.mocked(getSwapEstimate).mockImplementation(async (params: any) => {
+      const pair = `${params.tokenIn.toUpperCase()}->${params.tokenOut.toUpperCase()}`
+      if (pair === 'EURC->WETH') return { estimatedOutput: '10.0', rate: '0.000333', stopLimit: '9.9', fees: [] } as any
+      if (pair === 'EURC->USDC') return { estimatedOutput: '33000', rate: '1.1', stopLimit: '32800', fees: [] } as any
+      if (pair === 'USDC->WETH') return { estimatedOutput: '11.0', rate: '0.000333', stopLimit: '10.9', fees: [] } as any
+      throw new Error('no route')
+    })
+
+    const { data, actionablePayload } = await generateLiveServiceData(slippageOptimizerManifest, {
+      fromToken: 'EURC',
+      toToken: 'WETH',
+      amount: 30_000,
+    })
+
+    expect(data.recommendedHops).toBe(2)
+    expect(actionablePayload?.details.step).toBe(1)
+    expect(actionablePayload?.details.nextStep).toMatchObject({
+      step: 2,
+      totalSteps: 2,
+      fromToken: 'USDC',
+      toToken: 'WETH',
+      poolAddress: POOL_USDC_WETH,
+      fullPath: 'EURC → USDC → WETH',
+    })
   })
 })
 

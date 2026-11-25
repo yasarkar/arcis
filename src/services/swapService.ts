@@ -80,6 +80,7 @@ function recordApprovedAmount(
 interface ArcRoute {
   poolAddress: Address
   isStable: boolean
+  isTokenAIn: boolean
   tokenInAddr: Address
   tokenOutAddr: Address
   decIn: number
@@ -125,11 +126,13 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
   const tOut = tokenOut.toUpperCase()
 
   if ((tIn === 'USDC' && tOut === 'EURC') || (tIn === 'EURC' && tOut === 'USDC')) {
+    const isUsdcIn = tIn === 'USDC'
     return {
       poolAddress: POOL_CONTRACTS.STABLE_SWAP_POOL as Address,
       isStable: true,
-      tokenInAddr: (tIn === 'USDC' ? POOL_CONTRACTS.USDC : POOL_CONTRACTS.EURC) as Address,
-      tokenOutAddr: (tIn === 'USDC' ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.USDC) as Address,
+      isTokenAIn: isUsdcIn,
+      tokenInAddr: (isUsdcIn ? POOL_CONTRACTS.USDC : POOL_CONTRACTS.EURC) as Address,
+      tokenOutAddr: (isUsdcIn ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.USDC) as Address,
       decIn: 6,
       decOut: 6,
       feeBps: STABLE_SWAP_LP_FEE_BPS, // 0.12%
@@ -146,6 +149,7 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
     return {
       poolAddress: POOL_CONTRACTS.CONSTANT_PRODUCT_POOL as Address,
       isStable: false,
+      isTokenAIn: isUsdcIn,
       tokenInAddr: (isUsdcIn ? POOL_CONTRACTS.USDC : POOL_CONTRACTS.cirBTC) as Address,
       tokenOutAddr: (isUsdcIn ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.USDC) as Address,
       decIn: isUsdcIn ? 6 : 8,
@@ -168,6 +172,7 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
     return {
       poolAddress: wethPoolAddress as Address,
       isStable: false,
+      isTokenAIn: isUsdcIn,
       tokenInAddr: (isUsdcIn ? POOL_CONTRACTS.USDC : POOL_CONTRACTS.WETH) as Address,
       tokenOutAddr: (isUsdcIn ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.USDC) as Address,
       decIn: isUsdcIn ? 6 : 18,
@@ -188,6 +193,7 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
     return {
       poolAddress: eurcWethPoolAddress as Address,
       isStable: false,
+      isTokenAIn: isEurcIn,
       tokenInAddr: (isEurcIn ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.WETH) as Address,
       tokenOutAddr: (isEurcIn ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.EURC) as Address,
       decIn: isEurcIn ? 6 : 18,
@@ -208,6 +214,7 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
     return {
       poolAddress: eurcCirBtcPoolAddress as Address,
       isStable: false,
+      isTokenAIn: isEurcIn,
       tokenInAddr: (isEurcIn ? POOL_CONTRACTS.EURC : POOL_CONTRACTS.cirBTC) as Address,
       tokenOutAddr: (isEurcIn ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.EURC) as Address,
       decIn: isEurcIn ? 6 : 8,
@@ -227,6 +234,7 @@ export function resolveArcNativeRoute(tokenIn: string, tokenOut: string): ArcRou
     return {
       poolAddress: cirBtcWethPoolAddress as Address,
       isStable: false,
+      isTokenAIn: isCirBtcIn,
       tokenInAddr: (isCirBtcIn ? POOL_CONTRACTS.cirBTC : POOL_CONTRACTS.WETH) as Address,
       tokenOutAddr: (isCirBtcIn ? POOL_CONTRACTS.WETH : POOL_CONTRACTS.cirBTC) as Address,
       decIn: isCirBtcIn ? 8 : 18,
@@ -387,7 +395,7 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
       let amountOutUnits = 0n
 
       if (arcRoute.isStable) {
-        if (params.tokenIn.toUpperCase() === 'USDC') {
+        if (arcRoute.isTokenAIn) {
           const d = getCurveD(reserveA, reserveB)
           const y = getCurveY(reserveA + amountInAfterFee, d)
           amountOutUnits = reserveB > y ? reserveB - y : 0n
@@ -397,7 +405,7 @@ export async function getSwapEstimate(params: SwapExecuteParams): Promise<SwapQu
           amountOutUnits = reserveA > y ? reserveA - y : 0n
         }
       } else {
-        if (params.tokenIn.toUpperCase() === 'USDC') {
+        if (arcRoute.isTokenAIn) {
           amountOutUnits = (reserveB * amountInAfterFee) / (reserveA + amountInAfterFee)
         } else {
           amountOutUnits = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee)
@@ -599,7 +607,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
       let amountOutUnits = 0n
 
       if (arcRoute.isStable) {
-        if (params.tokenIn.toUpperCase() === 'USDC') {
+        if (arcRoute.isTokenAIn) {
           const d = getCurveD(reserveA, reserveB)
           const y = getCurveY(reserveA + amountInAfterFee, d)
           amountOutUnits = reserveB > y ? reserveB - y : 0n
@@ -609,7 +617,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           amountOutUnits = reserveA > y ? reserveA - y : 0n
         }
       } else {
-        if (params.tokenIn.toUpperCase() === 'USDC') {
+        if (arcRoute.isTokenAIn) {
           amountOutUnits = (reserveB * amountInAfterFee) / (reserveA + amountInAfterFee)
         } else {
           amountOutUnits = (reserveA * amountInAfterFee) / (reserveB + amountInAfterFee)

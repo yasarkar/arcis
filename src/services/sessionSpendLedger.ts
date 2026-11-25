@@ -29,22 +29,22 @@ const empty = (): Ledger => ({ version: 1, spentBySession: {}, reservations: {} 
 const queues = new Map<string, Promise<unknown>>()
 export function spendMicros(amount: number): number {
   const micros = Math.ceil(amount * 1e6)
-  if (!Number.isFinite(amount) || amount <= 0 || !Number.isSafeInteger(micros)) throw new Error('Invalid session spend amount.')
+  if (!Number.isFinite(amount) || amount <= 0 || !Number.isSafeInteger(micros)) throw new Error('Please enter a valid positive transaction amount.')
   return micros
 }
 const key = (wallet: string) => PREFIX + wallet.trim().toLowerCase()
 
 export function readSessionSpendLedger(wallet: string): Ledger {
-  if (typeof localStorage === 'undefined') throw new Error('Durable session budget storage is unavailable.')
+  if (typeof localStorage === 'undefined') throw new Error('Browser storage is unavailable, so your session budget cannot be verified right now.')
   const raw = localStorage.getItem(key(wallet))
   if (!raw) return empty()
   const value = JSON.parse(raw) as Ledger
-  if (value.version !== 1 || !value.spentBySession || !value.reservations) throw new Error('Invalid session budget journal; execution is blocked.')
+  if (value.version !== 1 || !value.spentBySession || !value.reservations) throw new Error('Your local session budget record is corrupted. Execution is paused to protect your funds.')
   for (const record of Object.values(value.reservations)) {
     if (!record || !Number.isSafeInteger(record.amountMicros) || record.amountMicros <= 0 ||
-      !['reserved', 'signing', 'pending', 'committed', 'released'].includes(record.state)) throw new Error('Invalid session budget reservation.')
+      !['reserved', 'signing', 'pending', 'committed', 'released'].includes(record.state)) throw new Error('A pending session budget record is invalid. Execution is paused to protect your funds.')
   }
-  for (const amount of Object.values(value.spentBySession)) if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Invalid committed budget.')
+  for (const amount of Object.values(value.spentBySession)) if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Your local session spending total is invalid. Execution is paused to protect your funds.')
   return value
 }
 
@@ -54,7 +54,7 @@ export async function withSessionSpendLock<T>(wallet: string, operation: () => T
   if (typeof navigator !== 'undefined' && navigator.locks?.request) {
     return navigator.locks.request(name, { mode: 'exclusive' }, operation)
   }
-  if (typeof window !== 'undefined') throw new Error('Atomic session budget locking is unavailable in this browser; execution is blocked.')
+  if (typeof window !== 'undefined') throw new Error('Your browser does not support safe transaction locking (Web Locks API). Please use a modern browser to run session transactions.')
   const previous = queues.get(name) ?? Promise.resolve()
   // Best-effort: a previous task's rejection was already reported to its own caller, and swallowing
   // it here is what keeps the queue draining instead of wedging every later session spend.
@@ -66,7 +66,7 @@ export async function withSessionSpendLock<T>(wallet: string, operation: () => T
 function write(wallet: string, ledger: Ledger): void {
   localStorage.setItem(key(wallet), JSON.stringify(ledger))
   // Never authorize a signer on a swallowed/quota write failure.
-  if (localStorage.getItem(key(wallet)) !== JSON.stringify(ledger)) throw new Error('Session budget reservation could not be persisted.')
+  if (localStorage.getItem(key(wallet)) !== JSON.stringify(ledger)) throw new Error('Could not save your transaction budget lock to browser storage. Please check available storage space and try again.')
 }
 export function outstandingSpendMicros(ledger: Ledger): number {
   return Object.values(ledger.reservations).filter(r => !['released', 'committed'].includes(r.state)).reduce((sum, r) => sum + r.amountMicros, 0)
@@ -81,15 +81,15 @@ export async function admitSessionSpend(wallet: string, configReader: () => Sess
     const ledger = readSessionSpendLedger(wallet)
     const prior = ledger.reservations[input.id]
     if (prior) {
-      if (prior.fingerprint !== input.fingerprint) throw new Error('Draft identity changed; prepare a new transaction.')
+      if (prior.fingerprint !== input.fingerprint) throw new Error('The transaction details changed after it was prepared. Please create a new transaction.')
       return prior
     }
-    if (!config.isActive || Date.now() > config.expiresAt) throw new Error('Session inactive or expired; no transaction was signed.')
-    if (!config.allowedActions.includes(input.actionType)) throw new Error('Action is not authorized by this session.')
-    if (input.amountMicros > Math.floor(config.maxPerTxUsdc * 1e6)) throw new Error('Session per-transaction cap exceeded.')
+    if (!config.isActive || Date.now() > config.expiresAt) throw new Error('Your session has expired or is inactive. Please start a new session to continue. No transaction was signed.')
+    if (!config.allowedActions.includes(input.actionType)) throw new Error('This action is not permitted by your current session settings.')
+    if (input.amountMicros > Math.floor(config.maxPerTxUsdc * 1e6)) throw new Error('This amount exceeds your per-transaction session limit.')
     const spent = Math.max(Math.ceil(config.spentUsdc * 1e6), ledger.spentBySession[config.sessionId] || 0)
-    if (spent + outstandingSpendMicros(ledger) + input.amountMicros > Math.floor(config.maxSpendUsdc * 1e6)) throw new Error('Session budget limit reached; pending transactions reserve the remaining budget.')
-    if (Object.keys(ledger.reservations).length >= 1000) throw new Error('Session journal is full; execution is blocked until records are reviewed.')
+    if (spent + outstandingSpendMicros(ledger) + input.amountMicros > Math.floor(config.maxSpendUsdc * 1e6)) throw new Error('Your session spending limit has been reached, including funds reserved by pending transactions.')
+    if (Object.keys(ledger.reservations).length >= 1000) throw new Error('Your session history reached its 1,000-record limit. Please review or clear old records before continuing.')
     ledger.spentBySession[config.sessionId] = spent
     const reservation: SessionSpendReservation = { ...input, sessionId: config.sessionId, state: 'reserved', createdAt: Date.now() }
     ledger.reservations[input.id] = reservation
@@ -102,7 +102,7 @@ export async function updateSessionSpend(wallet: string, id: string, update: Par
   return withSessionSpendLock(wallet, () => {
     const ledger = readSessionSpendLedger(wallet)
     const record = ledger.reservations[id]
-    if (!record) throw new Error('Session reservation was not found.')
+    if (!record) throw new Error('The pending transaction record could not be found.')
     if (record.state === 'committed' || record.state === 'released') return record
     if (update.state === 'committed') {
       const prior = ledger.spentBySession[record.sessionId] || 0
