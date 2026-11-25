@@ -15,6 +15,12 @@ import {
   formatDigestAge,
   type ReportDigest,
 } from '../../services/x402/reportDigest'
+import {
+  getStatusToneStyle,
+  resolveRiskSeverityTone,
+  type MarketplaceStatusTone,
+} from './marketplaceDesign'
+import { StatusBadge } from './MarketplaceVisualPrimitives'
 
 const TIER_LABEL: Record<RecommendationTier, string> = {
   reparameterize: 'RE-RUN WITH A CORRECTED INPUT',
@@ -23,11 +29,11 @@ const TIER_LABEL: Record<RecommendationTier, string> = {
   context: 'CONTEXT',
 }
 
-const TIER_COLOR: Record<RecommendationTier, string> = {
-  reparameterize: 'var(--secondary-colors--sky-sync)',
-  cross_check: 'var(--secondary-colors--blockstream-gold)',
-  advisory_action: 'var(--purple-1)',
-  context: 'rgba(255, 255, 255, 0.55)',
+const TIER_TONE: Record<RecommendationTier, MarketplaceStatusTone> = {
+  reparameterize: 'info',
+  cross_check: 'cancelled',
+  advisory_action: 'pending',
+  context: 'info',
 }
 
 const TIER_ICON: Record<RecommendationTier, typeof RefreshCw> = {
@@ -72,13 +78,34 @@ export default function NextStepRail({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <span className="arc-eyebrow text-[11px] flex items-center gap-1.5 text-[var(--purple-1)]">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Next step</span>
-          </span>
+          <div className="flex items-center gap-2">
+            <span
+              className="w-7 h-7 rounded-xl border flex items-center justify-center shrink-0"
+              style={{
+                backgroundColor: 'var(--status-pending-bg)',
+                borderColor: 'var(--status-pending-border)',
+                color: 'var(--purple-1)',
+              }}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+            </span>
+            <div>
+              <span className="arc-eyebrow text-[10px] block leading-none text-[var(--purple-1)]">
+                Next step
+              </span>
+              {!compact && (
+                <h2
+                  className="text-base font-bold text-white tracking-tight mt-0.5"
+                  style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                >
+                  Recommended Follow-Up Actions
+                </h2>
+              )}
+            </div>
+          </div>
           {!compact && (
             <p
-              className="text-[11px] mt-1"
+              className="text-[11px] mt-1.5"
               style={{
                 color: 'var(--fp-4, rgba(255, 255, 255, 0.45))',
                 fontFamily: 'var(--fonts--space-mono)',
@@ -93,50 +120,54 @@ export default function NextStepRail({
       <div className={`grid grid-cols-1 ${compact ? '' : 'lg:grid-cols-2'} gap-3 ${compact ? 'mt-3' : 'mt-4'}`}>
         {recommendations.map((recommendation) => {
           const Icon = TIER_ICON[recommendation.tier]
-          const tone = TIER_COLOR[recommendation.tier]
+          const tierStyle = getStatusToneStyle(TIER_TONE[recommendation.tier])
+          const severityTone = resolveRiskSeverityTone(recommendation.severity)
           return (
             <article
               key={recommendation.id}
-              className="rounded-2xl border p-3.5 flex flex-col justify-between gap-3"
-              style={{ background: 'rgba(8, 10, 18, 0.55)', borderColor: 'rgba(255, 255, 255, 0.07)' }}
+              className="rounded-2xl border p-4 flex flex-col justify-between gap-3 transition-colors hover:border-white/15"
+              style={{
+                background: 'rgba(8, 10, 18, 0.65)',
+                borderColor: tierStyle.border,
+              }}
             >
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span
-                    className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase rounded-full px-2 py-0.5 border"
+                    className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase rounded-full px-2.5 py-0.5 border"
                     style={{
                       fontFamily: 'var(--fonts--space-mono)',
-                      color: tone,
-                      borderColor: 'rgba(255, 255, 255, 0.12)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                      color: tierStyle.fg,
+                      borderColor: tierStyle.pillBorder,
+                      backgroundColor: tierStyle.pillBg,
                       letterSpacing: '0.6px',
                     }}
                   >
-                    <Icon className="w-3 h-3" />
+                    <Icon className="w-3 h-3 shrink-0" />
                     {TIER_LABEL[recommendation.tier]}
                   </span>
-                  <span
-                    className="text-[10px] uppercase tracking-wider text-right"
-                    style={{
-                      fontFamily: 'var(--fonts--space-mono)',
-                      color: 'var(--fp-4, rgba(255, 255, 255, 0.45))',
-                    }}
-                  >
-                    {recommendation.severity}
-                    {recommendation.action.priceUsdc === null
-                      ? ''
-                      : ` · $${recommendation.action.priceUsdc}`}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <StatusBadge
+                      tone={severityTone}
+                      label={
+                        recommendation.action.priceUsdc === null
+                          ? String(recommendation.severity)
+                          : `${recommendation.severity} · $${recommendation.action.priceUsdc}`
+                      }
+                      size="xs"
+                      showIcon={false}
+                    />
+                  </div>
                 </div>
 
                 <h3
-                  className="text-sm font-bold text-white leading-snug"
+                  className="text-base font-bold text-white leading-snug tracking-tight"
                   style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
                 >
                   {recommendation.title}
                 </h3>
                 <p
-                  className="text-[11px] leading-relaxed line-clamp-2"
+                  className="text-xs leading-relaxed line-clamp-2"
                   style={{ color: 'var(--fp-3, rgba(255, 255, 255, 0.65))' }}
                 >
                   {recommendation.rationale}

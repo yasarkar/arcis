@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Ban,
   Check,
   ChevronDown,
   Clock,
@@ -44,6 +45,8 @@ import type { UcwTypedDataChallenge } from '../../services/x402/ucwPaymentSigner
 import type { x402Service } from '../../types/marketplace'
 import type { SessionKeyConfig } from '../../types/sessionKey'
 import NextStepRail, { LastMeasurementBadge } from './NextStepRail'
+import { getServiceTokenSymbols, STATUS_TONES } from './marketplaceDesign'
+import { StatusBadge, TokenPairIcons } from './MarketplaceVisualPrimitives'
 import ProviderHubModal from './ProviderHubModal'
 import RegisterServiceModal from './RegisterServiceModal'
 import ServicePlaygroundModal from './ServicePlaygroundModal'
@@ -738,7 +741,14 @@ export default function MarketplaceTab({
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                           {opt.badge && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                            <span
+                              className="text-[9px] px-1.5 py-0.5 rounded font-mono border"
+                              style={{
+                                backgroundColor: STATUS_TONES.info.pillBg,
+                                color: STATUS_TONES.info.accent,
+                                borderColor: STATUS_TONES.info.pillBorder,
+                              }}
+                            >
                               {opt.badge}
                             </span>
                           )}
@@ -755,20 +765,41 @@ export default function MarketplaceTab({
           {/* Live Network Auto-Sync Status Indicator */}
           <div
             className="ub-live-badge h-9 px-3 gap-2"
+            style={
+              isProbing
+                ? {
+                    color: STATUS_TONES.pending.fg,
+                    backgroundColor: STATUS_TONES.pending.bg,
+                    borderColor: STATUS_TONES.pending.border,
+                  }
+                : undefined
+            }
           >
             <span className="relative flex h-2 w-2">
               <span
-                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isProbing ? 'bg-cyan-400' : 'bg-[var(--earned-green)]'
-                  }`}
+                className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                style={{
+                  backgroundColor: isProbing
+                    ? 'var(--color-brand-accent)'
+                    : 'var(--earned-green)',
+                }}
               />
               <span
-                className={`relative inline-flex rounded-full h-2 w-2 ${isProbing ? 'bg-cyan-400' : 'bg-[var(--earned-green)]'
-                  }`}
+                className="relative inline-flex rounded-full h-2 w-2"
+                style={{
+                  backgroundColor: isProbing
+                    ? 'var(--color-brand-accent)'
+                    : 'var(--earned-green)',
+                }}
               />
             </span>
             <span
               className="font-mono text-[10px] tracking-wider"
-              style={{ color: isProbing ? '#38bdf8' : 'var(--earned-green)' }}
+              style={{
+                color: isProbing
+                  ? 'var(--secondary-colors--sky-sync)'
+                  : 'var(--earned-green)',
+              }}
             >
               {isProbing ? 'PROBING...' : 'LIVE'}
             </span>
@@ -823,63 +854,81 @@ export default function MarketplaceTab({
         </div>
       )}
 
-      {/* ── SERVICE CARDS GRID (DESIGN.md: .arc-card & .glow-card) ── */}
+      {/* ── SERVICE CARDS GRID (DESIGN.md: Heading-First Obsidian Cards) ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 relative z-0">
         {displayedServices.map((service) => {
           const telemetry = getServiceTelemetry(service)
           const lastMeasurement = digestsByService.get(service.id)
+          const tokenSymbols = getServiceTokenSymbols(service)
+          const healthTone =
+            telemetry.status === 'offline'
+              ? STATUS_TONES.error
+              : telemetry.status === 'degraded'
+                ? STATUS_TONES.cancelled
+                : STATUS_TONES.success
+          const isVoidedFailure =
+            telemetry.lastFailure &&
+            (telemetry.lastFailure.kind === 'payment_voided' ||
+              telemetry.lastFailure.kind === 'model_budget' ||
+              telemetry.lastFailure.kind === 'measurement_missing')
+          const failureTone = isVoidedFailure ? STATUS_TONES.cancelled : STATUS_TONES.error
+
           return (
             <div
               key={service.id}
               onClick={() => openService(service)}
-              className="arc-card glow-card flex flex-col justify-between group cursor-pointer"
-              style={{
-                padding: '24px',
-                borderRadius: '20px',
-                background: 'rgba(15, 23, 42, 0.75)',
-                border: '1px solid rgba(47, 87, 140, 0.35)',
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  openService(service)
+                }
               }}
+              className="ai-service-card flex flex-col justify-between group cursor-pointer text-left"
             >
+              {/* Subtle top ambient edge on hover */}
+              <div
+                className="pointer-events-none absolute top-0 left-6 right-6 h-[1px] opacity-40 group-hover:opacity-100 transition-opacity duration-300"
+                style={{
+                  background:
+                    'linear-gradient(90deg, transparent 0%, var(--purple-1) 50%, transparent 100%)',
+                }}
+              />
+
               <div className="space-y-4">
-                {/* Card Top: Category & Institutional Price Tag */}
+                {/* Top Meta Bar: Eyebrow Category + USDC Price Capsule */}
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                     <span
-                      className="text-[10px] font-semibold uppercase px-2.5 py-1 rounded-full border"
+                      className="text-[10px] font-semibold uppercase px-2.5 py-1 rounded-full border truncate"
                       style={{
                         fontFamily: 'var(--fonts--space-mono)',
-                        color: 'var(--secondary-colors--sky-sync)',
-                        backgroundColor: 'rgba(172, 198, 233, 0.08)',
-                        borderColor: 'rgba(172, 198, 233, 0.25)',
+                        color: STATUS_TONES.info.accent,
+                        backgroundColor: STATUS_TONES.info.bg,
+                        borderColor: STATUS_TONES.info.border,
                         letterSpacing: '1px',
                       }}
                     >
                       {getCategoryLabel(service.category)}
                     </span>
                     {service.listing.kind === 'community' && (
-                      <span
-                        className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full border"
-                        style={{
-                          fontFamily: 'var(--fonts--space-mono)',
-                          color: '#38bdf8',
-                          backgroundColor: 'rgba(56, 189, 248, 0.1)',
-                          borderColor: 'rgba(56, 189, 248, 0.3)',
-                        }}
-                      >
-                        Community
-                      </span>
+                      <StatusBadge tone="pending" label="Community" size="xs" showIcon={false} />
+                    )}
+                    {service.engine === 'llm' && (
+                      <StatusBadge tone="pending" label="AI Narrated" size="xs" showIcon={false} />
                     )}
                   </div>
 
                   {/* Clean Corporate USDC Price Tag */}
                   <div
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border border-white/10 shadow-sm transition-all group-hover:border-[var(--purple-1)]/40"
-                    style={{ background: 'rgba(8, 10, 18, 0.85)' }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border border-white/10 shadow-sm transition-all group-hover:border-[var(--purple-1)]/45 shrink-0"
+                    style={{ background: 'rgba(8, 10, 18, 0.88)' }}
                   >
                     <img
                       src={UsdcIcon}
                       alt="USDC"
-                      className="w-4 h-4 rounded-full flex-shrink-0 object-contain shadow-xs"
+                      className="w-4 h-4 rounded-full flex-shrink-0 object-contain"
                     />
                     <div className="flex items-baseline gap-1">
                       <span
@@ -894,28 +943,56 @@ export default function MarketplaceTab({
                       >
                         USDC
                       </span>
-                      <span className="text-[10px] text-white/40 font-normal">
-                        /call
-                      </span>
+                      <span className="text-[10px] text-white/40 font-normal">/call</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Title & Tagline */}
-                <div>
+                {/* Prominent Heading & Narrative */}
+                <div className="space-y-1.5">
                   <h3
-                    className="text-base sm:text-lg font-bold text-white transition flex items-center justify-between"
+                    className="text-lg sm:text-[19px] font-bold text-white tracking-tight leading-snug group-hover:text-[var(--purple-8)] transition-colors"
                     style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
                   >
-                    <span>{service.name}</span>
+                    {service.name}
                   </h3>
                   <p
-                    className="text-xs line-clamp-2 mt-1.5 leading-relaxed"
-                    style={{ color: 'var(--fp-3, rgba(255, 255, 255, 0.65))', fontFamily: 'var(--font-app)' }}
+                    className="text-xs line-clamp-2 leading-relaxed"
+                    style={{
+                      color: 'var(--fp-3, rgba(255, 255, 255, 0.65))',
+                      fontFamily: 'var(--font-app)',
+                    }}
                   >
                     {service.description}
                   </p>
                 </div>
+
+                {/* Supported Coins Icon Strip */}
+                {tokenSymbols.length > 0 && (
+                  <div
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-white/[0.06]"
+                    style={{ backgroundColor: 'rgba(8, 10, 18, 0.62)' }}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <TokenPairIcons symbols={tokenSymbols} size={16} />
+                      <span
+                        className="text-[10px] font-mono text-white/75 truncate"
+                        style={{ fontFamily: 'var(--fonts--space-mono)' }}
+                      >
+                        {tokenSymbols.join(' · ')}
+                      </span>
+                    </div>
+                    <span
+                      className="text-[9px] font-mono uppercase tracking-wider shrink-0"
+                      style={{
+                        fontFamily: 'var(--fonts--space-mono)',
+                        color: 'var(--fp-4)',
+                      }}
+                    >
+                      Arc L1
+                    </span>
+                  </div>
+                )}
 
                 {/* Last measurement this wallet actually bought, with its age */}
                 {lastMeasurement && (
@@ -929,8 +1006,9 @@ export default function MarketplaceTab({
                       key={tag}
                       className="px-2 py-0.5 rounded-md text-[10px] font-mono border"
                       style={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                        borderColor: 'rgba(255, 255, 255, 0.06)',
+                        fontFamily: 'var(--fonts--space-mono)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.025)',
+                        borderColor: 'rgba(172, 198, 233, 0.14)',
                         color: 'var(--secondary-colors--sky-sync)',
                       }}
                     >
@@ -941,26 +1019,18 @@ export default function MarketplaceTab({
               </div>
 
               {/* Card Footer: Metrics & Launch Agent Action */}
-              <div className="mt-5 space-y-3 pt-3 border-t border-white/[0.06]">
-                {/* Live Verified Performance Metrics (Ping on left, Success on right) */}
+              <div className="mt-5 space-y-3 pt-3.5 border-t border-white/[0.07]">
+                {/* Live Verified Performance Metrics */}
                 <div className="flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-1.5 text-white/60">
+                  <div className="flex items-center gap-1.5 text-white/65">
                     <span className="relative flex h-2 w-2">
                       <span
-                        className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${telemetry.status === 'offline'
-                          ? 'bg-rose-400'
-                          : telemetry.status === 'degraded'
-                            ? 'bg-amber-400'
-                            : 'bg-[var(--earned-green)]'
-                          }`}
+                        className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                        style={{ backgroundColor: healthTone.accent }}
                       />
                       <span
-                        className={`relative inline-flex rounded-full h-2 w-2 ${telemetry.status === 'offline'
-                          ? 'bg-rose-500'
-                          : telemetry.status === 'degraded'
-                            ? 'bg-amber-500'
-                            : 'bg-[var(--earned-green)]'
-                          }`}
+                        className="relative inline-flex rounded-full h-2 w-2"
+                        style={{ backgroundColor: healthTone.accent }}
                       />
                     </span>
                     <span style={{ fontFamily: 'var(--fonts--space-mono)' }}>
@@ -968,21 +1038,45 @@ export default function MarketplaceTab({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-white/60">
-                    <TrendingUp className="w-3.5 h-3.5 text-[var(--earned-green)]" />
+                  <div className="flex items-center gap-1.5 text-white/65">
+                    <TrendingUp
+                      className="w-3.5 h-3.5"
+                      style={{ color: 'var(--earned-green)' }}
+                    />
                     <span style={{ fontFamily: 'var(--fonts--space-mono)' }}>
-                      Success: <strong className="text-[var(--earned-green)] tabular-nums">{telemetry.successRate}%</strong>
+                      Success:{' '}
+                      <strong
+                        className="tabular-nums"
+                        style={{ color: 'var(--earned-green)' }}
+                      >
+                        {telemetry.successRate}%
+                      </strong>
                     </span>
                   </div>
                 </div>
 
-                {/* Why the last paid call was voided — the same reason the playground names */}
+                {/* Why the last paid call was voided — Cancelled (Gold) vs Error (Crimson) */}
                 {telemetry.lastFailure && (
                   <div
-                    className="flex items-start gap-1.5 text-[10px] leading-snug rounded-lg border border-rose-500/25 bg-rose-500/[0.06] px-2 py-1.5 text-rose-200/90"
-                    style={{ fontFamily: 'var(--fonts--space-mono)' }}
+                    className="flex items-start gap-2 text-[10px] leading-snug rounded-xl border px-2.5 py-2"
+                    style={{
+                      fontFamily: 'var(--fonts--space-mono)',
+                      backgroundColor: failureTone.bg,
+                      borderColor: failureTone.border,
+                      color: failureTone.fg,
+                    }}
                   >
-                    <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0 text-rose-400" />
+                    {isVoidedFailure ? (
+                      <Ban
+                        className="w-3.5 h-3.5 mt-0.5 flex-shrink-0"
+                        style={{ color: failureTone.accent }}
+                      />
+                    ) : (
+                      <AlertCircle
+                        className="w-3.5 h-3.5 mt-0.5 flex-shrink-0"
+                        style={{ color: failureTone.accent }}
+                      />
+                    )}
                     <span className="min-w-0">
                       Last call voided: {telemetry.lastFailure.label} — no charge
                     </span>
@@ -995,11 +1089,11 @@ export default function MarketplaceTab({
                     e.stopPropagation()
                     openService(service)
                   }}
-                  className="w-full py-3 px-4 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer"
+                  className="ai-focus-ring w-full py-3 px-4 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer"
                   style={{
                     fontFamily: 'var(--font-app)',
                     background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                    boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+                    boxShadow: '0 6px 24px rgba(152, 150, 255, 0.28)',
                   }}
                 >
                   <Zap className="w-3.5 h-3.5 text-white" />

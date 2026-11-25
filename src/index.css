@@ -353,6 +353,37 @@
   --gho-1: #28d358;
   --usdc-1: #2775ca;
 
+  /* Semantic Status Palette (Success / Error / Cancelled / Info / Pending) */
+  --status-success-fg: #34e38a;
+  --status-success-accent: #01d062;
+  --status-success-bg: rgba(1, 208, 98, 0.08);
+  --status-success-border: rgba(1, 208, 98, 0.28);
+  --status-success-glow: rgba(1, 208, 98, 0.14);
+
+  --status-error-fg: #fda4af;
+  --status-error-accent: #f87171;
+  --status-error-bg: rgba(244, 63, 94, 0.09);
+  --status-error-border: rgba(248, 113, 113, 0.30);
+  --status-error-glow: rgba(244, 63, 94, 0.14);
+
+  --status-cancelled-fg: #ffcc6f;
+  --status-cancelled-accent: #e9a13f;
+  --status-cancelled-bg: rgba(233, 161, 63, 0.09);
+  --status-cancelled-border: rgba(233, 161, 63, 0.32);
+  --status-cancelled-glow: rgba(233, 161, 63, 0.14);
+
+  --status-info-fg: #d5e0e7;
+  --status-info-accent: #acc6e9;
+  --status-info-bg: rgba(172, 198, 233, 0.08);
+  --status-info-border: rgba(172, 198, 233, 0.24);
+  --status-info-glow: rgba(47, 87, 140, 0.18);
+
+  --status-pending-fg: #e5e5ff;
+  --status-pending-accent: #9896ff;
+  --status-pending-bg: rgba(152, 150, 255, 0.10);
+  --status-pending-border: rgba(152, 150, 255, 0.30);
+  --status-pending-glow: rgba(152, 150, 255, 0.18);
+
   /* Motion Curves */
   --ease-out-smooth: cubic-bezier(0.33, 1, 0.68, 1);
   --ease-in-out-smooth: cubic-bezier(0.65, 0, 0.35, 1);
@@ -1479,4 +1510,36 @@ appkit-modal.open,
 wcm-modal.open {
   pointer-events: auto !important;
 }
+
+/* ── AI Services Section Cards & Accessible Focus States ── */
+.ai-section-card {
+  border-radius: 20px;
+  border: 1px solid rgba(172, 198, 233, 0.12);
+  background: linear-gradient(160deg, rgba(16, 20, 35, 0.88) 0%, rgba(9, 12, 22, 0.94) 100%);
+  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.ai-service-card {
+  position: relative;
+  border-radius: 22px;
+  padding: 24px;
+  background: linear-gradient(155deg, rgba(18, 22, 38, 0.88) 0%, rgba(11, 14, 25, 0.95) 100%);
+  border: 1px solid rgba(47, 87, 140, 0.34);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: transform 0.25s var(--ease-out-smooth), border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.ai-service-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(152, 150, 255, 0.38);
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.65), 0 0 24px rgba(152, 150, 255, 0.12);
+}
+
+.ai-service-card:focus-visible,
+.ai-focus-ring:focus-visible {
+  outline: 2px solid rgba(152, 150, 255, 0.75);
+  outline-offset: 2px;
+}
+
 

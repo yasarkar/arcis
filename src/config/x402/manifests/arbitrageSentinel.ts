@@ -121,7 +121,7 @@ export const arbitrageSentinelManifest: ServiceManifest = {
       liveOraclePrices: { USDC: 1, EURC: 1.082 },
       bestRoute: {
         pair: 'USDC/EURC',
-        buyDex: 'Arcis StableSwap V3 Pool',
+        buyDex: 'Arcis StableSwap V4 Pool',
         buyPriceUsdc: 1.082,
         sellDex: 'External Market Oracle (Reference)',
         sellPriceUsdc: 1.091,

@@ -2,24 +2,45 @@
 // Redesigned under Konsept B: "Linear Command / Step-by-Step Focus"
 import {
   AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Ban,
+  BarChart3,
   Check,
+  CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  Clock,
+  Coins,
+  Compass,
   Copy,
   Download,
   FileJson,
+  FileSpreadsheet,
+  GitBranch,
   Info,
+  Layers,
   Lock,
+  Shield,
+  ShieldAlert,
   Sparkles,
+  TrendingUp,
+  Wallet,
   X,
-  Zap
+  Zap,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import UsdcIcon from '../../assets/Token-Icon/USDC Token.svg'
-import { getChainDisplayName, getChainIconId } from '../../config/chainMeta'
+import { getChainDisplayName, getChainIconId, isKnownChain } from '../../config/chainMeta'
+import { POOL_MAX_SLIPPAGE_BPS, POOL_MIN_SLIPPAGE_BPS } from '../../config/poolsConfig'
 import { getCategoryLabel } from '../../config/x402/categories'
+import {
+  resolveArcSwapTokenBalance,
+  useArcSwapTokenBalances,
+} from '../../hooks/useArcSwapTokenBalances'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { useChainSwitch } from '../../hooks/useChainSwitch'
 import { useClearOnWalletDisconnect } from '../../hooks/useClearOnWalletDisconnect'
@@ -39,13 +60,36 @@ import { soundService } from '../../services/soundService'
 import type { SessionBudgetState } from '../../services/x402Client'
 import type { x402ExecutionResult, x402Service } from '../../types/marketplace'
 import type { SessionKeyConfig } from '../../types/sessionKey'
+import { buildReportCsv, triggerFileDownload } from '../../utils/reportExport'
 import { diagnoseX402Failure } from '../../utils/x402FailureDiagnosis'
 import { evaluateX402Readiness } from '../../utils/x402Readiness'
-import { buildReportCsv, triggerFileDownload } from '../../utils/reportExport'
 import { ChainIcon } from '../common/ChainIcon'
 import { PortfolioAssetIcon } from '../portfolio/PortfolioAssetIcon'
+import {
+  extractTokenSymbols,
+  getServiceTokenSymbols,
+  getStatusToneStyle,
+  inferMetricAccentTone,
+  inferMetricTokenSymbol,
+  isUserCanceledMessage,
+  resolveFailurePresentation,
+  resolveRiskSeverityTone,
+  resolveServiceStatusMeta,
+  STATUS_TONES,
+} from './marketplaceDesign'
 import MarketplaceSelect from './MarketplaceSelect'
+import {
+  ChainPill,
+  InlineTokenChip,
+  RouteTokenFlow,
+  SectionHeader,
+  StatusBadge,
+  TokenIconBadge,
+  TokenPairIcons,
+} from './MarketplaceVisualPrimitives'
+import { resolveTradeExecutionVerdict } from '../../services/x402/tradeExecutionAdvisor'
 import ServiceActionCard from './ServiceActionCard'
+import TradeExecutionTicketReport from './TradeExecutionTicketReport'
 
 interface ServicePlaygroundModalProps {
   isOpen: boolean
@@ -348,24 +392,47 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
   }
 
   if (id === 'HIGH_SLIPPAGE_RISK') {
-    const impact = typeof evidence.priceImpactPct === 'number' ? `${evidence.priceImpactPct.toFixed(2)}%` : 'elevated'
+    const ammImpact = typeof evidence.ammPriceImpactPct === 'number' ? evidence.ammPriceImpactPct : null
+    const oracleImpact = typeof evidence.priceImpactPct === 'number' ? evidence.priceImpactPct : null
+    const primaryImpact = ammImpact !== null && oracleImpact !== null
+      ? Math.max(ammImpact, oracleImpact)
+      : (ammImpact ?? oracleImpact)
+    const impact = primaryImpact !== null ? `${primaryImpact.toFixed(2)}%` : 'elevated'
     return {
       humanTitle: `High Slippage Warning (${impact} impact)`,
-      problemText: `Trade size causes ${impact} price impact against live pool depth.`,
-      riskText: 'Large single-block orders in shallow pools incur severe execution slippage and negative pricing.',
-      solutionText: 'Split the order into smaller tranches or route via multi-hop pools to preserve capital.',
+      problemText:
+        ammImpact !== null && typeof evidence.signedPriceImpactPct === 'number' && evidence.signedPriceImpactPct < 0
+          ? `Order moves the AMM pool curve by ${ammImpact.toFixed(2)}% even though the pool quotes ${Math.abs(evidence.signedPriceImpactPct).toFixed(2)}% better than the external oracle.`
+          : `Trade size causes ${impact} price impact against live pool depth.`,
+      riskText: 'Large single-block orders in shallow pools incur severe AMM curve slippage and unfavorable execution.',
+      solutionText: 'Space the order across smaller batches over time (TWAP) or reduce total trade size.',
       actionLabel: 'Inspect Swap Route',
       actionTab: 'swap',
     }
   }
 
   if (id === 'OPTIMAL_SLIPPAGE_ROUTE') {
-    const impact = typeof evidence.priceImpactPct === 'number' ? `${evidence.priceImpactPct.toFixed(2)}%` : 'low'
+    const ammImpact = typeof evidence.ammPriceImpactPct === 'number' ? evidence.ammPriceImpactPct : null
+    const oracleImpact = typeof evidence.priceImpactPct === 'number' ? evidence.priceImpactPct : null
+    const impactVal = ammImpact ?? oracleImpact
+    const impact = impactVal !== null ? `${impactVal.toFixed(2)}%` : 'low'
     return {
       humanTitle: `Deep Liquidity Route Verified (${impact} impact)`,
-      problemText: `Verified tight execution price with only ${impact} price impact on Arc Testnet DEX.`,
+      problemText: `Verified tight execution price with only ${impact} AMM price impact on Arc Testnet DEX.`,
       solutionText: 'The pool depth accommodates this trade size efficiently with minimal slippage.',
       actionLabel: 'Execute Swap',
+      actionTab: 'swap',
+    }
+  }
+
+  if (id === 'TWO_HOP_ROUTE_ADVANTAGE') {
+    const gain = typeof evidence.twoHopOutputGainPct === 'number' ? `+${evidence.twoHopOutputGainPct.toFixed(2)}%` : 'higher'
+    const path = typeof evidence.recommendedPath === 'string' ? evidence.recommendedPath : '2-hop route'
+    return {
+      humanTitle: `2-Hop Route Advantage (${gain} vs Direct)`,
+      problemText: `Routing through ${path} produces ${gain} more output than the direct pool even after deducting extra Arc gas.`,
+      solutionText: 'Use the guided 2-step execution card below — Step 2 quotes automatically from your confirmed Step 1 output.',
+      actionLabel: 'Open Swap Terminal',
       actionTab: 'swap',
     }
   }
@@ -380,24 +447,24 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
     }
   }
 
-  if (id === 'MEV_SANDWICH_EXPOSURE') {
+  if (id === 'MEV_SANDWICH_EXPOSURE' || id === 'HIGH_RESERVE_SANDWICH_EXPOSURE') {
     const exp = typeof evidence.tradeReserveExposurePct === 'number' ? `${evidence.tradeReserveExposurePct.toFixed(1)}%` : 'elevated'
     return {
-      humanTitle: `Mempool Sandwich Threat (${exp} of pool)`,
-      problemText: `Trade size consumes ${exp} of the pool's entire liquidity reserve.`,
-      riskText: 'Block builders and searchers can extract value via front-running and back-running sandwich bundles.',
-      solutionText: 'Tighten max slippage tolerance or route through Arc native FIFO sequencer.',
+      humanTitle: `High Pool Depth Pressure (${exp} of pool)`,
+      problemText: `Trade size consumes ${exp} of the pool's available liquidity reserve.`,
+      riskText: 'Large single-block orders in shallow pools cause steep AMM curve slippage and unfavorable execution.',
+      solutionText: 'Split the order into smaller batches and keep max slippage tight on Arc L1 FIFO execution.',
       actionLabel: 'Adjust Slippage on Swap',
       actionTab: 'swap',
     }
   }
 
-  if (id === 'LOW_MEV_RISK') {
+  if (id === 'LOW_MEV_RISK' || id === 'LOW_RESERVE_EXPOSURE') {
     const exp = typeof evidence.tradeReserveExposurePct === 'number' ? `${evidence.tradeReserveExposurePct.toFixed(2)}%` : 'minimal'
     return {
-      humanTitle: `Protected MEV Profile (${exp} of pool)`,
-      problemText: `Trade size is modest (${exp} of pool depth) and well below MEV sandwich thresholds.`,
-      solutionText: 'Arc L1 native deterministic FIFO ordering protects this transaction from mempool reordering.',
+      humanTitle: `Healthy Pool Depth Profile (${exp} of pool)`,
+      problemText: `Trade size is modest (${exp} of pool depth) and well within safe AMM reserve thresholds.`,
+      solutionText: 'Single-order execution fits comfortably on Arc L1 deterministic FIFO ordering.',
       actionLabel: 'Open Swap Terminal',
       actionTab: 'swap',
     }
@@ -518,10 +585,15 @@ function getTechnicalExplanation(entry: any): string {
       return `Queries require both an active pool swap quote from the router and valid oracle spot pricing to measure relative price impact.`
 
     case 'MEV_SANDWICH_EXPOSURE':
-      return `This surveillance monitor tracks trade size against total pool reserve depth. Trades exceeding 5% of pool liquidity create sufficient price impact to incentivize atomic sandwich arbitrage by mempool searchers.`
+    case 'HIGH_RESERVE_SANDWICH_EXPOSURE':
+      return `This surveillance monitor compares trade size against live sold-side pool reserve depth across direct and 2-hop bottleneck pools. Orders exceeding 5% of pool reserves move the AMM curve steeply and create significant execution pressure.`
 
     case 'LOW_MEV_RISK':
-      return `When trade-to-reserve exposure remains below 5%, the potential MEV extraction profit is less than the gas cost required to execute a sandwich attack on Arc L1.`
+    case 'LOW_RESERVE_EXPOSURE':
+      return `When trade-to-reserve exposure stays within healthy bounds (< 5% of pool depth), single-transaction execution on Arc L1 deterministic FIFO ordering incurs low curve pressure.`
+
+    case 'TWO_HOP_ROUTE_ADVANTAGE':
+      return `The router simulates every direct and 2-hop pool combination across Arc V4 pools, deducts measured Arc gas per hop, and recommends a 2-hop path only when gas-adjusted net output strictly beats the direct pool.`
 
     case 'MEV_ANALYSIS_UNAVAILABLE':
       return `MEV risk evaluation requires verifying both on-chain pool reserves and oracle exchange rates to compute real trade-to-liquidity ratios without guessing.`
@@ -540,121 +612,151 @@ function getTechnicalExplanation(entry: any): string {
 function RiskRegisterCard({
   entry,
   index,
-  tone,
   onNavigateTab,
 }: {
   entry: any
   index: number
-  tone: { color: string; background: string; border: string }
   onNavigateTab?: (tab: string) => void
 }) {
   const [isTechOpen, setIsTechOpen] = useState(false)
   const diagnosis = getHumanDiagnosis(entry)
+  const severity = String(entry?.severity ?? 'INFO').toUpperCase()
+  const severityTone = resolveRiskSeverityTone(severity)
+  const toneStyle = getStatusToneStyle(severityTone)
+
+  const inferredSymbols = diagnosis.assetSymbol
+    ? [diagnosis.assetSymbol]
+    : extractTokenSymbols(`${diagnosis.humanTitle} ${diagnosis.problemText}`, 2)
 
   return (
     <div
       key={`${String(entry?.id ?? 'risk')}-${index}`}
-      className="p-4 rounded-xl border transition-all duration-200 hover:border-white/20"
+      className="p-4 sm:p-5 rounded-2xl border transition-all duration-200 hover:border-white/20 relative overflow-hidden"
       style={{
-        background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(15, 17, 26, 0.85) 100%)',
-        borderColor: tone.border,
-        boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.3)',
+        background: 'linear-gradient(145deg, rgba(20, 24, 42, 0.72) 0%, rgba(11, 14, 24, 0.92) 100%)',
+        borderColor: toneStyle.border,
+        borderLeftWidth: '3px',
+        borderLeftColor: toneStyle.accent,
+        boxShadow: '0 6px 20px -6px rgba(0, 0, 0, 0.45)',
       }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span
-            className="px-2 py-0.5 rounded-md border text-[9px] font-mono font-bold tracking-wider shrink-0 shadow-sm"
-            style={{
-              color: tone.color,
-              backgroundColor: tone.background,
-              borderColor: tone.border,
-            }}
+      {/* Heading-First Top Row */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {inferredSymbols.length > 0 && (
+            <TokenPairIcons symbols={inferredSymbols} size={18} />
+          )}
+          <h5
+            className="text-sm sm:text-base font-bold text-white tracking-tight leading-snug inline-flex items-center gap-1.5 flex-wrap"
+            style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
           >
-            {String(entry?.severity ?? 'INFO')}
-          </span>
-          <span className="text-xs sm:text-sm font-bold text-white tracking-tight inline-flex items-center gap-1.5 flex-wrap">
             {diagnosis.titlePrefix && diagnosis.assetSymbol ? (
               <>
                 <span>{diagnosis.titlePrefix}</span>
-                <span className="text-white font-normal inline-flex items-center gap-1">
+                <span
+                  className="text-xs sm:text-sm font-semibold inline-flex items-center gap-1 tabular-nums"
+                  style={{
+                    color: toneStyle.fg,
+                    fontFamily: 'var(--fonts--space-grotesk)',
+                  }}
+                >
                   <span>({diagnosis.pctStr}</span>
-                  <span className="w-3.5 h-3.5 inline-flex items-center justify-center shrink-0" title={diagnosis.assetSymbol}>
-                    <PortfolioAssetIcon symbol={diagnosis.assetSymbol} size={14} className="w-3.5 h-3.5 object-contain shrink-0" />
-                  </span>
-                  <span>)</span>
+                  <span>{diagnosis.assetSymbol})</span>
                 </span>
               </>
             ) : (
               <span>{diagnosis.humanTitle}</span>
             )}
-          </span>
+          </h5>
         </div>
+
+        <StatusBadge tone={severityTone} label={severity} size="xs" />
       </div>
 
-      {/* Condition statements without prefix headings */}
-      <div className="mt-3 space-y-1.5 text-xs leading-relaxed">
-        <p className="text-white/90">{diagnosis.problemText}</p>
+      {/* Narrative: Problem / Risk / Advisory Solution */}
+      <div className="mt-3 space-y-2 text-xs leading-relaxed">
+        <p style={{ color: 'var(--fp-2, rgba(255, 255, 255, 0.9))' }}>{diagnosis.problemText}</p>
 
         {diagnosis.riskText && (
-          <p className="text-rose-200/90">{diagnosis.riskText}</p>
+          <p
+            className="px-3 py-2 rounded-xl border text-[11px] leading-relaxed"
+            style={{
+              backgroundColor: STATUS_TONES.error.bg,
+              borderColor: STATUS_TONES.error.border,
+              color: STATUS_TONES.error.fg,
+            }}
+          >
+            {diagnosis.riskText}
+          </p>
         )}
 
         {diagnosis.solutionText && (
-          <div className="flex items-start gap-2 pt-1.5 text-[var(--secondary-colors--static-ether)]">
-            <ArrowRight className="w-3.5 h-3.5 shrink-0 text-[var(--secondary-colors--sky-sync)] mt-0.5" />
+          <div
+            className="flex items-start gap-2 pt-1 text-xs"
+            style={{ color: 'var(--secondary-colors--static-ether)' }}
+          >
+            <ArrowRight
+              className="w-3.5 h-3.5 shrink-0 mt-0.5"
+              style={{ color: 'var(--secondary-colors--sky-sync)' }}
+            />
             <p className="flex-1 leading-relaxed">{diagnosis.solutionText}</p>
           </div>
         )}
       </div>
 
       {/* Actionable Button + Technical Specifications Button Row */}
-      <div className="mt-3 pt-2.5 border-t border-white/[0.05] flex items-center gap-2 flex-wrap">
-        {diagnosis.actionLabel && diagnosis.actionTab && onNavigateTab && (
+      <div className="mt-3.5 pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {diagnosis.actionLabel && diagnosis.actionTab && onNavigateTab && (
+            <button
+              type="button"
+              onClick={() => onNavigateTab(diagnosis.actionTab!)}
+              className="ai-focus-ring inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-white text-xs font-semibold transition-all duration-200 cursor-pointer shadow-sm group shrink-0 hover:brightness-110"
+              style={{
+                backgroundColor: toneStyle.pillBg,
+                borderColor: toneStyle.pillBorder,
+                fontFamily: 'var(--font-app)',
+              }}
+            >
+              <span>{diagnosis.actionLabel}</span>
+              <ArrowRight className="w-3.5 h-3.5 text-white/75 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          )}
+
+          {/* Info Icon Button - expands Technical Specifications */}
           <button
             type="button"
-            onClick={() => onNavigateTab(diagnosis.actionTab!)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 bg-white/[0.05] hover:bg-white/10 hover:border-white/30 text-white text-xs font-semibold transition cursor-pointer shadow-sm group shrink-0"
+            onClick={() => setIsTechOpen(!isTechOpen)}
+            className="ai-focus-ring group/specs inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-transparent hover:border-white/10 hover:bg-white/[0.04] transition-all duration-200 cursor-pointer select-none"
+            style={{ color: isTechOpen ? STATUS_TONES.info.accent : 'var(--fp-3)' }}
+            aria-expanded={isTechOpen}
           >
-            <span>{diagnosis.actionLabel}</span>
-            <ArrowRight className="w-3.5 h-3.5 text-white/60 group-hover:translate-x-0.5 transition-transform" />
+            <Info
+              className="w-3.5 h-3.5 shrink-0 transition-colors duration-200"
+              style={{ color: isTechOpen ? STATUS_TONES.info.accent : 'var(--secondary-colors--sky-sync)' }}
+            />
+            <span
+              className="text-[11px] font-mono font-medium tracking-wide"
+              style={{ fontFamily: 'var(--fonts--space-mono)' }}
+            >
+              Technical Specifications
+            </span>
+            <ChevronRight
+              className={`w-3 h-3 shrink-0 transition-transform duration-200 ${isTechOpen ? 'rotate-90' : ''}`}
+            />
           </button>
-        )}
-
-        {/* Info Icon Button - Clean borderless/backgroundless icon that smoothly expands on hover */}
-        <button
-          type="button"
-          onClick={() => setIsTechOpen(!isTechOpen)}
-          className="group/specs inline-flex items-center gap-1 p-1 rounded-md transition-all duration-300 cursor-pointer select-none text-white/60 hover:text-white"
-          aria-expanded={isTechOpen}
-        >
-          <Info
-            className={`w-4 h-4 shrink-0 transition-colors duration-200 ${isTechOpen
-                ? 'text-[var(--secondary-colors--sky-sync)]'
-                : 'text-white/50 group-hover/specs:text-[var(--secondary-colors--sky-sync)]'
-              }`}
-          />
-          <span
-            className={`max-w-0 opacity-0 ${isTechOpen
-                ? 'max-w-[190px] opacity-100 ml-0.5'
-                : 'group-hover/specs:max-w-[190px] group-hover/specs:opacity-100 group-hover/specs:ml-0.5'
-              } transition-all duration-300 ease-out whitespace-nowrap overflow-hidden text-[11px] font-mono font-medium tracking-wide text-white/70 group-hover/specs:text-white`}
-          >
-            Technical Specifications
-          </span>
-          <ChevronRight
-            className={`w-3 h-3 shrink-0 transition-all duration-300 ${isTechOpen
-                ? 'rotate-90 text-[var(--secondary-colors--sky-sync)]'
-                : 'text-white/40 max-w-0 opacity-0 group-hover/specs:max-w-[14px] group-hover/specs:opacity-100'
-              }`}
-          />
-        </button>
+        </div>
       </div>
 
       {/* Expanded Technical Specifications Panel */}
-      <div className={`mt-2.5 p-3 rounded-xl border border-white/[0.08] bg-black/40 transition-all ${isTechOpen ? 'block' : 'hidden'}`}>
-        {/* 2-3 Sentence Clear Explanation */}
-        <p className="text-xs text-white/85 leading-relaxed font-sans">
+      <div
+        className={`mt-2.5 p-3.5 rounded-xl border transition-all ${isTechOpen ? 'block' : 'hidden'}`}
+        style={{
+          backgroundColor: STATUS_TONES.info.bg,
+          borderColor: STATUS_TONES.info.border,
+        }}
+      >
+        <p className="text-xs leading-relaxed font-sans" style={{ color: 'var(--fp-2)' }}>
           {getTechnicalExplanation(entry)}
         </p>
       </div>
@@ -673,6 +775,11 @@ export function VisualDataDashboard({
   onCopy,
   isCopied,
   onNavigateTab,
+  actionablePayload,
+  walletAddress,
+  walletConnected,
+  ucwHandlers,
+  generatedAt,
 }: {
   data: any
   outputViewMode?: 'visual' | 'raw'
@@ -680,6 +787,11 @@ export function VisualDataDashboard({
   onCopy?: () => void
   isCopied?: boolean
   onNavigateTab?: (tab: string) => void
+  actionablePayload?: x402ExecutionResult['actionablePayload']
+  walletAddress?: string
+  walletConnected?: boolean
+  ucwHandlers?: CopilotUcwHandlers
+  generatedAt?: number | string | null
 }) {
   if (!data || typeof data !== 'object') {
     return <div className="text-white/40 text-xs font-mono">No structured data available</div>
@@ -730,30 +842,20 @@ export function VisualDataDashboard({
     report?.riskSummary ??
     (rawRegister.length > 0
       ? {
-          highestSeverity: rawRegister[0]?.severity ?? 'INFO',
-          counts: rawRegister.reduce(
-            (acc: Record<string, number>, r: any) => {
-              const sev = String(r?.severity ?? 'INFO')
-              acc[sev] = (acc[sev] || 0) + 1
-              return acc
-            },
-            {} as Record<string, number>
-          ),
-        }
+        highestSeverity: rawRegister[0]?.severity ?? 'INFO',
+        counts: rawRegister.reduce(
+          (acc: Record<string, number>, r: any) => {
+            const sev = String(r?.severity ?? 'INFO')
+            acc[sev] = (acc[sev] || 0) + 1
+            return acc
+          },
+          {} as Record<string, number>
+        ),
+      }
       : null)
 
-  const SEVERITY_TONE: Record<string, { color: string; background: string; border: string }> = {
-    CRITICAL: { color: '#fecdd3', background: 'rgba(244, 63, 94, 0.22)', border: 'rgba(244, 63, 94, 0.55)' },
-    HIGH: { color: '#fecaca', background: 'rgba(244, 63, 94, 0.12)', border: 'rgba(244, 63, 94, 0.32)' },
-    MEDIUM: {
-      color: 'var(--secondary-colors--blockstream-gold)',
-      background: 'rgba(233, 161, 63, 0.12)',
-      border: 'rgba(233, 161, 63, 0.32)',
-    },
-    LOW: { color: 'rgba(255, 255, 255, 0.72)', background: 'rgba(255, 255, 255, 0.05)', border: 'rgba(255, 255, 255, 0.12)' },
-    INFO: { color: 'rgba(255, 255, 255, 0.55)', background: 'rgba(255, 255, 255, 0.03)', border: 'rgba(255, 255, 255, 0.09)' },
-  }
-  const toneFor = (severity: unknown) => SEVERITY_TONE[String(severity)] ?? SEVERITY_TONE.INFO
+  const statusMeta = resolveServiceStatusMeta(status)
+  const statusTone = statusMeta ? getStatusToneStyle(statusMeta.tone) : null
 
   const bestRoute: Record<string, any> | null =
     data.bestRoute && typeof data.bestRoute === 'object' && !Array.isArray(data.bestRoute)
@@ -773,9 +875,18 @@ export function VisualDataDashboard({
       : []
 
   // Extract numeric headline metrics
-  const numericMetrics: { key: string; label: string; value: string; isCurrency?: boolean; isPct?: boolean }[] = []
+  const numericMetrics: {
+    key: string
+    label: string
+    value: string
+    rawValue: number
+    tokenSymbol: string | null
+    accentTone: ReturnType<typeof inferMetricAccentTone>
+    isCurrency?: boolean
+    isPct?: boolean
+  }[] = []
 
-  const knownMetrics: Record<string, { label: string; isCurrency?: boolean; isPct?: boolean }> = {
+  const knownMetrics: Record<string, { label: string; isCurrency?: boolean; isPct?: boolean; smallCurrency?: boolean }> = {
     totalUsd: { label: 'Total Value', isCurrency: true },
     totalValueUsd: { label: 'Total Portfolio', isCurrency: true },
     totalProtocolTvlUsd: { label: 'Total Protocol TVL', isCurrency: true },
@@ -785,8 +896,10 @@ export function VisualDataDashboard({
     yieldApy: { label: 'Vault APY', isPct: true },
     spreadPct: { label: 'Arb Spread', isPct: true },
     priceImpactPct: { label: 'Price Impact', isPct: true },
+    ammPriceImpactPct: { label: 'AMM Price Impact', isPct: true },
+    poolFeePct: { label: 'Pool LP Fee', isPct: true },
     estimatedProfitUsdc: { label: 'Est. Profit', isCurrency: true },
-    savingsUsdc: { label: 'Rail Fee Savings', isCurrency: true },
+    savingsUsdc: { label: 'Rail Fee Savings', isCurrency: true, smallCurrency: true },
     latencyMs: { label: 'Execution Ping' },
     // `llm` services report their measured block under these keys.
     currentValueUsdc: { label: 'Redeemable Value', isCurrency: true },
@@ -800,22 +913,75 @@ export function VisualDataDashboard({
     totalPendingLpFeesUsd: { label: 'Pending LP Fees', isCurrency: true },
     totalHarvestableYieldAndFeesUsd: { label: 'Harvestable Total', isCurrency: true },
     gatewayBalanceUsdc: { label: 'Gateway Balance', isCurrency: true },
-    gasCostUsdc: { label: 'Gas Cost', isCurrency: true },
-    estimatedGasCostUsdc: { label: 'Est. Gas Cost', isCurrency: true },
+    gasCostUsdc: { label: 'Gas Cost', isCurrency: true, smallCurrency: true },
+    estimatedGasCostUsdc: { label: 'Est. Gas Cost', isCurrency: true, smallCurrency: true },
     netProfitUsdc: { label: 'Net Profit', isCurrency: true },
     grossSpreadPct: { label: 'Gross Spread', isPct: true },
     netProfitPct: { label: 'Net Profit Margin', isPct: true },
     tradeReserveExposurePct: { label: 'Reserve Exposure', isPct: true },
-    overallPriceImpactPct: { label: 'Price Impact', isPct: true },
+    overallPriceImpactPct: { label: 'vs. Oracle Impact', isPct: true },
+    poolReserveUsdc: { label: 'Pool Reserve Depth', isCurrency: true },
+    grossInflowUsdc: { label: 'Gross Inflow', isCurrency: true },
+    grossOutflowUsdc: { label: 'Gross Outflow', isCurrency: true },
+    netUsdcInflowUsdc: { label: 'Net USDC Inflow', isCurrency: true },
   }
+
+  const hasTradeExecutionSummary =
+    status === 'ROUTE_OPTIMIZED' &&
+    typeof data.inputAmount === 'string' &&
+    typeof data.expectedOutput === 'string'
+
+  const tradeExecutionVerdict = hasTradeExecutionSummary
+    ? data.executionVerdict &&
+      typeof data.executionVerdict === 'object' &&
+      typeof data.executionVerdict.label === 'string' &&
+      typeof data.executionVerdict.tone === 'string'
+      ? (data.executionVerdict as ReturnType<typeof resolveTradeExecutionVerdict>)
+      : resolveTradeExecutionVerdict({
+          ammPriceImpactPct: typeof data.ammPriceImpactPct === 'number' ? data.ammPriceImpactPct : null,
+          signedPriceImpactPct: typeof data.signedPriceImpactPct === 'number' ? data.signedPriceImpactPct : null,
+          overallPriceImpactPct: typeof data.overallPriceImpactPct === 'number' ? data.overallPriceImpactPct : null,
+          tradeReserveExposurePct: typeof data.tradeReserveExposurePct === 'number' ? data.tradeReserveExposurePct : null,
+          recommendedBatchCount:
+            typeof data.executionSizing?.recommendedBatchCount === 'number'
+              ? data.executionSizing.recommendedBatchCount
+              : 1,
+          perBatchAmmPriceImpactPct:
+            typeof data.executionSizing?.perBatchAmmPriceImpactPct === 'number'
+              ? data.executionSizing.perBatchAmmPriceImpactPct
+              : null,
+        })
+    : null
+
+  const TRADE_SUMMARY_HANDLED_KEYS = new Set([
+    'recommendedHops',
+    'effectiveExecutionPrice',
+    'ammPriceImpactPct',
+    'poolFeePct',
+    'overallPriceImpactPct',
+    'signedPriceImpactPct',
+    'twoHopOutputGainPct',
+    'tradeReserveExposurePct',
+    'poolReserveUsdc',
+    'flashReserveDepthUsdc',
+    'estimatedGasCostUsdc',
+  ])
 
   for (const [k, v] of Object.entries(view)) {
     if (typeof v === 'number' && Number.isFinite(v)) {
       if (k === 'readAt' || k === 'timestamp' || k === 'shareDecimals' || k === 'decimals') continue
+      if (hasTradeExecutionSummary && TRADE_SUMMARY_HANDLED_KEYS.has(k)) continue
       const meta = knownMetrics[k] || { label: k.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()) }
-      let formatted = v.toLocaleString(undefined, { maximumFractionDigits: 4 })
+      let formatted =
+        Math.abs(v) > 0 && Math.abs(v) < 0.01
+          ? v.toLocaleString(undefined, { maximumFractionDigits: 6 })
+          : v.toLocaleString(undefined, { maximumFractionDigits: 4 })
       if (meta.isCurrency) {
-        formatted = `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        if (meta.smallCurrency && Math.abs(v) > 0 && Math.abs(v) < 0.01) {
+          formatted = `$${v.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+        } else {
+          formatted = `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        }
       } else if (meta.isPct) {
         formatted = `${v.toFixed(2)}%`
       }
@@ -823,6 +989,9 @@ export function VisualDataDashboard({
         key: k,
         label: meta.label,
         value: formatted,
+        rawValue: v,
+        tokenSymbol: inferMetricTokenSymbol(k),
+        accentTone: inferMetricAccentTone(k, v),
         isCurrency: meta.isCurrency,
         isPct: meta.isPct,
       })
@@ -861,13 +1030,13 @@ export function VisualDataDashboard({
   } | null =
     data.gateway && typeof data.gateway === 'object' && data.cctp && typeof data.cctp === 'object'
       ? {
-          token: typeof data.token === 'string' ? data.token : 'USDC',
-          destinationChain: typeof data.destinationChain === 'string' ? data.destinationChain : '',
-          recommendedRail: typeof data.recommendedRail === 'string' ? data.recommendedRail : null,
-          gateway: data.gateway as Record<string, any>,
-          cctp: data.cctp as Record<string, any>,
-          supportedDestinations: Array.isArray(data.supportedDestinations) ? data.supportedDestinations : [],
-        }
+        token: typeof data.token === 'string' ? data.token : 'USDC',
+        destinationChain: typeof data.destinationChain === 'string' ? data.destinationChain : '',
+        recommendedRail: typeof data.recommendedRail === 'string' ? data.recommendedRail : null,
+        gateway: data.gateway as Record<string, any>,
+        cctp: data.cctp as Record<string, any>,
+        supportedDestinations: Array.isArray(data.supportedDestinations) ? data.supportedDestinations : [],
+      }
       : null
   const executionSizing: Record<string, any> | null =
     data.executionSizing && typeof data.executionSizing === 'object' && !Array.isArray(data.executionSizing)
@@ -876,6 +1045,46 @@ export function VisualDataDashboard({
   const recommendations: string[] = Array.isArray(view.recommendations) ? view.recommendations : []
 
   const [copiedAddress, setCopiedAddress] = useState(false)
+  const [isExportOpen, setIsExportOpen] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  const reportUtcStamp = (() => {
+    const raw =
+      data?.generatedAt ??
+      data?.report?.issuedAt ??
+      data?.report?.asOf ??
+      data?.timestamp ??
+      data?.readAt ??
+      generatedAt
+    if (raw === null || raw === undefined || raw === '') return null
+    const d = typeof raw === 'number' ? new Date(raw) : new Date(String(raw))
+    if (Number.isNaN(d.getTime())) return null
+    const yyyy = d.getUTCFullYear()
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+    const dd = String(d.getUTCDate()).padStart(2, '0')
+    const hh = String(d.getUTCHours()).padStart(2, '0')
+    const min = String(d.getUTCMinutes()).padStart(2, '0')
+    const ss = String(d.getUTCSeconds()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss} UTC`
+  })()
+
+  useEffect(() => {
+    if (!isExportOpen) return
+    const handlePointerDown = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setIsExportOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsExportOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isExportOpen])
 
   const handleCopyAddress = async () => {
     if (!data?.address) return
@@ -891,67 +1100,87 @@ export function VisualDataDashboard({
 
   return (
     <div className="space-y-4 text-xs font-sans">
-      {/* Top Status & Risk Badges */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2.5">
-            {status && (
-              <h3
-                className={`text-2xl sm:text-3xl font-black tracking-tight ${status === 'UNAVAILABLE' ? 'text-rose-400' : 'text-white'
-                  }`}
-                style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
-              >
-                {status === 'PORTFOLIO_ANALYZED' || status === 'REPORT_READY'
-                  ? 'ANALYSIS REPORT'
-                  : status.replace(/_/g, ' ')}
-              </h3>
+      {/* Top Status Masthead — Export/Raw controls + Execution Verdict badge for Trade Ticket, full masthead otherwise */}
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${hasTradeExecutionSummary ? 'pb-0.5' : 'items-start gap-4 pb-4 border-b border-white/[0.08]'}`}>
+        {!hasTradeExecutionSummary && (
+        <div className="space-y-2 min-w-0">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {statusMeta && (
+              <>
+                <h3
+                  className="text-2xl sm:text-3xl font-extrabold tracking-tight leading-none"
+                  style={{
+                    fontFamily: 'var(--font-display, Outfit, sans-serif)',
+                    color: statusMeta.tone === 'error' ? STATUS_TONES.error.fg : '#ffffff',
+                  }}
+                >
+                  {statusMeta.heading}
+                </h3>
+                <StatusBadge tone={statusMeta.tone} label={statusMeta.badgeLabel} size="sm" />
+              </>
             )}
 
             {note && (
               <div className="relative group/note inline-flex">
                 <div
-                  className="inline-flex items-center justify-center p-1.5 rounded-xl text-[11px] font-mono font-bold tracking-tight transition cursor-help select-none hover:bg-white/[0.05]"
+                  className="inline-flex items-center justify-center p-1.5 rounded-xl border text-[11px] font-mono font-bold tracking-tight transition cursor-help select-none hover:brightness-125"
                   style={{
-                    color: 'var(--secondary-colors--blockstream-gold)',
+                    color: STATUS_TONES.info.accent,
+                    backgroundColor: STATUS_TONES.info.bg,
+                    borderColor: STATUS_TONES.info.border,
                   }}
                 >
-                  <Info className="w-4 h-4 flex-shrink-0" />
+                  <Info className="w-3.5 h-3.5 flex-shrink-0" />
                 </div>
 
                 {/* Note Content Tooltip */}
-                <div className="absolute left-0 top-full mt-2 hidden group-hover/note:flex flex-col z-50 w-80 sm:w-96 p-3.5 rounded-2xl bg-[#090c18] border border-[rgba(233,161,63,0.35)] shadow-2xl backdrop-blur-2xl animate-fade-in pointer-events-none">
-                  <div className="flex items-center gap-1.5 mb-1.5 text-[12px] font-mono font-bold uppercase tracking-wider text-[var(--secondary-colors--blockstream-gold)]">
-                    <Info className="w-4 h-4 flex-shrink-0" />
+                <div
+                  className="absolute left-0 top-full mt-2 hidden group-hover/note:flex flex-col z-50 w-80 sm:w-96 p-3.5 rounded-2xl shadow-2xl backdrop-blur-2xl animate-fade-in pointer-events-none border"
+                  style={{
+                    backgroundColor: 'rgba(9, 12, 24, 0.98)',
+                    borderColor: STATUS_TONES.info.border,
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-1.5 mb-1.5 text-[11px] font-mono font-bold uppercase tracking-wider"
+                    style={{ color: STATUS_TONES.info.accent }}
+                  >
+                    <Info className="w-3.5 h-3.5 flex-shrink-0" />
                     <span>Protocol Verification Note</span>
                   </div>
-                  <p className="text-xs font-mono leading-relaxed text-white/90">
-                    {note}
-                  </p>
+                  <p className="text-xs font-mono leading-relaxed text-white/90">{note}</p>
                 </div>
               </div>
             )}
           </div>
 
           {data.address && (
-            <div className="text-xs font-mono text-white/50 flex items-center gap-2 pt-0.5">
-              <span>Target:</span>
-              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/10 hover:border-white/20 transition group">
+            <div className="text-xs font-mono text-white/55 flex items-center gap-2 pt-0.5 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 text-[var(--fp-4)]">
+                <Wallet className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+                <span>Target:</span>
+              </span>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-white/[0.04] border border-white/10 hover:border-white/20 transition group">
                 <button
                   type="button"
                   onClick={handleCopyAddress}
-                  className="p-0.5 rounded hover:bg-white/10 text-white/50 hover:text-white transition cursor-pointer"
+                  className="ai-focus-ring p-0.5 rounded hover:bg-white/10 text-white/55 hover:text-white transition cursor-pointer"
+                  aria-label="Copy target wallet address"
                 >
                   {copiedAddress ? (
-                    <Check className="w-4 h-4 text-[var(--earned-green)]" />
+                    <Check className="w-3.5 h-3.5 text-[var(--earned-green)]" />
                   ) : (
-                    <Copy className="w-4 h-4 text-white/60 group-hover:text-white" />
+                    <Copy className="w-3.5 h-3.5 text-white/60 group-hover:text-white" />
                   )}
                 </button>
                 <span className="text-white/90 font-medium select-all">
                   {String(data.address).slice(0, 8)}…{String(data.address).slice(-6)}
                 </span>
                 {copiedAddress && (
-                  <span className="text-[10px] text-[var(--earned-green)] font-semibold animate-fade-in">
+                  <span
+                    className="text-[10px] font-semibold animate-fade-in"
+                    style={{ color: 'var(--earned-green)' }}
+                  >
                     Copied
                   </span>
                 )}
@@ -959,50 +1188,148 @@ export function VisualDataDashboard({
             </div>
           )}
         </div>
+        )}
 
-        {/* Right side controls: Export CSV/JSON & Raw JSON toggle */}
+        {/* Right side controls: Export Dropdown (CSV / JSON) & Raw JSON toggle */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              soundService.play('pop')
-              const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
-              const csv = buildReportCsv(slug, data)
-              triggerFileDownload(`${slug}-${Date.now()}.csv`, csv, 'text/csv;charset=utf-8;')
-            }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-semibold transition cursor-pointer shadow-sm bg-white/[0.05] hover:bg-white/[0.1] border-white/10 hover:border-white/20 text-white/80 hover:text-white"
-            title="Download Report as CSV"
-          >
-            <Download className="w-3.5 h-3.5 flex-shrink-0" />
-            <span>CSV</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              soundService.play('pop')
-              const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
-              triggerFileDownload(`${slug}-${Date.now()}.json`, JSON.stringify(data, null, 2), 'application/json')
-            }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-semibold transition cursor-pointer shadow-sm bg-white/[0.05] hover:bg-white/[0.1] border-white/10 hover:border-white/20 text-white/80 hover:text-white"
-            title="Download Report as JSON"
-          >
-            <Download className="w-3.5 h-3.5 flex-shrink-0" />
-            <span>JSON</span>
-          </button>
+          <div className="relative inline-block" ref={exportMenuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                soundService.play('pop')
+                setIsExportOpen((prev) => !prev)
+              }}
+              aria-label="Export report"
+              aria-haspopup="menu"
+              aria-expanded={isExportOpen}
+              className="ai-focus-ring ub-action-btn inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-mono uppercase tracking-[1px] cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+              <span>Export</span>
+              <ChevronDown
+                className={`w-3 h-3 transition-transform duration-200 ${
+                  isExportOpen ? 'rotate-180 text-[var(--purple-1)]' : 'text-white/55'
+                }`}
+              />
+            </button>
+
+            {isExportOpen && (
+              <div
+                role="menu"
+                aria-label="Export options"
+                className="absolute right-0 top-full mt-1.5 z-50 min-w-[124px] rounded-xl p-1.5 shadow-2xl backdrop-blur-2xl border border-white/10 animate-fade-in"
+                style={{
+                  background: 'rgba(12, 15, 26, 0.96)',
+                  boxShadow: '0 12px 32px -4px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08)',
+                }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    soundService.play('pop')
+                    const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
+                    const csv = buildReportCsv(slug, data)
+                    triggerFileDownload(`${slug}-${Date.now()}.csv`, csv, 'text/csv;charset=utf-8;')
+                    setIsExportOpen(false)
+                  }}
+                  className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg text-left text-white/80 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet
+                      className="w-4 h-4 group-hover:scale-110 transition-transform"
+                      style={{ color: STATUS_TONES.success.fg }}
+                    />
+                    <span className="font-mono text-[11px] font-medium tracking-wide">CSV</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    soundService.play('pop')
+                    const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
+                    triggerFileDownload(`${slug}-${Date.now()}.json`, JSON.stringify(data, null, 2), 'application/json')
+                    setIsExportOpen(false)
+                  }}
+                  className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg text-left text-white/80 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileJson
+                      className="w-4 h-4 group-hover:scale-110 transition-transform"
+                      style={{ color: STATUS_TONES.cancelled.fg }}
+                    />
+                    <span className="font-mono text-[11px] font-medium tracking-wide">JSON</span>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
           {onToggleViewMode && (
             <button
               type="button"
               onClick={onToggleViewMode}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-semibold transition cursor-pointer shadow-sm ${outputViewMode === 'raw'
-                ? 'bg-white/20 border-white/30 text-white font-bold'
-                : 'bg-white/[0.05] hover:bg-white/[0.1] border-white/10 hover:border-white/20 text-white/80 hover:text-white'
-                }`}
+              className="ai-focus-ring inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-semibold transition cursor-pointer shadow-sm"
+              style={
+                outputViewMode === 'raw'
+                  ? {
+                    backgroundColor: STATUS_TONES.pending.pillBg,
+                    borderColor: STATUS_TONES.pending.pillBorder,
+                    color: '#ffffff',
+                  }
+                  : {
+                    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    color: 'rgba(255, 255, 255, 0.8)',
+                  }
+              }
               title={outputViewMode === 'raw' ? 'Switch to Visual Report' : 'View Raw JSON Payload'}
             >
               <FileJson className="w-4 h-4 flex-shrink-0" />
             </button>
           )}
+          {reportUtcStamp && (
+            <span
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-[12px] font-mono tabular-nums tracking-[0.4px] select-none"
+              style={{
+                fontFamily: 'var(--fonts--space-mono)',
+                color: 'var(--fp-3)',
+              }}
+            >
+              <Clock className="w-4 h-4 shrink-0 text-[var(--secondary-colors--sky-sync)]" />
+              <span>{reportUtcStamp}</span>
+            </span>
+          )}
         </div>
+
+        {/* Clear Go / Caution / Do-Not-Execute Verdict Badge at far right of the Export row */}
+        {tradeExecutionVerdict && (() => {
+          const verdictStyle = getStatusToneStyle(tradeExecutionVerdict.tone)
+          const VerdictIcon =
+            tradeExecutionVerdict.code === 'DO_NOT_EXECUTE'
+              ? Ban
+              : tradeExecutionVerdict.code === 'CAUTION_SPLIT'
+                ? AlertTriangle
+                : CheckCircle2
+          return (
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-mono font-bold uppercase tracking-[0.6px] shrink-0 select-none shadow-sm"
+              style={{
+                fontFamily: 'var(--fonts--space-mono)',
+                color: verdictStyle.fg,
+                backgroundColor: verdictStyle.pillBg,
+                borderColor: verdictStyle.pillBorder,
+                boxShadow: `0 0 18px ${verdictStyle.glow}`,
+              }}
+              title={tradeExecutionVerdict.reason}
+              aria-label={`Execution verdict: ${tradeExecutionVerdict.label}`}
+            >
+              <VerdictIcon className="w-3.5 h-3.5 shrink-0" style={{ color: verdictStyle.accent }} />
+              <span>{tradeExecutionVerdict.label}</span>
+            </span>
+          )
+        })()}
       </div>
 
       {outputViewMode === 'raw' ? (
@@ -1013,7 +1340,7 @@ export function VisualDataDashboard({
               <button
                 type="button"
                 onClick={onCopy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 hover:border-white/30 bg-black/75 hover:bg-black/90 backdrop-blur-md text-white/80 hover:text-white text-xs font-mono transition cursor-pointer shadow-lg"
+                className="ai-focus-ring inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 hover:border-white/30 bg-black/75 hover:bg-black/90 backdrop-blur-md text-white/80 hover:text-white text-xs font-mono transition cursor-pointer shadow-lg"
               >
                 {isCopied ? (
                   <>
@@ -1030,481 +1357,895 @@ export function VisualDataDashboard({
             </div>
           )}
 
-          <pre className="text-emerald-300/90 whitespace-pre-wrap selection:bg-[var(--purple-1)] selection:text-white font-mono text-xs leading-relaxed max-h-[500px] overflow-y-auto p-4 pt-5 rounded-xl bg-black/40 border border-white/[0.06]">
+          <pre
+            className="whitespace-pre-wrap selection:bg-[var(--purple-1)] selection:text-white font-mono text-xs leading-relaxed max-h-[500px] overflow-y-auto p-4 pt-5 rounded-xl bg-black/45 border border-white/[0.08]"
+            style={{ color: 'var(--status-success-fg)' }}
+          >
             {JSON.stringify(data, null, 2)}
           </pre>
         </div>
+      ) : hasTradeExecutionSummary ? (
+        <TradeExecutionTicketReport
+          data={data}
+          actionablePayload={actionablePayload}
+          walletAddress={walletAddress}
+          walletConnected={walletConnected}
+          ucwHandlers={ucwHandlers}
+          onNavigateTab={onNavigateTab}
+        />
       ) : (
         <>
 
-          {/* Headline Metric Cards Grid — Prominently displayed at top */}
+          {/* Headline Metric Cards Grid — Prominent Space Grotesk KPIs with Coin Icons */}
           {numericMetrics.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
-              {numericMetrics.map((m) => (
-                <div
-                  key={m.key}
-                  className="relative p-4 rounded-2xl border border-white/[0.08] hover:border-white/20 transition-all duration-300 group overflow-hidden"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(15, 17, 26, 0.8) 100%)',
-                    backdropFilter: 'blur(20px)',
-                    boxShadow: '0 4px 20px -2px rgba(0, 0, 0, 0.35)',
-                  }}
-                >
-                  <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent group-hover:via-[var(--purple-1)]/40 transition-all duration-500" />
-                  <span
-                    className="text-[10px] font-mono uppercase tracking-[1.5px] text-white/50 block truncate group-hover:text-white/70 transition-colors"
-                    style={{ fontFamily: 'var(--fonts--space-mono, monospace)' }}
-                  >
-                    {m.label}
-                  </span>
+              {numericMetrics.map((m) => {
+                const accentStyle = m.accentTone ? getStatusToneStyle(m.accentTone) : null
+                return (
                   <div
-                    className="text-xl sm:text-2xl md:text-3xl font-bold text-white tabular-nums tracking-tight truncate mt-1.5"
-                    style={{ fontFamily: 'var(--fonts--space-grotesk, sans-serif)' }}
+                    key={m.key}
+                    className="relative p-4 rounded-2xl border transition-all duration-300 group overflow-hidden"
+                    style={{
+                      background:
+                        'linear-gradient(155deg, rgba(22, 26, 44, 0.84) 0%, rgba(12, 15, 26, 0.92) 100%)',
+                      borderColor: accentStyle ? accentStyle.border : 'rgba(172, 198, 233, 0.12)',
+                      boxShadow: '0 6px 20px -6px rgba(0, 0, 0, 0.45)',
+                    }}
                   >
-                    {m.value}
+                    <div
+                      className="absolute top-0 left-0 right-0 h-[2px] opacity-65 group-hover:opacity-100 transition-opacity duration-300"
+                      style={{
+                        background: accentStyle
+                          ? `linear-gradient(90deg, transparent, ${accentStyle.accent}, transparent)`
+                          : 'linear-gradient(90deg, transparent, rgba(152, 150, 255, 0.45), transparent)',
+                      }}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className="text-[10px] font-mono uppercase tracking-[1.4px] truncate"
+                        style={{
+                          fontFamily: 'var(--fonts--space-mono, monospace)',
+                          color: 'var(--secondary-colors--sky-sync)',
+                        }}
+                      >
+                        {m.label}
+                      </span>
+                      {m.tokenSymbol && (
+                        <span className="shrink-0 inline-flex items-center" title={m.tokenSymbol}>
+                          <PortfolioAssetIcon
+                            symbol={m.tokenSymbol}
+                            size={15}
+                            className="w-3.5 h-3.5 object-contain"
+                          />
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      className="text-xl sm:text-2xl font-bold tabular-nums tracking-tight truncate mt-2"
+                      style={{
+                        fontFamily: 'var(--fonts--space-grotesk, sans-serif)',
+                        color: accentStyle ? accentStyle.fg : '#ffffff',
+                      }}
+                    >
+                      {m.value}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
           {/* Route comparison & execution sizing (Smart Trade & Execution Advisor) */}
           {(routeComparison.length > 0 || executionSizing) && (
-            <div
-              className="rounded-2xl border border-white/[0.08] p-4 space-y-3"
-              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-            >
-              <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">
-                ROUTE COMPARISON & EXECUTION SIZING
-              </span>
-              {routeComparison.length > 0 && (
-                <div className="space-y-2">
-                  {routeComparison.map((route: any, idx: number) => (
-                    <div
-                      key={route.path || idx}
-                      className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
-                        route.recommended
-                          ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
-                          : 'bg-white/[0.025] border-white/[0.05]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs font-semibold text-white font-mono">{route.path}</span>
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-white/60">
-                          {route.hops === 2 ? '2-Hop' : 'Direct'}
-                        </span>
-                        {route.recommended && (
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
-                            BEST OUTPUT
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Route Comparison & Execution Sizing"
+                icon={GitBranch}
+                tone="info"
+                count={routeComparison.length > 0 ? routeComparison.length : undefined}
+              />
+              <div className="p-4 space-y-3">
+                {routeComparison.length > 0 && (
+                  <div className="space-y-2.5">
+                    {routeComparison.map((route: any, idx: number) => {
+                      const impactPct = typeof route.priceImpactPct === 'number' ? route.priceImpactPct : null
+                      const ammPct = typeof route.ammPriceImpactPct === 'number' ? route.ammPriceImpactPct : null
+                      const feePct = typeof route.poolFeePct === 'number' ? route.poolFeePct : null
+                      const ammColor =
+                        ammPct === null
+                          ? 'var(--fp-2)'
+                          : ammPct >= 2
+                            ? STATUS_TONES.error.fg
+                            : ammPct >= 1
+                              ? STATUS_TONES.cancelled.fg
+                              : STATUS_TONES.success.fg
+                      const impactColor =
+                        impactPct === null
+                          ? 'var(--fp-2)'
+                          : impactPct >= 2
+                            ? STATUS_TONES.error.fg
+                            : impactPct >= 1
+                              ? STATUS_TONES.cancelled.fg
+                              : STATUS_TONES.success.fg
+                      return (
+                        <div
+                          key={route.path || idx}
+                          className="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 transition-colors"
+                          style={
+                            route.recommended
+                              ? {
+                                backgroundColor: STATUS_TONES.success.bg,
+                                borderColor: STATUS_TONES.success.border,
+                              }
+                              : {
+                                backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                                borderColor: 'rgba(255, 255, 255, 0.07)',
+                              }
+                          }
+                        >
+                          <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                            <RouteTokenFlow path={route.path} size={15} />
+                            <StatusBadge
+                              tone="info"
+                              label={route.hops === 2 ? '2-Hop' : 'Direct'}
+                              size="xs"
+                              showIcon={false}
+                            />
+                            {route.recommended && (
+                              <StatusBadge tone="success" label="Best Output" size="xs" />
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-mono text-white/75 tabular-nums">
+                            <span>
+                              Out:{' '}
+                              <strong
+                                className="text-white"
+                                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                              >
+                                {Number(route.expectedOutput).toLocaleString(undefined, {
+                                  maximumFractionDigits: Number(route.expectedOutput) < 0.1 ? 6 : 4,
+                                })}
+                              </strong>
+                            </span>
+                            {ammPct !== null && (
+                              <span>
+                                AMM: <strong style={{ color: ammColor }}>{ammPct.toFixed(2)}%</strong>
+                              </span>
+                            )}
+                            {feePct !== null && (
+                              <span>
+                                Fee: <strong className="text-white/90">{feePct.toFixed(2)}%</strong>
+                              </span>
+                            )}
+                            {typeof route.signedPriceImpactPct === 'number' && route.signedPriceImpactPct < 0 ? (
+                              <span>
+                                Oracle:{' '}
+                                <strong style={{ color: STATUS_TONES.success.fg }}>
+                                  +{Math.abs(route.signedPriceImpactPct).toFixed(2)}% better
+                                </strong>
+                              </span>
+                            ) : impactPct !== null ? (
+                              <span>
+                                Oracle: <strong style={{ color: impactColor }}>-{impactPct.toFixed(2)}%</strong>
+                              </span>
+                            ) : null}
+                            {typeof route.estimatedGasUsdc === 'number' && (
+                              <span className="inline-flex items-center gap-1">
+                                Gas:
+                                <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
+                                <strong className="text-white/90">
+                                  ${route.estimatedGasUsdc < 0.01 ? route.estimatedGasUsdc.toFixed(4) : route.estimatedGasUsdc.toFixed(2)}
+                                </strong>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {executionSizing && (
+                  <div
+                    className="p-3.5 rounded-xl border space-y-2"
+                    style={{
+                      backgroundColor: STATUS_TONES.info.bg,
+                      borderColor: STATUS_TONES.info.border,
+                    }}
+                  >
+                    <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] font-mono text-white/75 tabular-nums">
+                      <span>
+                        Batches:{' '}
+                        <strong className="text-white">{executionSizing.recommendedBatchCount}×</strong>
+                      </span>
+                      <span>
+                        Per batch:{' '}
+                        <strong className="text-white">
+                          {Number(executionSizing.perBatchInputAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        </strong>
+                      </span>
+                      {executionSizing.recommendedBatchCount > 1 &&
+                        typeof executionSizing.perBatchExpectedOutput === 'number' && (
+                          <span>
+                            Batch 1 Out:{' '}
+                            <strong style={{ color: STATUS_TONES.success.fg }}>
+                              {executionSizing.perBatchExpectedOutput.toLocaleString(undefined, {
+                                maximumFractionDigits: executionSizing.perBatchExpectedOutput < 0.1 ? 6 : 4,
+                              })}
+                            </strong>
                           </span>
                         )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono text-white/70 tabular-nums">
-                        <span>Out: <strong className="text-white">{Number(route.expectedOutput).toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong></span>
-                        {typeof route.priceImpactPct === 'number' && (
-                          <span>Impact: <strong className={route.priceImpactPct >= 1 ? 'text-amber-300' : 'text-[var(--earned-green)]'}>{route.priceImpactPct}%</strong></span>
+                      {executionSizing.recommendedBatchCount > 1 &&
+                        typeof executionSizing.singleSwapAmmPriceImpactPct === 'number' &&
+                        typeof executionSizing.perBatchAmmPriceImpactPct === 'number' && (
+                          <span>
+                            Batch 1 AMM Impact:{' '}
+                            <strong style={{ color: STATUS_TONES.success.fg }}>
+                              {executionSizing.singleSwapAmmPriceImpactPct.toFixed(2)}% → {executionSizing.perBatchAmmPriceImpactPct.toFixed(2)}%
+                            </strong>
+                          </span>
                         )}
-                      </div>
+                      <span>
+                        Max slippage:{' '}
+                        <strong style={{ color: STATUS_TONES.info.accent }}>
+                          {executionSizing.suggestedMaxSlippagePct}%
+                        </strong>
+                        {typeof executionSizing.slippageClampedFromPct === 'number' && (
+                          <span className="text-white/45 ml-1">
+                            (clamped from {executionSizing.slippageClampedFromPct}%)
+                          </span>
+                        )}
+                      </span>
+                      {typeof executionSizing.estimatedTotalGasUsdc === 'number' && (
+                        <span className="inline-flex items-center gap-1">
+                          Est. gas:
+                          <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
+                          <strong className="text-white">
+                            ${executionSizing.estimatedTotalGasUsdc < 0.01 ? executionSizing.estimatedTotalGasUsdc.toFixed(4) : executionSizing.estimatedTotalGasUsdc.toFixed(2)} USDC
+                          </strong>
+                        </span>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
-              {executionSizing && (
-                <div className="p-3 rounded-xl bg-white/[0.025] border border-white/[0.06] space-y-1.5">
-                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-mono text-white/70 tabular-nums">
-                    <span>Batches: <strong className="text-white">{executionSizing.recommendedBatchCount}×</strong></span>
-                    <span>Per batch: <strong className="text-white">{Number(executionSizing.perBatchInputAmount).toLocaleString(undefined, { maximumFractionDigits: 4 })}</strong></span>
-                    <span>Max slippage: <strong className="text-white">{executionSizing.suggestedMaxSlippagePct}%</strong></span>
-                    {typeof executionSizing.estimatedTotalGasUsdc === 'number' && (
-                      <span>Est. gas: <strong className="text-white">${executionSizing.estimatedTotalGasUsdc} USDC</strong></span>
+                    {typeof executionSizing.note === 'string' && (
+                      <p className="text-[11px] font-mono text-white/60 leading-relaxed">
+                        {executionSizing.note}
+                      </p>
                     )}
                   </div>
-                  {typeof executionSizing.note === 'string' && (
-                    <p className="text-[10px] font-mono text-white/45 leading-relaxed">{executionSizing.note}</p>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
           {/* Scanned Pools Table (All-Pools Spread & Mispricing Scanner) */}
           {scannedPools.length > 0 && (
-            <div
-              className="rounded-2xl border border-white/[0.08] overflow-hidden"
-              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-            >
-              <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[11px] font-mono font-semibold text-white/60">
-                <span>SCANNED ARC POOLS ({scannedPools.length})</span>
-                <span className="text-[10px] text-white/40">RANKED BY NET SPREAD</span>
-              </div>
-              <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
-                {scannedPools.map((pool: any) => (
-                  <div
-                    key={pool.pair}
-                    className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
-                      pool.meetsThreshold
-                        ? 'bg-[var(--earned-green)]/[0.05] border-[var(--earned-green)]/25'
-                        : 'bg-white/[0.025] border-white/[0.05]'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white font-mono">{pool.pair}</span>
-                        {pool.meetsThreshold && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
-                            ABOVE HURDLE
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Scanned Arc Pools"
+                eyebrow="Ranked by Net Spread"
+                icon={BarChart3}
+                tone="info"
+                count={scannedPools.length}
+              />
+              <div className="p-3.5 space-y-2.5 max-h-80 overflow-y-auto">
+                {scannedPools.map((pool: any) => {
+                  const pairSymbols = extractTokenSymbols(pool.pair, 2)
+                  return (
+                    <div
+                      key={pool.pair}
+                      className="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 transition-colors"
+                      style={
+                        pool.meetsThreshold
+                          ? {
+                            backgroundColor: STATUS_TONES.success.bg,
+                            borderColor: STATUS_TONES.success.border,
+                          }
+                          : {
+                            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                            borderColor: 'rgba(255, 255, 255, 0.07)',
+                          }
+                      }
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <TokenPairIcons symbols={pairSymbols} size={18} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className="text-sm font-bold text-white tracking-tight"
+                              style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                            >
+                              {pool.pair}
+                            </span>
+                            {pool.meetsThreshold ? (
+                              <StatusBadge tone="success" label="Above Hurdle" size="xs" />
+                            ) : (
+                              <StatusBadge tone="info" label="Below Hurdle" size="xs" showIcon={false} />
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-white/50 block mt-0.5 tabular-nums">
+                            Pool: {pool.poolRate} · Oracle: {pool.oracleRate} ({pool.quoteUnit})
                           </span>
-                        )}
+                        </div>
                       </div>
-                      <span className="text-[10px] font-mono text-white/45 block mt-0.5">
-                        Pool: {pool.poolRate} · Oracle: {pool.oracleRate} ({pool.quoteUnit})
-                      </span>
+                      <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums">
+                        <span className="text-white/70">
+                          Spread: <strong className="text-white">{pool.grossSpreadPct}%</strong>
+                        </span>
+                        <span
+                          className="inline-flex items-center gap-1 font-bold"
+                          style={{
+                            color: pool.meetsThreshold ? STATUS_TONES.success.fg : 'var(--fp-3)',
+                          }}
+                        >
+                          <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
+                          <span>
+                            Net: ${pool.netProfitUsdc} ({pool.netProfitPct}%)
+                          </span>
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums">
-                      <span className="text-white/70">Spread: <strong className="text-white">{pool.grossSpreadPct}%</strong></span>
-                      <span className={pool.meetsThreshold ? 'text-[var(--earned-green)] font-bold' : 'text-white/60'}>
-                        Net: ${pool.netProfitUsdc} ({pool.netProfitPct}%)
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
 
           {/* Yield & Pool Opportunities Table (Arc Yield & Pool Opportunity Finder) */}
           {yieldOpportunities.length > 0 && (
-            <div
-              className="rounded-2xl border border-white/[0.08] overflow-hidden"
-              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-            >
-              <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[11px] font-mono font-semibold text-white/60">
-                <span>ARC YIELD & POOL OPPORTUNITIES ({yieldOpportunities.length})</span>
-                <span className="text-[10px] text-white/40">LIVE ON-CHAIN STATE</span>
-              </div>
-              <div className="p-3 space-y-2 max-h-80 overflow-y-auto">
-                {yieldOpportunities.map((op: any) => (
-                  <div
-                    key={op.id || op.name}
-                    className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 ${
-                      op.paused
-                        ? 'bg-rose-500/[0.05] border-rose-500/25 opacity-75'
-                        : op.walletEligible
-                          ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
-                          : 'bg-white/[0.025] border-white/[0.05]'
-                    }`}
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs font-bold text-white">{op.name}</span>
-                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/[0.06] text-white/60">
-                          {op.kind === 'vault' ? 'ERC-4626 VAULT' : 'AMM POOL'}
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Arc Yield & Pool Opportunities"
+                eyebrow="Live On-Chain State"
+                icon={TrendingUp}
+                tone="success"
+                count={yieldOpportunities.length}
+              />
+              <div className="p-3.5 space-y-2.5 max-h-84 overflow-y-auto">
+                {yieldOpportunities.map((op: any) => {
+                  const opSymbols =
+                    op.kind === 'vault' ? ['USDC'] : extractTokenSymbols(op.name, 2)
+                  const riskUpper = String(op.riskLevel || '').toUpperCase()
+                  const riskTone =
+                    riskUpper === 'HIGH'
+                      ? 'error'
+                      : riskUpper === 'MEDIUM'
+                        ? 'cancelled'
+                        : 'info'
+                  const cardTone = op.paused
+                    ? STATUS_TONES.cancelled
+                    : op.walletEligible
+                      ? STATUS_TONES.success
+                      : null
+
+                  return (
+                    <div
+                      key={op.id || op.name}
+                      className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 transition-colors ${op.paused ? 'opacity-80' : ''
+                        }`}
+                      style={
+                        cardTone
+                          ? {
+                            backgroundColor: cardTone.bg,
+                            borderColor: cardTone.border,
+                          }
+                          : {
+                            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                            borderColor: 'rgba(255, 255, 255, 0.07)',
+                          }
+                      }
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <TokenPairIcons symbols={opSymbols.length > 0 ? opSymbols : ['USDC']} size={18} />
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className="text-sm font-bold text-white tracking-tight"
+                              style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                            >
+                              {op.name}
+                            </span>
+                            <StatusBadge
+                              tone="info"
+                              label={op.kind === 'vault' ? 'ERC-4626 Vault' : 'AMM Pool'}
+                              size="xs"
+                              showIcon={false}
+                            />
+                            <StatusBadge
+                              tone={riskTone}
+                              label={`${op.riskLevel} Risk`}
+                              size="xs"
+                              showIcon={false}
+                            />
+                            {op.walletEligible && (
+                              <StatusBadge
+                                tone="success"
+                                label={`Wallet Match${Array.isArray(op.matchedTokens) && op.matchedTokens.length > 0
+                                    ? ` (${op.matchedTokens.join(', ')})`
+                                    : ''
+                                  }`}
+                                size="xs"
+                              />
+                            )}
+                            {op.paused && <StatusBadge tone="cancelled" label="Paused" size="xs" />}
+                          </div>
+                          <span className="text-[10px] font-mono text-white/50 block">
+                            IL: {op.impermanentLossRisk}
+                            {typeof op.feeTierPct === 'number' && op.feeTierPct > 0
+                              ? ` · Swap Fee: ${op.feeTierPct}%`
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono tabular-nums">
+                        <span className="text-white/70">
+                          TVL:{' '}
+                          <strong
+                            className="text-white"
+                            style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                          >
+                            {typeof op.tvlUsd === 'number'
+                              ? `$${op.tvlUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : '—'}
+                          </strong>
                         </span>
-                        <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--purple-1)]/15 text-[var(--purple-1)] border border-[var(--purple-1)]/25">
-                          {op.riskLevel} Risk
-                        </span>
-                        {op.walletEligible && (
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
-                            Wallet Match ({Array.isArray(op.matchedTokens) ? op.matchedTokens.join(', ') : ''})
+                        {op.kind === 'lp_pool' && (
+                          <span className="text-white/70">
+                            24h Vol:{' '}
+                            <strong
+                              className="text-white"
+                              style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                            >
+                              {typeof op.volume24hUsd === 'number'
+                                ? `$${op.volume24hUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : '—'}
+                            </strong>
                           </span>
                         )}
-                        {op.paused && (
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
-                            PAUSED
+                        {typeof op.feeRunRateAnnualizedPct === 'number' && (
+                          <span className="font-bold" style={{ color: STATUS_TONES.success.fg }}>
+                            24h Fee Run-Rate: {op.feeRunRateAnnualizedPct.toFixed(2)}%
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] font-mono text-white/45 block">
-                        IL: {op.impermanentLossRisk}{typeof op.feeTierPct === 'number' && op.feeTierPct > 0 ? ` · Swap Fee: ${op.feeTierPct}%` : ''}
-                      </span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono tabular-nums">
-                      <span className="text-white/70">
-                        TVL: <strong className="text-white">{typeof op.tvlUsd === 'number' ? `$${op.tvlUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
-                      </span>
-                      {op.kind === 'lp_pool' && (
-                        <span className="text-white/70">
-                          24h Vol: <strong className="text-white">{typeof op.volume24hUsd === 'number' ? `$${op.volume24hUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
-                        </span>
-                      )}
-                      {typeof op.feeRunRateAnnualizedPct === 'number' && (
-                        <span className="text-[var(--earned-green)] font-bold">
-                          24h Fee Run-Rate: {op.feeRunRateAnnualizedPct.toFixed(2)}%
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
 
           {/* Bridge & Gateway Rail Comparison (USDC, EURC, wETH, cirBTC) */}
           {bridgeRailQuote && (
-            <div
-              className="rounded-2xl border border-white/[0.08] p-4 space-y-3"
-              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-white/50">
-                  BRIDGE & GATEWAY RAIL COMPARISON · {bridgeRailQuote.token} → {bridgeRailQuote.destinationChain.replace(/_/g, ' ')}
-                </span>
-                {onNavigateTab && bridgeRailQuote.recommendedRail && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      soundService.play('pop')
-                      onNavigateTab(bridgeRailQuote.recommendedRail === 'gateway' ? 'unified' : 'bridge')
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold text-white cursor-pointer transition hover:brightness-110"
-                    style={{
-                      background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                    }}
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Bridge & Gateway Rail Comparison"
+                eyebrow="Cross-Chain Quote"
+                icon={Compass}
+                tone="info"
+                rightSlot={
+                  onNavigateTab && bridgeRailQuote.recommendedRail ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundService.play('pop')
+                        onNavigateTab(bridgeRailQuote.recommendedRail === 'gateway' ? 'unified' : 'bridge')
+                      }}
+                      className="ai-focus-ring inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[11px] font-semibold text-white cursor-pointer transition hover:brightness-110"
+                      style={{
+                        background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                        boxShadow: '0 4px 16px rgba(152, 150, 255, 0.25)',
+                      }}
+                    >
+                      <span>
+                        {bridgeRailQuote.recommendedRail === 'gateway' ? 'Open Unified Balance' : 'Open Bridge'}
+                      </span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  ) : undefined
+                }
+              />
+
+              <div className="p-4 space-y-3.5">
+                {/* Asset & Route Visual Bar */}
+                <div
+                  className="flex flex-wrap items-center gap-2.5 p-2.5 rounded-xl border border-white/[0.06]"
+                  style={{ backgroundColor: 'rgba(8, 10, 18, 0.65)' }}
+                >
+                  <InlineTokenChip symbol={bridgeRailQuote.token} />
+                  <span className="text-white/30 text-xs">·</span>
+                  <ChainPill chainKey="Arc_Testnet" label="Arc Testnet" />
+                  <ArrowRight className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)] shrink-0" />
+                  <ChainPill chainKey={bridgeRailQuote.destinationChain} />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Circle Gateway Rail */}
+                  <div
+                    className="p-3.5 rounded-xl border space-y-2"
+                    style={
+                      bridgeRailQuote.recommendedRail === 'gateway'
+                        ? {
+                          backgroundColor: STATUS_TONES.success.bg,
+                          borderColor: STATUS_TONES.success.border,
+                        }
+                        : !bridgeRailQuote.gateway.available
+                          ? {
+                            backgroundColor: STATUS_TONES.info.bg,
+                            borderColor: STATUS_TONES.info.border,
+                          }
+                          : {
+                            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                            borderColor: 'rgba(255, 255, 255, 0.07)',
+                          }
+                    }
                   >
-                    <span>
-                      {bridgeRailQuote.recommendedRail === 'gateway' ? 'Open Unified Balance' : 'Open Bridge'}
-                    </span>
-                    <ArrowRight className="w-3 h-3" />
-                  </button>
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className="text-sm font-bold text-white"
+                        style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                      >
+                        Circle Gateway
+                      </span>
+                      {bridgeRailQuote.recommendedRail === 'gateway' ? (
+                        <StatusBadge tone="success" label="Recommended" size="xs" />
+                      ) : !bridgeRailQuote.gateway.available ? (
+                        <StatusBadge tone="info" label="Not Eligible" size="xs" showIcon={false} />
+                      ) : null}
+                    </div>
+                    {bridgeRailQuote.gateway.available ? (
+                      <div className="text-[11px] font-mono text-white/75 space-y-1 tabular-nums">
+                        <div className="inline-flex items-center gap-1.5">
+                          <span>Total Cost:</span>
+                          <PortfolioAssetIcon symbol="USDC" size={13} className="w-3.5 h-3.5 object-contain" />
+                          <strong className="text-white">${bridgeRailQuote.gateway.totalCostUsdc} USDC</strong>
+                        </div>
+                        <div className="text-white/50">
+                          Transfer fee: {bridgeRailQuote.gateway.feeBps} bps · Source gas: $0
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] font-mono text-white/55">{bridgeRailQuote.gateway.feeSource}</p>
+                    )}
+                  </div>
+
+                  {/* CCTP v2 / CCTP-X Rail */}
+                  <div
+                    className="p-3.5 rounded-xl border space-y-2"
+                    style={
+                      bridgeRailQuote.recommendedRail === 'cctp' ||
+                        bridgeRailQuote.recommendedRail === 'cctpx'
+                        ? {
+                          backgroundColor: STATUS_TONES.success.bg,
+                          borderColor: STATUS_TONES.success.border,
+                        }
+                        : !bridgeRailQuote.cctp.available
+                          ? {
+                            backgroundColor: STATUS_TONES.cancelled.bg,
+                            borderColor: STATUS_TONES.cancelled.border,
+                          }
+                          : {
+                            backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                            borderColor: 'rgba(255, 255, 255, 0.07)',
+                          }
+                    }
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className="text-sm font-bold text-white"
+                        style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                      >
+                        {bridgeRailQuote.cctp.mechanism === 'cctpx' ? 'Circle CCTP-X' : 'Circle CCTP v2'}
+                      </span>
+                      {bridgeRailQuote.recommendedRail === 'cctp' ||
+                        bridgeRailQuote.recommendedRail === 'cctpx' ? (
+                        <StatusBadge tone="success" label="Recommended" size="xs" />
+                      ) : !bridgeRailQuote.cctp.available ? (
+                        <StatusBadge tone="cancelled" label="Unavailable" size="xs" showIcon={false} />
+                      ) : null}
+                    </div>
+                    {bridgeRailQuote.cctp.available ? (
+                      <div className="text-[11px] font-mono text-white/75 space-y-1 tabular-nums">
+                        <div className="inline-flex items-center gap-1.5">
+                          <span>Total Cost:</span>
+                          <PortfolioAssetIcon symbol="USDC" size={13} className="w-3.5 h-3.5 object-contain" />
+                          <strong className="text-white">
+                            {typeof bridgeRailQuote.cctp.totalCostUsdc === 'number'
+                              ? `$${bridgeRailQuote.cctp.totalCostUsdc} USDC`
+                              : `$${bridgeRailQuote.cctp.feeUsdc} USDC + gas`}
+                          </strong>
+                        </div>
+                        <div className="text-white/50">
+                          {bridgeRailQuote.cctp.recipientReceivesFullAmount
+                            ? `Relayer fee: $${bridgeRailQuote.cctp.feeUsdc} USDC (0 token haircut — recipient receives 100%)`
+                            : `Protocol + Forward: $${bridgeRailQuote.cctp.feeUsdc} USDC · Arc gas: $${bridgeRailQuote.cctp.sourceGasUsdc ?? '—'}`}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] font-mono text-white/55">{bridgeRailQuote.cctp.feeSource}</p>
+                    )}
+                  </div>
+                </div>
+
+                {bridgeRailQuote.supportedDestinations.length > 0 && !bridgeRailQuote.recommendedRail && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] font-mono text-white/60">
+                    <span>Supported destinations for {bridgeRailQuote.token}:</span>
+                    {bridgeRailQuote.supportedDestinations.map((dest) => (
+                      <ChainPill key={dest} chainKey={dest} size={13} className="py-0.5 px-2 text-[10px]" />
+                    ))}
+                  </div>
                 )}
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Circle Gateway Rail */}
-                <div
-                  className={`p-3 rounded-xl border space-y-1 ${
-                    bridgeRailQuote.recommendedRail === 'gateway'
-                      ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
-                      : 'bg-white/[0.025] border-white/[0.06]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white">Circle Gateway</span>
-                    {bridgeRailQuote.recommendedRail === 'gateway' && (
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
-                        RECOMMENDED
-                      </span>
-                    )}
-                  </div>
-                  {bridgeRailQuote.gateway.available ? (
-                    <div className="text-[11px] font-mono text-white/70 space-y-0.5 tabular-nums">
-                      <div>Total Cost: <strong className="text-white">${bridgeRailQuote.gateway.totalCostUsdc} USDC</strong></div>
-                      <div className="text-white/50">Transfer fee: {bridgeRailQuote.gateway.feeBps} bps · Source gas: $0</div>
-                    </div>
-                  ) : (
-                    <p className="text-[10px] font-mono text-white/45">{bridgeRailQuote.gateway.feeSource}</p>
-                  )}
-                </div>
-
-                {/* CCTP v2 / CCTP-X Rail */}
-                <div
-                  className={`p-3 rounded-xl border space-y-1 ${
-                    bridgeRailQuote.recommendedRail === 'cctp' || bridgeRailQuote.recommendedRail === 'cctpx'
-                      ? 'bg-[var(--earned-green)]/[0.06] border-[var(--earned-green)]/30'
-                      : 'bg-white/[0.025] border-white/[0.06]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white">
-                      {bridgeRailQuote.cctp.mechanism === 'cctpx' ? 'Circle CCTP-X' : 'Circle CCTP v2'}
-                    </span>
-                    {(bridgeRailQuote.recommendedRail === 'cctp' || bridgeRailQuote.recommendedRail === 'cctpx') && (
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[var(--earned-green)]/15 text-[var(--earned-green)] border border-[var(--earned-green)]/30">
-                        RECOMMENDED
-                      </span>
-                    )}
-                  </div>
-                  {bridgeRailQuote.cctp.available ? (
-                    <div className="text-[11px] font-mono text-white/70 space-y-0.5 tabular-nums">
-                      <div>
-                        Total Cost:{' '}
-                        <strong className="text-white">
-                          {typeof bridgeRailQuote.cctp.totalCostUsdc === 'number'
-                            ? `$${bridgeRailQuote.cctp.totalCostUsdc} USDC`
-                            : `$${bridgeRailQuote.cctp.feeUsdc} USDC + gas`}
-                        </strong>
-                      </div>
-                      <div className="text-white/50">
-                        {bridgeRailQuote.cctp.recipientReceivesFullAmount
-                          ? `Relayer fee: $${bridgeRailQuote.cctp.feeUsdc} USDC (0 token haircut — recipient receives 100%)`
-                          : `Protocol + Forward: $${bridgeRailQuote.cctp.feeUsdc} USDC · Arc gas: $${bridgeRailQuote.cctp.sourceGasUsdc ?? '—'}`}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[10px] font-mono text-white/45">{bridgeRailQuote.cctp.feeSource}</p>
-                  )}
-                </div>
-              </div>
-
-              {bridgeRailQuote.supportedDestinations.length > 0 && !bridgeRailQuote.recommendedRail && (
-                <div className="text-[10px] font-mono text-white/55">
-                  Supported destinations for {bridgeRailQuote.token}:{' '}
-                  <span className="text-white/80">
-                    {bridgeRailQuote.supportedDestinations.map((c) => c.replace(/_/g, ' ')).join(', ')}
-                  </span>
-                </div>
-              )}
             </div>
           )}
 
           {/* Best route (arbitrage sentinel) */}
           {bestRoute && (
-            <div
-              className="rounded-2xl border border-white/[0.08] p-4 space-y-3"
-              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-            >
-              <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">
-                BEST ROUTE
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-white/[0.025] border border-white/[0.05] space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/40 block">Buy</span>
-                  <div className="text-xs font-semibold text-white">
-                    {typeof bestRoute.buyDex === 'string' ? bestRoute.buyDex : 'Unavailable'}
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Best Spread Route"
+                eyebrow="Oracle Benchmark"
+                icon={Zap}
+                tone="success"
+                rightSlot={
+                  typeof bestRoute.pair === 'string' ? (
+                    <div className="inline-flex items-center gap-2">
+                      <TokenPairIcons symbols={extractTokenSymbols(bestRoute.pair, 2)} size={15} />
+                      <span className="text-xs font-mono font-bold text-white">{bestRoute.pair}</span>
+                    </div>
+                  ) : undefined
+                }
+              />
+              <div className="p-4 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3.5 rounded-xl bg-white/[0.025] border border-white/[0.07] space-y-1">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--secondary-colors--sky-sync)] block">
+                      Buy Venue
+                    </span>
+                    <div
+                      className="text-sm font-bold text-white"
+                      style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                    >
+                      {typeof bestRoute.buyDex === 'string' ? bestRoute.buyDex : 'Unavailable'}
+                    </div>
+                    <div className="text-xs font-mono text-white/80 tabular-nums inline-flex items-center gap-1.5">
+                      <PortfolioAssetIcon symbol="USDC" size={13} className="w-3.5 h-3.5 object-contain" />
+                      <span>{typeof bestRoute.buyPriceUsdc === 'number' ? `${bestRoute.buyPriceUsdc} USDC` : '—'}</span>
+                    </div>
                   </div>
-                  <div className="text-xs font-mono text-white/70 tabular-nums">
-                    {typeof bestRoute.buyPriceUsdc === 'number' ? `${bestRoute.buyPriceUsdc} USDC` : '—'}
+                  <div className="p-3.5 rounded-xl bg-white/[0.025] border border-white/[0.07] space-y-1">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--secondary-colors--sky-sync)] block">
+                      Sell Reference
+                    </span>
+                    <div
+                      className="text-sm font-bold text-white"
+                      style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                    >
+                      {typeof bestRoute.sellDex === 'string' ? bestRoute.sellDex : 'Unavailable'}
+                    </div>
+                    <div className="text-xs font-mono text-white/80 tabular-nums inline-flex items-center gap-1.5">
+                      <PortfolioAssetIcon symbol="USDC" size={13} className="w-3.5 h-3.5 object-contain" />
+                      <span>{typeof bestRoute.sellPriceUsdc === 'number' ? `${bestRoute.sellPriceUsdc} USDC` : '—'}</span>
+                    </div>
                   </div>
                 </div>
-                <div className="p-3 rounded-xl bg-white/[0.025] border border-white/[0.05] space-y-1">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/40 block">Sell reference</span>
-                  <div className="text-xs font-semibold text-white">
-                    {typeof bestRoute.sellDex === 'string' ? bestRoute.sellDex : 'Unavailable'}
-                  </div>
-                  <div className="text-xs font-mono text-white/70 tabular-nums">
-                    {typeof bestRoute.sellPriceUsdc === 'number' ? `${bestRoute.sellPriceUsdc} USDC` : '—'}
-                  </div>
+                <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] font-mono text-white/65">
+                  {typeof bestRoute.grossSpreadPct === 'number' && (
+                    <span>
+                      Spread: <strong className="text-white tabular-nums">{bestRoute.grossSpreadPct}%</strong>
+                    </span>
+                  )}
+                  {typeof bestRoute.netProfitUsdc === 'number' && (
+                    <span className="inline-flex items-center gap-1">
+                      Net:
+                      <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
+                      <strong className="tabular-nums" style={{ color: STATUS_TONES.success.fg }}>
+                        {bestRoute.netProfitUsdc} USDC
+                      </strong>
+                    </span>
+                  )}
+                  {typeof bestRoute.estimatedGasCostUsdc === 'number' && (
+                    <span className="inline-flex items-center gap-1">
+                      Gas:
+                      <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
+                      <strong className="text-white tabular-nums">{bestRoute.estimatedGasCostUsdc} USDC</strong>
+                    </span>
+                  )}
                 </div>
+                <p className="text-[10px] font-mono text-white/45 leading-relaxed">
+                  Analysis only. The sell side is an external price reference, not a second DEX venue, and no trade is executed.
+                </p>
               </div>
-              <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-mono text-white/60">
-                {typeof bestRoute.grossSpreadPct === 'number' && (
-                  <span>Spread: <span className="text-white tabular-nums">{bestRoute.grossSpreadPct}%</span></span>
-                )}
-                {typeof bestRoute.netProfitUsdc === 'number' && (
-                  <span>Net: <span className="text-[var(--earned-green)] tabular-nums">{bestRoute.netProfitUsdc} USDC</span></span>
-                )}
-                {typeof bestRoute.estimatedGasCostUsdc === 'number' && (
-                  <span>Gas: <span className="text-white tabular-nums">{bestRoute.estimatedGasCostUsdc} USDC</span></span>
-                )}
-              </div>
-              <p className="text-[10px] font-mono text-white/35 leading-relaxed">
-                Analysis only. The sell side is an external price reference, not a second DEX venue, and no trade is executed.
-              </p>
             </div>
           )}
 
           {/* Recommended MEV shield action (advisory only) */}
           {shieldAction && (
-            <div
-              className="rounded-2xl border border-white/[0.08] p-4 space-y-2"
-              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-            >
-              <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">
-                RECOMMENDED SHIELD ACTION (ADVISORY)
-              </span>
-              <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-mono text-white/60">
-                {typeof shieldAction.adjustedMaxSlippagePct === 'number' && (
-                  <span>Max slippage: <span className="text-white tabular-nums">{shieldAction.adjustedMaxSlippagePct}%</span></span>
-                )}
-                {typeof shieldAction.estimatedGasCostUsdc === 'number' && (
-                  <span>Est. gas: <span className="text-white tabular-nums">{shieldAction.estimatedGasCostUsdc} USDC</span></span>
-                )}
-                {typeof shieldAction.bundleType === 'string' && (
-                  <span>{shieldAction.bundleType}</span>
-                )}
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Recommended Shield Action"
+                eyebrow="Advisory Only"
+                icon={Shield}
+                tone="info"
+                compact
+              />
+              <div className="p-4 space-y-2">
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-mono text-white/70">
+                  {typeof shieldAction.adjustedMaxSlippagePct === 'number' && (
+                    <span>
+                      Max slippage: <strong className="text-white tabular-nums">{shieldAction.adjustedMaxSlippagePct}%</strong>
+                    </span>
+                  )}
+                  {typeof shieldAction.estimatedGasCostUsdc === 'number' && (
+                    <span className="inline-flex items-center gap-1">
+                      Est. gas:
+                      <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
+                      <strong className="text-white tabular-nums">{shieldAction.estimatedGasCostUsdc} USDC</strong>
+                    </span>
+                  )}
+                  {typeof shieldAction.bundleType === 'string' && <span>{shieldAction.bundleType}</span>}
+                </div>
+                <p className="text-[10px] font-mono text-white/45 leading-relaxed">
+                  No private relay, bundle or transaction protection is submitted by this service.
+                </p>
               </div>
-              <p className="text-[10px] font-mono text-white/35 leading-relaxed">
-                No private relay, bundle or transaction protection is submitted by this service.
-              </p>
             </div>
           )}
 
           {/* Unavailable measurements and the reason they are missing */}
-          {(unavailableList.length > 0 || reason) && (
-            <div className="p-3.5 rounded-2xl border border-rose-500/25 bg-rose-500/[0.06] space-y-2">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-rose-300 block">
-                UNAVAILABLE MEASUREMENTS
-              </span>
-              {unavailableList.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {unavailableList.map((item) => (
-                    <span
-                      key={item}
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-mono border border-rose-500/30 text-rose-200 bg-rose-500/10"
+          {(unavailableList.length > 0 || reason) && (() => {
+            const unavailTone = status === 'UNAVAILABLE' ? STATUS_TONES.error : STATUS_TONES.cancelled
+            return (
+              <div
+                className="rounded-2xl border overflow-hidden"
+                style={{
+                  backgroundColor: unavailTone.bg,
+                  borderColor: unavailTone.border,
+                }}
+              >
+                <SectionHeader
+                  title="Unavailable Measurements"
+                  eyebrow="Coverage Notice"
+                  icon={AlertCircle}
+                  tone={status === 'UNAVAILABLE' ? 'error' : 'cancelled'}
+                  compact
+                />
+                <div className="p-4 space-y-2.5">
+                  {unavailableList.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {unavailableList.map((item) => (
+                        <span
+                          key={item}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-mono border"
+                          style={{
+                            borderColor: unavailTone.pillBorder,
+                            color: unavailTone.fg,
+                            backgroundColor: unavailTone.pillBg,
+                          }}
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {reason && (
+                    <p
+                      className="text-[11px] font-mono leading-relaxed"
+                      style={{ color: unavailTone.fg }}
                     >
-                      {item}
-                    </span>
-                  ))}
+                      {reason}
+                    </p>
+                  )}
                 </div>
-              )}
-              {reason && (
-                <p className="text-[11px] font-mono leading-relaxed text-rose-200/80">{reason}</p>
-              )}
-            </div>
-          )}
-
+              </div>
+            )
+          })()}
 
           {/* Active Arc DeFi Positions (Vault & LP Pools with Pending Fees) */}
           {(defiLpPositions.length > 0 || defiVaultSummary?.hasPosition) && (
-            <div
-              className="rounded-2xl border border-white/[0.08] overflow-hidden"
-              style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-            >
-              <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[11px] font-mono font-semibold text-white/60">
-                <span>ARC DEFI POSITIONS ({(defiVaultSummary?.hasPosition ? 1 : 0) + defiLpPositions.length})</span>
-                <span className="text-[10px] text-white/40">VAULT + LP FEES</span>
-              </div>
-              <div className="p-3 space-y-2 max-h-72 overflow-y-auto">
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Arc DeFi Positions"
+                eyebrow="Vault + LP Fees"
+                icon={Layers}
+                tone="pending"
+              />
+              <div className="p-3.5 space-y-2.5 max-h-72 overflow-y-auto">
                 {defiVaultSummary?.hasPosition && (
-                  <div className="p-3 rounded-xl bg-white/[0.025] border border-[var(--purple-1)]/25 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-bold text-white">USDC Yield Vault (ERC-4626)</span>
-                      <span className="text-[10px] font-mono text-white/45 block">
-                        Shares: {defiVaultSummary.shares}
-                      </span>
+                  <div
+                    className="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3"
+                    style={{
+                      backgroundColor: STATUS_TONES.pending.bg,
+                      borderColor: STATUS_TONES.pending.border,
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <TokenIconBadge symbol="USDC" size={20} />
+                      <div>
+                        <span
+                          className="text-sm font-bold text-white block"
+                          style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                        >
+                          USDC Yield Vault (ERC-4626)
+                        </span>
+                        <span className="text-[10px] font-mono text-white/50 block">
+                          Shares: {defiVaultSummary.shares}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums">
-                      <span className="text-white/70">
-                        Value: <strong className="text-white">{typeof defiVaultSummary.currentValueUsdc === 'number' ? `$${defiVaultSummary.currentValueUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
+                    <div className="flex items-center gap-4 text-[14px] font-mono tabular-nums">
+                      <span className="text-white/75">
+                        {' '}
+                        <strong
+                          className="text-white"
+                          style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                        >
+                          {typeof defiVaultSummary.currentValueUsdc === 'number'
+                            ? `$${defiVaultSummary.currentValueUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : '—'}
+                        </strong>
                       </span>
                       {typeof defiVaultSummary.pendingYieldUsdc === 'number' && defiVaultSummary.pendingYieldUsdc > 0 && (
-                        <span className="text-[var(--earned-green)] font-bold">
+                        <span className="font-bold" style={{ color: STATUS_TONES.success.fg }}>
                           Pending Yield: +${defiVaultSummary.pendingYieldUsdc.toFixed(4)}
                         </span>
                       )}
                     </div>
                   </div>
                 )}
-                {defiLpPositions.map((lp: any) => (
-                  <div
-                    key={lp.poolId || lp.poolName}
-                    className="p-3 rounded-xl bg-white/[0.025] border border-white/[0.06] flex flex-wrap items-center justify-between gap-2"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white">{lp.poolName} LP</span>
-                        {typeof lp.poolSharePct === 'number' && lp.poolSharePct > 0 && (
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.06] text-white/60">
-                            {lp.poolSharePct.toFixed(2)}% share
+                {defiLpPositions.map((lp: any) => {
+                  const lpSymbols = [lp.tokenA, lp.tokenB].filter(Boolean)
+                  return (
+                    <div
+                      key={lp.poolId || lp.poolName}
+                      className="p-3.5 rounded-xl bg-white/[0.025] border border-white/[0.07] flex flex-wrap items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <TokenPairIcons
+                          symbols={lpSymbols.length > 0 ? lpSymbols : extractTokenSymbols(lp.poolName, 2)}
+                          size={18}
+                        />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className="text-sm font-bold text-white"
+                              style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                            >
+                              {lp.poolName}
+                            </span>
+                            {typeof lp.poolSharePct === 'number' && lp.poolSharePct > 0 && (
+                              <StatusBadge
+                                tone="info"
+                                label={`${lp.poolSharePct.toFixed(2)}%`}
+                                size="xs"
+                                showIcon={false}
+                              />
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-white/50 block mt-0.5 tabular-nums">
+                            {lp.amountA ?? '—'} {lp.tokenA} + {lp.amountB ?? '—'} {lp.tokenB} · IL: {lp.impermanentLossRisk}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-[14px] font-mono tabular-nums">
+                        <span className="text-white/75">
+                          {' '}
+                          <strong
+                            className="text-white"
+                            style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                          >
+                            {typeof lp.valueUsd === 'number'
+                              ? `$${lp.valueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : '—'}
+                          </strong>
+                        </span>
+                        {typeof lp.pendingFeesUsd === 'number' && lp.pendingFeesUsd > 0 && (
+                          <span className="font-bold" style={{ color: STATUS_TONES.success.fg }}>
+                            Pending Fees: +${lp.pendingFeesUsd.toFixed(4)}
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] font-mono text-white/45 block mt-0.5">
-                        {lp.amountA ?? '—'} {lp.tokenA} + {lp.amountB ?? '—'} {lp.tokenB} · IL: {lp.impermanentLossRisk}
-                      </span>
                     </div>
-                    <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums">
-                      <span className="text-white/70">
-                        LP Value: <strong className="text-white">{typeof lp.valueUsd === 'number' ? `$${lp.valueUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</strong>
-                      </span>
-                      {typeof lp.pendingFeesUsd === 'number' && lp.pendingFeesUsd > 0 && (
-                        <span className="text-[var(--earned-green)] font-bold">
-                          Pending Fees: +${lp.pendingFeesUsd.toFixed(4)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1514,13 +2255,14 @@ export function VisualDataDashboard({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
               {/* Left Column: Holdings Breakdown Table */}
               {holdings.length > 0 && (
-                <div
-                  className="rounded-2xl border border-white/[0.08] overflow-hidden flex flex-col h-full"
-                  style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-                >
-                  <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[12px] font-mono font-semibold text-white/60">
-                    <span>PORTFOLIO ASSETS ({holdings.length})</span>
-                  </div>
+                <div className="ai-section-card flex flex-col h-full">
+                  <SectionHeader
+                    title="Portfolio Assets"
+                    eyebrow="On-Chain Holdings"
+                    icon={Coins}
+                    tone="info"
+                    compact
+                  />
                   <div className="p-3 max-h-72 overflow-y-auto flex-1 flex flex-col gap-2">
                     {holdings.map((h, i) => {
                       const symbol = h.symbol || 'ASSET'
@@ -1536,16 +2278,21 @@ export function VisualDataDashboard({
                       return (
                         <div
                           key={i}
-                          className="p-2.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.05] hover:border-white/10 transition-all flex items-center justify-between gap-3 group"
+                          className="p-2.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.06] hover:border-white/15 transition-all flex items-center justify-between gap-3 group"
                         >
                           {/* Left: Token Icon & Symbol */}
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-9 h-9 shrink-0 flex items-center justify-center rounded-xl p-1 bg-white/[0.04] border border-white/[0.06] group-hover:scale-105 transition-transform overflow-hidden shadow-inner">
+                            <div className="w-9 h-9 shrink-0 flex items-center justify-center rounded-xl p-1 bg-white/[0.04] border border-white/[0.08] group-hover:scale-105 transition-transform overflow-hidden shadow-inner">
                               <PortfolioAssetIcon symbol={symbol} size={24} />
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-bold text-white tracking-wide">{symbol}</span>
+                                <span
+                                  className="text-sm font-bold text-white tracking-tight"
+                                  style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                                >
+                                  {symbol}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -1553,14 +2300,17 @@ export function VisualDataDashboard({
                           {/* Right: Balance & USD Value */}
                           <div className="text-right shrink-0 pl-2">
                             <div
-                              className="font-mono text-xs font-bold text-white tracking-tight tabular-nums"
+                              className="text-sm font-bold text-white tracking-tight tabular-nums"
                               style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                             >
                               {formattedBalance}{' '}
-                              <span className="text-[11px] text-white/40">{symbol}</span>
+                              <span className="text-[11px] font-mono text-white/45">{symbol}</span>
                             </div>
                             {formattedUsd && (
-                              <div className="text-[11px] text-slate-400 font-mono mt-0.5 tabular-nums">
+                              <div
+                                className="text-[11px] font-mono mt-0.5 tabular-nums"
+                                style={{ color: 'var(--fp-4)' }}
+                              >
                                 {formattedUsd}
                               </div>
                             )}
@@ -1574,13 +2324,14 @@ export function VisualDataDashboard({
 
               {/* Right Column: Chain Exposure Matrix */}
               {chainExposure.length > 0 && (
-                <div
-                  className="rounded-2xl border border-white/[0.08] overflow-hidden flex flex-col h-full"
-                  style={{ background: 'rgba(8, 10, 18, 0.6)' }}
-                >
-                  <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between text-[12px] font-mono font-semibold text-white/60">
-                    <span>CHAIN ({chainExposure.length})</span>
-                  </div>
+                <div className="ai-section-card flex flex-col h-full">
+                  <SectionHeader
+                    title="Chain Exposure"
+                    eyebrow="Network Breakdown"
+                    icon={Compass}
+                    tone="info"
+                    compact
+                  />
                   <div className="p-3 max-h-72 overflow-y-auto flex-1 flex flex-col gap-2">
                     {chainExposure.map((c, i) => {
                       const chainKey = String(c.chain || 'Network')
@@ -1588,15 +2339,19 @@ export function VisualDataDashboard({
                       return (
                         <div
                           key={i}
-                          className="p-2.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.05] hover:border-white/10 transition-all flex items-center justify-between gap-2.5 group"
+                          className="p-2.5 rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.06] hover:border-white/15 transition-all flex items-center justify-between gap-2.5 group"
                         >
                           {/* Left: Chain Icon & Name */}
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="shrink-0 flex items-center justify-center w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.06] overflow-hidden group-hover:scale-105 transition-transform shadow-inner">
+                            <div className="shrink-0 flex items-center justify-center w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.08] overflow-hidden group-hover:scale-105 transition-transform shadow-inner">
                               <ChainIcon chainKeyOrIconId={chainKey} size={24} />
                             </div>
                             <div className="min-w-0">
-                              <div className="text-xs font-semibold text-white truncate" title={displayName}>
+                              <div
+                                className="text-sm font-semibold text-white truncate"
+                                style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+                                title={displayName}
+                              >
                                 {displayName}
                               </div>
                             </div>
@@ -1605,7 +2360,7 @@ export function VisualDataDashboard({
                           {/* Right: Value in USD */}
                           <div className="text-right shrink-0">
                             <div
-                              className="text-xs font-bold text-white tabular-nums"
+                              className="text-sm font-bold text-white tabular-nums"
                               style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                             >
                               {typeof c.valueUsd === 'number'
@@ -1627,88 +2382,105 @@ export function VisualDataDashboard({
           {/* Analyst narrative (llm services): executive intelligence card */}
           {(narrativeHeadline || narrativeObservations.length > 0 || narrativeRisks.length > 0) && (
             <div
-              className="relative rounded-2xl border border-white/[0.1] p-5 space-y-3.5 overflow-hidden transition-all"
+              className="ai-section-card"
               style={{
-                background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(99, 102, 241, 0.03) 40%, rgba(15, 17, 26, 0.85) 100%)',
-                backdropFilter: 'blur(24px)',
-                boxShadow: '0 8px 32px -4px rgba(0, 0, 0, 0.4)',
+                borderColor: STATUS_TONES.pending.border,
               }}
             >
-              <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--purple-1)]/20 to-[var(--color-brand-primary)]/20 border border-[var(--purple-1)]/30 flex items-center justify-center text-[var(--purple-1)] shadow-inner">
-                    <Sparkles className="w-3.5 h-3.5" />
-                  </div>
-                  <span
-                    className="text-[11px] font-mono uppercase tracking-[2px] font-semibold text-white/70"
-                    style={{ fontFamily: 'var(--fonts--space-mono, monospace)' }}
+              <SectionHeader
+                title="Analyst Narrative"
+                eyebrow="AI Executive Brief"
+                icon={Sparkles}
+                tone="pending"
+              />
+              <div className="p-5 space-y-4">
+                {narrativeHeadline && (
+                  <h4
+                    className="text-lg sm:text-xl font-bold text-white leading-snug tracking-tight"
+                    style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
                   >
-                    ANALYST NARRATIVE
-                  </span>
-                </div>
-              </div>
+                    {narrativeHeadline}
+                  </h4>
+                )}
 
-              {narrativeHeadline && (
-                <h4
-                  className="text-lg sm:text-xl font-bold text-white leading-snug tracking-tight"
-                  style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
-                >
-                  {narrativeHeadline}
-                </h4>
-              )}
-
-              {narrativeObservations.length > 0 && (
-                <div className="space-y-2">
-                  {narrativeObservations.map((observation, i) => (
-                    <div key={`observation-${i}`} className="flex items-start gap-2.5 text-xs text-white/85 leading-relaxed">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand-primary)] mt-1.5 shrink-0 shadow-[0_0_8px_var(--color-brand-primary)]" />
-                      <p>{observation}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {narrativeRisks.length > 0 && (
-                <div
-                  className="p-3 rounded-xl border space-y-2 mt-2"
-                  style={{
-                    backgroundColor: 'rgba(233, 161, 63, 0.08)',
-                    borderColor: 'rgba(233, 161, 63, 0.25)',
-                  }}
-                >
-                  <span
-                    className="text-[10px] font-mono uppercase tracking-[1.5px] font-bold block"
-                    style={{ color: 'var(--secondary-colors--blockstream-gold)' }}
-                  >
-                    RISKS &amp; ADVISORIES
-                  </span>
-                  <ul className="space-y-1.5 text-xs text-white/85">
-                    {narrativeRisks.map((risk, i) => (
-                      <li key={`risk-${i}`} className="leading-relaxed flex items-start gap-2">
-                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--secondary-colors--blockstream-gold)]" />
-                        <span>{risk}</span>
-                      </li>
+                {narrativeObservations.length > 0 && (
+                  <div className="space-y-2">
+                    {narrativeObservations.map((observation, i) => (
+                      <div key={`observation-${i}`} className="flex items-start gap-2.5 text-xs text-white/90 leading-relaxed">
+                        <div
+                          className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
+                          style={{
+                            backgroundColor: STATUS_TONES.info.accent,
+                            boxShadow: '0 0 8px rgba(172, 198, 233, 0.7)',
+                          }}
+                        />
+                        <p>{observation}</p>
+                      </div>
                     ))}
-                  </ul>
-                </div>
-              )}
+                  </div>
+                )}
+
+                {narrativeRisks.length > 0 && (
+                  <div
+                    className="p-3.5 rounded-xl border space-y-2"
+                    style={{
+                      backgroundColor: STATUS_TONES.cancelled.bg,
+                      borderColor: STATUS_TONES.cancelled.border,
+                    }}
+                  >
+                    <span
+                      className="text-[10px] font-mono uppercase tracking-[1.5px] font-bold block"
+                      style={{ color: STATUS_TONES.cancelled.accent }}
+                    >
+                      RISKS &amp; ADVISORIES
+                    </span>
+                    <ul className="space-y-1.5 text-xs text-white/90">
+                      {narrativeRisks.map((risk, i) => (
+                        <li key={`risk-${i}`} className="leading-relaxed flex items-start gap-2">
+                          <AlertCircle
+                            className="w-3.5 h-3.5 mt-0.5 flex-shrink-0"
+                            style={{ color: STATUS_TONES.cancelled.accent }}
+                          />
+                          <span>{risk}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* Available Routes */}
           {routes.length > 0 && (
-            <div className="rounded-2xl border border-white/[0.08] p-3.5 space-y-2" style={{ background: 'rgba(8, 10, 18, 0.6)' }}>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">GATEWAY ROUTES</span>
-              <div className="space-y-1.5">
+            <div className="ai-section-card">
+              <SectionHeader
+                title="Gateway Routes"
+                eyebrow="Cross-Chain Rails"
+                icon={Compass}
+                tone="info"
+                count={routes.length}
+                compact
+              />
+              <div className="p-3.5 space-y-2">
                 {routes.map((r, i) => (
-                  <div key={i} className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-white">{r.sourceChain || 'Source'}</span>
-                      <ChevronRight className="w-3.5 h-3.5 text-white/30" />
-                      <span className="font-semibold text-cyan-300">{r.targetChain || 'Target'}</span>
+                  <div
+                    key={i}
+                    className="p-3 rounded-xl bg-white/[0.025] border border-white/[0.06] flex flex-wrap items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <ChainPill chainKey={String(r.sourceChain || 'Arc_Testnet')} />
+                      <ChevronRight className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+                      <ChainPill chainKey={String(r.targetChain || 'Base_Sepolia')} />
                     </div>
                     {r.estimatedFee && (
-                      <span className="font-mono text-[10px] text-[var(--earned-green)]">Fee: {r.estimatedFee} USDC</span>
+                      <span
+                        className="inline-flex items-center gap-1 font-mono text-[11px] font-semibold tabular-nums"
+                        style={{ color: STATUS_TONES.success.fg }}
+                      >
+                        <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
+                        <span>Fee: {r.estimatedFee} USDC</span>
+                      </span>
                     )}
                   </div>
                 ))}
@@ -1718,11 +2490,24 @@ export function VisualDataDashboard({
 
           {/* Narrative Recommendations */}
           {recommendations.length > 0 && (
-            <div className="rounded-2xl border border-white/[0.08] p-3.5 space-y-1.5" style={{ background: 'rgba(8, 10, 18, 0.6)' }}>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">AI RECOMMENDATIONS</span>
-              <ul className="space-y-1 list-disc list-inside text-xs text-white/80">
+            <div className="ai-section-card">
+              <SectionHeader
+                title="AI Recommendations"
+                eyebrow="Advisory Guidance"
+                icon={Sparkles}
+                tone="info"
+                count={recommendations.length}
+                compact
+              />
+              <ul className="p-4 space-y-2 text-xs text-white/85">
                 {recommendations.map((rec, i) => (
-                  <li key={i} className="leading-relaxed">{rec}</li>
+                  <li key={i} className="leading-relaxed flex items-start gap-2">
+                    <ArrowRight
+                      className="w-3.5 h-3.5 mt-0.5 shrink-0"
+                      style={{ color: STATUS_TONES.info.accent }}
+                    />
+                    <span>{rec}</span>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -1730,47 +2515,34 @@ export function VisualDataDashboard({
 
           {/* Graded risk register: Human-Centric Actionable Diagnoses */}
           {riskRegister.length > 0 && (
-            <div
-              className="rounded-2xl border border-white/[0.08] overflow-hidden"
-              style={{
-                background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(8, 10, 18, 0.75) 100%)',
-                backdropFilter: 'blur(16px)',
-              }}
-            >
-              <div className="px-6 py-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="text-[12px] font-mono uppercase tracking-[1.5px] font-semibold text-white/80"
-                  >
-                    Risk register ({riskRegister.length})
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const)
-                    .filter((severity) => (reportSummary?.counts?.[severity] ?? 0) > 0)
-                    .map((severity) => (
-                      <span
-                        key={severity}
-                        className="px-2 py-0.5 rounded-md border text-[9px] font-mono font-bold tracking-wider tabular-nums shadow-sm"
-                        style={{
-                          color: toneFor(severity).color,
-                          backgroundColor: toneFor(severity).background,
-                          borderColor: toneFor(severity).border,
-                        }}
-                      >
-                        {severity} {reportSummary.counts[severity]}
-                      </span>
-                    ))}
-                </div>
-              </div>
+            <div className="ai-section-card">
+              <SectionHeader
+                title={`Risk Register`}
+                icon={ShieldAlert}
+                tone={resolveRiskSeverityTone(reportSummary?.highestSeverity)}
+                rightSlot={
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const)
+                      .filter((severity) => (reportSummary?.counts?.[severity] ?? 0) > 0)
+                      .map((severity) => (
+                        <StatusBadge
+                          key={severity}
+                          tone={resolveRiskSeverityTone(severity)}
+                          label={`${severity} ${reportSummary.counts[severity]}`}
+                          size="xs"
+                          showIcon={false}
+                        />
+                      ))}
+                  </div>
+                }
+              />
 
-              <div className="p-3.5 space-y-3">
+              <div className="p-4 space-y-3">
                 {riskRegister.map((entry, index) => (
                   <RiskRegisterCard
                     key={`${String(entry?.id ?? 'risk')}-${index}`}
                     entry={entry}
                     index={index}
-                    tone={toneFor(entry?.severity)}
                     onNavigateTab={onNavigateTab}
                   />
                 ))}
@@ -1781,51 +2553,48 @@ export function VisualDataDashboard({
           {/* Protocol Risk Warnings — only for services without a graded register */}
           {riskFlags.length > 0 && riskRegister.length === 0 && (
             <div
-              className="p-3.5 sm:p-4 rounded-2xl border flex items-start gap-3 transition-all"
+              className="p-4 rounded-2xl border flex items-start gap-3 transition-all"
               style={{
-                backgroundColor: 'rgba(233, 161, 63, 0.08)',
-                borderColor: 'rgba(233, 161, 63, 0.28)',
-                boxShadow: '0 4px 20px -4px rgba(233, 161, 63, 0.1)',
+                backgroundColor: STATUS_TONES.cancelled.bg,
+                borderColor: STATUS_TONES.cancelled.border,
+                boxShadow: `0 6px 20px -6px ${STATUS_TONES.cancelled.glow}`,
               }}
             >
               <div
-                className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center"
+                className="shrink-0 w-9 h-9 rounded-xl border flex items-center justify-center"
                 style={{
-                  backgroundColor: 'rgba(233, 161, 63, 0.15)',
-                  color: 'var(--secondary-colors--blockstream-gold)',
+                  backgroundColor: STATUS_TONES.cancelled.pillBg,
+                  borderColor: STATUS_TONES.cancelled.pillBorder,
+                  color: STATUS_TONES.cancelled.accent,
                 }}
               >
                 <AlertCircle className="w-4 h-4 stroke-[2.2]" />
               </div>
-              <div className="space-y-1.5 min-w-0 flex-1">
+              <div className="space-y-2 min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span
-                    className="text-[14px] font-mono font-bold uppercase tracking-wider"
-                    style={{ color: 'var(--secondary-colors--blockstream-gold)' }}
+                    className="text-sm font-bold tracking-tight"
+                    style={{
+                      fontFamily: 'var(--font-display, Outfit, sans-serif)',
+                      color: STATUS_TONES.cancelled.fg,
+                    }}
                   >
                     Protocol Risk Flags
                   </span>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
                   {riskFlags.map((flag) => (
-                    <span
+                    <StatusBadge
                       key={flag}
-                      className="px-3 py-1.5 rounded-xl text-xs font-mono font-bold border flex items-center gap-1.5 shadow-sm"
-                      style={{
-                        backgroundColor: 'rgba(233, 161, 63, 0.15)',
-                        borderColor: 'rgba(233, 161, 63, 0.4)',
-                        color: 'var(--secondary-colors--blockstream-gold)',
-                      }}
-                    >
-                      <span>⚠️</span>
-                      <span>{flag.replace(/_/g, ' ')}</span>
-                    </span>
+                      tone="cancelled"
+                      label={flag.replace(/_/g, ' ')}
+                      size="sm"
+                    />
                   ))}
                 </div>
               </div>
             </div>
           )}
-
         </>
       )}
     </div>
@@ -1833,35 +2602,67 @@ export function VisualDataDashboard({
 }
 
 /**
- * A voided paid call is not one failure: a model that produced no narrative, an unreadable
- * on-chain input and a service that returned nothing all need different next steps. The banner
- * names the cause (from the server's `diagnostics`) and states plainly whether money moved.
+ * A voided paid call is not one failure: user cancellations and uncharged voids use Blockstream Gold
+ * (Cancelled), wallet scope messages use Sky Sync (Info), and hard failures use Obsidian Crimson (Error).
  */
 function ServiceFailureBanner({ result }: { result: x402ExecutionResult }) {
   const diagnosis = diagnoseX402Failure(result)
-  const charged = diagnosis ? diagnosis.charged : (result.costUsdc ?? 0) > 0
+  const presentation = resolveFailurePresentation(diagnosis, result)
+  const toneStyle = getStatusToneStyle(presentation.tone)
+  const HeadingIcon =
+    presentation.tone === 'cancelled'
+      ? Ban
+      : presentation.tone === 'info'
+        ? Info
+        : AlertCircle
 
   return (
-    <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-3 animate-fade-in">
-      <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
-      <div className="space-y-2 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-rose-200">{diagnosis?.title ?? 'Execution Error'}</span>
-          {!charged && (
-            <span className="px-2 py-0.5 rounded-md border border-white/15 bg-white/[0.04] text-[10px] font-mono uppercase tracking-wider text-white/60">
-              No charge
-            </span>
-          )}
+    <div
+      className="p-4 sm:p-5 rounded-2xl border text-xs flex items-start gap-3.5 animate-fade-in"
+      style={{
+        backgroundColor: toneStyle.bg,
+        borderColor: toneStyle.border,
+        borderLeftWidth: '3px',
+        borderLeftColor: toneStyle.accent,
+        boxShadow: `0 8px 24px -8px ${toneStyle.glow}`,
+      }}
+    >
+      <div
+        className="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 mt-0.5"
+        style={{
+          backgroundColor: toneStyle.pillBg,
+          borderColor: toneStyle.pillBorder,
+          color: toneStyle.accent,
+        }}
+      >
+        <HeadingIcon className="w-4 h-4" />
+      </div>
+      <div className="space-y-2 min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h4
+            className="text-sm sm:text-base font-bold text-white tracking-tight"
+            style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+          >
+            {diagnosis?.title ?? presentation.defaultTitle}
+          </h4>
+          <StatusBadge tone={presentation.tone} label={presentation.badgeLabel} size="xs" />
         </div>
         {diagnosis?.detail && (
-          <p className="font-mono text-[11px] leading-relaxed text-rose-200/90">{diagnosis.detail}</p>
+          <p className="text-xs leading-relaxed" style={{ color: toneStyle.fg }}>
+            {diagnosis.detail}
+          </p>
         )}
         {diagnosis && diagnosis.reasons.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {diagnosis.reasons.map((item) => (
               <span
                 key={item}
-                className="px-2 py-0.5 rounded-md text-[10px] font-mono border border-rose-500/30 text-rose-200/90 bg-rose-500/10"
+                className="px-2.5 py-0.5 rounded-lg text-[10px] font-mono border"
+                style={{
+                  borderColor: toneStyle.pillBorder,
+                  color: toneStyle.fg,
+                  backgroundColor: toneStyle.pillBg,
+                }}
               >
                 {item}
               </span>
@@ -1869,9 +2670,21 @@ function ServiceFailureBanner({ result }: { result: x402ExecutionResult }) {
           </div>
         )}
         {diagnosis?.action && (
-          <p className="font-mono text-[10px] leading-relaxed text-white/45">{diagnosis.action}</p>
+          <p
+            className="font-mono text-[11px] leading-relaxed"
+            style={{ color: 'var(--fp-3)' }}
+          >
+            {diagnosis.action}
+          </p>
         )}
-        <p className="font-mono text-[10px] leading-relaxed text-rose-300/60 break-words">{result.error}</p>
+        {result.error && result.error !== diagnosis?.detail && (
+          <p
+            className="font-mono text-[10px] leading-relaxed break-words opacity-75"
+            style={{ color: toneStyle.fg }}
+          >
+            {result.error}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -1921,12 +2734,25 @@ export default function ServicePlaygroundModal({
   const sessionIsActive = sessionConfig.isActive && Date.now() <= sessionConfig.expiresAt
   const remainingSessionUsdc = Math.max(0, sessionConfig.maxSpendUsdc - (sessionConfig.spentUsdc || 0))
 
+  // Detect wallet-cancelled x402 settlement so we stay in the compact Settlement screen
+  // instead of opening an empty Report screen.
+  const isWalletCanceledSettlement = Boolean(
+    !isExecuting &&
+    executionResult &&
+    !executionResult.success &&
+    !userWantsConfigure &&
+    (isUserCanceledMessage(executionResult.error) ||
+      isUserCanceledMessage(diagnoseX402Failure(executionResult)?.detail))
+  )
+
   // Derive current step
   const currentStep = isExecuting
     ? 'executing'
-    : (executionResult) && !userWantsConfigure
-      ? 'result'
-      : 'configure'
+    : isWalletCanceledSettlement
+      ? 'canceled'
+      : executionResult && !userWantsConfigure
+        ? 'result'
+        : 'configure'
 
   const supportedNetworks = useMemo(() => {
     const list = [...DEFAULT_GATEWAY_NETWORKS]
@@ -2091,6 +2917,11 @@ export default function ServicePlaygroundModal({
   // Readiness signals
   const { currentChainId, switchToArc, isSwitching } = useChainSwitch()
   const gateway = useGatewayBalance(isOpen && service ? walletAddress || '' : '')
+  const isTradeAdvisorService = service?.id === 'arc-deep-liquidity-slippage-optimizer'
+  const { balances: arcSwapBalances } = useArcSwapTokenBalances(
+    walletAddress,
+    Boolean(isOpen && isTradeAdvisorService && walletAddress)
+  )
   const {
     config: x402Config,
     loading: x402ConfigLoading,
@@ -2178,15 +3009,90 @@ export default function ServicePlaygroundModal({
   if (!isOpen || !service || !telemetry) return null
 
   const handleInputChange = (name: string, value: any) => {
-    setFormData((prev) => ({ ...prev, [name]: value }))
+    setFormData((prev) => {
+      if (isTradeAdvisorService) {
+        if (name === 'fromToken' && typeof value === 'string' && value === prev.toToken) {
+          const fallbackTo =
+            typeof prev.fromToken === 'string' && prev.fromToken !== value
+              ? prev.fromToken
+              : value === 'USDC'
+                ? 'WETH'
+                : 'USDC'
+          return { ...prev, fromToken: value, toToken: fallbackTo }
+        }
+        if (name === 'toToken' && typeof value === 'string' && value === prev.fromToken) {
+          const fallbackFrom =
+            typeof prev.toToken === 'string' && prev.toToken !== value
+              ? prev.toToken
+              : value === 'USDC'
+                ? 'WETH'
+                : 'USDC'
+          return { ...prev, fromToken: fallbackFrom, toToken: value }
+        }
+      }
+      return { ...prev, [name]: value }
+    })
   }
 
+  const minSlippagePct = POOL_MIN_SLIPPAGE_BPS / 100
+  const maxSlippagePct = POOL_MAX_SLIPPAGE_BPS / 100
+
+  const selectedSellToken = isTradeAdvisorService
+    ? String(formData.fromToken || 'USDC')
+    : undefined
+  const selectedSellBalance = isTradeAdvisorService
+    ? resolveArcSwapTokenBalance(arcSwapBalances, selectedSellToken)
+    : null
+  const parsedTradeAmount = isTradeAdvisorService ? Number(formData.amount) : Number.NaN
+  const exceedsArcWalletBalance =
+    isTradeAdvisorService &&
+    selectedSellBalance !== null &&
+    Number.isFinite(parsedTradeAmount) &&
+    parsedTradeAmount > 0 &&
+    parsedTradeAmount > selectedSellBalance + 1e-9
+
+  const formValidationError: string | null = (() => {
+    if (!isTradeAdvisorService) return null
+    const fromT = String(formData.fromToken || '').toUpperCase()
+    const toT = String(formData.toToken || '').toUpperCase()
+    if (fromT && toT && fromT === toT) {
+      return `Sell Token and Buy Token must differ — you cannot swap ${formData.fromToken} for itself.`
+    }
+    const amt = formData.amount === '' ? Number.NaN : Number(formData.amount)
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return 'Enter a trade amount greater than 0 before running the advisor.'
+    }
+    if (formData.slippageTolerancePct !== '' && formData.slippageTolerancePct !== undefined) {
+      const slip = Number(formData.slippageTolerancePct)
+      if (!Number.isFinite(slip) || slip < minSlippagePct || slip > maxSlippagePct) {
+        return `Max Slippage Tolerance must be between ${minSlippagePct}% and ${maxSlippagePct}% (Arc DEX bounds).`
+      }
+    }
+    return null
+  })()
+
   const handleRun = async () => {
+    if (formValidationError) return
     soundService.play('pop')
     setUserWantsConfigure(false)
     setOutputViewMode('visual')
+    const sanitizedPayload: Record<string, any> = { ...formData }
+    for (const param of service.ui.form) {
+      if (param.type === 'number') {
+        const raw = sanitizedPayload[param.name]
+        if (raw === '' || raw === undefined || raw === null) {
+          if (param.required) {
+            sanitizedPayload[param.name] = Number(param.defaultValue)
+          } else {
+            delete sanitizedPayload[param.name]
+          }
+        } else {
+          sanitizedPayload[param.name] = Number(raw)
+        }
+      }
+    }
     try {
-      await onExecute(service, formData)
+      await onExecute(service, sanitizedPayload)
     } catch {
       // Execution errors handled in parent
     }
@@ -2202,89 +3108,25 @@ export default function ServicePlaygroundModal({
   // Active displayed JSON in console
   const displayedJson = executionResult?.data || null
 
-  const stepIndex = currentStep === 'configure' ? 1 : currentStep === 'executing' ? 2 : 3
+  const renderSelectOptionIcon = (paramName: string, optValue: string): React.ReactNode => {
+    if (paramName.toLowerCase().includes('chain') || isKnownChain(optValue)) {
+      return (
+        <span className="w-5 h-5 rounded-full overflow-hidden inline-flex items-center justify-center shrink-0">
+          <ChainIcon chainKeyOrIconId={optValue} size={20} />
+        </span>
+      )
+    }
+    const symbols = extractTokenSymbols(optValue, 2)
+    if (symbols.length >= 2) {
+      return <TokenPairIcons symbols={symbols} size={18} />
+    }
+    if (symbols.length === 1) {
+      return <TokenIconBadge symbol={symbols[0]} size={20} />
+    }
+    return undefined
+  }
 
-  const stepItems = [
-    { idx: 1, title: 'Configure', subtitle: 'Payload Inputs' },
-    { idx: 2, title: 'Settlement', subtitle: 'Circle Gateway x402' },
-    { idx: 3, title: 'Report', subtitle: 'AI Intelligence' },
-  ]
-
-  const renderStepBoxes = () => (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full mb-5">
-      {stepItems.map((st) => {
-        const isCompleted = st.idx < stepIndex
-        const isActive = st.idx === stepIndex
-        const isClickable = isCompleted && currentStep === 'result' && st.idx === 1
-
-        return (
-          <div
-            key={st.idx}
-            onClick={() => {
-              if (isClickable) {
-                soundService.play('pop')
-                setUserWantsConfigure(true)
-              }
-            }}
-            title={isClickable ? 'Click to modify parameters' : undefined}
-            className={`p-2.5 sm:p-3.5 rounded-2xl border transition-all duration-300 relative overflow-hidden select-none ${isCompleted
-              ? `border-indigo-500/40 bg-indigo-500/10 shadow-[0_4px_16px_rgba(99,102,241,0.15)] ${isClickable ? 'cursor-pointer hover:border-indigo-400/70 hover:bg-indigo-500/15 hover:scale-[1.02]' : ''
-              }`
-              : isActive
-                ? 'border-[var(--purple-1)] bg-[linear-gradient(135deg,rgba(112,88,248,0.22)_0%,rgba(6,182,212,0.14)_100%)] shadow-[0_0_24px_rgba(112,88,248,0.28),inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-[var(--purple-1)]/50'
-                : 'border-white/[0.07] bg-white/[0.02] opacity-55'
-              }`}
-          >
-            {/* Top Glowing Hairline Indicator */}
-            {isActive && (
-              <div
-                className="absolute top-0 left-0 right-0 h-[2px]"
-                style={{
-                  background: 'linear-gradient(90deg, transparent, var(--color-brand-cyan), var(--purple-1), transparent)',
-                }}
-              />
-            )}
-            {isCompleted && (
-              <div
-                className="absolute top-0 left-0 right-0 h-[2px]"
-                style={{
-                  background: 'linear-gradient(90deg, transparent, #818cf8, transparent)',
-                }}
-              />
-            )}
-
-            <div className="flex items-center gap-2.5 sm:gap-3">
-              {/* Number Badge or Checkmark */}
-              <span
-                className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg inline-flex items-center justify-center font-mono text-[10px] sm:text-xs font-bold transition-all shrink-0 ${isCompleted
-                  ? 'bg-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.6)]'
-                  : isActive
-                    ? 'bg-[var(--purple-1)] text-black shadow-[0_0_12px_rgba(152,150,255,0.6)]'
-                    : 'bg-white/10 text-white/40'
-                  }`}
-              >
-                {isCompleted ? <Check className="w-3.5 h-3.5 text-white stroke-[3]" /> : `0${st.idx}`}
-              </span>
-
-              {/* Title & Subtitle */}
-              <div className="min-w-0 flex-1">
-                <div
-                  className={`text-xs sm:text-sm font-bold tracking-tight truncate ${isCompleted ? 'text-white' : isActive ? 'text-white' : 'text-white/50'
-                    }`}
-                  style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
-                >
-                  {st.title}
-                </div>
-                <div className="text-[10px] text-white/40 font-mono truncate mt-0.5">
-                  {st.subtitle}
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
+  const serviceSymbols = getServiceTokenSymbols(service)
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 md:p-6 overflow-y-auto">
@@ -2293,14 +3135,14 @@ export default function ServicePlaygroundModal({
 
       {/* Main Container: Linear Command Box */}
       <div
-        className={`relative w-full rounded-[28px] overflow-hidden transition-all duration-300 my-auto flex flex-col max-h-[92vh] z-10 ${currentStep === 'result' ? 'max-w-5xl lg:max-w-6xl' : 'max-w-2xl'
+        className={`relative w-full rounded-[28px] overflow-hidden transition-all duration-300 my-auto flex flex-col max-h-[92vh] z-10 ${currentStep === 'result' ? 'max-w-3xl' : 'max-w-2xl'
           }`}
         style={{
           background: 'linear-gradient(145deg, rgba(16, 20, 36, 0.98) 0%, rgba(10, 13, 24, 0.99) 100%)',
           backdropFilter: 'blur(28px)',
           WebkitBackdropFilter: 'blur(28px)',
           border: '1px solid rgba(255, 255, 255, 0.08)',
-          boxShadow: '0 32px 80px -16px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 40px rgba(112, 88, 248, 0.12)',
+          boxShadow: '0 32px 80px -16px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 40px rgba(152, 150, 255, 0.12)',
         }}
       >
         {/* Top Gradient Hairline */}
@@ -2314,18 +3156,21 @@ export default function ServicePlaygroundModal({
         {/* ── PERSISTENT COMMAND HEADER & LINEAR STEPPER ── */}
         <div
           className="px-6 py-4 border-b border-white/[0.08] flex items-center justify-between gap-4"
-          style={{ background: 'rgba(15, 18, 32, 0.7)' }}
+          style={{ background: 'rgba(15, 18, 32, 0.72)' }}
         >
-          {/* Service Identity & Price */}
-          <div className="flex items-center gap-3 min-w-0">
-            <div>
+          {/* Service Identity & Asset Icons */}
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="hidden sm:flex items-center shrink-0">
+              <TokenPairIcons symbols={serviceSymbols} size={18} />
+            </div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="arc-eyebrow text-[10px] text-[var(--secondary-colors--sky-sync)] font-semibold">
                   ARCIS AI // {getCategoryLabel(service.category)}
                 </span>
               </div>
               <h2
-                className="text-base sm:text-lg font-bold text-white tracking-tight truncate mt-0.5"
+                className="text-lg sm:text-xl font-bold text-white tracking-tight truncate mt-0.5"
                 style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
               >
                 {service.name}
@@ -2351,9 +3196,7 @@ export default function ServicePlaygroundModal({
                 <span className="text-[10px] text-[var(--secondary-colors--sky-sync)] font-semibold">
                   USDC
                 </span>
-                <span className="text-[10px] text-white/40 font-normal">
-                  / call
-                </span>
+                <span className="text-[10px] text-white/40 font-normal">/ call</span>
               </div>
             </div>
 
@@ -2362,9 +3205,10 @@ export default function ServicePlaygroundModal({
                 soundService.play('pop')
                 onClose()
               }}
-              className="p-2 rounded-xl text-white/40 hover:text-white border border-white/10 hover:border-white/20 transition cursor-pointer flex items-center gap-1 group shadow-sm text-xs font-mono"
+              aria-label="Close service playground"
+              className="ai-focus-ring p-2 rounded-xl text-white/50 hover:text-white border border-white/10 hover:border-white/25 transition cursor-pointer flex items-center gap-1 group shadow-sm text-xs font-mono"
             >
-              <X className="w-4 h-4 text-white/60 group-hover:text-white transition" />
+              <X className="w-4 h-4 text-white/65 group-hover:text-white transition" />
             </button>
           </div>
         </div>
@@ -2372,17 +3216,15 @@ export default function ServicePlaygroundModal({
         {/* ── STEP 1: CONFIGURE PAYLOAD (FOCUSED & UNCLUTTERED) ── */}
         {currentStep === 'configure' && (
           <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6 animate-fade-in w-full">
-            {/* Step Progress Boxes */}
-            {renderStepBoxes()}
-
             <div className="space-y-1.5 text-left">
+              <span className="arc-eyebrow text-[10px] block">Step 01 · Parameters</span>
               <h3
                 className="text-xl sm:text-2xl font-bold text-white tracking-tight"
                 style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
               >
                 Configure Analysis Parameters
               </h3>
-              <p className="text-xs sm:text-sm text-white/60 font-sans leading-relaxed">
+              <p className="text-xs sm:text-sm font-sans leading-relaxed" style={{ color: 'var(--fp-3)' }}>
                 {service.description}
               </p>
             </div>
@@ -2390,23 +3232,43 @@ export default function ServicePlaygroundModal({
             {/* Inputs Card */}
             <div
               className="p-5 sm:p-6 rounded-2xl border border-white/[0.08] space-y-4 shadow-sm"
-              style={{ background: 'rgba(255, 255, 255, 0.02)' }}
+              style={{ background: 'rgba(13, 16, 28, 0.65)' }}
             >
-
               {/* Form Parameter Fields */}
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {service.ui.form.map((param) => {
+                  const hasTokenPairFields =
+                    service.ui.form.some((p) => p.name === 'fromToken') &&
+                    service.ui.form.some((p) => p.name === 'toToken')
+                  const isSideBySideTokenField =
+                    hasTokenPairFields && (param.name === 'fromToken' || param.name === 'toToken')
                   const isAddressParam =
                     param.name === 'address' ||
                     param.name === 'walletAddress' ||
                     param.label?.toLowerCase().includes('wallet address')
                   const effectiveDefault = isAddressParam && walletAddress ? walletAddress : param.defaultValue
                   const currentValue = formData[param.name] ?? effectiveDefault
+                  const numberTokenSymbol =
+                    param.type === 'number'
+                      ? /usdc/i.test(param.name) || /usdc/i.test(param.label || '')
+                        ? 'USDC'
+                        : param.name === 'amount' && typeof formData.fromToken === 'string'
+                          ? formData.fromToken
+                          : param.name === 'amountUsdc' && typeof formData.token === 'string'
+                            ? formData.token
+                            : null
+                      : null
 
                   return (
-                    <div key={param.name} className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-white/90 block">
+                    <div
+                      key={param.name}
+                      className={`space-y-1.5 ${isSideBySideTokenField ? 'sm:col-span-1' : 'sm:col-span-2'}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          className="text-xs font-semibold text-white/95 block"
+                          style={{ fontFamily: 'var(--font-app)' }}
+                        >
                           {param.label}
                         </label>
                         {isAddressParam && walletAddress && formData[param.name] !== walletAddress && (
@@ -2419,6 +3281,37 @@ export default function ServicePlaygroundModal({
                             <ArrowUpRight className="w-2.5 h-2.5" />
                           </button>
                         )}
+                        {isTradeAdvisorService && param.name === 'amount' && selectedSellBalance !== null && selectedSellToken && (
+                          <div className="flex items-center gap-1.5 text-[10px] font-mono tabular-nums">
+                            <span style={{ color: 'var(--fp-4)' }}>
+                              Balance:{' '}
+                              <strong className="text-white/85">
+                                {selectedSellBalance.toLocaleString('en-US', {
+                                  maximumFractionDigits: selectedSellBalance < 1 ? 6 : 4,
+                                })}{' '}
+                                {selectedSellToken}
+                              </strong>
+                            </span>
+                            {selectedSellBalance > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  soundService.play('pop')
+                                  const floored = Math.floor(selectedSellBalance * 1e6) / 1e6
+                                  handleInputChange('amount', floored)
+                                }}
+                                className="px-1.5 py-0.5 rounded-md border text-[9px] font-bold uppercase tracking-wider cursor-pointer transition hover:brightness-125"
+                                style={{
+                                  backgroundColor: STATUS_TONES.pending.pillBg,
+                                  borderColor: STATUS_TONES.pending.pillBorder,
+                                  color: STATUS_TONES.pending.fg,
+                                }}
+                              >
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {param.type === 'select' ? (
@@ -2428,6 +3321,7 @@ export default function ServicePlaygroundModal({
                           options={(param.options || []).map((opt) => ({
                             value: String(opt.value),
                             label: opt.label,
+                            leadingNode: renderSelectOptionIcon(param.name, String(opt.value)),
                           }))}
                           menuTitle={param.label}
                         />
@@ -2441,180 +3335,386 @@ export default function ServicePlaygroundModal({
                           ]}
                           menuTitle={param.label}
                         />
-                      ) : param.type === 'number' ? (
-                        <input
-                          type="number"
-                          value={currentValue}
-                          onChange={(e) => handleInputChange(param.name, Number(e.target.value))}
-                          className="w-full px-3.5 py-2 rounded-xl border border-white/10 text-xs text-white focus:outline-none focus:border-[var(--purple-1)] focus:ring-1 focus:ring-[var(--purple-1)]/30 transition font-mono tabular-nums"
-                          style={{ background: 'rgba(9, 11, 20, 0.85)' }}
-                        />
-                      ) : (
+                      ) : param.type === 'number' ? (() => {
+                        const schemaProp = (service.requestSchema?.properties as Record<string, any> | undefined)?.[param.name]
+                        const minVal = typeof schemaProp?.minimum === 'number' ? schemaProp.minimum : undefined
+                        const maxVal = typeof schemaProp?.maximum === 'number' ? schemaProp.maximum : undefined
+                        const stepVal = param.name === 'slippageTolerancePct' ? 0.1 : 'any'
+                        return (
+                          <div className="relative flex items-center">
+                            {numberTokenSymbol && (
+                              <span className="absolute left-3 inline-flex items-center pointer-events-none">
+                                <PortfolioAssetIcon
+                                  symbol={numberTokenSymbol}
+                                  size={22}
+                                  className="w-[22px] h-[22px] object-contain"
+                                />
+                              </span>
+                            )}
+                            <input
+                              type="number"
+                              min={minVal}
+                              max={maxVal}
+                              step={stepVal}
+                              value={currentValue}
+                              onChange={(e) => {
+                                const raw = e.target.value
+                                handleInputChange(param.name, raw === '' ? '' : Number(raw))
+                              }}
+                              className={`w-full ${numberTokenSymbol ? 'pl-11' : 'pl-3.5'} pr-3.5 py-2.5 rounded-xl border border-white/10 text-sm text-white focus:outline-none focus:border-[var(--purple-1)] focus:ring-1 focus:ring-[var(--purple-1)]/30 transition tabular-nums`}
+                              style={{
+                                background: 'rgba(9, 11, 20, 0.85)',
+                                fontFamily: 'var(--fonts--space-grotesk)',
+                              }}
+                            />
+                          </div>
+                        )
+                      })() : (
                         <input
                           type="text"
                           value={currentValue}
                           onChange={(e) => handleInputChange(param.name, e.target.value)}
                           placeholder={isAddressParam && walletAddress ? walletAddress : undefined}
-                          className="w-full px-3.5 py-2 rounded-xl border border-white/10 text-xs text-white focus:outline-none focus:border-[var(--purple-1)] focus:ring-1 focus:ring-[var(--purple-1)]/30 transition font-mono"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-white/10 text-xs text-white focus:outline-none focus:border-[var(--purple-1)] focus:ring-1 focus:ring-[var(--purple-1)]/30 transition font-mono"
                           style={{ background: 'rgba(9, 11, 20, 0.85)' }}
                         />
                       )}
 
-                      <p className="text-[10px] text-white/50 leading-normal">{param.description}</p>
+                      <p className="text-[11px] leading-normal" style={{ color: 'var(--fp-4)' }}>
+                        {param.description}
+                      </p>
+
+                      {isTradeAdvisorService && param.name === 'amount' && exceedsArcWalletBalance && selectedSellBalance !== null && selectedSellToken && (
+                        <div
+                          className="px-3 py-2 rounded-xl border text-[11px] flex items-center gap-2"
+                          style={{
+                            backgroundColor: STATUS_TONES.info.bg,
+                            borderColor: STATUS_TONES.info.border,
+                            color: STATUS_TONES.info.fg,
+                          }}
+                        >
+                          <Info className="w-3.5 h-3.5 shrink-0" style={{ color: STATUS_TONES.info.accent }} />
+                          <span>
+                            Order exceeds your Arc wallet balance ({selectedSellBalance.toLocaleString('en-US', { maximumFractionDigits: 4 })} {selectedSellToken}). You can still run this trade simulation, or fund before executing.
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
               </div>
             </div>
 
-            {/* Progressive Readiness / Warning Alert (Shown ONLY if attention needed) */}
-            {!readiness.ready && (
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between gap-3 animate-fade-in">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-300 flex-shrink-0" />
-                  <span>
-                    {readiness.checks.find((c) => c.status === 'blocked')?.detail || 'Settlement gate action required.'}
-                  </span>
-                </div>
-
-                {readiness.checks.some((c) => c.id === 'network' && c.status === 'blocked') && (
-                  <button
-                    onClick={() => void handleSwitchNetwork()}
-                    disabled={isSwitching}
-                    className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] font-bold text-white cursor-pointer transition flex-shrink-0"
-                  >
-                    {isSwitching ? 'Switching…' : 'Switch Network'}
-                  </button>
-                )}
-
-                {readiness.checks.some((c) => c.id === 'gateway-balance' && c.status === 'blocked') && (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => void handleRequestFaucet()}
-                      disabled={faucetState === 'sending'}
-                      className="px-2.5 py-1 rounded-lg border border-white/20 text-[11px] font-semibold text-white hover:bg-white/10 cursor-pointer"
-                    >
-                      {faucetState === 'sending' ? 'Requesting…' : 'Faucet'}
-                    </button>
-                    <button
-                      onClick={handleOpenGatewayDeposit}
-                      className="px-2.5 py-1 rounded-lg bg-[var(--purple-1)]/30 border border-[var(--purple-1)]/50 text-[11px] font-bold text-white hover:bg-[var(--purple-1)]/40 cursor-pointer"
-                    >
-                      Deposit Gateway
-                    </button>
+            {/* Progressive Readiness / Warning Alert (DESIGN.md Cancelled/Warning or Error tone) */}
+            {!readiness.ready && (() => {
+              const blockedCheck = readiness.checks.find((c) => c.status === 'blocked')
+              const isHardBlock = blockedCheck?.id === 'settlement'
+              const alertTone = isHardBlock ? STATUS_TONES.error : STATUS_TONES.cancelled
+              return (
+                <div
+                  className="p-3.5 rounded-xl border text-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 animate-fade-in"
+                  style={{
+                    backgroundColor: alertTone.bg,
+                    borderColor: alertTone.border,
+                    color: alertTone.fg,
+                  }}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <AlertCircle
+                      className="w-4 h-4 flex-shrink-0"
+                      style={{ color: alertTone.accent }}
+                    />
+                    <span className="leading-relaxed">
+                      {blockedCheck?.detail || 'Settlement gate action required.'}
+                    </span>
                   </div>
-                )}
-              </div>
-            )}
+
+                  {readiness.checks.some((c) => c.id === 'network' && c.status === 'blocked') && (
+                    <button
+                      onClick={() => void handleSwitchNetwork()}
+                      disabled={isSwitching}
+                      className="ai-focus-ring px-3 py-1.5 rounded-full border text-[11px] font-bold text-white cursor-pointer transition hover:brightness-110 flex-shrink-0"
+                      style={{
+                        backgroundColor: alertTone.pillBg,
+                        borderColor: alertTone.pillBorder,
+                      }}
+                    >
+                      {isSwitching ? 'Switching…' : 'Switch Network'}
+                    </button>
+                  )}
+
+                  {readiness.checks.some((c) => c.id === 'gateway-balance' && c.status === 'blocked') && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => void handleRequestFaucet()}
+                        disabled={faucetState === 'sending'}
+                        className="ai-focus-ring px-3 py-1.5 rounded-full border border-white/20 text-[11px] font-semibold text-white hover:bg-white/10 cursor-pointer transition"
+                      >
+                        {faucetState === 'sending' ? 'Requesting…' : 'Faucet'}
+                      </button>
+                      <button
+                        onClick={handleOpenGatewayDeposit}
+                        className="ai-focus-ring px-3 py-1.5 rounded-full border text-[11px] font-bold text-white hover:brightness-110 cursor-pointer transition"
+                        style={{
+                          backgroundColor: STATUS_TONES.pending.pillBg,
+                          borderColor: STATUS_TONES.pending.pillBorder,
+                        }}
+                      >
+                        Deposit Gateway
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {faucetMessage && (
-              <p className={`text-[11px] text-center font-mono ${faucetState === 'error' ? 'text-rose-400' : 'text-[var(--earned-green)]'}`}>
+              <p
+                className="text-[11px] text-center font-mono"
+                style={{
+                  color:
+                    faucetState === 'error'
+                      ? STATUS_TONES.error.fg
+                      : STATUS_TONES.success.fg,
+                }}
+              >
                 {faucetMessage}
               </p>
             )}
 
+            {/* Client-Side Input Validation Banner (prevents wasted x402 signatures) */}
+            {formValidationError && (
+              <div
+                className="p-3.5 rounded-xl border text-xs flex items-center gap-2.5 animate-fade-in"
+                style={{
+                  backgroundColor: STATUS_TONES.cancelled.bg,
+                  borderColor: STATUS_TONES.cancelled.border,
+                  color: STATUS_TONES.cancelled.fg,
+                }}
+              >
+                <AlertCircle
+                  className="w-4 h-4 flex-shrink-0"
+                  style={{ color: STATUS_TONES.cancelled.accent }}
+                />
+                <span className="leading-relaxed">{formValidationError}</span>
+              </div>
+            )}
+
             {/* Execution CTA Action */}
-            <div className="space-y-3 pt-2">
+            <div className="space-y-3">
               <button
                 onClick={handleRun}
-                disabled={isExecuting || !readiness.ready}
-                className={`w-full py-4 px-6 rounded-full font-semibold text-sm sm:text-base tracking-wide transition-all duration-200 flex items-center justify-center gap-2 select-none ${
-                  readiness.ready && !isExecuting
+                disabled={isExecuting || !readiness.ready || Boolean(formValidationError)}
+                className={`ai-focus-ring w-full py-3 px-6 rounded-full font-semibold text-sm sm:text-base tracking-wide transition-all duration-200 flex items-center justify-center gap-2.5 select-none ${readiness.ready && !isExecuting && !formValidationError
                     ? 'text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer'
-                    : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
-                }`}
+                    : 'bg-white/[0.04] text-white/40 border border-white/[0.08] cursor-not-allowed opacity-80'
+                  }`}
                 style={{
                   fontFamily: 'var(--font-app)',
-                  ...(readiness.ready && !isExecuting
+                  ...(readiness.ready && !isExecuting && !formValidationError
                     ? {
-                        background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
-                        boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
-                      }
+                      background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                      boxShadow: '0 6px 24px rgba(152, 150, 255, 0.3)',
+                    }
                     : {}),
                 }}
               >
-                {!readiness.ready ? (
-                  <Lock className="w-4 h-4 text-slate-400" />
-                ) : (
-                  <Zap className="w-4 h-4 text-white" />
-                )}
                 <span>
                   {!readiness.ready
                     ? 'SETTLEMENT GATE BLOCKED'
-                    : `EXECUTE — ${service.pricing.priceUsdc} USDC`}
+                    : formValidationError
+                      ? 'FIX PARAMETERS TO CONTINUE'
+                      : `EXECUTE`}
                 </span>
-                <ArrowRight className={`w-4 h-4 ml-1 ${readiness.ready && !isExecuting ? 'text-white' : 'text-slate-400'}`} />
+                <ArrowRight className={`w-4 h-4 ml-0.5 ${readiness.ready && !isExecuting && !formValidationError ? 'text-white' : 'text-white/40'}`} />
               </button>
             </div>
           </div>
         )}
 
-        {/* ── STEP 2: EXECUTING STATE (RADAR CHRONOMETER) ── */}
+        {/* ── STEP 2: EXECUTING STATE (VIOLET COMET CHRONOMETER) ── */}
         {currentStep === 'executing' && (
           <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-8 space-y-6 text-center animate-fade-in my-auto w-full">
-            {/* Step Progress Boxes */}
-            {renderStepBoxes()}
-
-            {/* Pulsing Arc Hologram Ring */}
+            {/* Violet-Heavy Comet Trail Spinner */}
             <div className="relative w-36 h-36 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(112,88,248,0.25)_0%,transparent_70%)] animate-pulse" />
-              <svg className="w-40 h-40 animate-spin" style={{ animationDuration: '3s' }} viewBox="0 0 100 100">
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="42"
-                  fill="none"
-                  stroke="rgba(255, 255, 255, 0.05)"
-                  strokeWidth="6"
-                />
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="42"
-                  fill="none"
-                  stroke="url(#execGradient)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray="264"
-                  strokeDashoffset="120"
-                />
-                <defs>
-                  <linearGradient id="execGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#00E5FF" />
-                    <stop offset="50%" stopColor="#7058F8" />
-                    <stop offset="100%" stopColor="#01D062" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <Zap className="w-10 h-10 text-[var(--color-brand-cyan)] animate-pulse" />
+              {/* Deep ambient violet bloom */}
+              <div
+                className="absolute inset-0 rounded-full animate-pulse"
+                style={{
+                  background:
+                    'radial-gradient(circle, rgba(152, 150, 255, 0.28) 0%, rgba(124, 58, 237, 0.14) 45%, transparent 72%)',
+                }}
+              />
+
+              {/* Subtle base track */}
+              <div
+                className="absolute inset-1 rounded-full"
+                style={{ border: '5px solid rgba(152, 150, 255, 0.08)' }}
+              />
+
+              {/* Soft blurred comet-tail glow layer */}
+              <div
+                className="absolute inset-1 rounded-full animate-spin blur-[7px] opacity-75"
+                style={{
+                  animationDuration: '1.65s',
+                  willChange: 'transform',
+                  background:
+                    'conic-gradient(from 0deg, transparent 0deg, transparent 60deg, rgba(124, 58, 237, 0.25) 160deg, rgba(124, 58, 237, 0.85) 275deg, #9896ff 345deg, #e5e5ff 360deg)',
+                  maskImage: 'radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px))',
+                  WebkitMaskImage: 'radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 7px))',
+                }}
+              />
+
+              {/* Primary razor-sharp violet comet arc with long fading trail */}
+              <div
+                className="absolute inset-1 rounded-full animate-spin"
+                style={{
+                  animationDuration: '1.65s',
+                  willChange: 'transform',
+                  background:
+                    'conic-gradient(from 0deg, transparent 0deg, transparent 55deg, rgba(124, 58, 237, 0.18) 140deg, #7c3aed 260deg, #9896ff 342deg, #ffffff 360deg)',
+                  maskImage: 'radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px))',
+                  WebkitMaskImage: 'radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px))',
+                }}
+              />
+
+              {/* Center Aave Luxury Violet Emblem */}
+              <div
+                className="relative w-14 h-14 rounded-2xl flex items-center justify-center border border-white/20"
+                style={{
+                  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                  boxShadow: '0 0 28px rgba(152, 150, 255, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                }}
+              >
+                <Zap className="w-7 h-7 text-white animate-pulse" />
               </div>
             </div>
 
             <div className="space-y-2 max-w-sm">
               <h4
-                className="text-lg font-bold text-white tracking-tight"
+                className="text-xl font-bold text-white tracking-tight"
                 style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
               >
                 Settling via Circle Gateway x402
               </h4>
-              <p className="text-xs text-white/50 font-mono leading-relaxed">
+              <p className="text-xs font-mono leading-relaxed" style={{ color: 'var(--fp-3)' }}>
                 Authenticating EIP-712 intent and retrieving real-time intelligence from Arc Testnet...
               </p>
             </div>
           </div>
         )}
 
+        {/* ── STEP 2B: WALLET-CANCELLED SETTLEMENT (NO EMPTY REPORT SCREEN) ── */}
+        {currentStep === 'canceled' && (
+          <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-10 space-y-4 text-center animate-fade-in my-auto w-full">
+            {/* Cancelled Settlement Emblem (Blockstream Gold) */}
+            <div className="relative w-28 h-28 flex items-center justify-center">
+              <div
+                className="absolute inset-0 rounded-full"
+                style={{
+                  background:
+                    'radial-gradient(circle, rgba(233, 161, 63, 0.24) 0%, rgba(233, 161, 63, 0.08) 48%, transparent 72%)',
+                }}
+              />
+              <div
+                className="absolute inset-2 rounded-full border"
+                style={{ borderColor: STATUS_TONES.cancelled.border }}
+              />
+              <div
+              className="relative w-16 h-16 rounded-2xl flex items-center justify-center">
+                <Ban className="w-12 h-12" style={{ color: STATUS_TONES.cancelled.accent }} />
+              </div>
+            </div>
+
+            <div className="space-y-2.5 max-w-md flex flex-col items-center">
+              <h4
+                className="text-xl font-bold text-white tracking-tight"
+                style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+              >
+                Transaction Cancelled in Wallet
+              </h4>
+              <p className="text-xs font-mono leading-relaxed" style={{ color: 'var(--fp-3)' }}>
+                Signature request was declined in your wallet. No USDC was charged via Circle Gateway x402.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  soundService.play('pop')
+                  setUserWantsConfigure(true)
+                }}
+                className="ai-focus-ring ub-action-btn group inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 text-xs font-mono font-semibold text-white/85 hover:text-white cursor-pointer"
+                style={{ fontFamily: 'var(--fonts--space-mono)' }}
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)] group-hover:-translate-x-0.5 transition-transform" />
+                <span>Back to Configure</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleRun()}
+                disabled={!readiness.ready || Boolean(formValidationError)}
+                className="ai-focus-ring inline-flex items-center gap-1.5 rounded-full px-6 py-2 text-xs font-semibold text-white transition-all duration-200 hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                style={{
+                  fontFamily: 'var(--font-app)',
+                  background: 'linear-gradient(135deg, #9896ff 0%, #7c3aed 100%)',
+                  boxShadow: '0 6px 22px rgba(152, 150, 255, 0.28)',
+                }}
+              >
+                <span>Try Again</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── STEP 3: INTELLIGENCE REPORT (CLEAN, FULL-WIDTH, EXECUTIVE) ── */}
-        {currentStep === 'result' && (
-          <div className="flex-1 overflow-y-auto p-5 sm:p-7 space-y-5 animate-fade-in">
-            {/* Step Progress Boxes */}
-            {renderStepBoxes()}
+        {currentStep === 'result' && (() => {
+          const ticketObj =
+            displayedJson && typeof displayedJson === 'object'
+              ? (displayedJson as Record<string, unknown>)
+              : null
+          const isTradeTicketResult = Boolean(
+            ticketObj &&
+            ticketObj.status === 'ROUTE_OPTIMIZED' &&
+            typeof ticketObj.inputAmount === 'string' &&
+            typeof ticketObj.expectedOutput === 'string'
+          )
+          const embedActionInTicket = Boolean(
+            isTradeTicketResult &&
+            outputViewMode === 'visual' &&
+            executionResult?.success &&
+            executionResult.actionablePayload
+          )
+
+          return (
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 animate-fade-in">
+            {/* Back to Configure navigation */}
+            <div className="flex items-center justify-start">
+              <button
+                type="button"
+                onClick={() => {
+                  soundService.play('pop')
+                  setUserWantsConfigure(true)
+                }}
+                className="ai-focus-ring ub-action-btn group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11px] font-mono font-semibold text-white/80 hover:text-white cursor-pointer"
+                style={{ fontFamily: 'var(--fonts--space-mono)' }}
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)] group-hover:-translate-x-0.5 transition-transform" />
+                <span>Back to Configure</span>
+              </button>
+            </div>
 
             {/* Content Display: VisualDataDashboard with integrated Raw JSON toggle */}
             <div
-              className="p-5 sm:p-6 rounded-2xl border border-white/10 shadow-lg min-h-[300px]"
-              style={{ background: 'rgba(8, 10, 18, 0.75)' }}
+              className={
+                isTradeTicketResult
+                  ? 'space-y-3'
+                  : 'p-5 sm:p-6 rounded-2xl border border-white/10 shadow-lg min-h-[300px]'
+              }
+              style={isTradeTicketResult ? undefined : { background: 'rgba(8, 10, 18, 0.75)' }}
             >
               <VisualDataDashboard
                 data={displayedJson}
@@ -2629,12 +3729,20 @@ export default function ServicePlaygroundModal({
                   }
                 }}
                 isCopied={copiedKey === 'response'}
-                onNavigateTab={onNavigateTab}
+                onNavigateTab={(tab) => {
+                  onClose()
+                  if (onNavigateTab) onNavigateTab(tab)
+                }}
+                actionablePayload={embedActionInTicket ? executionResult?.actionablePayload : undefined}
+                walletAddress={walletAddress}
+                walletConnected={Boolean(walletAddress)}
+                ucwHandlers={ucwHandlers}
+                generatedAt={executionResult?.authProof?.timestamp}
               />
             </div>
 
-            {/* Actionable Signal Card (Arbitrage, Swap, or Deposit Opportunity) */}
-            {executionResult?.success && executionResult.actionablePayload && (
+            {/* Actionable Signal Card (external card for non-ticket services or raw JSON view) */}
+            {!embedActionInTicket && executionResult?.success && executionResult.actionablePayload && (
               <div className="animate-fade-in pt-1">
                 <ServiceActionCard
                   payload={executionResult.actionablePayload}
@@ -2654,7 +3762,8 @@ export default function ServicePlaygroundModal({
               <ServiceFailureBanner result={executionResult} />
             )}
           </div>
-        )}
+          )
+        })()}
       </div>
     </div>,
     document.body

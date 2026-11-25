@@ -265,8 +265,18 @@ export default function RegisterServiceModal({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="relative p-6 space-y-4" key={signedManifest?.id || 'new-service'}>
           {error && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+            <div
+              className="p-3.5 rounded-xl border text-xs flex items-center gap-2.5"
+              style={{
+                backgroundColor: 'var(--status-error-bg)',
+                borderColor: 'var(--status-error-border)',
+                color: 'var(--status-error-fg)',
+              }}
+            >
+              <AlertCircle
+                className="w-4 h-4 flex-shrink-0"
+                style={{ color: 'var(--status-error-accent)' }}
+              />
               <span>{error}</span>
             </div>
           )}

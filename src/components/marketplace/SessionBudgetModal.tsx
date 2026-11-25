@@ -721,8 +721,22 @@ export default function SessionBudgetModal({
             >
               <div className="flex items-center gap-2">
                 {isSessionActive ? (
-                  <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.18)] leading-none select-none flex-shrink-0">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse flex-shrink-0" />
+                  <div
+                    className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase border leading-none select-none flex-shrink-0"
+                    style={{
+                      color: 'var(--status-success-fg)',
+                      backgroundColor: 'var(--status-success-bg)',
+                      borderColor: 'var(--status-success-border)',
+                      boxShadow: '0 0 12px var(--status-success-glow)',
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full animate-pulse flex-shrink-0"
+                      style={{
+                        backgroundColor: 'var(--earned-green)',
+                        boxShadow: '0 0 8px var(--earned-green)',
+                      }}
+                    />
                     <span className="leading-none pt-0.5">ACTIVE SESSION</span>
                     <svg className="ub-ecg-svg h-3.5 w-10 flex-shrink-0" viewBox="0 0 42 14" aria-hidden="true">
                       <path
@@ -851,8 +865,18 @@ export default function SessionBudgetModal({
                       Active &amp; Funded
                     </span>
                   ) : (
-                    <span className="px-2.5 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-[10px] font-mono uppercase text-amber-400 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span
+                      className="px-2.5 py-0.5 rounded-full border text-[10px] font-mono uppercase flex items-center gap-1.5"
+                      style={{
+                        borderColor: 'var(--status-cancelled-border)',
+                        backgroundColor: 'var(--status-cancelled-bg)',
+                        color: 'var(--status-cancelled-fg)',
+                      }}
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: 'var(--status-cancelled-accent)' }}
+                      />
                       Active (Exhausted)
                     </span>
                   )}
@@ -1060,18 +1084,35 @@ export default function SessionBudgetModal({
           </div>
 
           {showForceReset && (
-            <div className="p-3.5 my-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-center space-y-2 animate-fade-in">
-              <div className="flex items-center justify-center gap-1.5 text-xs text-rose-300 font-semibold">
-                <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <div
+              className="p-3.5 my-3 rounded-xl border text-center space-y-2 animate-fade-in"
+              style={{
+                backgroundColor: 'var(--status-error-bg)',
+                borderColor: 'var(--status-error-border)',
+              }}
+            >
+              <div
+                className="flex items-center justify-center gap-1.5 text-xs font-semibold"
+                style={{ color: 'var(--status-error-fg)' }}
+              >
+                <AlertTriangle
+                  className="w-4 h-4 flex-shrink-0"
+                  style={{ color: 'var(--status-error-accent)' }}
+                />
                 <span>Signing Key Not Found in Client Storage</span>
               </div>
-              <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+              <p className="text-[11px] text-white/75 leading-relaxed font-sans">
                 The ephemeral key for this session cannot be located in storage (likely created before multi-tab storage was enabled, or cleared). You can force-reset the local session policy to unlock this window and start fresh.
               </p>
               <button
                 type="button"
                 onClick={handleForceReset}
-                className="mt-1 px-4 py-1.5 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold font-mono transition cursor-pointer"
+                className="mt-1 px-4 py-1.5 rounded-full border text-xs font-semibold font-mono transition cursor-pointer hover:brightness-110"
+                style={{
+                  backgroundColor: 'rgba(244, 63, 94, 0.16)',
+                  borderColor: 'var(--status-error-border)',
+                  color: 'var(--status-error-fg)',
+                }}
               >
                 Force Reset Session Policy
               </button>
@@ -1085,9 +1126,14 @@ export default function SessionBudgetModal({
                 type="button"
                 onClick={handleRevoke}
                 disabled={isSweeping || isFunding || isSaving || !config.sessionPublicKey}
-                className="flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition cursor-pointer px-3.5 py-2 rounded-full bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 text-xs transition cursor-pointer px-3.5 py-2 rounded-full border hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: 'var(--status-error-bg)',
+                  borderColor: 'var(--status-error-border)',
+                  color: 'var(--status-error-fg)',
+                }}
               >
-                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <Trash2 className="w-3.5 h-3.5" style={{ color: 'var(--status-error-accent)' }} />
                 <span>Revoke Session</span>
               </button>
             ) : (
@@ -1100,7 +1146,7 @@ export default function SessionBudgetModal({
               disabled={isFunding || isSweeping || isSaving}
               className={`px-6 py-2.5 rounded-full font-semibold text-xs tracking-wide transition-all duration-200 flex items-center gap-2 select-none ${!(isFunding || isSweeping || isSaving)
                 ? 'text-white hover:scale-[1.01] hover:brightness-110 active:scale-[0.98] cursor-pointer'
-                : 'bg-white/[0.04] text-slate-500 border border-white/[0.06] cursor-not-allowed opacity-80'
+                : 'bg-white/[0.04] text-white/40 border border-white/[0.06] cursor-not-allowed opacity-80'
                 }`}
               style={{
                 fontFamily: 'var(--font-app)',
@@ -1114,7 +1160,7 @@ export default function SessionBudgetModal({
             >
               {savedSuccess ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--earned-green)' }} />
                   <span>{resetSuccessNotice ? 'Session Updated!' : 'Activated &amp; Funded!'}</span>
                 </>
               ) : isFunding ? (

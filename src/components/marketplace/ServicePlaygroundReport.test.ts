@@ -164,4 +164,167 @@ describe('VisualDataDashboard institutional report', () => {
     expect(html).toContain('Open USDC Yield Vault')
     expect(html).toContain('This automated surveillance audit inspects live accounting state from the Arc ERC-4626 USDC Yield Vault')
   })
+
+  it('renders prominent section headings, semantic status badges, and coin icons for routes and pools', () => {
+    const html = render({
+      status: 'ROUTE_OPTIMIZED',
+      netProfitUsdc: 12.5,
+      routeComparison: [
+        {
+          path: 'USDC → EURC → WETH',
+          hops: 2,
+          recommended: true,
+          expectedOutput: 0.0042,
+          priceImpactPct: 0.35,
+          estimatedGasUsdc: 0.008,
+        },
+      ],
+      scannedPools: [
+        {
+          pair: 'USDC/cirBTC',
+          poolRate: 90000,
+          oracleRate: 91000,
+          quoteUnit: 'USDC',
+          grossSpreadPct: 1.1,
+          netProfitUsdc: 25.4,
+          netProfitPct: 0.9,
+          meetsThreshold: true,
+        },
+      ],
+    })
+
+    expect(html).toContain('ROUTE OPTIMIZED')
+    expect(html).toContain('Optimal Route')
+    expect(html).toContain('Route Comparison &amp; Execution Sizing')
+    expect(html).toContain('Scanned Arc Pools')
+    expect(html).toContain('Best Output')
+    expect(html).toContain('Above Hurdle')
+    expect(html).toContain('alt="USDC"')
+    expect(html).toContain('alt="EURC"')
+    expect(html).toContain('alt="cirBTC"')
+  })
+
+  it('renders the redesigned 4-block Trade Execution Ticket (State B / Zero-Fluff) with guided 2-hop strip and collapsed audit bar', () => {
+    const html = render({
+      status: 'ROUTE_OPTIMIZED',
+      generatedAt: '2026-11-25T19:30:09.000Z',
+      fromToken: 'USDC',
+      toToken: 'WETH',
+      inputAmount: '10 USDC',
+      expectedOutput: '0.0035 WETH',
+      minGuaranteedOutput: '0.003482 WETH',
+      recommendedPath: 'USDC → EURC → WETH',
+      recommendedHops: 2,
+      effectiveExecutionPrice: 0.000352,
+      ammPriceImpactPct: 0.34,
+      poolFeePct: 0.42,
+      overallPriceImpactPct: 0.42,
+      signedPriceImpactPct: -0.25,
+      twoHopOutputGainPct: 1.85,
+      twoHopSteps: {
+        step1From: 'USDC',
+        step1To: 'EURC',
+        step1AmountIn: 10,
+        step1EstimatedOut: 9.21,
+        step2From: 'EURC',
+        step2To: 'WETH',
+        step2AmountIn: 9.21,
+        step2EstimatedOut: 0.0035,
+      },
+      tradeReserveExposurePct: 3.41,
+      sandwichRiskLevel: 'MODERATE',
+      poolReserveUsdc: 293,
+      flashReserveDepthUsdc: 293,
+      estimatedGasCostUsdc: 0.0048,
+      routeComparison: [
+        {
+          path: 'USDC → EURC → WETH',
+          hops: 2,
+          recommended: true,
+          expectedOutput: 0.0035,
+          ammPriceImpactPct: 0.34,
+          poolFeePct: 0.42,
+          priceImpactPct: 0,
+          signedPriceImpactPct: -0.25,
+          estimatedGasUsdc: 0.0048,
+        },
+        {
+          path: 'USDC → WETH',
+          hops: 1,
+          recommended: false,
+          expectedOutput: 0.003436,
+          ammPriceImpactPct: 0.72,
+          poolFeePct: 0.3,
+          priceImpactPct: 0.5,
+          signedPriceImpactPct: 0.5,
+          estimatedGasUsdc: 0.0024,
+        },
+      ],
+      executionSizing: {
+        recommendedBatchCount: 1,
+        perBatchInputAmount: 10,
+        perBatchExpectedOutput: 0.0035,
+        perBatchAmmPriceImpactPct: 0.34,
+        singleSwapAmmPriceImpactPct: 0.34,
+        estimatedTotalGasUsdc: 0.0048,
+        suggestedMaxSlippagePct: 0.5,
+        advisoryOnly: true,
+        note: 'Single-transaction execution fits within standard pool reserve depth.',
+      },
+      riskRegister: [
+        {
+          id: 'TWO_HOP_ROUTE_ADVANTAGE',
+          category: 'OPPORTUNITY',
+          severity: 'INFO',
+          title: '2-Hop Route Beats Direct Pool by +1.85%',
+          finding: 'Routing via USDC → EURC → WETH yields more net output.',
+          evidence: { recommendedPath: 'USDC → EURC → WETH', twoHopOutputGainPct: 1.85 },
+        },
+        {
+          id: 'HIGH_RESERVE_SANDWICH_EXPOSURE',
+          category: 'EXECUTION_RISK',
+          severity: 'HIGH',
+          title: 'High Pool Reserve Pressure',
+          finding: 'Trade size drains pool reserve.',
+          evidence: { tradeReserveExposurePct: 12.5 },
+        },
+      ],
+    })
+
+    // Block 1: Hero Trade Ticket (Sell → Expected + Min Guaranteed + Effective Rate + Gas + Guided 2-Hop Strip)
+    expect(html).toContain('Sell Amount')
+    expect(html).toContain('10 USDC')
+    expect(html).toContain('0.0035 WETH')
+    expect(html).toContain('Min. Guaranteed (0.5%)')
+    expect(html).toContain('0.003482 WETH')
+    expect(html).toContain('Effective Rate')
+    expect(html).toContain('1 USDC = 0.000352 WETH')
+    expect(html).toContain('0.0048 USDC')
+    expect(html).toContain('2026-11-25 19:30:09 UTC')
+    expect(html).toContain('Safe to Execute')
+    expect(html).not.toContain('2-Hop Optimal')
+    expect(html).not.toContain('2-HOP ·')
+    expect(html).not.toContain('Step 1')
+
+    // Block 2: 3-Column Signals
+    expect(html).toContain('Combined AMM Impact')
+    expect(html).toContain('0.34%')
+    expect(html).toContain('LP Fee: 0.42%')
+    expect(html).toContain('vs. Oracle Spot')
+    expect(html).toContain('+0.25%')
+    expect(html).toContain('Bottleneck Pressure')
+    expect(html).toContain('3.41%')
+
+    // Block 3: Route Comparison Table
+    expect(html).toContain('Route Comparison')
+    expect(html).toContain('USDC → WETH')
+    expect(html).toContain('Best')
+
+    // Block 4: Collapsed Audit Bar (zero bloated paragraphs by default)
+    expect(html).toContain('Audit (2)')
+    expect(html).not.toContain('Flash Reserve Depth Usdc')
+    expect(html).not.toContain('Recommended Hops')
+    expect(html).not.toContain('The router simulates every direct and 2-hop pool combination')
+    expect(html).not.toContain('This surveillance monitor compares trade size against live sold-side pool reserve depth')
+  })
 })

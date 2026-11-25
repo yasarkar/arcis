@@ -3,12 +3,14 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Check } from 'lucide-react'
 import { soundService } from '../../services/soundService'
+import { STATUS_TONES } from './marketplaceDesign'
 
 export interface SelectOption {
   value: string
   label: string
   badge?: string
   icon?: React.ComponentType<{ className?: string }>
+  leadingNode?: React.ReactNode
 }
 
 export interface MarketplaceSelectProps {
@@ -75,7 +77,7 @@ export default function MarketplaceSelect({
         }}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        className={`w-full px-3.5 py-2.5 rounded-xl border flex items-center justify-between text-xs transition-all duration-200 cursor-pointer select-none ${
+        className={`ai-focus-ring w-full px-3.5 py-2.5 rounded-xl border flex items-center justify-between text-xs transition-all duration-200 cursor-pointer select-none ${
           disabled
             ? 'opacity-50 cursor-not-allowed border-white/5 bg-white/[0.02] text-white/40'
             : isOpen
@@ -87,10 +89,12 @@ export default function MarketplaceSelect({
           fontFamily: 'var(--fonts--space-mono)',
         }}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          {selectedOption?.icon && (
+        <div className="flex items-center gap-2.5 min-w-0">
+          {selectedOption?.leadingNode ? (
+            <span className="flex-shrink-0 inline-flex items-center">{selectedOption.leadingNode}</span>
+          ) : selectedOption?.icon ? (
             <selectedOption.icon className="w-3.5 h-3.5 text-[var(--purple-1)] flex-shrink-0" />
-          )}
+          ) : null}
           <span className="truncate">
             {selectedOption ? selectedOption.label : placeholder}
           </span>
@@ -139,19 +143,28 @@ export default function MarketplaceSelect({
                       : 'text-white/70 hover:text-white hover:bg-white/[0.06] border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {IconComp && (
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {opt.leadingNode ? (
+                      <span className="flex-shrink-0 inline-flex items-center">{opt.leadingNode}</span>
+                    ) : IconComp ? (
                       <IconComp
                         className={`w-3.5 h-3.5 flex-shrink-0 ${
                           isSelected ? 'text-[var(--purple-1)]' : 'text-white/40'
                         }`}
                       />
-                    )}
+                    ) : null}
                     <span className="truncate">{opt.label}</span>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                     {opt.badge && (
-                      <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded font-mono border"
+                        style={{
+                          backgroundColor: STATUS_TONES.info.pillBg,
+                          color: STATUS_TONES.info.accent,
+                          borderColor: STATUS_TONES.info.pillBorder,
+                        }}
+                      >
                         {opt.badge}
                       </span>
                     )}

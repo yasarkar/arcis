@@ -311,7 +311,14 @@ export default function ProviderHubModal({
             </div>
 
             {claimError && (
-              <div className="mt-3 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2 animate-fade-in">
+              <div
+                className="mt-3 p-3 rounded-xl border text-xs flex items-center gap-2 animate-fade-in"
+                style={{
+                  backgroundColor: 'var(--status-error-bg)',
+                  borderColor: 'var(--status-error-border)',
+                  color: 'var(--status-error-fg)',
+                }}
+              >
                 <span>{claimError}</span>
               </div>
             )}
@@ -320,9 +327,9 @@ export default function ProviderHubModal({
               <div
                 className="mt-3 p-3 rounded-xl border text-xs flex items-center justify-between gap-2 animate-fade-in"
                 style={{
-                  backgroundColor: 'rgba(1, 208, 98, 0.1)',
-                  borderColor: 'rgba(1, 208, 98, 0.3)',
-                  color: 'var(--earned-green)',
+                  backgroundColor: 'var(--status-success-bg)',
+                  borderColor: 'var(--status-success-border)',
+                  color: 'var(--status-success-fg)',
                 }}
               >
                 <div className="flex items-center gap-2">
