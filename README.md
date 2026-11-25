@@ -221,7 +221,7 @@ All 9 official manifests charge a `50 bps` (`0.5%`) protocol fee routed through 
 | Service ID | Name | Category | Price (USDC) |
 |---|---|---|---|
 | `arc-cross-dex-arbitrage-sentinel` | Cross-DEX Arbitrage Sentinel | Arbitrage | `0.005` |
-| `arc-deep-liquidity-slippage-optimizer` | Liquidity Depth & Slippage Scout | Liquidity & Routing | `0.002` |
+| `arc-deep-liquidity-slippage-optimizer` | Smart Trade & Execution Advisor | Liquidity & Routing | `0.003` |
 | `arc-flash-loan-yield-radar` | Flash-Loan & Liquidation Radar | Yield & Flash-Loan | `0.008` |
 | `arc-mempool-mev-shield` | Mempool MEV Shield Simulator | MEV & Security | `0.004` |
 | `arc-cross-chain-gateway-flow-indexer` | Cross-Chain Gateway Flow Indexer | Cross-Chain Gateway | `0.003` |
