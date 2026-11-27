@@ -20,12 +20,9 @@ describe('x402 Architectural Contracts & Manifest Integrity', () => {
       expect(manifest.tagline).toBeTruthy()
       expect(manifest.description).toBeTruthy()
 
-      // Engine transparency: 6 native services + 1 server-side LLM service.
+      // Engine transparency: all 7 official services run natively.
       expect(['native', 'llm', 'proxy']).toContain(manifest.engine)
-      if (manifest.engine === 'llm') {
-        // A paid LLM call must at least cover its provider cost.
-        expect(manifest.pricing.priceUsdc).toBeGreaterThanOrEqual(0.01)
-      }
+      expect(manifest.engine).toBe('native')
 
       // Listing & Provider
       expect(manifest.listing.kind).toBe('official')
