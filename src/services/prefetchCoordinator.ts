@@ -8,7 +8,6 @@ import {
 import { fetchX402RuntimeConfig } from '../hooks/useX402Config'
 import { fetchPlatformStats } from './platformStatsClient'
 import { fetchLatency } from './latencyClient'
-import { fetchReportDigests } from './reportDigestClient'
 import { fetchHistoryResult } from '../utils/history'
 import { getLivePortfolioSnapshot } from './portfolioContextService'
 import { normalizeWalletAddress } from '../utils/address'
@@ -17,7 +16,6 @@ import {
   X402_RUNTIME_CONFIG_QUERY_KEY,
   X402_SHARED_LATENCY_QUERY_KEY,
   portfolioSnapshotQueryKey,
-  reportDigestsQueryKey,
   walletHistoryQueryKey,
 } from '../config/queryKeys'
 
@@ -115,11 +113,6 @@ export async function prefetchDeferredWalletData(
     }),
     prefetchUserWalletPoolsData(queryClient, normalizedAddress),
     queryClient.prefetchQuery({
-      queryKey: reportDigestsQueryKey(normalizedAddress),
-      queryFn: () => fetchReportDigests(normalizedAddress),
-      staleTime: 20_000,
-    }),
-    queryClient.prefetchQuery({
       queryKey: portfolioSnapshotQueryKey(normalizedAddress),
       queryFn: () => getLivePortfolioSnapshot(normalizedAddress),
       staleTime: 15_000,
@@ -159,14 +152,7 @@ export async function prefetchAllWalletData(
     // 4. On-chain Arc pool positions & token balances (single Multicall3)
     prefetchUserWalletPoolsData(queryClient, normalizedAddress),
 
-    // 5. x402 paid report digests for AI Services shelf
-    queryClient.prefetchQuery({
-      queryKey: reportDigestsQueryKey(normalizedAddress),
-      queryFn: () => fetchReportDigests(normalizedAddress),
-      staleTime: 20_000,
-    }),
-
-    // 6. Portfolio snapshot for Copilot & DeFi advisory
+    // 5. Portfolio snapshot for Copilot & DeFi advisory
     queryClient.prefetchQuery({
       queryKey: portfolioSnapshotQueryKey(normalizedAddress),
       queryFn: () => getLivePortfolioSnapshot(normalizedAddress),

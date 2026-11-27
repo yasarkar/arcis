@@ -19,6 +19,7 @@ import {
 } from '../../config/x402/schemes'
 import { usdcToBaseUnits } from '../../config/x402/pricing'
 import { getEphemeralSessionAccount } from '../sessionEnclaveService'
+import { ensureNetwork } from '../chainSwitchService'
 
 export function safeAddress(addr: string): Address {
   try {
@@ -182,7 +183,17 @@ export async function executePaidCall(input: ExecutePaidCallInput): Promise<X402
     let walletClient: ReturnType<typeof createWalletClient>
     try {
       walletClient = createWalletClient({ account: payerAddress, chain: arcTestnet, transport: custom(provider) })
-      const [chainId, accounts] = await Promise.all([walletClient.getChainId(), walletClient.getAddresses()])
+      let [chainId, accounts] = await Promise.all([walletClient.getChainId(), walletClient.getAddresses()])
+      if (chainId !== arcTestnet.id) {
+        const switchRes = await ensureNetwork(arcTestnet, provider)
+        if (!switchRes.success) {
+          return failure(
+            400,
+            switchRes.error || 'Connect the paying EOA on Arc Testnet (Chain ID: 5042002) and confirm it is the active wallet.'
+          )
+        }
+        chainId = await walletClient.getChainId()
+      }
       if (chainId !== arcTestnet.id || !accounts.some((account) => account.toLowerCase() === payerAddress.toLowerCase())) {
         return failure(400, 'Connect the paying EOA on Arc Testnet and confirm it is the active wallet.')
       }

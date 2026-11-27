@@ -190,46 +190,113 @@ describe('tradeExecutionAdvisor', () => {
     expect(res.actionablePayload?.type).toBe('swap')
   })
 
-  it('classifies trades into Safe to Execute, Caution · Split Trade, and Do Not Execute verdicts', () => {
-    expect(
-      resolveTradeExecutionVerdict({
-        ammPriceImpactPct: 0.34,
-        signedPriceImpactPct: -0.12,
-        tradeReserveExposurePct: 3.41,
-        recommendedBatchCount: 1,
-      }).code
-    ).toBe('EXECUTE')
+  it('classifies trades with calibrated 1.0–5.0 star ratings and verdicts without prohibitive language', () => {
+    // Clean, low-depth, favorable-oracle swap -> 5.0 stars
+    const pristine = resolveTradeExecutionVerdict({
+      ammPriceImpactPct: 0.15,
+      signedPriceImpactPct: -0.1,
+      tradeReserveExposurePct: 0.8,
+      recommendedBatchCount: 1,
+    })
+    expect(pristine).toMatchObject({
+      code: 'EXECUTE',
+      label: 'Optimal Path Ready',
+      tone: 'success',
+      rating: 5,
+      maxRating: 5,
+    })
 
-    expect(
-      resolveTradeExecutionVerdict({
-        ammPriceImpactPct: 12.4,
-        signedPriceImpactPct: 12.1,
-        tradeReserveExposurePct: 14.2,
-        recommendedBatchCount: 6,
-        perBatchAmmPriceImpactPct: 2.31,
-        exceedsCappedBatchDepth: false,
-      })
-    ).toMatchObject({ code: 'CAUTION_SPLIT', label: 'Caution · Split Trade', tone: 'cancelled' })
+    // Healthy swap with moderate 2%–5% reserve depth -> 4.5 stars
+    const optimal = resolveTradeExecutionVerdict({
+      ammPriceImpactPct: 0.34,
+      signedPriceImpactPct: -0.12,
+      tradeReserveExposurePct: 3.41,
+      recommendedBatchCount: 1,
+    })
+    expect(optimal).toMatchObject({
+      code: 'EXECUTE',
+      label: 'Optimal Path Ready',
+      tone: 'success',
+      rating: 4.5,
+      maxRating: 5,
+    })
 
-    expect(
-      resolveTradeExecutionVerdict({
-        ammPriceImpactPct: 25.0,
-        signedPriceImpactPct: 26.0,
-        tradeReserveExposurePct: 80.0,
-        recommendedBatchCount: 10,
-        perBatchAmmPriceImpactPct: 7.4,
-        exceedsCappedBatchDepth: true,
-      })
-    ).toMatchObject({ code: 'DO_NOT_EXECUTE', label: 'Do Not Execute', tone: 'error' })
+    // Unverified oracle (feed down) caps rating at 4.5 stars even with clean on-chain AMM
+    const noOracle = resolveTradeExecutionVerdict({
+      ammPriceImpactPct: 0.2,
+      signedPriceImpactPct: null,
+      tradeReserveExposurePct: 0.9,
+      recommendedBatchCount: 1,
+    })
+    expect(noOracle).toMatchObject({
+      code: 'EXECUTE',
+      rating: 4.5,
+      ratingBreakdown: { oracleVerificationPenalty: 0.5 },
+    })
 
-    // Pool spot mispriced >= 5% vs oracle even for a tiny swap -> Do Not Execute
-    expect(
-      resolveTradeExecutionVerdict({
-        ammPriceImpactPct: 0.2,
-        signedPriceImpactPct: 6.4,
-        tradeReserveExposurePct: 0.5,
-        recommendedBatchCount: 1,
-      }).code
-    ).toBe('DO_NOT_EXECUTE')
+    // Split path (14.2% reserve, 6 batches, 2.31% Batch-1 AMM) -> 3.0 stars
+    const split = resolveTradeExecutionVerdict({
+      ammPriceImpactPct: 12.4,
+      signedPriceImpactPct: 12.1,
+      tradeReserveExposurePct: 14.2,
+      recommendedBatchCount: 6,
+      perBatchAmmPriceImpactPct: 2.31,
+      exceedsCappedBatchDepth: false,
+    })
+    expect(split).toMatchObject({
+      code: 'CAUTION_SPLIT',
+      label: 'Split Path Recommended',
+      tone: 'cancelled',
+      rating: 3,
+      maxRating: 5,
+    })
+    expect(split.reason.toLowerCase()).not.toContain('do not')
+
+    // Exceeds 10-batch pool depth cap -> 1.0 star
+    const capped = resolveTradeExecutionVerdict({
+      ammPriceImpactPct: 25.0,
+      signedPriceImpactPct: 26.0,
+      tradeReserveExposurePct: 80.0,
+      recommendedBatchCount: 10,
+      perBatchAmmPriceImpactPct: 7.4,
+      exceedsCappedBatchDepth: true,
+    })
+    expect(capped).toMatchObject({
+      code: 'DO_NOT_EXECUTE',
+      label: 'Reduce Size Recommended',
+      tone: 'error',
+      rating: 1,
+      maxRating: 5,
+    })
+    expect(capped.label.toLowerCase()).not.toContain('do not execute')
+
+    // Pool spot mispriced 5%–10% vs oracle on a tiny swap -> Rate Spread Advisory (3.0 stars — not strongly recommended)
+    const spread = resolveTradeExecutionVerdict({
+      ammPriceImpactPct: 0.2,
+      signedPriceImpactPct: 6.4,
+      tradeReserveExposurePct: 0.5,
+      recommendedBatchCount: 1,
+    })
+    expect(spread).toMatchObject({
+      code: 'DO_NOT_EXECUTE',
+      label: 'Rate Spread Advisory',
+      tone: 'error',
+      rating: 3,
+      maxRating: 5,
+    })
+
+    // Severe >=10% oracle spread drops further to 2.0 stars
+    const severeSpread = resolveTradeExecutionVerdict({
+      ammPriceImpactPct: 0.2,
+      signedPriceImpactPct: 11.5,
+      tradeReserveExposurePct: 0.5,
+      recommendedBatchCount: 1,
+    })
+    expect(severeSpread).toMatchObject({
+      code: 'DO_NOT_EXECUTE',
+      label: 'Rate Spread Advisory',
+      rating: 2,
+      maxRating: 5,
+    })
   })
 })

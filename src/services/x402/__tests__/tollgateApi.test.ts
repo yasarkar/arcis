@@ -80,7 +80,7 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(data.success).toBe(true)
     expect(data.count).toBe(7)
     expect(data.services.length).toBe(7)
-    expect(data.services.filter((service: any) => service.engine === 'llm')).toHaveLength(1)
+    expect(data.services.filter((service: any) => service.engine === 'native')).toHaveLength(7)
   })
 
   it('rejects new-service payloads that violate their manifest schema before any payment', async () => {
@@ -208,21 +208,6 @@ describe('F2 Tollgate API & Dispatcher (/api/x402)', () => {
     expect(data.engine).toBe(manifest.engine)
     expect(['ready', 'degraded']).toContain(data.status)
     expect(data.checks.map((check: any) => check.id)).toContain('payout')
-  })
-
-  it('marks a paid llm service degraded when no server credential is configured', async () => {
-    vi.stubEnv('OPENROUTER_API_KEY', '')
-    vi.stubEnv('OPENROUTER_API_KEY', '')
-    const llmManifest = OFFICIAL_MANIFESTS.find((entry) => entry.engine === 'llm')!
-
-    const res = await GET(
-      new Request(`http://localhost:3000/api/x402/health/${llmManifest.id}`, { method: 'GET' })
-    )
-    const data = await res.json()
-
-    expect(res.status).toBe(200)
-    expect(data.status).toBe('degraded')
-    expect(data.checks.find((check: any) => check.id === 'llm-credential')?.ok).toBe(false)
   })
 
   it('returns 404 for a service health probe on an unknown id', async () => {

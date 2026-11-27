@@ -15,7 +15,6 @@
 import { formatUnits, type Address } from 'viem'
 import { POOL_CONTRACTS, VAULT_SHARE_DECIMALS, YIELD_VAULT_ABI } from '../../config/poolsConfig.js'
 import { getArcPublicClient, resilientReadContract } from '../rpc/index.js'
-import { generateLlmNarrative, type LlmNarrative } from './llmEngine.js'
 import { isValidPortfolioAddress } from './portfolioRisk.js'
 import { getLiveTokenPrices } from '../tokenPriceService.js'
 import { readArcDefiPositions, type ArcLpPosition } from './arcDefiPositions.js'
@@ -44,28 +43,12 @@ const DISCLOSURE_LIMITS = [
   'Yield and unharvested LP swap fees are unrealized until redeemed or harvested; nothing in this report constitutes tax, legal or investment advice.',
 ]
 
-const SYSTEM_PROMPT = `You are a reporting assistant for Arc Testnet DeFi positions (USDC ERC-4626 Yield Vault and Arc V4 AMM liquidity pools).
-You receive JSON facts measured from the vault and AMM pool contracts. Explain the overall position qualitatively:
-vault principal versus current redeemable value, pending yield, active AMM LP positions and harvestable swap fees, and what the measurement does not cover.
-Return only a JSON object with this exact shape:
-{"headline": string, "observations": string[], "risks": string[]}
-Rules:
-- Never write a digit, a percentage, a token amount or a price. Refer to values qualitatively.
-- Never write an address, a transaction hash or calldata.
-- Do not invent data. If a fact is null or a read failed, say the measurement is unavailable.
-- Do not present the narrative as tax advice; note that jurisdiction rules and cost basis beyond
-  the vault principal are not covered.
-- observations: 2 to 5 points. risks: 1 to 4 points. No markdown.`
-
 export interface VaultYieldReportResult {
   status: 'REPORT_READY' | 'PARTIAL' | 'NO_POSITION' | 'UNAVAILABLE'
   address: string
   vaultAddress: string
   measured: Record<string, unknown>
   lpPositions: ArcLpPosition[]
-  narrative: LlmNarrative | null
-  model: string | null
-  usage: { promptTokens: number | null; completionTokens: number | null } | null
   /** Institutional envelope: identity, freshness, coverage, grade, graded risk register. */
   report: InstitutionalReport
   readAt: number
@@ -81,7 +64,7 @@ export async function readVaultYieldReport(input: { address: string }): Promise<
   const vaultAddress = String(POOL_CONTRACTS.YIELD_VAULT)
   const limitations = [...REPORT_LIMITATIONS, ...DISCLOSURE_LIMITS]
   const note =
-    'Figures under `measured` come from the ERC-4626 vault contract; the narrative is model-written prose and contains no figures.'
+    'Figures under `measured` come directly from the Arc ERC-4626 vault and V4 AMM pool contracts.'
 
   const reportFor = (args: {
     subject: string
@@ -138,9 +121,6 @@ export async function readVaultYieldReport(input: { address: string }): Promise<
       vaultAddress,
       measured: {},
       lpPositions: [],
-      narrative: null,
-      model: null,
-      usage: null,
       report: reportFor({
         subject: input.address,
         measuredReads: 0,
@@ -226,9 +206,6 @@ export async function readVaultYieldReport(input: { address: string }): Promise<
       vaultAddress,
       measured: {},
       lpPositions,
-      narrative: null,
-      model: null,
-      usage: null,
       report: reportFor({
         subject: input.address,
         measuredReads: vaultReadsReturned + lpReadsReturned,
@@ -377,60 +354,9 @@ export async function readVaultYieldReport(input: { address: string }): Promise<
       vaultAddress,
       measured,
       lpPositions,
-      narrative: null,
-      model: null,
-      usage: null,
       report: reportFor({ subject: input.address, measuredReads, risks: positionRisks }),
       readAt,
       unavailable,
-      limitations,
-      note,
-    }
-  }
-
-  const llm = await generateLlmNarrative({
-    serviceId: VAULT_YIELD_REPORT_SERVICE_ID,
-    systemPrompt: SYSTEM_PROMPT,
-    facts: {
-      ...measured,
-      activeLpPools: lpPositions.map((p) => ({
-        pool: p.poolName,
-        hasPendingFees: p.pendingFeeA > 0 || p.pendingFeeB > 0,
-        impermanentLossRisk: p.impermanentLossRisk,
-      })),
-    },
-  })
-
-  if (!llm.ok) {
-    return {
-      status: 'UNAVAILABLE',
-      address: input.address,
-      vaultAddress,
-      measured,
-      lpPositions,
-      narrative: null,
-      model: null,
-      usage: null,
-      report: reportFor({
-        subject: input.address,
-        measuredReads,
-        risks: [
-          ...positionRisks,
-          institutionalRisk({
-            id: 'NARRATIVE_UNAVAILABLE',
-            category: 'DATA_QUALITY',
-            severity: 'HIGH',
-            title: 'The narrative half of the report was not produced',
-            finding: `The measured position is intact, but no narrative could be generated (${llm.unavailable.join(', ')}).`,
-            evidence: { measuredReads, expectedReads: EXPECTED_READS },
-            threshold: 'A complete report requires both the measured position and the model narrative.',
-            remediation:
-              'Re-run once the provider credential and model budget are healthy; the measured block does not need to be re-read.',
-          }),
-        ],
-      }),
-      readAt,
-      unavailable: [...unavailable, ...llm.unavailable],
       limitations,
       note,
     }
@@ -442,9 +368,6 @@ export async function readVaultYieldReport(input: { address: string }): Promise<
     vaultAddress,
     measured,
     lpPositions,
-    narrative: llm.narrative,
-    model: llm.model,
-    usage: llm.usage,
     report: reportFor({ subject: input.address, measuredReads, risks: positionRisks }),
     readAt,
     unavailable,

@@ -30,6 +30,7 @@ import {
 import type { SwapExecuteParams, SwapExecutionStatus, SwapQuoteResult } from '../types/swap.js'
 import { formatCopilotError, isUserCanceled } from '../utils/errorUtils.js'
 import { recordClientSwapVolumeForPair } from '../utils/poolVolumeUtils.js'
+import { ensureHealthyWalletRpc, ensureNetwork } from './chainSwitchService.js'
 import { getActiveSmartAccount, restoreSmartAccount, sendModularUserOperation } from './modularWalletService.js'
 import { buildPoolSwapCall, buildRouterSwapCall, buildRouterSwapUcwCall } from './pools/poolDeadline.js'
 import { getArcPublicClient, getResilientPublicClient, resilientReadContract, resilientWaitForReceipt } from './rpc/index.js'
@@ -884,6 +885,20 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
 
         if (!account) throw new Error('Wallet account could not be found.')
 
+        const switchRes = await ensureNetwork(arcTestnet, provider)
+        if (!switchRes.success) {
+          throw new Error(
+            switchRes.error || 'Please switch your wallet to Arc Testnet (Chain ID: 5042002) to execute this swap.'
+          )
+        }
+
+        // Proactively verify the wallet's Arc Testnet RPC is alive before sending transactions;
+        // stale or broken wallet RPCs trigger MetaMask -32603 Internal JSON-RPC errors.
+        const rpcHealth = await ensureHealthyWalletRpc(arcTestnet, provider)
+        if (!rpcHealth.success && rpcHealth.isCanceled) {
+          throw new Error(rpcHealth.error || 'Wallet RPC update was cancelled.')
+        }
+
         const walletClient = createWalletClient({
           account,
           chain: arcTestnet,
@@ -919,6 +934,20 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
         // pulls exactly `amountInUnits`, so the approval authorizes exactly that amount — the
         // next swap asks for its own approval instead of reusing a standing ceiling.
         if (requiresApprove) {
+          let approveGas = 100_000n
+          try {
+            const estApproveGas = await arcPublicClient.estimateContractGas({
+              address: arcRoute.tokenInAddr,
+              abi: ERC20_ABI,
+              functionName: 'approve',
+              args: [routerAddress, exactApprovalAmount(amountInUnits)],
+              account,
+            })
+            approveGas = (estApproveGas * 125n) / 100n
+          } catch {
+            approveGas = 100_000n
+          }
+
           const approveTx = await walletClient.writeContract({
             address: arcRoute.tokenInAddr,
             abi: ERC20_ABI,
@@ -926,6 +955,7 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
             args: [routerAddress, exactApprovalAmount(amountInUnits)],
             chain: arcTestnet,
             account,
+            gas: approveGas,
             maxFeePerGas: gasOptions.maxFeePerGas,
             maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
           })
@@ -938,6 +968,23 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           }
           // Record what this route actually authorized (no ceiling to elevate).
           recordApprovedAmount(account, params.tokenIn, amountInUnits, arcRoute.decIn, approveTx)
+
+          // Wait briefly for the wallet's own RPC node to observe the approval receipt so
+          // MetaMask's internal nonce & state queue does not throw -32603 on the immediate swap tx.
+          if (typeof provider.request === 'function') {
+            for (let attempt = 0; attempt < 8; attempt++) {
+              try {
+                const walletReceipt = await provider.request({
+                  method: 'eth_getTransactionReceipt',
+                  params: [approveTx],
+                })
+                if (walletReceipt) break
+              } catch {
+                // ignore transient wallet RPC poll errors
+              }
+              await new Promise((r) => setTimeout(r, 300))
+            }
+          }
         }
 
         if (params.minimumOutput !== undefined) {
@@ -960,11 +1007,26 @@ export async function executeSwap(params: SwapExecuteParams): Promise<SwapExecut
           treasury: treasuryRecipient,
           feeBps,
         })
+        // Pre-estimate swap gas on our synchronized Arc public RPC with 25% headroom so
+        // the browser wallet skips its own potentially stale eth_estimateGas (-32603).
+        let swapGas = BigInt(ARC_GAS_LIMITS.contractInteraction)
+        try {
+          const estSwapGas = await arcPublicClient.estimateContractGas({
+            address: routerAddress,
+            abi: ARCIS_SWAP_ROUTER_ABI,
+            ...routerCall,
+            account,
+          } as any)
+          swapGas = (estSwapGas * 125n) / 100n
+        } catch {
+          swapGas = BigInt(ARC_GAS_LIMITS.contractInteraction)
+        }
         const routerTxOptions = {
           address: routerAddress,
           abi: ARCIS_SWAP_ROUTER_ABI,
           chain: arcTestnet,
           account,
+          gas: swapGas,
           maxFeePerGas: gasOptions.maxFeePerGas,
           maxPriorityFeePerGas: gasOptions.maxPriorityFeePerGas,
         } as const

@@ -54,16 +54,101 @@ const TOKEN_DECIMALS: Record<string, number> = {
 
 export type TradeExecutionVerdictCode = 'EXECUTE' | 'CAUTION_SPLIT' | 'DO_NOT_EXECUTE'
 
+export interface TradeExecutionRatingBreakdown {
+  /** Deduction from effective AMM curve impact (Batch-1 impact when split, full impact otherwise). */
+  ammCurvePenalty: number
+  /** Deduction from baseline pool spot vs. external oracle mispricing (excludes trade curve impact). */
+  oracleSpreadPenalty: number
+  /** Deduction from pool reserve exposure & batch-splitting overhead. */
+  reserveDepthPenalty: number
+  /** Deduction when external oracle verification is unavailable (caps rating below 5.0). */
+  oracleVerificationPenalty: number
+}
+
 export interface TradeExecutionVerdict {
   code: TradeExecutionVerdictCode
   label: string
   tone: 'success' | 'cancelled' | 'error'
   reason: string
+  /** 1.0–5.0 execution quality score in 0.5-star increments (Google-style star scale). */
+  rating: number
+  /** Maximum star score (always 5). */
+  maxRating: 5
+  /** Transparent per-dimension deductions subtracted from 5.0 before clamping to [1.0, 5.0]. */
+  ratingBreakdown: TradeExecutionRatingBreakdown
 }
 
 /**
- * Single deterministic Go / Caution / Do-Not-Execute decision rule for Smart Trade & Execution Advisor.
- * Evaluates AMM curve impact, external oracle mispricing, pool reserve depth, and batch viability.
+ * Computes a deterministic 1.0–5.0 star rating (0.5-star increments) across four
+ * non-overlapping execution dimensions so trade quality degrades smoothly instead of
+ * snapping on binary thresholds.
+ */
+function computeTradeExecutionRating(params: {
+  effectiveAmmPct: number | null
+  baselineOracleGapPct: number | null
+  oracleAvailable: boolean
+  reserveExposurePct: number | null
+  batches: number
+  exceedsCap: boolean
+}): { rating: number; ratingBreakdown: TradeExecutionRatingBreakdown } {
+  const { effectiveAmmPct, baselineOracleGapPct, oracleAvailable, reserveExposurePct, batches, exceedsCap } = params
+
+  // 1. Effective AMM curve impact (Batch 1 when split-batched, full order otherwise)
+  let ammCurvePenalty = 0
+  if (effectiveAmmPct !== null) {
+    if (effectiveAmmPct >= 10) ammCurvePenalty = 3.5
+    else if (effectiveAmmPct >= SEVERE_SLIPPAGE_THRESHOLD_PCT) ammCurvePenalty = 2.5
+    else if (effectiveAmmPct >= 2.5) ammCurvePenalty = 1.5
+    else if (effectiveAmmPct >= HIGH_SLIPPAGE_THRESHOLD_PCT) ammCurvePenalty = 1.0
+    else if (effectiveAmmPct >= 0.5) ammCurvePenalty = 0.5
+  }
+
+  // 2. Pool spot vs. external oracle spread (excludes AMM impact caused by this trade)
+  let oracleSpreadPenalty = 0
+  if (baselineOracleGapPct !== null) {
+    if (baselineOracleGapPct >= 10) oracleSpreadPenalty = 3.0
+    else if (baselineOracleGapPct >= SEVERE_SLIPPAGE_THRESHOLD_PCT) oracleSpreadPenalty = 2.0
+    else if (baselineOracleGapPct >= 3.0) oracleSpreadPenalty = 1.5
+    else if (baselineOracleGapPct >= 1.5) oracleSpreadPenalty = 1.0
+    else if (baselineOracleGapPct >= 0.5) oracleSpreadPenalty = 0.5
+  }
+
+  // 3. Pool reserve depth pressure & split overhead
+  let reserveDepthPenalty = 0
+  if (exceedsCap) {
+    reserveDepthPenalty = 3.0
+  } else if (reserveExposurePct !== null) {
+    if (reserveExposurePct > 15) reserveDepthPenalty = 1.5
+    else if (reserveExposurePct > HIGH_RESERVE_EXPOSURE_THRESHOLD_PCT) reserveDepthPenalty = 1.0
+    else if (reserveExposurePct > MODERATE_RESERVE_EXPOSURE_THRESHOLD_PCT) reserveDepthPenalty = 0.5
+  } else if (batches > 1) {
+    reserveDepthPenalty = 1.0
+  }
+
+  // 4. External oracle verification confidence
+  const oracleVerificationPenalty = oracleAvailable ? 0 : 0.5
+
+  const raw =
+    5.0 - (ammCurvePenalty + oracleSpreadPenalty + reserveDepthPenalty + oracleVerificationPenalty)
+  const capped = exceedsCap ? Math.min(raw, 1.5) : raw
+  const clamped = Math.min(5, Math.max(1, capped))
+  const rating = Math.round(clamped * 2) / 2
+
+  return {
+    rating,
+    ratingBreakdown: {
+      ammCurvePenalty,
+      oracleSpreadPenalty,
+      reserveDepthPenalty,
+      oracleVerificationPenalty,
+    },
+  }
+}
+
+/**
+ * Single deterministic Strategist decision rule for Smart Trade & Execution Advisor.
+ * Evaluates AMM curve impact, external oracle spread, pool reserve depth, and batch viability
+ * to produce both a 1.0–5.0 star execution quality score and concise guidance without prohibitive language.
  */
 export function resolveTradeExecutionVerdict(params: {
   ammPriceImpactPct?: number | null
@@ -108,31 +193,56 @@ export function resolveTradeExecutionVerdict(params: {
 
   // Baseline pool spot mispricing vs oracle (excludes curve impact of this order)
   const baselineOracleGapPct =
-    adverseOracle !== null && amm !== null ? Math.max(0, adverseOracle - amm) : null
+    adverseOracle !== null
+      ? amm !== null
+        ? Math.max(0, adverseOracle - amm)
+        : adverseOracle
+      : null
 
-  // 1. DO NOT EXECUTE: severe unmitigated loss, pool exhausted beyond batch cap, or badly mispriced pool
+  const effectiveAmmPct = batches > 1 && perBatchAmm !== null ? perBatchAmm : amm
+  const oracleAvailable = signedOracle !== null || adverseOracle !== null
+
+  const { rating, ratingBreakdown } = computeTradeExecutionRating({
+    effectiveAmmPct,
+    baselineOracleGapPct,
+    oracleAvailable,
+    reserveExposurePct: reserve,
+    batches,
+    exceedsCap,
+  })
+
+  // 1. SIZE / RATE ADVISORY: elevated curve pressure or oracle spread — guide toward smaller tranche or waiting
   if (exceedsCap) {
     return {
       code: 'DO_NOT_EXECUTE',
-      label: 'Do Not Execute',
+      label: 'Reduce Size Recommended',
       tone: 'error',
-      reason: `Order uses ${reserve !== null ? `${reserve.toFixed(1)}%` : 'excessive share'} of pool depth — even ${MAX_RECOMMENDED_BATCHES} batches exceed safe depth. Reduce trade size.`,
+      reason: `Order uses ${reserve !== null ? `${reserve.toFixed(1)}%` : 'an elevated share'} of pool depth — scaling down trade size or splitting across sessions unlocks a significantly better rate.`,
+      rating,
+      maxRating: 5,
+      ratingBreakdown,
     }
   }
   if (baselineOracleGapPct !== null && baselineOracleGapPct >= SEVERE_SLIPPAGE_THRESHOLD_PCT) {
     return {
       code: 'DO_NOT_EXECUTE',
-      label: 'Do Not Execute',
+      label: 'Rate Spread Advisory',
       tone: 'error',
-      reason: `Pool spot price trails external oracle by ~${baselineOracleGapPct.toFixed(1)}% — unfavorable execution rate even if split.`,
+      reason: `Pool spot price trails external oracle by ~${baselineOracleGapPct.toFixed(1)}% — waiting for rebalance or using a smaller tranche avoids extra spread.`,
+      rating,
+      maxRating: 5,
+      ratingBreakdown,
     }
   }
   if (batches > 1 && perBatchAmm !== null && perBatchAmm >= SEVERE_SLIPPAGE_THRESHOLD_PCT) {
     return {
       code: 'DO_NOT_EXECUTE',
-      label: 'Do Not Execute',
+      label: 'Reduce Size Recommended',
       tone: 'error',
-      reason: `Even Batch 1 incurs ${perBatchAmm.toFixed(1)}% AMM curve impact — reduce trade size before executing.`,
+      reason: `Batch 1 still incurs ${perBatchAmm.toFixed(1)}% AMM curve impact — lowering the tranche size is the best way to preserve net output.`,
+      rating,
+      maxRating: 5,
+      ratingBreakdown,
     }
   }
   if (
@@ -143,19 +253,25 @@ export function resolveTradeExecutionVerdict(params: {
     const worst = Math.max(amm ?? 0, adverseOracle ?? 0)
     return {
       code: 'DO_NOT_EXECUTE',
-      label: 'Do Not Execute',
+      label: 'Reduce Size Recommended',
       tone: 'error',
-      reason: `Severe ${worst.toFixed(1)}% price impact detected — avoid executing at this size/price.`,
+      reason: `Measured ${worst.toFixed(1)}% price impact at this size — splitting into smaller tranches or reducing order size improves net execution.`,
+      rating,
+      maxRating: 5,
+      ratingBreakdown,
     }
   }
 
-  // 2. CAUTION / SPLIT: viable with batching or elevated 1%–5% slippage/reserve caution
+  // 2. SPLIT PATH / TRADE-OFF ADVISORY: viable with batching or moderate 1%–5% slippage/reserve pressure
   if (batches > 1) {
     return {
       code: 'CAUTION_SPLIT',
-      label: 'Caution · Split Trade',
+      label: 'Split Path Recommended',
       tone: 'cancelled',
-      reason: `Exceeds ${HIGH_RESERVE_EXPOSURE_THRESHOLD_PCT}% pool depth — do not swap all at once; split into ${batches} spaced batches.`,
+      reason: `Exceeds ${HIGH_RESERVE_EXPOSURE_THRESHOLD_PCT}% pool depth — splitting into ${batches} spaced batches minimizes AMM curve impact.`,
+      rating,
+      maxRating: 5,
+      ratingBreakdown,
     }
   }
   if (
@@ -166,18 +282,24 @@ export function resolveTradeExecutionVerdict(params: {
     const worst = Math.max(amm ?? 0, adverseOracle ?? 0)
     return {
       code: 'CAUTION_SPLIT',
-      label: 'Proceed with Caution',
+      label: 'Trade-off Advisory',
       tone: 'cancelled',
-      reason: `Elevated ${worst.toFixed(2)}% price impact — verify Min. Guaranteed Output before confirming.`,
+      reason: `Measured ${worst.toFixed(2)}% price impact — verify Min. Guaranteed Output before proceeding.`,
+      rating,
+      maxRating: 5,
+      ratingBreakdown,
     }
   }
 
-  // 3. SAFE TO EXECUTE: low impact, healthy pool depth, fair/favorable pricing
+  // 3. OPTIMAL PATH READY: low impact, healthy pool depth, fair/favorable pricing
   return {
     code: 'EXECUTE',
-    label: 'Safe to Execute',
+    label: 'Optimal Path Ready',
     tone: 'success',
-    reason: 'Low AMM impact and healthy pool depth — safe to execute in a single swap.',
+    reason: 'Low AMM impact and healthy pool depth — single-swap execution is the optimal path.',
+    rating,
+    maxRating: 5,
+    ratingBreakdown,
   }
 }
 
