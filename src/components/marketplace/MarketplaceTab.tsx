@@ -1,10 +1,8 @@
 import {
   Activity,
-  AlertCircle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  Ban,
   Check,
   ChevronDown,
   Clock,
@@ -27,7 +25,6 @@ import { getCategoryLabel, SERVICE_CATEGORIES } from '../../config/x402/categori
 import { OFFICIAL_MANIFESTS } from '../../config/x402/manifests'
 import { useMarketplaceServices } from '../../hooks/useMarketplaceServices'
 import { usePlatformStats } from '../../hooks/usePlatformStats'
-import { useReportDigests } from '../../hooks/useReportDigests'
 import { useServiceTelemetry } from '../../hooks/useServiceTelemetry'
 import { useSharedLatency } from '../../hooks/useSharedLatency'
 import type { CopilotUcwHandlers } from '../../services/copilot/copilotCommon'
@@ -44,14 +41,23 @@ import { soundService } from '../../services/soundService'
 import type { UcwTypedDataChallenge } from '../../services/x402/ucwPaymentSigner'
 import type { x402Service } from '../../types/marketplace'
 import type { SessionKeyConfig } from '../../types/sessionKey'
-import NextStepRail, { LastMeasurementBadge } from './NextStepRail'
 import { getServiceTokenSymbols, STATUS_TONES } from './marketplaceDesign'
+import { InfoTooltip } from '../common/Tooltip'
 import { StatusBadge, TokenPairIcons } from './MarketplaceVisualPrimitives'
 import ProviderHubModal from './ProviderHubModal'
 import RegisterServiceModal from './RegisterServiceModal'
 import ServicePlaygroundModal from './ServicePlaygroundModal'
 import SessionBudgetModal from './SessionBudgetModal'
 type SortByOption = 'default' | 'price_asc' | 'price_desc' | 'latency_asc' | 'name_asc'
+
+/** Concise popover explaining metric source, calculation, and refresh cadence. */
+function HeroStatTooltipContent({ summary }: { summary: string }) {
+  return (
+    <p className="text-[11px] leading-relaxed normal-case tracking-normal text-left text-white/90">
+      {summary}
+    </p>
+  )
+}
 
 const SORT_OPTIONS: Array<{
   value: SortByOption
@@ -114,27 +120,11 @@ export default function MarketplaceTab({
 
   const [isSessionModalOpen, setIsSessionModalOpen] = useState<boolean>(false)
 
-  // Inputs the shelf asked the playground to open with (a next-step re-run). A plain card click
-  // sets this to `undefined`, so a recommendation never leaks into an unrelated call.
-  const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | undefined>(
-    undefined
-  )
-
   // Every financial figure on the card is derived from the shared settlement ledger through one
   // module, so the numbers cannot disagree about their source or about what an outage means.
   // `unavailable` renders as a dash: a counter outage must not look like "zero calls" or "zero
   // savings" to a visitor.
   const { snapshot: platformStats } = usePlatformStats()
-
-  // The wallet's own paid reports, read back from the server. A settled call re-reads the store so
-  // the shelf and the card lines reflect the run that just happened, not a local tally.
-  const settlementKey =
-    executionResult?.payment?.settlementRef ?? executionResult?.payment?.id ?? null
-  const {
-    byService: digestsByService,
-    recommendations: nextSteps,
-  } = useReportDigests(walletAddress, settlementKey)
-  const digestNow = Date.now()
 
   // The displayed fee must be the fee the settlement path actually deducts. It is read from the
   // official manifests (all 0 today) instead of a hardcoded marketing percentage.
@@ -152,18 +142,6 @@ export default function MarketplaceTab({
     () => (heroStats.paidCalls === null ? null : heroStats.paidCalls.toLocaleString()),
     [heroStats.paidCalls]
   )
-  const paidCallsDetail = useMemo(() => {
-    if (!platformStats) return 'Reading the shared paid-call ledger…'
-    if (platformStats.source === 'unavailable' || heroStats.pendingCalls === null) {
-      return 'The shared paid-call counter is unavailable right now.'
-    }
-    const updated = platformStats.updatedAt
-      ? new Date(platformStats.updatedAt).toLocaleTimeString()
-      : 'unknown'
-    const scope =
-      platformStats.source === 'memory' ? ' · local development counter, not shared' : ' · shared settlement ledger'
-    return `${platformStats.settledCalls.toLocaleString()} settled · ${heroStats.pendingCalls.toLocaleString()} pending reconciliation · updated ${updated}${scope}`
-  }, [platformStats, heroStats.pendingCalls])
 
   // Savings are the ledger's own totals compared against the Web2 baseline, so this is a
   // protocol-wide figure rather than the visitor's own spending history.
@@ -177,13 +155,6 @@ export default function MarketplaceTab({
         }),
     [heroStats.userSavingsUsd]
   )
-  const userSavingsDetail = useMemo(() => {
-    if (heroStats.userSavingsUsd === null || heroStats.paidCalls === null) {
-      return 'The shared paid-call ledger is unavailable right now.'
-    }
-    const volume = platformStats ? platformStats.volumeUsdc.toFixed(3) : '0.000'
-    return `${heroStats.paidCalls.toLocaleString()} accepted calls × $${WEB2_CALL_BASELINE_USD.toFixed(2)} Web2 baseline − ${volume} USDC paid · shared settlement ledger`
-  }, [heroStats.userSavingsUsd, heroStats.paidCalls, platformStats])
 
   // A per-call fee at these prices is a few hundredths of a cent, so six decimals keep the figure
   // from reading as a structural zero.
@@ -197,14 +168,6 @@ export default function MarketplaceTab({
         })} USDC`,
     [heroStats.protocolFeeUsdc]
   )
-  const protocolFeeDetail = useMemo(() => {
-    if (heroStats.protocolFeeUsdc === null) return 'The shared paid-call ledger is unavailable right now.'
-    const volume = platformStats ? platformStats.volumeUsdc.toFixed(3) : '0.000'
-    if (protocolFeeBps === 0) {
-      return `Every official service charges 0 bps, so nothing is deducted from the ${volume} USDC settled volume.`
-    }
-    return `${protocolFeeBps / 100}% of the ${volume} USDC gross settled volume, held by the protocol treasury until providers withdraw their net earnings.`
-  }, [heroStats.protocolFeeUsdc, platformStats, protocolFeeBps])
 
   // The autonomous authority is the Session Key, scoped specifically to 'marketplace'
   const [sessionConfig, setSessionConfig] = useState<SessionKeyConfig>(() =>
@@ -252,20 +215,6 @@ export default function MarketplaceTab({
       return null
     }
     return `${sharedLatency.avgLatencyMs} ms`
-  }, [sharedLatency])
-  const latencyDetail = useMemo(() => {
-    if (!sharedLatency) return 'Reading the shared latency probe…'
-    if (sharedLatency.source === 'unavailable' || sharedLatency.avgLatencyMs === null) {
-      return 'The shared latency probe is unavailable right now.'
-    }
-    const measured = sharedLatency.measuredAt
-      ? new Date(sharedLatency.measuredAt).toLocaleTimeString()
-      : 'unknown'
-    const scope =
-      sharedLatency.source === 'memory'
-        ? ' · local development measurement, not shared'
-        : ' · shared server measurement'
-    return `Arc Testnet RPC round-trip, averaged over ${sharedLatency.sampleCount} server samples · updated ${measured}${scope}`
   }, [sharedLatency])
 
   // Sorting and Displayed Services State
@@ -327,29 +276,19 @@ export default function MarketplaceTab({
   const effectiveSpent = sessionIsActive ? sessionConfig.spentUsdc || 0 : 0
   const remainingUsdc = Math.max(0, effectiveMaxSpend - effectiveSpent)
 
-  /** Opens a service with the inputs a recommendation was derived for. */
-  const openServiceWithParams = (
-    serviceId: string,
-    params?: Record<string, unknown> | undefined
-  ) => {
-    const service = services.find((entry) => entry.id === serviceId)
-    if (!service) return
-    soundService.play('pop')
-    setPendingPayload(params)
-    openPlayground(service)
-  }
-
-  /** A plain card open: the playground starts from the service's own defaults. */
+  /** Opens a service playground starting from the service's own defaults. */
   const openService = (service: x402Service) => {
     soundService.play('pop')
-    setPendingPayload(undefined)
     openPlayground(service)
   }
 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── HERO BANNER & STATS (DESIGN.md: .ub-hero-card) ── */}
-      <div className="ub-hero-card">
+      <div
+        className="ub-hero-card z-30 hover:z-40 focus-within:z-40"
+        style={{ overflow: 'visible' }}
+      >
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-x-6 gap-y-6 items-center">
           {/* Left Wing: Narrative & Protocol Entry Points */}
           <div className="space-y-4 flex flex-col justify-center lg:col-span-6">
@@ -479,12 +418,25 @@ export default function MarketplaceTab({
             {/* Live Ecosystem Stats Grid (2x2) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div
-                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--sky-sync)]/30 transition-all duration-300"
+                className="relative hover:z-30 focus-within:z-30 p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--sky-sync)]/30 transition-all duration-300"
               >
-                <span className="arc-eyebrow text-[11px] flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
-                  <span>Paid Calls</span>
-                </span>
+                <div className="arc-eyebrow text-[11px] flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
+                    <span>Paid Calls</span>
+                  </span>
+                  <InfoTooltip
+                    position="top"
+                    align="end"
+                    maxWidth={245}
+                    iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--secondary-colors--sky-sync)] cursor-help transition-colors"
+                    content={
+                      <HeroStatTooltipContent
+                        summary="Total x402 service calls whose payment was accepted by Circle Gateway and whose output passed validation. Voided or failed calls are never counted. Values come from the shared server ledger and refresh every 30 seconds."
+                      />
+                    }
+                  />
+                </div>
                 <div
                   className="text-lg font-bold text-white mt-1.5 tabular-nums"
                   style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
@@ -495,20 +447,31 @@ export default function MarketplaceTab({
               </div>
 
               <div
-                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--earned-green)]/30 transition-all duration-300"
+                className="relative hover:z-30 focus-within:z-30 p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--earned-green)]/30 transition-all duration-300"
               >
-                <span className="arc-eyebrow text-[11px] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
+                <div className="arc-eyebrow text-[11px] flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-[var(--earned-green)]" />
-                    <span>Avg. Latency</span>
-                    <div className="ub-live-badge px-2 py-0.5">
+                    <span>Avg Latency</span>
+                    <div className="ub-live-badge px-1 py-0.5">
                       <svg className="ub-ecg-svg" viewBox="0 0 35 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-bg" />
-                        <path d="M0 8h10l3-5 4 13 4-15 4 10 3-3h10" className="ub-ecg-path-pulse" />
+                        <path d="M0 8h10l3-5 4 13 4-15 3 10 3-3h10" className="ub-ecg-path-bg" />
+                        <path d="M0 8h10l3-5 4 13 4-15 3 10 3-3h10" className="ub-ecg-path-pulse" />
                       </svg>
                     </div>
                   </span>
-                </span>
+                  <InfoTooltip
+                    position="top"
+                    align="end"
+                    maxWidth={245}
+                    iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--earned-green)] cursor-help transition-colors"
+                    content={
+                      <HeroStatTooltipContent
+                        summary="Average round-trip response time of 3 sequential eth_blockNumber pings to Arc Testnet RPC nodes. Measured server-side so every visitor sees the same reading. Re-measured every 60 seconds and refreshed every 30 seconds."
+                      />
+                    }
+                  />
+                </div>
                 <div className="flex items-center justify-between mt-1.5">
                   <span
                     className="text-lg font-bold tabular-nums"
@@ -524,12 +487,25 @@ export default function MarketplaceTab({
               </div>
 
               <div
-                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--blockstream-gold)]/30 transition-all duration-300"
+                className="relative hover:z-30 focus-within:z-30 p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--secondary-colors--blockstream-gold)]/30 transition-all duration-300"
               >
-                <span className="arc-eyebrow text-[11px] flex items-center gap-1.5 text-[var(--secondary-colors--blockstream-gold)]">
-                  <PiggyBank className="w-3.5 h-3.5 text-[var(--secondary-colors--blockstream-gold)]" />
-                  <span>User Savings</span>
-                </span>
+                <div className="arc-eyebrow text-[11px] flex items-center justify-between gap-2 text-[var(--secondary-colors--blockstream-gold)]">
+                  <span className="flex items-center gap-1.5">
+                    <PiggyBank className="w-3.5 h-3.5 text-[var(--secondary-colors--blockstream-gold)]" />
+                    <span>User Savings</span>
+                  </span>
+                  <InfoTooltip
+                    position="top"
+                    align="end"
+                    maxWidth={245}
+                    iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--secondary-colors--blockstream-gold)] cursor-help transition-colors"
+                    content={
+                      <HeroStatTooltipContent
+                        summary={`Estimated protocol-wide savings across all accepted calls compared to a fixed $${WEB2_CALL_BASELINE_USD.toFixed(2)} per-call Web2 API baseline. Derived from the shared settlement ledger as accepted calls × $${WEB2_CALL_BASELINE_USD.toFixed(2)} minus total USDC paid. Refreshes every 30 seconds.`}
+                      />
+                    }
+                  />
+                </div>
                 <div
                   className="text-lg font-bold mt-1.5 tabular-nums text-[var(--secondary-colors--blockstream-gold)]"
                   style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
@@ -540,12 +516,25 @@ export default function MarketplaceTab({
               </div>
 
               <div
-                className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--purple-1)]/30 transition-all duration-300"
+                className="relative hover:z-30 focus-within:z-30 p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-[var(--purple-1)]/30 transition-all duration-300"
               >
-                <span className="arc-eyebrow text-[11px] flex items-center gap-1.5 text-[var(--purple-1)]">
-                  <Sparkles className="w-3.5 h-3.5 text-[var(--purple-1)]" />
-                  <span>Protocol Fee ({protocolFeeBps / 100}%)</span>
-                </span>
+                <div className="arc-eyebrow text-[11px] flex items-center justify-between gap-2 text-[var(--purple-1)]">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--purple-1)]" />
+                    <span>Protocol Fee ({protocolFeeBps / 100}%)</span>
+                  </span>
+                  <InfoTooltip
+                    position="top"
+                    align="end"
+                    maxWidth={245}
+                    iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--purple-1)] cursor-help transition-colors"
+                    content={
+                      <HeroStatTooltipContent
+                        summary={`Cumulative protocol fee earned across settled x402 calls, calculated as ${protocolFeeBps / 100}% of gross USDC volume. Held in the protocol treasury until service providers withdraw net earnings. Refreshes every 30 seconds from the shared ledger.`}
+                      />
+                    }
+                  />
+                </div>
                 <div
                   className="text-lg font-bold mt-1.5 tabular-nums text-[var(--purple-1)]"
                   style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
@@ -558,16 +547,6 @@ export default function MarketplaceTab({
           </div>
         </div>
       </div>
-
-      {/* ── NEXT STEP RAIL (derived from this wallet's own paid reports) ── */}
-      {walletAddress && (
-        <NextStepRail
-          recommendations={nextSteps}
-          onOpen={(recommendation) =>
-            openServiceWithParams(recommendation.action.serviceId, recommendation.action.params)
-          }
-        />
-      )}
 
       {/* ── UNIFIED FILTER & SEARCH COMMAND BAR (DESIGN.md: .glass-panel & .ub-action-btn) ── */}
       <div className={`glass-panel rounded-2xl p-2.5 sm:p-3 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 shadow-xl relative transition-all duration-200 ${isSortOpen ? 'z-30' : 'z-20'}`}>
@@ -858,7 +837,6 @@ export default function MarketplaceTab({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 relative z-0">
         {displayedServices.map((service) => {
           const telemetry = getServiceTelemetry(service)
-          const lastMeasurement = digestsByService.get(service.id)
           const tokenSymbols = getServiceTokenSymbols(service)
           const healthTone =
             telemetry.status === 'offline'
@@ -866,12 +844,6 @@ export default function MarketplaceTab({
               : telemetry.status === 'degraded'
                 ? STATUS_TONES.cancelled
                 : STATUS_TONES.success
-          const isVoidedFailure =
-            telemetry.lastFailure &&
-            (telemetry.lastFailure.kind === 'payment_voided' ||
-              telemetry.lastFailure.kind === 'model_budget' ||
-              telemetry.lastFailure.kind === 'measurement_missing')
-          const failureTone = isVoidedFailure ? STATUS_TONES.cancelled : STATUS_TONES.error
 
           return (
             <div
@@ -914,9 +886,6 @@ export default function MarketplaceTab({
                     </span>
                     {service.listing.kind === 'community' && (
                       <StatusBadge tone="pending" label="Community" size="xs" showIcon={false} />
-                    )}
-                    {service.engine === 'llm' && (
-                      <StatusBadge tone="pending" label="AI Narrated" size="xs" showIcon={false} />
                     )}
                   </div>
 
@@ -982,21 +951,7 @@ export default function MarketplaceTab({
                         {tokenSymbols.join(' · ')}
                       </span>
                     </div>
-                    <span
-                      className="text-[9px] font-mono uppercase tracking-wider shrink-0"
-                      style={{
-                        fontFamily: 'var(--fonts--space-mono)',
-                        color: 'var(--fp-4)',
-                      }}
-                    >
-                      Arc L1
-                    </span>
                   </div>
-                )}
-
-                {/* Last measurement this wallet actually bought, with its age */}
-                {lastMeasurement && (
-                  <LastMeasurementBadge digest={lastMeasurement} now={digestNow} />
                 )}
 
                 {/* Tags */}
@@ -1054,34 +1009,6 @@ export default function MarketplaceTab({
                     </span>
                   </div>
                 </div>
-
-                {/* Why the last paid call was voided — Cancelled (Gold) vs Error (Crimson) */}
-                {telemetry.lastFailure && (
-                  <div
-                    className="flex items-start gap-2 text-[10px] leading-snug rounded-xl border px-2.5 py-2"
-                    style={{
-                      fontFamily: 'var(--fonts--space-mono)',
-                      backgroundColor: failureTone.bg,
-                      borderColor: failureTone.border,
-                      color: failureTone.fg,
-                    }}
-                  >
-                    {isVoidedFailure ? (
-                      <Ban
-                        className="w-3.5 h-3.5 mt-0.5 flex-shrink-0"
-                        style={{ color: failureTone.accent }}
-                      />
-                    ) : (
-                      <AlertCircle
-                        className="w-3.5 h-3.5 mt-0.5 flex-shrink-0"
-                        style={{ color: failureTone.accent }}
-                      />
-                    )}
-                    <span className="min-w-0">
-                      Last call voided: {telemetry.lastFailure.label} — no charge
-                    </span>
-                  </div>
-                )}
 
                 {/* Card Action Button */}
                 <button
@@ -1159,7 +1086,6 @@ export default function MarketplaceTab({
         isOpen={isPlaygroundOpen}
         onClose={closePlayground}
         service={activeService}
-        initialPayload={pendingPayload}
         isExecuting={isExecuting}
         executionResult={executionResult}
         onExecute={runService}

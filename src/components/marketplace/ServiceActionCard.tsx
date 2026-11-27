@@ -32,7 +32,6 @@ import { POOL_MIN_SLIPPAGE_BPS, POOL_MAX_SLIPPAGE_BPS } from '../../config/pools
 import { numberToExactDecimal } from '../../utils/copilotAmount'
 import { swapMinimumUnits, swapPercentToBps } from '../../utils/swapSlippage'
 import { isUserCanceledMessage, STATUS_TONES } from './marketplaceDesign'
-import { StatusBadge } from './MarketplaceVisualPrimitives'
 
 const MIN_ACTION_SLIPPAGE_PCT = POOL_MIN_SLIPPAGE_BPS / 100
 const MAX_ACTION_SLIPPAGE_PCT = POOL_MAX_SLIPPAGE_BPS / 100
@@ -607,7 +606,7 @@ export default function ServiceActionCard({
         {/* Cancelled / Failed feedback (inline) */}
         {errorMsg && (
           <div
-            className="p-3 rounded-xl border text-xs flex items-start justify-between gap-2 animate-fade-in"
+            className="p-3 rounded-xl border text-xs flex items-start gap-2 animate-fade-in"
             style={{
               backgroundColor: feedbackTone.bg,
               borderColor: feedbackTone.border,
@@ -616,19 +615,12 @@ export default function ServiceActionCard({
               color: feedbackTone.fg,
             }}
           >
-            <div className="flex items-start gap-2 min-w-0">
-              {errorKind === 'cancelled' ? (
-                <Ban className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: feedbackTone.accent }} />
-              ) : (
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: feedbackTone.accent }} />
-              )}
-              <span className="leading-relaxed">{errorMsg}</span>
-            </div>
-            <StatusBadge
-              tone={errorKind === 'cancelled' ? 'cancelled' : 'error'}
-              label={errorKind === 'cancelled' ? 'Cancelled' : 'Failed'}
-              size="xs"
-            />
+            {errorKind === 'cancelled' ? (
+              <Ban className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: feedbackTone.accent }} />
+            ) : (
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: feedbackTone.accent }} />
+            )}
+            <span className="leading-relaxed min-w-0">{errorMsg}</span>
           </div>
         )}
 
@@ -1083,26 +1075,19 @@ export default function ServiceActionCard({
             color: feedbackTone.fg,
           }}
         >
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-start gap-2.5 min-w-0">
-              {errorKind === 'cancelled' ? (
-                <Ban
-                  className="w-4 h-4 flex-shrink-0 mt-0.5"
-                  style={{ color: feedbackTone.accent }}
-                />
-              ) : (
-                <AlertCircle
-                  className="w-4 h-4 flex-shrink-0 mt-0.5"
-                  style={{ color: feedbackTone.accent }}
-                />
-              )}
-              <span className="leading-relaxed">{errorMsg}</span>
-            </div>
-            <StatusBadge
-              tone={errorKind === 'cancelled' ? 'cancelled' : 'error'}
-              label={errorKind === 'cancelled' ? 'Cancelled' : 'Failed'}
-              size="xs"
-            />
+          <div className="flex items-start gap-2.5 min-w-0">
+            {errorKind === 'cancelled' ? (
+              <Ban
+                className="w-4 h-4 flex-shrink-0 mt-0.5"
+                style={{ color: feedbackTone.accent }}
+              />
+            ) : (
+              <AlertCircle
+                className="w-4 h-4 flex-shrink-0 mt-0.5"
+                style={{ color: feedbackTone.accent }}
+              />
+            )}
+            <span className="leading-relaxed">{errorMsg}</span>
           </div>
           {errorMsg.includes('bakiye') || errorMsg.includes('balance') || errorMsg.includes('faucet') ? (
             <div className="pt-1 flex flex-wrap items-center gap-2">
@@ -1137,12 +1122,9 @@ export default function ServiceActionCard({
             borderLeftColor: STATUS_TONES.pending.accent,
           }}
         >
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 font-bold text-white">
-              <Clock className="w-4 h-4 animate-spin" style={{ color: STATUS_TONES.pending.accent }} />
-              <span>Transaction Broadcast — Awaiting Confirmation</span>
-            </div>
-            <StatusBadge tone="pending" label="Pending" size="xs" />
+          <div className="flex items-center gap-2 text-xs font-bold text-white">
+            <Clock className="w-4 h-4 animate-spin" style={{ color: STATUS_TONES.pending.accent }} />
+            <span>Transaction Broadcast — Awaiting Confirmation</span>
           </div>
           {receipt.txHash && (
             <a
@@ -1184,14 +1166,11 @@ export default function ServiceActionCard({
                     : 'Successfully Confirmed on Arc Testnet!'}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <StatusBadge tone="success" label="Confirmed" size="xs" />
-              {receipt.settlementLatencyMs ? (
-                <span className="text-[10px] font-mono tabular-nums" style={{ color: 'var(--fp-3)' }}>
-                  {receipt.settlementLatencyMs}ms
-                </span>
-              ) : null}
-            </div>
+            {receipt.settlementLatencyMs ? (
+              <span className="text-[10px] font-mono tabular-nums" style={{ color: 'var(--fp-3)' }}>
+                {receipt.settlementLatencyMs}ms
+              </span>
+            ) : null}
           </div>
 
           <div

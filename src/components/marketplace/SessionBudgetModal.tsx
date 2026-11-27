@@ -21,6 +21,7 @@ import {
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createWalletClient, custom, encodeFunctionData, parseUnits, type Address } from 'viem'
+import { ensureNetwork } from '../../services/chainSwitchService'
 import { arcTestnet } from '../../config/arcChain'
 import { ERC20_ABI, POOL_CONTRACTS } from '../../config/poolsConfig'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
@@ -319,6 +320,12 @@ export default function SessionBudgetModal({
         } else {
           const effectiveProvider = provider || (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
           if (effectiveProvider) {
+            const switchRes = await ensureNetwork(arcTestnet, effectiveProvider)
+            if (!switchRes.success) {
+              throw new Error(
+                switchRes.error || 'Please switch your wallet to Arc Testnet (Chain ID: 5042002) to fund the session.'
+              )
+            }
             const walletClient = createWalletClient({
               account: walletAddress as Address,
               chain: arcTestnet,

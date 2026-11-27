@@ -11,6 +11,7 @@ export interface StatusToneStyle {
   tone: MarketplaceStatusTone
   fg: string
   accent: string
+  dot: string
   bg: string
   border: string
   glow: string
@@ -18,56 +19,66 @@ export interface StatusToneStyle {
   pillBorder: string
 }
 
+/**
+ * Institutional Obsidian + Indigo/Aave Purple monochromatic status palette.
+ * Avoids eye-fatiguing neon green, bright orange, and stark red surface fills;
+ * communicates status through subtle indigo/slate hierarchy and 6px muted dots.
+ */
 export const STATUS_TONES: Record<MarketplaceStatusTone, StatusToneStyle> = {
   success: {
     tone: 'success',
-    fg: 'var(--status-success-fg, #34e38a)',
-    accent: 'var(--earned-green, #01d062)',
-    bg: 'var(--status-success-bg, rgba(1, 208, 98, 0.08))',
-    border: 'var(--status-success-border, rgba(1, 208, 98, 0.28))',
-    glow: 'var(--status-success-glow, rgba(1, 208, 98, 0.14))',
-    pillBg: 'rgba(1, 208, 98, 0.14)',
-    pillBorder: 'rgba(1, 208, 98, 0.34)',
+    fg: '#c4c2ff',
+    accent: 'var(--purple-1, #9896ff)',
+    dot: '#818cf8',
+    bg: 'rgba(99, 102, 241, 0.08)',
+    border: 'rgba(152, 150, 255, 0.24)',
+    glow: 'rgba(99, 102, 241, 0.14)',
+    pillBg: 'rgba(99, 102, 241, 0.14)',
+    pillBorder: 'rgba(152, 150, 255, 0.30)',
   },
   error: {
     tone: 'error',
-    fg: 'var(--status-error-fg, #fda4af)',
-    accent: 'var(--status-error-accent, #f87171)',
-    bg: 'var(--status-error-bg, rgba(244, 63, 94, 0.09))',
-    border: 'var(--status-error-border, rgba(248, 113, 113, 0.30))',
-    glow: 'var(--status-error-glow, rgba(244, 63, 94, 0.14))',
-    pillBg: 'rgba(244, 63, 94, 0.15)',
-    pillBorder: 'rgba(248, 113, 113, 0.36)',
+    fg: '#e8ced3',
+    accent: '#d898a2',
+    dot: '#e88c8c',
+    bg: 'rgba(22, 25, 38, 0.82)',
+    border: 'rgba(232, 140, 140, 0.24)',
+    glow: 'rgba(232, 140, 140, 0.08)',
+    pillBg: 'rgba(22, 25, 38, 0.94)',
+    pillBorder: 'rgba(232, 140, 140, 0.26)',
   },
   cancelled: {
     tone: 'cancelled',
-    fg: 'var(--secondary-colors--token-sand, #ffcc6f)',
-    accent: 'var(--secondary-colors--blockstream-gold, #e9a13f)',
-    bg: 'var(--status-cancelled-bg, rgba(233, 161, 63, 0.09))',
-    border: 'var(--status-cancelled-border, rgba(233, 161, 63, 0.32))',
-    glow: 'var(--status-cancelled-glow, rgba(233, 161, 63, 0.14))',
-    pillBg: 'rgba(233, 161, 63, 0.15)',
-    pillBorder: 'rgba(233, 161, 63, 0.36)',
+    fg: '#dcd9f8',
+    accent: '#b4b0e6',
+    dot: '#c9b896',
+    bg: 'rgba(22, 25, 38, 0.76)',
+    border: 'rgba(152, 150, 255, 0.22)',
+    glow: 'rgba(99, 102, 241, 0.10)',
+    pillBg: 'rgba(22, 25, 38, 0.92)',
+    pillBorder: 'rgba(152, 150, 255, 0.24)',
   },
   info: {
     tone: 'info',
     fg: 'var(--secondary-colors--static-ether, #d5e0e7)',
     accent: 'var(--secondary-colors--sky-sync, #acc6e9)',
-    bg: 'var(--status-info-bg, rgba(172, 198, 233, 0.08))',
-    border: 'var(--status-info-border, rgba(172, 198, 233, 0.24))',
-    glow: 'var(--status-info-glow, rgba(47, 87, 140, 0.18))',
-    pillBg: 'rgba(172, 198, 233, 0.13)',
-    pillBorder: 'rgba(172, 198, 233, 0.30)',
+    dot: '#acc6e9',
+    bg: 'rgba(15, 17, 26, 0.72)',
+    border: 'rgba(152, 150, 255, 0.16)',
+    glow: 'rgba(47, 87, 140, 0.12)',
+    pillBg: 'rgba(22, 25, 38, 0.88)',
+    pillBorder: 'rgba(152, 150, 255, 0.20)',
   },
   pending: {
     tone: 'pending',
     fg: 'var(--purple-8, #e5e5ff)',
-    accent: 'var(--purple-1, #9896ff)',
-    bg: 'var(--status-pending-bg, rgba(152, 150, 255, 0.10))',
-    border: 'var(--status-pending-border, rgba(152, 150, 255, 0.30))',
-    glow: 'var(--status-pending-glow, rgba(152, 150, 255, 0.18))',
-    pillBg: 'rgba(152, 150, 255, 0.16)',
-    pillBorder: 'rgba(152, 150, 255, 0.36)',
+    accent: '#818cf8',
+    dot: '#6366f1',
+    bg: 'rgba(99, 102, 241, 0.10)',
+    border: 'rgba(152, 150, 255, 0.28)',
+    glow: 'rgba(99, 102, 241, 0.16)',
+    pillBg: 'rgba(99, 102, 241, 0.16)',
+    pillBorder: 'rgba(152, 150, 255, 0.34)',
   },
 }
 

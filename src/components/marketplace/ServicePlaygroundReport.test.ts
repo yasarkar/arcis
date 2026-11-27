@@ -291,17 +291,26 @@ describe('VisualDataDashboard institutional report', () => {
       ],
     })
 
-    // Block 1: Hero Trade Ticket (Sell → Expected + Min Guaranteed + Effective Rate + Gas + Guided 2-Hop Strip)
+    // Block 1: Hero Trade Ticket (Strategist Recommendation + Sell → Expected + Min Guaranteed + Effective Rate + Gas)
+    expect(html).toContain('Strategist Recommendation')
     expect(html).toContain('Sell Amount')
     expect(html).toContain('10 USDC')
     expect(html).toContain('0.0035 WETH')
     expect(html).toContain('Min. Guaranteed (0.5%)')
     expect(html).toContain('0.003482 WETH')
     expect(html).toContain('Effective Rate')
-    expect(html).toContain('1 USDC = 0.000352 WETH')
+    expect(html).toContain('1 USDC')
+    expect(html).toContain('0.000352 WETH')
     expect(html).toContain('0.0048 USDC')
     expect(html).toContain('2026-11-25 19:30:09 UTC')
-    expect(html).toContain('Safe to Execute')
+    expect(html).toContain('Execution rating: 4.5 out of 5 stars')
+    expect(html).toContain('#9896ff')
+    expect(html).toContain('#7c3aed')
+    expect(html).not.toContain('Optimal Path Ready')
+    expect(html).not.toContain('Do Not Execute')
+    expect(html).not.toContain('$0.0048')
+    expect(html).not.toContain('Depth: $293')
+    expect(html).toContain('Depth: 293 USDC')
     expect(html).not.toContain('2-Hop Optimal')
     expect(html).not.toContain('2-HOP ·')
     expect(html).not.toContain('Step 1')
@@ -315,16 +324,45 @@ describe('VisualDataDashboard institutional report', () => {
     expect(html).toContain('Bottleneck Pressure')
     expect(html).toContain('3.41%')
 
-    // Block 3: Route Comparison Table
+    // Block 3: Route Comparison Table (with coin icons and USDC gas — never $ mixed with USDC)
     expect(html).toContain('Route Comparison')
     expect(html).toContain('USDC → WETH')
     expect(html).toContain('Best')
+    expect(html).toContain('alt="USDC"')
+    expect(html).toContain('title="WETH"')
+    expect(html).not.toMatch(/\$[\d.,]+\s*USDC/i)
 
     // Block 4: Collapsed Audit Bar (zero bloated paragraphs by default)
-    expect(html).toContain('Audit (2)')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('1 advisory')
     expect(html).not.toContain('Flash Reserve Depth Usdc')
     expect(html).not.toContain('Recommended Hops')
     expect(html).not.toContain('The router simulates every direct and 2-hop pool combination')
     expect(html).not.toContain('This surveillance monitor compares trade size against live sold-side pool reserve depth')
+  })
+
+  it('never mixes $ with USDC across KPI metrics, pools, bridge quotes, or vault summaries and renders USDC icons', () => {
+    const html = render({
+      status: 'QUOTE_READY',
+      tvlUsdc: 12500,
+      netProfitUsdc: 18.25,
+      savingsUsdc: 0.0045,
+      totalUsd: 50000,
+      gateway: { available: true, totalCostUsdc: 0.005, feeBps: 5 },
+      cctp: { available: true, totalCostUsdc: 0.12, feeUsdc: 0.1, sourceGasUsdc: 0.02, mechanism: 'cctp-v2' },
+      recommendedRail: 'gateway',
+      token: 'USDC',
+      destinationChain: 'Base_Sepolia',
+      defiPositions: {
+        vault: { hasPosition: true, shares: '1000', currentValueUsdc: 1234.56, pendingYieldUsdc: 0.25 },
+      },
+    })
+
+    expect(html).not.toMatch(/\$[\d.,]+\s*USDC/i)
+    expect(html).toContain('12,500.00 USDC')
+    expect(html).toContain('18.25 USDC')
+    expect(html).toContain('0.0045 USDC')
+    expect(html).toContain('$50,000.00')
+    expect(html).toContain('alt="USDC"')
   })
 })

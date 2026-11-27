@@ -2,14 +2,12 @@
 // Redesigned under Konsept B: "Linear Command / Step-by-Step Focus"
 import {
   AlertCircle,
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Ban,
   BarChart3,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -22,7 +20,6 @@ import {
   GitBranch,
   Info,
   Layers,
-  Lock,
   Shield,
   ShieldAlert,
   Sparkles,
@@ -87,7 +84,6 @@ import {
   TokenIconBadge,
   TokenPairIcons,
 } from './MarketplaceVisualPrimitives'
-import { resolveTradeExecutionVerdict } from '../../services/x402/tradeExecutionAdvisor'
 import ServiceActionCard from './ServiceActionCard'
 import TradeExecutionTicketReport from './TradeExecutionTicketReport'
 
@@ -226,7 +222,7 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
 
   if (id === 'GATEWAY_NET_INFLOW') {
     const netUsdc = typeof evidence.netUsdcInflowUsdc === 'number'
-      ? `+$${evidence.netUsdcInflowUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      ? `+${evidence.netUsdcInflowUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : 'positive'
     return {
       humanTitle: `Net Liquidity Expansion (${netUsdc} USDC)`,
@@ -263,7 +259,7 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
       ? `${evidence.sharePriceUsdc} USDC`
       : 'active'
     const tvl = typeof evidence.totalAssetsUsdc === 'number'
-      ? `$${evidence.totalAssetsUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      ? `${evidence.totalAssetsUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`
       : 'verified'
     return {
       humanTitle: `Active Yield Vault Reserves (${sharePrice} / share)`,
@@ -326,7 +322,7 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
     const railName = evidence.recommendedRail === 'gateway' ? 'Circle Gateway' : 'CCTP Bridge'
     const savings =
       typeof evidence.savingsUsdc === 'number' && evidence.savingsUsdc > 0
-        ? `saves $${evidence.savingsUsdc.toFixed(2)} USDC`
+        ? `saves ${evidence.savingsUsdc.toFixed(2)} USDC`
         : 'lowest fee'
     const dest = String(evidence.destinationChain || 'destination').replace(/_/g, ' ')
     return {
@@ -359,7 +355,7 @@ function getHumanDiagnosis(entry: any): HumanDiagnosis {
   }
 
   if (id === 'ARBITRAGE_OPPORTUNITY') {
-    const profit = typeof evidence.netProfitUsdc === 'number' ? `+$${evidence.netProfitUsdc.toFixed(2)} USDC` : 'Net Profit'
+    const profit = typeof evidence.netProfitUsdc === 'number' ? `+${evidence.netProfitUsdc.toFixed(2)} USDC` : 'Net Profit'
     const spread = typeof evidence.spreadPct === 'number' ? `${evidence.spreadPct.toFixed(2)}%` : 'spread'
     return {
       humanTitle: `Arbitrage Opportunity Detected (${profit})`,
@@ -631,23 +627,25 @@ function RiskRegisterCard({
   return (
     <div
       key={`${String(entry?.id ?? 'risk')}-${index}`}
-      className="p-4 sm:p-5 rounded-2xl border transition-all duration-200 hover:border-white/20 relative overflow-hidden"
+      className="p-4 sm:p-5 rounded-2xl border transition-all duration-200 hover:border-[rgba(152,150,255,0.28)] relative overflow-hidden"
       style={{
-        background: 'linear-gradient(145deg, rgba(20, 24, 42, 0.72) 0%, rgba(11, 14, 24, 0.92) 100%)',
-        borderColor: toneStyle.border,
-        borderLeftWidth: '3px',
-        borderLeftColor: toneStyle.accent,
-        boxShadow: '0 6px 20px -6px rgba(0, 0, 0, 0.45)',
+        backgroundColor: '#161926',
+        borderColor: 'rgba(152, 150, 255, 0.16)',
       }}
     >
       {/* Heading-First Top Row */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{ backgroundColor: toneStyle.dot }}
+            aria-hidden="true"
+          />
           {inferredSymbols.length > 0 && (
             <TokenPairIcons symbols={inferredSymbols} size={18} />
           )}
           <h5
-            className="text-sm sm:text-base font-bold text-white tracking-tight leading-snug inline-flex items-center gap-1.5 flex-wrap"
+            className="text-sm sm:text-base font-semibold text-white tracking-tight leading-snug inline-flex items-center gap-1.5 flex-wrap"
             style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
           >
             {diagnosis.titlePrefix && diagnosis.assetSymbol ? (
@@ -673,17 +671,17 @@ function RiskRegisterCard({
         <StatusBadge tone={severityTone} label={severity} size="xs" />
       </div>
 
-      {/* Narrative: Problem / Risk / Advisory Solution */}
+      {/* Narrative: Problem / Trade-off Note / Strategist Guidance */}
       <div className="mt-3 space-y-2 text-xs leading-relaxed">
-        <p style={{ color: 'var(--fp-2, rgba(255, 255, 255, 0.9))' }}>{diagnosis.problemText}</p>
+        <p style={{ color: 'var(--fp-2, rgba(255, 255, 255, 0.88))' }}>{diagnosis.problemText}</p>
 
         {diagnosis.riskText && (
           <p
             className="px-3 py-2 rounded-xl border text-[11px] leading-relaxed"
             style={{
-              backgroundColor: STATUS_TONES.error.bg,
-              borderColor: STATUS_TONES.error.border,
-              color: STATUS_TONES.error.fg,
+              backgroundColor: '#0f111a',
+              borderColor: 'rgba(152, 150, 255, 0.14)',
+              color: toneStyle.fg,
             }}
           >
             {diagnosis.riskText}
@@ -697,7 +695,7 @@ function RiskRegisterCard({
           >
             <ArrowRight
               className="w-3.5 h-3.5 shrink-0 mt-0.5"
-              style={{ color: 'var(--secondary-colors--sky-sync)' }}
+              style={{ color: 'var(--purple-1, #9896ff)' }}
             />
             <p className="flex-1 leading-relaxed">{diagnosis.solutionText}</p>
           </div>
@@ -705,21 +703,21 @@ function RiskRegisterCard({
       </div>
 
       {/* Actionable Button + Technical Specifications Button Row */}
-      <div className="mt-3.5 pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2 flex-wrap">
+      <div className="mt-3.5 pt-3 border-t border-[rgba(152,150,255,0.10)] flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           {diagnosis.actionLabel && diagnosis.actionTab && onNavigateTab && (
             <button
               type="button"
               onClick={() => onNavigateTab(diagnosis.actionTab!)}
-              className="ai-focus-ring inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-white text-xs font-semibold transition-all duration-200 cursor-pointer shadow-sm group shrink-0 hover:brightness-110"
+              className="ai-focus-ring inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-white text-xs font-semibold transition-all duration-200 cursor-pointer group shrink-0 hover:brightness-110"
               style={{
-                backgroundColor: toneStyle.pillBg,
-                borderColor: toneStyle.pillBorder,
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.28) 0%, rgba(152, 150, 255, 0.18) 100%)',
+                borderColor: 'rgba(152, 150, 255, 0.34)',
                 fontFamily: 'var(--font-app)',
               }}
             >
               <span>{diagnosis.actionLabel}</span>
-              <ArrowRight className="w-3.5 h-3.5 text-white/75 group-hover:translate-x-0.5 transition-transform" />
+              <ArrowRight className="w-3.5 h-3.5 text-white/80 group-hover:translate-x-0.5 transition-transform" />
             </button>
           )}
 
@@ -727,13 +725,13 @@ function RiskRegisterCard({
           <button
             type="button"
             onClick={() => setIsTechOpen(!isTechOpen)}
-            className="ai-focus-ring group/specs inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-transparent hover:border-white/10 hover:bg-white/[0.04] transition-all duration-200 cursor-pointer select-none"
-            style={{ color: isTechOpen ? STATUS_TONES.info.accent : 'var(--fp-3)' }}
+            className="ai-focus-ring group/specs inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-transparent hover:border-[rgba(152,150,255,0.18)] hover:bg-[#0f111a] transition-all duration-200 cursor-pointer select-none"
+            style={{ color: isTechOpen ? 'var(--purple-1, #9896ff)' : 'var(--fp-3)' }}
             aria-expanded={isTechOpen}
           >
             <Info
               className="w-3.5 h-3.5 shrink-0 transition-colors duration-200"
-              style={{ color: isTechOpen ? STATUS_TONES.info.accent : 'var(--secondary-colors--sky-sync)' }}
+              style={{ color: isTechOpen ? 'var(--purple-1, #9896ff)' : 'var(--secondary-colors--sky-sync)' }}
             />
             <span
               className="text-[11px] font-mono font-medium tracking-wide"
@@ -752,8 +750,8 @@ function RiskRegisterCard({
       <div
         className={`mt-2.5 p-3.5 rounded-xl border transition-all ${isTechOpen ? 'block' : 'hidden'}`}
         style={{
-          backgroundColor: STATUS_TONES.info.bg,
-          borderColor: STATUS_TONES.info.border,
+          backgroundColor: '#0f111a',
+          borderColor: 'rgba(152, 150, 255, 0.16)',
         }}
       >
         <p className="text-xs leading-relaxed font-sans" style={{ color: 'var(--fp-2)' }}>
@@ -775,6 +773,7 @@ export function VisualDataDashboard({
   onCopy,
   isCopied,
   onNavigateTab,
+  onBackToConfigure,
   actionablePayload,
   walletAddress,
   walletConnected,
@@ -787,6 +786,7 @@ export function VisualDataDashboard({
   onCopy?: () => void
   isCopied?: boolean
   onNavigateTab?: (tab: string) => void
+  onBackToConfigure?: () => void
   actionablePayload?: x402ExecutionResult['actionablePayload']
   walletAddress?: string
   walletConnected?: boolean
@@ -808,18 +808,6 @@ export function VisualDataDashboard({
       ? (data.measured as Record<string, any>)
       : {}
   const view: Record<string, any> = Object.keys(measured).length > 0 ? { ...measured, ...data } : data
-
-  const narrative: { headline?: unknown; observations?: unknown; risks?: unknown } | null =
-    data.narrative && typeof data.narrative === 'object' && !Array.isArray(data.narrative)
-      ? (data.narrative as { headline?: unknown; observations?: unknown; risks?: unknown })
-      : null
-  const narrativeHeadline = typeof narrative?.headline === 'string' ? narrative.headline : null
-  const narrativeObservations: string[] = Array.isArray(narrative?.observations)
-    ? narrative.observations.filter((item): item is string => typeof item === 'string')
-    : []
-  const narrativeRisks: string[] = Array.isArray(narrative?.risks)
-    ? narrative.risks.filter((item): item is string => typeof item === 'string')
-    : []
 
   const unavailableList: string[] = Array.isArray(data.unavailable)
     ? data.unavailable.filter((item: unknown): item is string => typeof item === 'string')
@@ -886,72 +874,53 @@ export function VisualDataDashboard({
     isPct?: boolean
   }[] = []
 
-  const knownMetrics: Record<string, { label: string; isCurrency?: boolean; isPct?: boolean; smallCurrency?: boolean }> = {
-    totalUsd: { label: 'Total Value', isCurrency: true },
-    totalValueUsd: { label: 'Total Portfolio', isCurrency: true },
-    totalProtocolTvlUsd: { label: 'Total Protocol TVL', isCurrency: true },
-    concentrationPct: { label: 'Asset Concentration', isPct: true },
-    stablecoinSharePct: { label: 'Stablecoin Share', isPct: true },
-    apy: { label: 'Annual Yield (APY)', isPct: true },
-    yieldApy: { label: 'Vault APY', isPct: true },
-    spreadPct: { label: 'Arb Spread', isPct: true },
-    priceImpactPct: { label: 'Price Impact', isPct: true },
-    ammPriceImpactPct: { label: 'AMM Price Impact', isPct: true },
-    poolFeePct: { label: 'Pool LP Fee', isPct: true },
-    estimatedProfitUsdc: { label: 'Est. Profit', isCurrency: true },
-    savingsUsdc: { label: 'Rail Fee Savings', isCurrency: true, smallCurrency: true },
+  const knownMetrics: Record<
+    string,
+    { label: string; unit?: 'usd' | 'usdc' | 'pct'; smallCurrency?: boolean }
+  > = {
+    totalUsd: { label: 'Total Value', unit: 'usd' },
+    totalValueUsd: { label: 'Total Portfolio', unit: 'usd' },
+    totalProtocolTvlUsd: { label: 'Total Protocol TVL', unit: 'usd' },
+    concentrationPct: { label: 'Asset Concentration', unit: 'pct' },
+    stablecoinSharePct: { label: 'Stablecoin Share', unit: 'pct' },
+    apy: { label: 'Annual Yield (APY)', unit: 'pct' },
+    yieldApy: { label: 'Vault APY', unit: 'pct' },
+    spreadPct: { label: 'Arb Spread', unit: 'pct' },
+    priceImpactPct: { label: 'Price Impact', unit: 'pct' },
+    ammPriceImpactPct: { label: 'AMM Price Impact', unit: 'pct' },
+    poolFeePct: { label: 'Pool LP Fee', unit: 'pct' },
+    estimatedProfitUsdc: { label: 'Est. Profit', unit: 'usdc' },
+    savingsUsdc: { label: 'Rail Fee Savings', unit: 'usdc', smallCurrency: true },
     latencyMs: { label: 'Execution Ping' },
     // `llm` services report their measured block under these keys.
-    currentValueUsdc: { label: 'Redeemable Value', isCurrency: true },
-    principalUsdc: { label: 'Principal', isCurrency: true },
-    pendingYieldUsdc: { label: 'Pending Yield', isCurrency: true },
-    unrealizedYieldUsdc: { label: 'Unrealized Yield', isCurrency: true },
-    vaultTotalAssetsUsdc: { label: 'Vault Total Assets', isCurrency: true },
-    tvlUsdc: { label: 'Vault TVL', isCurrency: true },
-    sharePriceUsdc: { label: 'Share Price', isCurrency: true },
-    totalLpValueUsd: { label: 'Active LP Value', isCurrency: true },
-    totalPendingLpFeesUsd: { label: 'Pending LP Fees', isCurrency: true },
-    totalHarvestableYieldAndFeesUsd: { label: 'Harvestable Total', isCurrency: true },
-    gatewayBalanceUsdc: { label: 'Gateway Balance', isCurrency: true },
-    gasCostUsdc: { label: 'Gas Cost', isCurrency: true, smallCurrency: true },
-    estimatedGasCostUsdc: { label: 'Est. Gas Cost', isCurrency: true, smallCurrency: true },
-    netProfitUsdc: { label: 'Net Profit', isCurrency: true },
-    grossSpreadPct: { label: 'Gross Spread', isPct: true },
-    netProfitPct: { label: 'Net Profit Margin', isPct: true },
-    tradeReserveExposurePct: { label: 'Reserve Exposure', isPct: true },
-    overallPriceImpactPct: { label: 'vs. Oracle Impact', isPct: true },
-    poolReserveUsdc: { label: 'Pool Reserve Depth', isCurrency: true },
-    grossInflowUsdc: { label: 'Gross Inflow', isCurrency: true },
-    grossOutflowUsdc: { label: 'Gross Outflow', isCurrency: true },
-    netUsdcInflowUsdc: { label: 'Net USDC Inflow', isCurrency: true },
+    currentValueUsdc: { label: 'Redeemable Value', unit: 'usdc' },
+    principalUsdc: { label: 'Principal', unit: 'usdc' },
+    pendingYieldUsdc: { label: 'Pending Yield', unit: 'usdc' },
+    unrealizedYieldUsdc: { label: 'Unrealized Yield', unit: 'usdc' },
+    vaultTotalAssetsUsdc: { label: 'Vault Total Assets', unit: 'usdc' },
+    tvlUsdc: { label: 'Vault TVL', unit: 'usdc' },
+    sharePriceUsdc: { label: 'Share Price', unit: 'usdc', smallCurrency: true },
+    totalLpValueUsd: { label: 'Active LP Value', unit: 'usd' },
+    totalPendingLpFeesUsd: { label: 'Pending LP Fees', unit: 'usd' },
+    totalHarvestableYieldAndFeesUsd: { label: 'Harvestable Total', unit: 'usd' },
+    gatewayBalanceUsdc: { label: 'Gateway Balance', unit: 'usdc' },
+    gasCostUsdc: { label: 'Gas Cost', unit: 'usdc', smallCurrency: true },
+    estimatedGasCostUsdc: { label: 'Est. Gas Cost', unit: 'usdc', smallCurrency: true },
+    netProfitUsdc: { label: 'Net Profit', unit: 'usdc' },
+    grossSpreadPct: { label: 'Gross Spread', unit: 'pct' },
+    netProfitPct: { label: 'Net Profit Margin', unit: 'pct' },
+    tradeReserveExposurePct: { label: 'Reserve Exposure', unit: 'pct' },
+    overallPriceImpactPct: { label: 'vs. Oracle Impact', unit: 'pct' },
+    poolReserveUsdc: { label: 'Pool Reserve Depth', unit: 'usdc' },
+    grossInflowUsdc: { label: 'Gross Inflow', unit: 'usdc' },
+    grossOutflowUsdc: { label: 'Gross Outflow', unit: 'usdc' },
+    netUsdcInflowUsdc: { label: 'Net USDC Inflow', unit: 'usdc' },
   }
 
   const hasTradeExecutionSummary =
     status === 'ROUTE_OPTIMIZED' &&
     typeof data.inputAmount === 'string' &&
     typeof data.expectedOutput === 'string'
-
-  const tradeExecutionVerdict = hasTradeExecutionSummary
-    ? data.executionVerdict &&
-      typeof data.executionVerdict === 'object' &&
-      typeof data.executionVerdict.label === 'string' &&
-      typeof data.executionVerdict.tone === 'string'
-      ? (data.executionVerdict as ReturnType<typeof resolveTradeExecutionVerdict>)
-      : resolveTradeExecutionVerdict({
-          ammPriceImpactPct: typeof data.ammPriceImpactPct === 'number' ? data.ammPriceImpactPct : null,
-          signedPriceImpactPct: typeof data.signedPriceImpactPct === 'number' ? data.signedPriceImpactPct : null,
-          overallPriceImpactPct: typeof data.overallPriceImpactPct === 'number' ? data.overallPriceImpactPct : null,
-          tradeReserveExposurePct: typeof data.tradeReserveExposurePct === 'number' ? data.tradeReserveExposurePct : null,
-          recommendedBatchCount:
-            typeof data.executionSizing?.recommendedBatchCount === 'number'
-              ? data.executionSizing.recommendedBatchCount
-              : 1,
-          perBatchAmmPriceImpactPct:
-            typeof data.executionSizing?.perBatchAmmPriceImpactPct === 'number'
-              ? data.executionSizing.perBatchAmmPriceImpactPct
-              : null,
-        })
-    : null
 
   const TRADE_SUMMARY_HANDLED_KEYS = new Set([
     'recommendedHops',
@@ -972,17 +941,25 @@ export function VisualDataDashboard({
       if (k === 'readAt' || k === 'timestamp' || k === 'shareDecimals' || k === 'decimals') continue
       if (hasTradeExecutionSummary && TRADE_SUMMARY_HANDLED_KEYS.has(k)) continue
       const meta = knownMetrics[k] || { label: k.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()) }
+      const inferredSymbol = inferMetricTokenSymbol(k)
+      const effectiveUnit = meta.unit ?? (inferredSymbol === 'USDC' ? 'usdc' : undefined)
       let formatted =
         Math.abs(v) > 0 && Math.abs(v) < 0.01
-          ? v.toLocaleString(undefined, { maximumFractionDigits: 6 })
-          : v.toLocaleString(undefined, { maximumFractionDigits: 4 })
-      if (meta.isCurrency) {
+          ? v.toLocaleString('en-US', { maximumFractionDigits: 6 })
+          : v.toLocaleString('en-US', { maximumFractionDigits: 4 })
+      if (effectiveUnit === 'usd') {
         if (meta.smallCurrency && Math.abs(v) > 0 && Math.abs(v) < 0.01) {
-          formatted = `$${v.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+          formatted = `$${v.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
         } else {
-          formatted = `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          formatted = `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
         }
-      } else if (meta.isPct) {
+      } else if (effectiveUnit === 'usdc') {
+        const numericStr =
+          meta.smallCurrency && Math.abs(v) > 0 && Math.abs(v) < 0.01
+            ? v.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+            : v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        formatted = `${numericStr} USDC`
+      } else if (effectiveUnit === 'pct') {
         formatted = `${v.toFixed(2)}%`
       }
       numericMetrics.push({
@@ -990,10 +967,10 @@ export function VisualDataDashboard({
         label: meta.label,
         value: formatted,
         rawValue: v,
-        tokenSymbol: inferMetricTokenSymbol(k),
+        tokenSymbol: inferredSymbol,
         accentTone: inferMetricAccentTone(k, v),
-        isCurrency: meta.isCurrency,
-        isPct: meta.isPct,
+        isCurrency: effectiveUnit === 'usd' || effectiveUnit === 'usdc',
+        isPct: effectiveUnit === 'pct',
       })
     }
   }
@@ -1100,10 +1077,151 @@ export function VisualDataDashboard({
 
   return (
     <div className="space-y-4 text-xs font-sans">
-      {/* Top Status Masthead — Export/Raw controls + Execution Verdict badge for Trade Ticket, full masthead otherwise */}
-      <div className={`flex flex-wrap items-center justify-between gap-3 ${hasTradeExecutionSummary ? 'pb-0.5' : 'items-start gap-4 pb-4 border-b border-white/[0.08]'}`}>
-        {!hasTradeExecutionSummary && (
-        <div className="space-y-2 min-w-0">
+      {/* Unified Single-Row Top Command Bar: Back to Configure (left) + Muted UTC & Compact Export/JSON group (right) */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {onBackToConfigure && (
+            <button
+              type="button"
+              onClick={onBackToConfigure}
+              className="ai-focus-ring ub-action-btn group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11px] font-mono font-semibold text-white/80 hover:text-white cursor-pointer"
+              style={{ fontFamily: 'var(--fonts--space-mono)' }}
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)] group-hover:-translate-x-0.5 transition-transform" />
+              <span>Back to Configure</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap ml-auto">
+          {reportUtcStamp && (
+            <span
+              className="inline-flex items-center gap-1.5 text-[11px] font-mono tabular-nums tracking-[0.3px] select-none"
+              style={{
+                fontFamily: 'var(--fonts--space-mono)',
+                color: 'var(--fp-4)',
+              }}
+            >
+              <Clock className="w-3.5 h-3.5 shrink-0 text-[var(--secondary-colors--sky-sync)]/75" />
+              <span>{reportUtcStamp}</span>
+            </span>
+          )}
+
+          {/* Compact Utility Group: Export Dropdown + Raw JSON Toggle */}
+          <div
+            className="inline-flex items-center rounded-full border p-0.5"
+            style={{
+              backgroundColor: '#0f111a',
+              borderColor: 'rgba(152, 150, 255, 0.16)',
+            }}
+          >
+            <div className="relative inline-block" ref={exportMenuRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  soundService.play('pop')
+                  setIsExportOpen((prev) => !prev)
+                }}
+                aria-label="Export report"
+                aria-haspopup="menu"
+                aria-expanded={isExportOpen}
+                className="ai-focus-ring inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.8px] text-white/80 hover:text-white hover:bg-[#161926] transition-colors cursor-pointer"
+                style={{ fontFamily: 'var(--fonts--space-mono)' }}
+              >
+                <Download className="w-3 h-3 text-[var(--secondary-colors--sky-sync)]" />
+                <span>Export</span>
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform duration-200 ${
+                    isExportOpen ? 'rotate-180 text-[var(--purple-1)]' : 'text-white/50'
+                  }`}
+                />
+              </button>
+
+              {isExportOpen && (
+                <div
+                  role="menu"
+                  aria-label="Export options"
+                  className="absolute right-0 top-full mt-2 z-50 min-w-[100px] rounded-xl p-1.5 shadow-2xl backdrop-blur-2xl border animate-fade-in"
+                  style={{
+                    background: 'rgba(15, 17, 26, 0.98)',
+                    borderColor: 'rgba(152, 150, 255, 0.20)',
+                    boxShadow: '0 12px 32px -4px rgba(0, 0, 0, 0.7)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      soundService.play('pop')
+                      const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
+                      const csv = buildReportCsv(slug, data)
+                      triggerFileDownload(`${slug}-${Date.now()}.csv`, csv, 'text/csv;charset=utf-8;')
+                      setIsExportOpen(false)
+                    }}
+                    className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg text-left text-white/80 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet
+                        className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform"
+                      />
+                      <span className="font-mono text-[11px] font-medium tracking-wide">CSV</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      soundService.play('pop')
+                      const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
+                      triggerFileDownload(`${slug}-${Date.now()}.json`, JSON.stringify(data, null, 2), 'application/json')
+                      setIsExportOpen(false)
+                    }}
+                    className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg text-left text-white/80 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileJson
+                        className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform"
+                      />
+                      <span className="font-mono text-[11px] font-medium tracking-wide">JSON</span>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {onToggleViewMode && (
+              <>
+                <span className="w-px h-3.5 bg-[rgba(152,150,255,0.16)] mx-0.5" aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={onToggleViewMode}
+                  className="ai-focus-ring inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-[0.8px] transition cursor-pointer"
+                  style={
+                    outputViewMode === 'raw'
+                      ? {
+                          fontFamily: 'var(--fonts--space-mono)',
+                          backgroundColor: STATUS_TONES.pending.pillBg,
+                          color: '#ffffff',
+                        }
+                      : {
+                          fontFamily: 'var(--fonts--space-mono)',
+                          color: 'rgba(255, 255, 255, 0.72)',
+                        }
+                  }
+                  aria-label={outputViewMode === 'raw' ? 'Switch to Visual Report' : 'View Raw JSON Payload'}
+                >
+                  <FileJson className="w-3.5 h-3.5 flex-shrink-0 hover:text-white hover:bg-[#161926] transition-colors cursor-pointer" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Report Masthead — only for non-Trade-Ticket services */}
+      {!hasTradeExecutionSummary && (
+        <div className="space-y-2 min-w-0 pb-4 border-b border-[rgba(152,150,255,0.12)]">
           <div className="flex items-center gap-2.5 flex-wrap">
             {statusMeta && (
               <>
@@ -1168,7 +1286,7 @@ export function VisualDataDashboard({
                   aria-label="Copy target wallet address"
                 >
                   {copiedAddress ? (
-                    <Check className="w-3.5 h-3.5 text-[var(--earned-green)]" />
+                    <Check className="w-3.5 h-3.5 text-[var(--purple-1)]" />
                   ) : (
                     <Copy className="w-3.5 h-3.5 text-white/60 group-hover:text-white" />
                   )}
@@ -1179,7 +1297,7 @@ export function VisualDataDashboard({
                 {copiedAddress && (
                   <span
                     className="text-[10px] font-semibold animate-fade-in"
-                    style={{ color: 'var(--earned-green)' }}
+                    style={{ color: 'var(--purple-1, #9896ff)' }}
                   >
                     Copied
                   </span>
@@ -1188,149 +1306,7 @@ export function VisualDataDashboard({
             </div>
           )}
         </div>
-        )}
-
-        {/* Right side controls: Export Dropdown (CSV / JSON) & Raw JSON toggle */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative inline-block" ref={exportMenuRef}>
-            <button
-              type="button"
-              onClick={() => {
-                soundService.play('pop')
-                setIsExportOpen((prev) => !prev)
-              }}
-              aria-label="Export report"
-              aria-haspopup="menu"
-              aria-expanded={isExportOpen}
-              className="ai-focus-ring ub-action-btn inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-mono uppercase tracking-[1px] cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)]" />
-              <span>Export</span>
-              <ChevronDown
-                className={`w-3 h-3 transition-transform duration-200 ${
-                  isExportOpen ? 'rotate-180 text-[var(--purple-1)]' : 'text-white/55'
-                }`}
-              />
-            </button>
-
-            {isExportOpen && (
-              <div
-                role="menu"
-                aria-label="Export options"
-                className="absolute right-0 top-full mt-1.5 z-50 min-w-[124px] rounded-xl p-1.5 shadow-2xl backdrop-blur-2xl border border-white/10 animate-fade-in"
-                style={{
-                  background: 'rgba(12, 15, 26, 0.96)',
-                  boxShadow: '0 12px 32px -4px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08)',
-                }}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    soundService.play('pop')
-                    const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
-                    const csv = buildReportCsv(slug, data)
-                    triggerFileDownload(`${slug}-${Date.now()}.csv`, csv, 'text/csv;charset=utf-8;')
-                    setIsExportOpen(false)
-                  }}
-                  className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg text-left text-white/80 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2">
-                    <FileSpreadsheet
-                      className="w-4 h-4 group-hover:scale-110 transition-transform"
-                      style={{ color: STATUS_TONES.success.fg }}
-                    />
-                    <span className="font-mono text-[11px] font-medium tracking-wide">CSV</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    soundService.play('pop')
-                    const slug = String(data?.report?.serviceId || data?.serviceId || 'arcis-report')
-                    triggerFileDownload(`${slug}-${Date.now()}.json`, JSON.stringify(data, null, 2), 'application/json')
-                    setIsExportOpen(false)
-                  }}
-                  className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg text-left text-white/80 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2">
-                    <FileJson
-                      className="w-4 h-4 group-hover:scale-110 transition-transform"
-                      style={{ color: STATUS_TONES.cancelled.fg }}
-                    />
-                    <span className="font-mono text-[11px] font-medium tracking-wide">JSON</span>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
-          {onToggleViewMode && (
-            <button
-              type="button"
-              onClick={onToggleViewMode}
-              className="ai-focus-ring inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono font-semibold transition cursor-pointer shadow-sm"
-              style={
-                outputViewMode === 'raw'
-                  ? {
-                    backgroundColor: STATUS_TONES.pending.pillBg,
-                    borderColor: STATUS_TONES.pending.pillBorder,
-                    color: '#ffffff',
-                  }
-                  : {
-                    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    color: 'rgba(255, 255, 255, 0.8)',
-                  }
-              }
-              title={outputViewMode === 'raw' ? 'Switch to Visual Report' : 'View Raw JSON Payload'}
-            >
-              <FileJson className="w-4 h-4 flex-shrink-0" />
-            </button>
-          )}
-          {reportUtcStamp && (
-            <span
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-[12px] font-mono tabular-nums tracking-[0.4px] select-none"
-              style={{
-                fontFamily: 'var(--fonts--space-mono)',
-                color: 'var(--fp-3)',
-              }}
-            >
-              <Clock className="w-4 h-4 shrink-0 text-[var(--secondary-colors--sky-sync)]" />
-              <span>{reportUtcStamp}</span>
-            </span>
-          )}
-        </div>
-
-        {/* Clear Go / Caution / Do-Not-Execute Verdict Badge at far right of the Export row */}
-        {tradeExecutionVerdict && (() => {
-          const verdictStyle = getStatusToneStyle(tradeExecutionVerdict.tone)
-          const VerdictIcon =
-            tradeExecutionVerdict.code === 'DO_NOT_EXECUTE'
-              ? Ban
-              : tradeExecutionVerdict.code === 'CAUTION_SPLIT'
-                ? AlertTriangle
-                : CheckCircle2
-          return (
-            <span
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-mono font-bold uppercase tracking-[0.6px] shrink-0 select-none shadow-sm"
-              style={{
-                fontFamily: 'var(--fonts--space-mono)',
-                color: verdictStyle.fg,
-                backgroundColor: verdictStyle.pillBg,
-                borderColor: verdictStyle.pillBorder,
-                boxShadow: `0 0 18px ${verdictStyle.glow}`,
-              }}
-              title={tradeExecutionVerdict.reason}
-              aria-label={`Execution verdict: ${tradeExecutionVerdict.label}`}
-            >
-              <VerdictIcon className="w-3.5 h-3.5 shrink-0" style={{ color: verdictStyle.accent }} />
-              <span>{tradeExecutionVerdict.label}</span>
-            </span>
-          )
-        })()}
-      </div>
+      )}
 
       {outputViewMode === 'raw' ? (
         <div className="relative pt-1 animate-fade-in group">
@@ -1344,8 +1320,8 @@ export function VisualDataDashboard({
               >
                 {isCopied ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-[var(--earned-green)]" />
-                    <span className="text-[var(--earned-green)] font-semibold">Copied</span>
+                    <Check className="w-3.5 h-3.5 text-[var(--purple-1)]" />
+                    <span className="text-[var(--purple-1)] font-semibold">Copied</span>
                   </>
                 ) : (
                   <>
@@ -1358,8 +1334,8 @@ export function VisualDataDashboard({
           )}
 
           <pre
-            className="whitespace-pre-wrap selection:bg-[var(--purple-1)] selection:text-white font-mono text-xs leading-relaxed max-h-[500px] overflow-y-auto p-4 pt-5 rounded-xl bg-black/45 border border-white/[0.08]"
-            style={{ color: 'var(--status-success-fg)' }}
+            className="whitespace-pre-wrap selection:bg-[var(--purple-1)] selection:text-white font-mono text-xs leading-relaxed max-h-[500px] overflow-y-auto p-4 pt-5 rounded-xl bg-[#07080d] border border-[rgba(152,150,255,0.16)]"
+            style={{ color: 'var(--secondary-colors--static-ether, #d5e0e7)' }}
           >
             {JSON.stringify(data, null, 2)}
           </pre>
@@ -1376,7 +1352,7 @@ export function VisualDataDashboard({
       ) : (
         <>
 
-          {/* Headline Metric Cards Grid — Prominent Space Grotesk KPIs with Coin Icons */}
+          {/* Headline Metric Cards Grid — Stitch Obsidian KPIs with Inline Coin Icons */}
           {numericMetrics.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
               {numericMetrics.map((m) => {
@@ -1384,50 +1360,47 @@ export function VisualDataDashboard({
                 return (
                   <div
                     key={m.key}
-                    className="relative p-4 rounded-2xl border transition-all duration-300 group overflow-hidden"
+                    className="relative p-4 rounded-2xl border transition-all duration-200 group overflow-hidden hover:border-[rgba(152,150,255,0.28)]"
                     style={{
-                      background:
-                        'linear-gradient(155deg, rgba(22, 26, 44, 0.84) 0%, rgba(12, 15, 26, 0.92) 100%)',
-                      borderColor: accentStyle ? accentStyle.border : 'rgba(172, 198, 233, 0.12)',
-                      boxShadow: '0 6px 20px -6px rgba(0, 0, 0, 0.45)',
+                      backgroundColor: '#0f111a',
+                      borderColor: 'rgba(152, 150, 255, 0.16)',
                     }}
                   >
-                    <div
-                      className="absolute top-0 left-0 right-0 h-[2px] opacity-65 group-hover:opacity-100 transition-opacity duration-300"
-                      style={{
-                        background: accentStyle
-                          ? `linear-gradient(90deg, transparent, ${accentStyle.accent}, transparent)`
-                          : 'linear-gradient(90deg, transparent, rgba(152, 150, 255, 0.45), transparent)',
-                      }}
-                    />
                     <div className="flex items-center justify-between gap-2">
                       <span
-                        className="text-[10px] font-mono uppercase tracking-[1.4px] truncate"
+                        className="text-[10px] font-mono uppercase tracking-[1.4px] truncate inline-flex items-center gap-1.5"
                         style={{
                           fontFamily: 'var(--fonts--space-mono, monospace)',
                           color: 'var(--secondary-colors--sky-sync)',
                         }}
                       >
-                        {m.label}
-                      </span>
-                      {m.tokenSymbol && (
-                        <span className="shrink-0 inline-flex items-center" title={m.tokenSymbol}>
-                          <PortfolioAssetIcon
-                            symbol={m.tokenSymbol}
-                            size={15}
-                            className="w-3.5 h-3.5 object-contain"
+                        {accentStyle && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ backgroundColor: accentStyle.dot }}
+                            aria-hidden="true"
                           />
-                        </span>
-                      )}
+                        )}
+                        <span className="truncate">{m.label}</span>
+                      </span>
                     </div>
                     <div
-                      className="text-xl sm:text-2xl font-bold tabular-nums tracking-tight truncate mt-2"
+                      className="text-xl sm:text-2xl font-bold tabular-nums tracking-tight mt-2 inline-flex items-center gap-2 max-w-full"
                       style={{
                         fontFamily: 'var(--fonts--space-grotesk, sans-serif)',
                         color: accentStyle ? accentStyle.fg : '#ffffff',
                       }}
                     >
-                      {m.value}
+                      {m.tokenSymbol && (
+                        <span className="shrink-0 inline-flex items-center" title={m.tokenSymbol}>
+                          <PortfolioAssetIcon
+                            symbol={m.tokenSymbol}
+                            size={18}
+                            className="w-4.5 h-4.5 object-contain"
+                          />
+                        </span>
+                      )}
+                      <span className="truncate">{m.value}</span>
                     </div>
                   </div>
                 )
@@ -1496,17 +1469,27 @@ export function VisualDataDashboard({
                             )}
                           </div>
                           <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-mono text-white/75 tabular-nums">
-                            <span>
-                              Out:{' '}
-                              <strong
-                                className="text-white"
-                                style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
-                              >
-                                {Number(route.expectedOutput).toLocaleString(undefined, {
-                                  maximumFractionDigits: Number(route.expectedOutput) < 0.1 ? 6 : 4,
-                                })}
-                              </strong>
-                            </span>
+                            {(() => {
+                              const pathTokens = extractTokenSymbols(String(route.path || ''), 4)
+                              const outToken = pathTokens.length > 0 ? pathTokens[pathTokens.length - 1] : null
+                              return (
+                                <span className="inline-flex items-center gap-1">
+                                  Out:
+                                  {outToken && (
+                                    <PortfolioAssetIcon symbol={outToken} size={12} className="w-3 h-3 object-contain" />
+                                  )}
+                                  <strong
+                                    className="text-white"
+                                    style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
+                                  >
+                                    {Number(route.expectedOutput).toLocaleString(undefined, {
+                                      maximumFractionDigits: Number(route.expectedOutput) < 0.1 ? 6 : 4,
+                                    })}
+                                    {outToken ? ` ${outToken}` : ''}
+                                  </strong>
+                                </span>
+                              )
+                            })()}
                             {ammPct !== null && (
                               <span>
                                 AMM: <strong style={{ color: ammColor }}>{ammPct.toFixed(2)}%</strong>
@@ -1534,7 +1517,7 @@ export function VisualDataDashboard({
                                 Gas:
                                 <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
                                 <strong className="text-white/90">
-                                  ${route.estimatedGasUsdc < 0.01 ? route.estimatedGasUsdc.toFixed(4) : route.estimatedGasUsdc.toFixed(2)}
+                                  {route.estimatedGasUsdc < 0.01 ? route.estimatedGasUsdc.toFixed(4) : route.estimatedGasUsdc.toFixed(2)} USDC
                                 </strong>
                               </span>
                             )}
@@ -1548,8 +1531,8 @@ export function VisualDataDashboard({
                   <div
                     className="p-3.5 rounded-xl border space-y-2"
                     style={{
-                      backgroundColor: STATUS_TONES.info.bg,
-                      borderColor: STATUS_TONES.info.border,
+                      backgroundColor: '#161926',
+                      borderColor: 'rgba(152, 150, 255, 0.16)',
                     }}
                   >
                     <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] font-mono text-white/75 tabular-nums">
@@ -1600,7 +1583,7 @@ export function VisualDataDashboard({
                           Est. gas:
                           <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
                           <strong className="text-white">
-                            ${executionSizing.estimatedTotalGasUsdc < 0.01 ? executionSizing.estimatedTotalGasUsdc.toFixed(4) : executionSizing.estimatedTotalGasUsdc.toFixed(2)} USDC
+                            {executionSizing.estimatedTotalGasUsdc < 0.01 ? executionSizing.estimatedTotalGasUsdc.toFixed(4) : executionSizing.estimatedTotalGasUsdc.toFixed(2)} USDC
                           </strong>
                         </span>
                       )}
@@ -1678,7 +1661,7 @@ export function VisualDataDashboard({
                         >
                           <PortfolioAssetIcon symbol="USDC" size={12} className="w-3 h-3 object-contain" />
                           <span>
-                            Net: ${pool.netProfitUsdc} ({pool.netProfitPct}%)
+                            Net: {pool.netProfitUsdc} USDC ({pool.netProfitPct}%)
                           </span>
                         </span>
                       </div>
@@ -1896,10 +1879,10 @@ export function VisualDataDashboard({
                         <div className="inline-flex items-center gap-1.5">
                           <span>Total Cost:</span>
                           <PortfolioAssetIcon symbol="USDC" size={13} className="w-3.5 h-3.5 object-contain" />
-                          <strong className="text-white">${bridgeRailQuote.gateway.totalCostUsdc} USDC</strong>
+                          <strong className="text-white">{bridgeRailQuote.gateway.totalCostUsdc} USDC</strong>
                         </div>
                         <div className="text-white/50">
-                          Transfer fee: {bridgeRailQuote.gateway.feeBps} bps · Source gas: $0
+                          Transfer fee: {bridgeRailQuote.gateway.feeBps} bps · Source gas: 0 USDC
                         </div>
                       </div>
                     ) : (
@@ -1949,14 +1932,14 @@ export function VisualDataDashboard({
                           <PortfolioAssetIcon symbol="USDC" size={13} className="w-3.5 h-3.5 object-contain" />
                           <strong className="text-white">
                             {typeof bridgeRailQuote.cctp.totalCostUsdc === 'number'
-                              ? `$${bridgeRailQuote.cctp.totalCostUsdc} USDC`
-                              : `$${bridgeRailQuote.cctp.feeUsdc} USDC + gas`}
+                              ? `${bridgeRailQuote.cctp.totalCostUsdc} USDC`
+                              : `${bridgeRailQuote.cctp.feeUsdc} USDC + gas`}
                           </strong>
                         </div>
                         <div className="text-white/50">
                           {bridgeRailQuote.cctp.recipientReceivesFullAmount
-                            ? `Relayer fee: $${bridgeRailQuote.cctp.feeUsdc} USDC (0 token haircut — recipient receives 100%)`
-                            : `Protocol + Forward: $${bridgeRailQuote.cctp.feeUsdc} USDC · Arc gas: $${bridgeRailQuote.cctp.sourceGasUsdc ?? '—'}`}
+                            ? `Relayer fee: ${bridgeRailQuote.cctp.feeUsdc} USDC (0 token haircut — recipient receives 100%)`
+                            : `Protocol + Forward: ${bridgeRailQuote.cctp.feeUsdc} USDC · Arc gas: ${bridgeRailQuote.cctp.sourceGasUsdc ?? '—'} USDC`}
                         </div>
                       </div>
                     ) : (
@@ -2172,20 +2155,21 @@ export function VisualDataDashboard({
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-[14px] font-mono tabular-nums">
-                      <span className="text-white/75">
-                        {' '}
+                      <span className="inline-flex items-center gap-1.5 text-white/75">
+                        <PortfolioAssetIcon symbol="USDC" size={14} className="w-3.5 h-3.5 object-contain shrink-0" />
                         <strong
                           className="text-white"
                           style={{ fontFamily: 'var(--fonts--space-grotesk)' }}
                         >
                           {typeof defiVaultSummary.currentValueUsdc === 'number'
-                            ? `$${defiVaultSummary.currentValueUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            ? `${defiVaultSummary.currentValueUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`
                             : '—'}
                         </strong>
                       </span>
                       {typeof defiVaultSummary.pendingYieldUsdc === 'number' && defiVaultSummary.pendingYieldUsdc > 0 && (
-                        <span className="font-bold" style={{ color: STATUS_TONES.success.fg }}>
-                          Pending Yield: +${defiVaultSummary.pendingYieldUsdc.toFixed(4)}
+                        <span className="inline-flex items-center gap-1 font-bold" style={{ color: STATUS_TONES.success.fg }}>
+                          <PortfolioAssetIcon symbol="USDC" size={13} className="w-3.5 h-3.5 object-contain shrink-0" />
+                          <span>Pending Yield: +{defiVaultSummary.pendingYieldUsdc.toFixed(4)} USDC</span>
                         </span>
                       )}
                     </div>
@@ -2379,78 +2363,6 @@ export function VisualDataDashboard({
             </div>
           )}
 
-          {/* Analyst narrative (llm services): executive intelligence card */}
-          {(narrativeHeadline || narrativeObservations.length > 0 || narrativeRisks.length > 0) && (
-            <div
-              className="ai-section-card"
-              style={{
-                borderColor: STATUS_TONES.pending.border,
-              }}
-            >
-              <SectionHeader
-                title="Analyst Narrative"
-                eyebrow="AI Executive Brief"
-                icon={Sparkles}
-                tone="pending"
-              />
-              <div className="p-5 space-y-4">
-                {narrativeHeadline && (
-                  <h4
-                    className="text-lg sm:text-xl font-bold text-white leading-snug tracking-tight"
-                    style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
-                  >
-                    {narrativeHeadline}
-                  </h4>
-                )}
-
-                {narrativeObservations.length > 0 && (
-                  <div className="space-y-2">
-                    {narrativeObservations.map((observation, i) => (
-                      <div key={`observation-${i}`} className="flex items-start gap-2.5 text-xs text-white/90 leading-relaxed">
-                        <div
-                          className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
-                          style={{
-                            backgroundColor: STATUS_TONES.info.accent,
-                            boxShadow: '0 0 8px rgba(172, 198, 233, 0.7)',
-                          }}
-                        />
-                        <p>{observation}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {narrativeRisks.length > 0 && (
-                  <div
-                    className="p-3.5 rounded-xl border space-y-2"
-                    style={{
-                      backgroundColor: STATUS_TONES.cancelled.bg,
-                      borderColor: STATUS_TONES.cancelled.border,
-                    }}
-                  >
-                    <span
-                      className="text-[10px] font-mono uppercase tracking-[1.5px] font-bold block"
-                      style={{ color: STATUS_TONES.cancelled.accent }}
-                    >
-                      RISKS &amp; ADVISORIES
-                    </span>
-                    <ul className="space-y-1.5 text-xs text-white/90">
-                      {narrativeRisks.map((risk, i) => (
-                        <li key={`risk-${i}`} className="leading-relaxed flex items-start gap-2">
-                          <AlertCircle
-                            className="w-3.5 h-3.5 mt-0.5 flex-shrink-0"
-                            style={{ color: STATUS_TONES.cancelled.accent }}
-                          />
-                          <span>{risk}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Available Routes */}
           {routes.length > 0 && (
             <div className="ai-section-card">
@@ -2513,11 +2425,12 @@ export function VisualDataDashboard({
             </div>
           )}
 
-          {/* Graded risk register: Human-Centric Actionable Diagnoses */}
+          {/* Graded risk register: Calm Obsidian Advisory Cards */}
           {riskRegister.length > 0 && (
             <div className="ai-section-card">
               <SectionHeader
-                title={`Risk Register`}
+                title={`Risk register (${riskRegister.length})`}
+                eyebrow="Advisory & Risk Register"
                 icon={ShieldAlert}
                 tone={resolveRiskSeverityTone(reportSummary?.highestSeverity)}
                 rightSlot={
@@ -2530,7 +2443,6 @@ export function VisualDataDashboard({
                           tone={resolveRiskSeverityTone(severity)}
                           label={`${severity} ${reportSummary.counts[severity]}`}
                           size="xs"
-                          showIcon={false}
                         />
                       ))}
                   </div>
@@ -2555,29 +2467,30 @@ export function VisualDataDashboard({
             <div
               className="p-4 rounded-2xl border flex items-start gap-3 transition-all"
               style={{
-                backgroundColor: STATUS_TONES.cancelled.bg,
-                borderColor: STATUS_TONES.cancelled.border,
-                boxShadow: `0 6px 20px -6px ${STATUS_TONES.cancelled.glow}`,
+                backgroundColor: '#0f111a',
+                borderColor: 'rgba(152, 150, 255, 0.18)',
               }}
             >
               <div
                 className="shrink-0 w-9 h-9 rounded-xl border flex items-center justify-center"
                 style={{
-                  backgroundColor: STATUS_TONES.cancelled.pillBg,
-                  borderColor: STATUS_TONES.cancelled.pillBorder,
+                  backgroundColor: '#161926',
+                  borderColor: 'rgba(152, 150, 255, 0.20)',
                   color: STATUS_TONES.cancelled.accent,
                 }}
               >
-                <AlertCircle className="w-4 h-4 stroke-[2.2]" />
+                <AlertCircle className="w-4 h-4 stroke-[2]" />
               </div>
               <div className="space-y-2 min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span
-                    className="text-sm font-bold tracking-tight"
-                    style={{
-                      fontFamily: 'var(--font-display, Outfit, sans-serif)',
-                      color: STATUS_TONES.cancelled.fg,
-                    }}
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: STATUS_TONES.cancelled.dot }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="text-sm font-semibold tracking-tight text-white"
+                    style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
                   >
                     Protocol Risk Flags
                   </span>
@@ -2638,15 +2551,12 @@ function ServiceFailureBanner({ result }: { result: x402ExecutionResult }) {
         <HeadingIcon className="w-4 h-4" />
       </div>
       <div className="space-y-2 min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <h4
-            className="text-sm sm:text-base font-bold text-white tracking-tight"
-            style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
-          >
-            {diagnosis?.title ?? presentation.defaultTitle}
-          </h4>
-          <StatusBadge tone={presentation.tone} label={presentation.badgeLabel} size="xs" />
-        </div>
+        <h4
+          className="text-sm sm:text-base font-bold text-white tracking-tight"
+          style={{ fontFamily: 'var(--font-display, Outfit, sans-serif)' }}
+        >
+          {diagnosis?.title ?? presentation.defaultTitle}
+        </h4>
         {diagnosis?.detail && (
           <p className="text-xs leading-relaxed" style={{ color: toneStyle.fg }}>
             {diagnosis.detail}
@@ -3691,23 +3601,7 @@ export default function ServicePlaygroundModal({
 
           return (
           <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 animate-fade-in">
-            {/* Back to Configure navigation */}
-            <div className="flex items-center justify-start">
-              <button
-                type="button"
-                onClick={() => {
-                  soundService.play('pop')
-                  setUserWantsConfigure(true)
-                }}
-                className="ai-focus-ring ub-action-btn group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11px] font-mono font-semibold text-white/80 hover:text-white cursor-pointer"
-                style={{ fontFamily: 'var(--fonts--space-mono)' }}
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-[var(--secondary-colors--sky-sync)] group-hover:-translate-x-0.5 transition-transform" />
-                <span>Back to Configure</span>
-              </button>
-            </div>
-
-            {/* Content Display: VisualDataDashboard with integrated Raw JSON toggle */}
+            {/* Content Display: VisualDataDashboard with unified single-row top command bar */}
             <div
               className={
                 isTradeTicketResult
@@ -3719,6 +3613,10 @@ export default function ServicePlaygroundModal({
               <VisualDataDashboard
                 data={displayedJson}
                 outputViewMode={outputViewMode}
+                onBackToConfigure={() => {
+                  soundService.play('pop')
+                  setUserWantsConfigure(true)
+                }}
                 onToggleViewMode={() => {
                   soundService.play('pop')
                   setOutputViewMode((prev) => (prev === 'visual' ? 'raw' : 'visual'))
