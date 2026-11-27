@@ -169,5 +169,5 @@ export const gatewayRouteScoutManifest: ServiceManifest = {
     'Is Circle Gateway or CCTP cheaper to move 100 USDC from Arc to Base Sepolia?',
     'Quote the CCTP fast fee for an Arc to Ethereum Sepolia transfer',
   ],
-  tags: ['Gateway', 'CCTP', 'Fees', 'Route-Optimizer'],
+  tags: ['Gateway', 'CCTP-v2', 'CCTP-X', 'Fee-Compare'],
 }

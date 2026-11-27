@@ -159,5 +159,5 @@ export const slippageOptimizerManifest: ServiceManifest = {
     'Compare direct vs 2-hop swap route and reserve pressure for 10 USDC to WETH',
     'Check slippage and batch sizing before executing an Arc swap',
   ],
-  tags: ['Trade-Advisor', 'Multi-Hop', 'Slippage', 'Reserve-Risk'],
+  tags: ['Multi-Hop', 'Slippage', 'Batch-Sizing', 'Reserve-Risk'],
 }

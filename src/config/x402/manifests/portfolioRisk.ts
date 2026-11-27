@@ -117,5 +117,5 @@ export const portfolioRiskManifest: ServiceManifest = {
     'How concentrated is this Arc wallet’s stablecoin exposure?',
     'Include the Gateway balance in this portfolio risk report',
   ],
-  tags: ['Portfolio', 'Risk-Engine', 'Exposure', 'Compliance'],
+  tags: ['DeFi-Audit', 'Risk-Score', 'LP-Vaults', 'Multi-Chain'],
 }

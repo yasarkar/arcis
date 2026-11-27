@@ -129,5 +129,5 @@ export const gatewayIndexerManifest: ServiceManifest = {
     'Track live USDC inflows and outflows on Arc over the last 24 hours',
     'Which connected chains are sending the most USDC liquidity to Arc right now?',
   ],
-  tags: ['Gateway', 'USDC-Flows', 'On-Chain-Logs', 'Cross-Chain'],
+  tags: ['USDC-Flows', 'Whale-Monitor', 'On-Chain-Logs', 'Net-Inflow'],
 }

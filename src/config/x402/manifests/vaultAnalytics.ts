@@ -122,5 +122,5 @@ export const vaultAnalyticsManifest: ServiceManifest = {
     'Compare live TVL, 24h volume and fee tiers across all Arc pools and the USDC Yield Vault',
     'Which Arc yield pools match the tokens currently in my wallet?',
   ],
-  tags: ['Yield-Finder', 'All-Pools', 'ERC-4626', 'TVL-Volume'],
+  tags: ['ERC-4626', 'LP-Pools', 'TVL-Volume', 'IL-Risk'],
 }

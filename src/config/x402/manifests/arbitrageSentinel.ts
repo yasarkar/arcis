@@ -143,5 +143,5 @@ export const arbitrageSentinelManifest: ServiceManifest = {
     'Scan all 6 Arc pools for the widest price divergence against market oracles',
     'Rank Arc DEX pool spreads after USDC gas for a $25,000 trade size',
   ],
-  tags: ['All-Pools', 'Spreads', 'Mispricing', 'Oracle-Check'],
+  tags: ['Arbitrage', 'Oracle-Spreads', 'Mispricing', 'Gas-Adjusted'],
 }

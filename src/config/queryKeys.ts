@@ -26,12 +26,6 @@ export function userPoolPositionsQueryKey(
   return ['userPoolPositions', normalizeWalletAddress(walletAddress)] as const
 }
 
-export function reportDigestsQueryKey(
-  walletAddress: string | null | undefined
-): readonly ['x402', 'reportDigests', string] {
-  return ['x402', 'reportDigests', normalizeWalletAddress(walletAddress)] as const
-}
-
 export function providerLedgerQueryKey(
   walletAddress: string | null | undefined
 ): readonly ['x402', 'providerLedger', string] {
@@ -66,8 +60,6 @@ export const queryKeys = {
     platformStats: () => X402_PLATFORM_STATS_QUERY_KEY,
     sharedLatency: () => X402_SHARED_LATENCY_QUERY_KEY,
     runtimeConfig: () => X402_RUNTIME_CONFIG_QUERY_KEY,
-    reportDigestsRoot: () => ['x402', 'reportDigests'] as const,
-    reportDigests: reportDigestsQueryKey,
     providerLedgerRoot: () => ['x402', 'providerLedger'] as const,
     providerLedger: providerLedgerQueryKey,
   },

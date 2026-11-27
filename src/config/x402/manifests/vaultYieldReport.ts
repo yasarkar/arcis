@@ -14,12 +14,12 @@ const PROVIDER_ADDRESS = '0x9482Ac02f0B0F3Ac9443Bf38e78fC3A360049f5E'
 export const vaultYieldReportManifest: ServiceManifest = {
   id: 'arc-vault-yield-tax-report',
   version: '1.1.0',
-  name: 'Yield, LP Fees & Position Statement (AI)',
-  tagline: 'Vault Principal, Accrued Yield & All 6 LP Pool Fees Explained by AI + CSV/JSON Export',
+  name: 'Yield, LP Fees & Position Statement',
+  tagline: 'Vault Principal, Accrued Yield & All 6 LP Pool Fees + CSV/JSON Export',
   category: 'Reporting & Tax',
-  engine: 'llm',
+  engine: 'native',
   description:
-    'Measures your on-chain Arc USDC Yield Vault principal and pending yield plus all 6 Arc V4 AMM LP positions and harvestable swap fees, then generates an AI-narrated statement with CSV/JSON export.',
+    'Measures your on-chain Arc USDC Yield Vault principal and pending yield plus all 6 Arc V4 AMM LP positions and harvestable swap fees, then compiles an institutional position statement with CSV/JSON export.',
   listing: {
     kind: 'official',
     ownerAddress: PROVIDER_ADDRESS,
@@ -93,13 +93,10 @@ export const vaultYieldReportManifest: ServiceManifest = {
         vaultTotalAssetsUsdc: null,
         sharePriceUsdc: null,
       },
-      narrative: null,
-      model: null,
-      usage: null,
       readAt: null,
       unavailable: [],
       limitations: [],
-      note: 'Illustrative shape only — no vault read and no model call were made.',
+      note: 'Illustrative shape only — no vault read was made.',
     },
   },
   sla: {
@@ -112,5 +109,5 @@ export const vaultYieldReportManifest: ServiceManifest = {
     'Summarise this wallet’s vault yield position for my records',
     'What does my vault principal and redeemable value look like?',
   ],
-  tags: ['Reporting', 'Yield-Audit', 'Tax', 'Accounting'],
+  tags: ['Yield-Audit', 'LP-Fees', 'Tax-Report', 'CSV-JSON'],
 }
