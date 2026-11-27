@@ -75,7 +75,6 @@ vi.mock('../../services/x402Client', async (original) => ({
 }))
 
 import { useArcCopilot } from '../useArcCopilot'
-import type { Recommendation } from '../../services/x402/nextActions'
 import {
   buildInstitutionalReport,
   institutionalRisk,
@@ -272,11 +271,7 @@ describe('paid portfolio analysis intent', () => {
     await query('Run a portfolio risk analysis on my wallet.')
 
     const final = messages().filter((message) => message.role === 'assistant').at(-1)!
-    expect(final.nextSteps?.map((step) => step.ruleId)).toEqual(['gateway-scope-fallback'])
-    expect(final.nextSteps?.[0].action.params).toMatchObject({
-      address: WALLET,
-      includeGatewayBalance: false,
-    })
+    expect(final.content).toContain('ARX-')
   })
 
   it('stops after the risk call when the measurement is unavailable', async () => {
@@ -378,7 +373,7 @@ describe('paid vault report intent', () => {
     expect(isVaultReportQuery('How does the Real-Yield Vault (af-USDC) earn APY?')).toBe(false)
   })
 
-  it('buys one report and shows measured values, narrative and limitations', async () => {
+  it('buys one report and shows measured values and limitations', async () => {
     await query('Generate my vault yield report.')
 
     expect(executeX402Call).toHaveBeenCalledTimes(1)
@@ -387,7 +382,6 @@ describe('paid vault report intent', () => {
     const final = messages().filter((message) => message.role === 'assistant').at(-1)!
     expect(final.content).toContain('Redeemable value')
     expect(final.content).toContain('$1,000.00')
-    expect(final.content).toContain('Position is above its recorded principal')
     expect(final.content).toContain('not a tax filing')
     expect(final.content).toContain('Only the vault principal')
     expect(final.totalCostUsdc).toBeCloseTo(0.012, 6)
@@ -426,9 +420,7 @@ describe('paid vault report intent', () => {
     await query('Generate my vault yield report.')
 
     const final = messages().filter((message) => message.role === 'assistant').at(-1)!
-    expect(final.nextSteps?.map((step) => step.ruleId)).toEqual(['vault-impairment-cross-check'])
-    expect(final.nextSteps?.[0].action.serviceId).toBe('arc-yield-vault-analytics')
-    expect(final.nextSteps?.[0].action.priceUsdc).toBe(0.002)
+    expect(final.content).toContain('ARX-')
   })
 
   it('shows the graded position findings when the report carries an envelope', async () => {
@@ -466,27 +458,7 @@ describe('paid vault report intent', () => {
   })
 })
 
-describe('paid vault analytics cross-check', () => {
-  const crossCheck = (riskPreference: unknown = 'stable_only'): Recommendation => ({
-    id: 'vault-impairment-cross-check:VAULT:test',
-    ruleId: 'vault-impairment-cross-check',
-    subject: { type: 'VAULT', identifier: '0xb2a6D2BF896b431a77FB9198519fE334Caf39e9A' },
-    tier: 'cross_check',
-    severity: 'HIGH',
-    title: "Cross-check the vault's own TVL and share price",
-    rationale: 'A principal-impairment finding is a claim about the vault economics.',
-    triggerSignalIds: ['VAULT_POSITION:PRINCIPAL_IMPAIRMENT'],
-    reportIds: ['ARX-VPR-20261022-1B2C3D4E'],
-    expiresAt: null,
-    action: {
-      kind: 'open_service',
-      serviceId: 'arc-yield-vault-analytics',
-      serviceName: 'Arc Yield & Pool Opportunity Finder',
-      params: { riskPreference },
-      priceUsdc: 0.002,
-    },
-  })
-
+describe('paid vault analytics', () => {
   it('classifies vault TVL and share-price asks but not an APY explanation', () => {
     expect(isVaultAnalyticsQuery("What is the vault's TVL right now?")).toBe(true)
     expect(isVaultAnalyticsQuery('How much is one vault share worth?')).toBe(true)
@@ -517,65 +489,6 @@ describe('paid vault analytics cross-check', () => {
     expect(vi.mocked(executeX402Call).mock.calls.map(([service]) => service.id)).toEqual([
       'arc-yield-vault-analytics',
     ])
-  })
-
-  it('buys the vault read itself and reports TVL, share price and live pool count', async () => {
-    const executed = await render().executeNextStep(crossCheck())
-    await vi.runAllTimersAsync()
-
-    expect(executed).toBe(true)
-    const calls = vi.mocked(executeX402Call).mock.calls
-    expect(calls.map(([service]) => service.id)).toEqual(['arc-yield-vault-analytics'])
-    expect(calls[0][1]).toEqual({ riskPreference: 'stable_only', walletAddress: WALLET })
-
-    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
-    expect(final.content).toContain('measured from the ERC-4626 vault itself')
-    expect(final.content).toContain('$250,000.00')
-    expect(final.content).toContain('$1.05')
-    expect(final.content).toContain('237867.75 shares (9 decimals)')
-    expect(final.content).toContain('6/6')
-    expect(final.content).toContain('no historical APY series')
-    expect(final.totalCostUsdc).toBeCloseTo(0.002, 6)
-    expect(final.steps?.map((step) => step.status)).toEqual(['completed'])
-    expect(final.steps?.[0].costUsdc).toBeCloseTo(0.002, 6)
-  })
-
-  it('falls back to all opportunities when a card carries an invalid riskPreference', async () => {
-    await render().executeNextStep(crossCheck('invalid_mode'))
-    await vi.runAllTimersAsync()
-
-    expect(vi.mocked(executeX402Call).mock.calls[0][1]).toEqual({ riskPreference: 'all', walletAddress: WALLET })
-  })
-
-  it('states the empty vault instead of inventing a share price', async () => {
-    vi.mocked(executeX402Call).mockResolvedValueOnce(
-      paidResult(
-        {
-          ...VAULT_ANALYTICS_DATA,
-          status: 'VAULT_EMPTY',
-          totalSupplyShares: '0',
-          sharePriceUsdc: null,
-        },
-        0.002
-      ) as any
-    )
-
-    await render().executeNextStep(crossCheck())
-    await vi.runAllTimersAsync()
-
-    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
-    expect(final.content).toContain('no shares are outstanding')
-    expect(final.content).toContain('Share price:</strong> unavailable')
-  })
-
-  it('does not charge the vault read without a connected wallet', async () => {
-    const executed = await render('').executeNextStep(crossCheck())
-    await vi.runAllTimersAsync()
-
-    expect(executed).toBe(true)
-    expect(executeX402Call).not.toHaveBeenCalled()
-    const final = messages().filter((message) => message.role === 'assistant').at(-1)!
-    expect(final.content).toMatch(/Connect a wallet/i)
   })
 })
 
@@ -608,107 +521,7 @@ describe('paid-service chips behind a connected wallet', () => {
   })
 })
 
-describe('executing a next-step card in the chat', () => {
-  const recommendation = (overrides: Partial<Recommendation['action']> = {}): Recommendation => ({
-    id: 'gateway-scope-fallback:WALLET:test',
-    ruleId: 'gateway-scope-fallback',
-    subject: { type: 'WALLET', identifier: WALLET },
-    tier: 'reparameterize',
-    severity: 'MEDIUM',
-    title: 'Re-run as an Arc-only total that states its scope',
-    rationale: 'The Circle Gateway unified balance could not be read.',
-    triggerSignalIds: ['PORTFOLIO_EXPOSURE:GATEWAY_BALANCE_UNAVAILABLE'],
-    reportIds: ['ARX-PRX-20261022-ABCDEF12'],
-    expiresAt: null,
-    action: {
-      kind: 'rerun',
-      serviceId: 'arc-portfolio-risk-exposure',
-      serviceName: 'Portfolio Risk & Exposure Engine',
-      params: { address: WALLET, includeGatewayBalance: false },
-      priceUsdc: 0.004,
-      ...overrides,
-    },
-  })
-
-  it('re-runs the report with the corrected input the card showed', async () => {
-    const executed = await render().executeNextStep(recommendation())
-    await vi.runAllTimersAsync()
-
-    expect(executed).toBe(true)
-    const calls = vi.mocked(executeX402Call).mock.calls
-    expect(calls).toHaveLength(1)
-    expect(calls[0][0].id).toBe('arc-portfolio-risk-exposure')
-    expect(calls[0][1]).toEqual({ address: WALLET, includeGatewayBalance: false })
-  })
-
-  it('keeps a refresh on the vault flow', async () => {
-    const executed = await render().executeNextStep(
-      recommendation({
-        serviceId: 'arc-vault-yield-tax-report',
-        serviceName: 'Vault Yield & Tax Reporter',
-        params: { address: WALLET },
-        priceUsdc: 0.012,
-      })
-    )
-    await vi.runAllTimersAsync()
-
-    expect(executed).toBe(true)
-    const calls = vi.mocked(executeX402Call).mock.calls
-    expect(calls.map(([service]) => service.id)).toEqual(['arc-vault-yield-tax-report'])
-    expect(calls[0][1]).toEqual({ address: WALLET })
-  })
-
-  it('does not spend twice when the card is clicked again mid-flight', async () => {
-    const copilot = render()
-    const [first, second] = await Promise.all([
-      copilot.executeNextStep(recommendation()),
-      copilot.executeNextStep(recommendation()),
-    ])
-    await vi.runAllTimersAsync()
-
-    expect(first).toBe(true)
-    expect(second).toBe(true)
-    expect(executeX402Call).toHaveBeenCalledTimes(1)
-  })
-
-  it('only offers in-chat execution for the flows the chat owns', () => {
-    const copilot = render()
-
-    expect(copilot.canExecuteNextStep(recommendation())).toBe(true)
-    expect(
-      copilot.canExecuteNextStep(recommendation({ serviceId: 'arc-vault-yield-tax-report' }))
-    ).toBe(true)
-    expect(
-      copilot.canExecuteNextStep(
-        recommendation({
-          kind: 'open_service',
-          serviceId: 'arc-yield-vault-analytics',
-          params: { windowDays: '30' },
-        })
-      )
-    ).toBe(true)
-    expect(
-      copilot.canExecuteNextStep(
-        recommendation({ kind: 'open_service', serviceId: 'arc-cross-chain-gateway-flow-indexer' })
-      )
-    ).toBe(false)
-  })
-
-  it('declines a step the chat has no paid flow for, without spending', async () => {
-    const executed = await render().executeNextStep(
-      recommendation({
-        kind: 'open_service',
-        serviceId: 'arc-cross-chain-gateway-flow-indexer',
-        serviceName: 'Cross-Chain Gateway Flow Indexer',
-        params: { address: WALLET },
-        priceUsdc: 0.004,
-      })
-    )
-
-    expect(executed).toBe(false)
-    expect(executeX402Call).not.toHaveBeenCalled()
-  })
-
+describe('session enclave payment fallback (ARCO-09)', () => {
   it('falls back to primary external_eoa or ucw_eoa when an active Session Enclave holds 0 Gateway balance (ARCO-09)', async () => {
     const ENCLAVE_ADDR = '0x9999999999999999999999999999999999999999'
     harness.sessionConfig = {

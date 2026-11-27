@@ -29,9 +29,6 @@ vi.mock('../../services/platformStatsClient', () => ({
 vi.mock('../../services/latencyClient', () => ({
   fetchLatency: vi.fn(async () => null),
 }))
-vi.mock('../../services/reportDigestClient', () => ({
-  fetchReportDigests: vi.fn(async () => ({ address: '', digests: [] })),
-}))
 vi.mock('../../hooks/useX402Config', () => ({
   fetchX402RuntimeConfig: vi.fn(async () => ({})),
 }))
@@ -45,7 +42,6 @@ import {
   onchainPoolBalancesQueryKey,
   portfolioSnapshotQueryKey,
   providerLedgerQueryKey,
-  reportDigestsQueryKey,
   userPoolPositionsQueryKey,
   walletHistoryQueryKey,
 } from '../../config/queryKeys'
@@ -65,7 +61,6 @@ describe('query key alignment', () => {
 
     expect(onchainPoolBalancesQueryKey(`  ${MIXED_CASE}  `)).toEqual(['onchainPoolBalances', LOWER])
     expect(userPoolPositionsQueryKey(`  ${MIXED_CASE}  `)).toEqual(['userPoolPositions', LOWER])
-    expect(reportDigestsQueryKey(`  ${MIXED_CASE}  `)).toEqual(['x402', 'reportDigests', LOWER])
     expect(providerLedgerQueryKey(`  ${MIXED_CASE}  `)).toEqual(['x402', 'providerLedger', LOWER])
     expect(walletHistoryQueryKey(`  ${MIXED_CASE}  `)).toEqual(['walletHistory', LOWER])
     expect(portfolioSnapshotQueryKey(`  ${MIXED_CASE}  `)).toEqual(['portfolioSnapshot', LOWER])
@@ -107,7 +102,6 @@ describe('query key alignment', () => {
     const keys = prefetchQuery.mock.calls.map(([options]) => options.queryKey)
     expect(keys).toContainEqual(walletHistoryQueryKey(LOWER))
     expect(keys).toContainEqual(walletTestnetBalancesQueryKey(LOWER))
-    expect(keys).toContainEqual(reportDigestsQueryKey(LOWER))
     expect(keys).toContainEqual(portfolioSnapshotQueryKey(LOWER))
   })
 
@@ -121,7 +115,6 @@ describe('query key alignment', () => {
     expect(keys).toContainEqual(walletHistoryQueryKey(LOWER))
     expect(keys).toContainEqual(gatewayBalancesQueryKey(LOWER))
     expect(keys).toContainEqual(walletTestnetBalancesQueryKey(LOWER))
-    expect(keys).toContainEqual(reportDigestsQueryKey(LOWER))
     expect(keys).toContainEqual(portfolioSnapshotQueryKey(LOWER))
   })
 })

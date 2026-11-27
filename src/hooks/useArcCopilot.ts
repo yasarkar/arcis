@@ -3,7 +3,6 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { arcTestnet, ARC_METADATA } from '../config/arcChain'
 import { ARC_SERVICES_REGISTRY } from '../config/servicesRegistry'
 import { executeX402Call, hasVerifiedX402Settlement, isServiceDataAvailable, isSuccessfulX402ServiceResult } from '../services/x402Client'
-import { recommendationsForReport } from '../services/x402/nextActions'
 import { getLivePortfolioSnapshot } from '../services/portfolioContextService'
 import {
   getSessionKeyConfig,
@@ -30,7 +29,6 @@ import {
   formatRiskRegisterLines,
 } from '../services/x402/institutionalReport'
 import type { CopilotMessage, CopilotStepLog, CopilotActionPayload, CopilotActionType } from '../types/marketplace'
-import type { Recommendation } from '../services/x402/nextActions'
 import type { SessionKeyConfig, SessionActionType, InlineExecutionReceipt } from '../types/sessionKey'
 import { formatCopilotError, canceledActionTitle } from '../utils/errorUtils'
 import { formatX402FailureNote } from '../utils/x402FailureDiagnosis'
@@ -84,16 +82,6 @@ const formatUsdReportValue = (value: unknown): string =>
 
 const formatPctReportValue = (value: unknown): string =>
   typeof value === 'number' && Number.isFinite(value) ? `${value}%` : 'unavailable'
-
-/**
- * The paid flows this chat can run itself. A card's action kind only says how the
- * catalogue should open it; in-chat execution depends on having a flow for the service.
- */
-const CHAT_EXECUTABLE_SERVICES = new Set<string>([
-  'arc-portfolio-risk-exposure',
-  'arc-vault-yield-tax-report',
-  'arc-yield-vault-analytics',
-])
 
 /** A paid call is billable once Gateway accepts it, not only after final reconciliation. */
 const isPaidOrSettled = (result: any): boolean =>
@@ -198,8 +186,6 @@ export function useArcCopilot(
   }
   const pendingActionRef = useRef<CopilotActionPayload | null>(null)
   const queryBusyRef = useRef<boolean>(false)
-  // Guards a next-step card: a second click must not buy the same report twice.
-  const nextStepInFlightRef = useRef<boolean>(false)
   const queryGenerationRef = useRef<number>(0)
   const queryAbortRef = useRef<AbortController | null>(null)
   // Separate from network generations: protects cards that are still being streamed.
@@ -1083,11 +1069,6 @@ export function useArcCopilot(
       content: lines.join('\n\n'),
       timestamp: Date.now(),
       steps: [...steps],
-      nextSteps: recommendationsForReport(riskData?.report, {
-        serviceId: riskService.id,
-        requestParams: { address: targetAddress, includeGatewayBalance },
-        limit: 2,
-      }),
       ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
       actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
     })
@@ -1211,13 +1192,6 @@ export function useArcCopilot(
     }
 
     const measured = data?.measured && typeof data.measured === 'object' ? data.measured : {}
-    const narrative = data?.narrative && typeof data.narrative === 'object' ? data.narrative : null
-    const observations: string[] = Array.isArray(narrative?.observations)
-      ? narrative.observations.filter((item: unknown): item is string => typeof item === 'string')
-      : []
-    const narrativeRisks: string[] = Array.isArray(narrative?.risks)
-      ? narrative.risks.filter((item: unknown): item is string => typeof item === 'string')
-      : []
     const limitations: string[] = Array.isArray(data?.limitations) ? data.limitations : []
 
     const lines: string[] = []
@@ -1236,22 +1210,11 @@ export function useArcCopilot(
       )
     }
 
-    // The position report carries the institutional envelope; show its identity and graded
-    // findings (impairment, unrealized gain, disclosure limits) before the narrative.
     const positionReportHeader = formatInstitutionalReportHeader(data?.report)
     if (positionReportHeader) lines.push(positionReportHeader)
     const positionRegisterLines = formatRiskRegisterLines(data?.report, 4)
     if (positionRegisterLines.length > 0) lines.push(positionRegisterLines.join('\n'))
 
-    if (narrative) {
-      lines.push(
-        [
-          `<strong>Report narrative:</strong> ${narrative.headline || ''}`,
-          ...observations.map((observation) => `• ${observation}`),
-          ...(narrativeRisks.length > 0 ? [`<strong>Risks:</strong> ${narrativeRisks.join(' ')}`] : []),
-        ].join('\n')
-      )
-    }
     if (limitations.length > 0) {
       lines.push(`<strong>Limitations:</strong> ${limitations.join(' ')}`)
     }
@@ -1266,11 +1229,6 @@ export function useArcCopilot(
       content: lines.join('\n\n'),
       timestamp: Date.now(),
       steps: [...steps],
-      nextSteps: recommendationsForReport(data?.report, {
-        serviceId: service.id,
-        requestParams: { address: targetAddress },
-        limit: 2,
-      }),
       ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
       actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
     })
@@ -1434,11 +1392,6 @@ export function useArcCopilot(
       content: lines.join('\n\n'),
       timestamp: Date.now(),
       steps: [...steps],
-      nextSteps: recommendationsForReport(data?.report, {
-        serviceId: service.id,
-        requestParams: { riskPreference, walletAddress },
-        limit: 2,
-      }),
       ...(totalCost > 0 ? { totalCostUsdc: totalCost } : {}),
       actionPayload: { type: 'ai-services', title: 'Open AI Services Catalog', data: {} },
     })
@@ -2608,48 +2561,6 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
   }
 }
 
-  /**
-   * Runs a next-step card inside this chat, with the inputs the recommendation was derived for.
-   * A step the chat has no paid flow for returns false; the caller opens the catalogue instead.
-   * The card's action kind decides how the shelf opens it, not whether this chat can run it.
-   */
-  const canExecuteNextStep = (recommendation: Recommendation): boolean =>
-    CHAT_EXECUTABLE_SERVICES.has(recommendation.action.serviceId)
-
-  const executeNextStep = async (recommendation: Recommendation): Promise<boolean> => {
-    const { action } = recommendation
-
-    const params = action.params
-    const requestedAddress =
-      typeof params.address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(params.address)
-        ? params.address
-        : walletAddress
-
-    const run =
-      action.serviceId === 'arc-portfolio-risk-exposure'
-        ? () => runPaidPortfolioAnalysis(requestedAddress, params.includeGatewayBalance !== false)
-        : action.serviceId === 'arc-vault-yield-tax-report'
-          ? () => runPaidVaultReport(requestedAddress)
-          : action.serviceId === 'arc-yield-vault-analytics'
-            ? () => runPaidVaultAnalytics(params.riskPreference)
-            : null
-
-    if (!run) return false
-    // A card click spends real USDC; a second click while the first call is in flight must not
-    // buy the same report twice.
-    if (nextStepInFlightRef.current) return true
-
-    nextStepInFlightRef.current = true
-    setIsAnalyzing(true)
-    try {
-      await run()
-      return true
-    } finally {
-      nextStepInFlightRef.current = false
-      setIsAnalyzing(false)
-    }
-  }
-
   const clearChat = () => {
     invalidateDrafts()
     queryGenerationRef.current += 1
@@ -2675,8 +2586,6 @@ This model keeps Arcis sustainable while rewarding builders on Arc L1.`,
     revokeSession,
     toggleAutoExecute,
     executeQuery,
-    canExecuteNextStep,
-    executeNextStep,
     clearChat,
   }
 }
