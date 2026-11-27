@@ -34,7 +34,6 @@ import {
 } from '../src/config/x402/schemes.js'
 import { arePayoutAddressesConfirmed, auditManifestPayout } from '../src/config/x402/payouts.js'
 import { generateLiveServiceData } from '../src/services/aiServicesDataProvider.js'
-import { isLlmConfigured } from '../src/services/x402/llmEngine.js'
 import type {
   PaymentReceipt,
   ProviderLedger,
@@ -57,9 +56,7 @@ import {
   kvSetIfAbsent,
   kvUpdateProviderLedger,
 } from './_utils/redisStorage.js'
-import { digestFromServiceCall } from '../src/services/x402/reportDigest.js'
 import { readLatencySnapshot } from './_utils/x402Latency.js'
-import { readReportDigests, recordReportDigest } from './_utils/reportDigestStore.js'
 import { isX402PayoutConfigured, resolveX402TreasurySigner, sendProviderPayout } from './_utils/x402Payout.js'
 import { runReconcileSweep } from './_utils/x402Reconciler.js'
 import { reconcileSettlementByNonce } from './_utils/x402Settlement.js'
@@ -665,20 +662,6 @@ export async function GET(req: Request): Promise<Response> {
       },
     })
   }
-  // Per-wallet report memory. Private to the address that paid for the reports, so it is never
-  // cached: the caller is the shelf deciding what this wallet should be offered next.
-  if (/\/x402\/digests\/?$/.test(pathname)) {
-    const address = url.searchParams.get('address') || ''
-    // A wallet address is accepted in either case: a correctly checksummed mixed-case value and an
-    // all-lowercase one are the same account, and a caller that pasted a lowercase address must not
-    // be told its own wallet is invalid.
-    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
-      return new Response(JSON.stringify({ success: false, error: 'A valid wallet address is required', statusCode: 400 }), { status: 400, headers: { 'Content-Type': 'application/json' } })
-    }
-    const payer = safeChecksumAddress(address)
-    const store = await readReportDigests(payer)
-    return new Response(JSON.stringify({ success: true, address: payer, ...store }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' } })
-  }
   if (pathname.endsWith('/services') || pathname.endsWith('/manifests')) {
     let allManifests = [...OFFICIAL_MANIFESTS]
     try {
@@ -709,14 +692,10 @@ export async function GET(req: Request): Promise<Response> {
     }
     const payout = auditManifestPayout(manifest)
     const payoutConfirmed = arePayoutAddressesConfirmed()
-    const llmConfigured = manifest.engine === 'llm' ? isLlmConfigured() : null
     const checks = [
       { id: 'manifest', ok: true, detail: 'Service manifest is registered.' },
       { id: 'payout', ok: payout.usable, detail: payout.usable ? 'Provider payout address can receive USDC.' : payout.reason || 'Provider payout address is unusable.' },
       { id: 'payout-confirmation', ok: payoutConfirmed, detail: payoutConfirmed ? 'Operator confirmed the provider payout addresses.' : 'X402_PAYOUT_ADDRESSES_CONFIRMED is not set.' },
-      ...(llmConfigured === null
-        ? []
-        : [{ id: 'llm-credential', ok: llmConfigured, detail: llmConfigured ? 'Server LLM credential is configured.' : 'No OPENROUTER_API_KEY is configured; this service would answer UNAVAILABLE.' }]),
     ]
     const ready = checks.every((check) => check.ok)
     return new Response(
@@ -928,20 +907,6 @@ export async function POST(req: Request): Promise<Response> {
   if (!manifest) return new Response(JSON.stringify({ error: `Service "${serviceId}" not found`, statusCode: 404 }), { status: 404, headers: { 'Content-Type': 'application/json' } })
   const settlementUnavailable = createSettlementUnavailableResponse(manifest)
   if (settlementUnavailable) return settlementUnavailable
-  // An `llm` service spends server-credential tokens on every accepted call. Cap it per IP before
-  // any signature work so anonymous flooding cannot amplify provider cost.
-  if (manifest.engine === 'llm') {
-    const clientIp = extractTrustedClientIp(req)
-    const llmRate = await checkRateLimit(`x402-llm:${clientIp}`, 10, 60_000)
-    if (!llmRate.allowed) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Rate limit exceeded for LLM services. Retry after the window resets.',
-        statusCode: 429,
-        retryAfterSeconds: llmRate.retryAfterSeconds,
-      }), { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': String(llmRate.retryAfterSeconds) } })
-    }
-  }
   const requiredBaseUnits = usdcToBaseUnits(manifest.pricing.priceUsdc)
   const providerChecksum = safeChecksumAddress(manifest.provider.address)
   const verifyingContract = safeChecksumAddress((manifest.accepts[0]?.extra?.verifyingContract as string) || GATEWAY_CONTRACTS.testnet.gatewayWallet)
@@ -1180,16 +1145,6 @@ export async function POST(req: Request): Promise<Response> {
   serverNonceStore.add(nonceIdentity)
   serverUsedAuthorizationNonces.add(nonceIdentity)
   await kvSet(scopedReservationKey, `settlement_pending:${settlementRef}`, 30 * 24 * 60 * 60)
-  // Remember what this payer bought, so the catalogue can offer the next step from the report the
-  // call returned (including the parameters it was given). Only report services produce an
-  // envelope, and a digest failure never affects a call that already settled.
-  const reportDigest = digestFromServiceCall({
-    payer: payerAddress,
-    serviceId: manifest.id,
-    requestParams: requestPayload,
-    data: serviceData,
-  })
-  if (reportDigest) await recordReportDigest(reportDigest)
   const paymentReceipt: PaymentReceipt = { id: `rcpt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, idempotencyKey: `${manifest.id}:${payerAddress.toLowerCase()}:${resolvedNonce}`, payer: payerAddress, payTo: settlementRecipient, payerAddress, providerAddress: providerChecksum, serviceId: manifest.id, serviceVersion: manifest.version, amountUsdc: manifest.pricing.priceUsdc, authorizedMaxUsdc: manifest.pricing.priceUsdc, scheme: 'exact', network: X402_NETWORKS.CAIP2_ARC_TESTNET, authorizationSignature: signature, settlementRef, protocolFeeUsdc, providerEarnedUsdc, latencyMs: Math.round(performance.now() - startTime), status: 'settlement_pending', engineMode: 'gateway_batched', gasSponsored: false, createdAt: Date.now() }
   const executionReceipt: X402ExecutionReceipt = { statusCode: 200, success: true, data: serviceData, executionTimeMs: Math.round(performance.now() - startTime), costUsdc: manifest.pricing.priceUsdc, protocolFeeUsdc, providerEarnedUsdc, payment: paymentReceipt, actionablePayload, authProof: { signature, payerAddress, timestamp: Date.now() }, engineMode: 'gateway_batched', gasSponsored: false }
   return new Response(JSON.stringify(executionReceipt), { status: 200, headers: { 'Content-Type': 'application/json', 'PAYMENT-RESPONSE': Buffer.from(JSON.stringify(paymentReceipt)).toString('base64') } })

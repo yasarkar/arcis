@@ -76,8 +76,6 @@ export default function CopilotRuntime({
               onRevokeSession={copilot.revokeSession}
               onToggleAutoExecute={copilot.toggleAutoExecute}
               onExecuteInline={copilot.executeInlineAction}
-              onExecuteNextStep={copilot.executeNextStep}
-              canExecuteNextStep={copilot.canExecuteNextStep}
               canPayForCalls={copilot.canPayForCalls}
               onNavigateToTab={(tab: string) => onNavigateToTab(tab as any)}
             />

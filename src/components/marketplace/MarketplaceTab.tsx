@@ -428,7 +428,7 @@ export default function MarketplaceTab({
                   <InfoTooltip
                     position="top"
                     align="end"
-                    maxWidth={245}
+                    maxWidth={320}
                     iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--secondary-colors--sky-sync)] cursor-help transition-colors"
                     content={
                       <HeroStatTooltipContent
@@ -463,7 +463,7 @@ export default function MarketplaceTab({
                   <InfoTooltip
                     position="top"
                     align="end"
-                    maxWidth={245}
+                    maxWidth={320}
                     iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--earned-green)] cursor-help transition-colors"
                     content={
                       <HeroStatTooltipContent
@@ -497,7 +497,7 @@ export default function MarketplaceTab({
                   <InfoTooltip
                     position="top"
                     align="end"
-                    maxWidth={245}
+                    maxWidth={320}
                     iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--secondary-colors--blockstream-gold)] cursor-help transition-colors"
                     content={
                       <HeroStatTooltipContent
@@ -526,7 +526,7 @@ export default function MarketplaceTab({
                   <InfoTooltip
                     position="top"
                     align="end"
-                    maxWidth={245}
+                    maxWidth={320}
                     iconClassName="w-3.5 h-3.5 text-white/35 hover:text-[var(--purple-1)] cursor-help transition-colors"
                     content={
                       <HeroStatTooltipContent

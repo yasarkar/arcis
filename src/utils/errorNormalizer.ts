@@ -719,26 +719,7 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
     }
   }
 
-  // 7. Wallet / RPC Desync (-32603)
-  if (
-    lowMsg.includes('internal error was received') ||
-    lowMsg.includes('internalrpcerror') ||
-    lowMsg.includes('-32603') ||
-    (lowMsg.includes('transaction failed') && !lowMsg.includes('execution reverted:'))
-  ) {
-    const def = ERROR_DEFINITIONS.WALLET_RPC_DESYNC
-    return {
-      category: def.category,
-      code: 'WALLET_RPC_DESYNC',
-      title: def.title,
-      message: def.message,
-      isCanceled: false,
-      isRetryable: true,
-      rawMessage,
-    }
-  }
-
-  // 7b. RPC Rate / Request Limit Exceeded (Must be evaluated BEFORE Contract Revert!)
+  // 7. RPC Rate / Request Limit Exceeded (Must be evaluated BEFORE -32603 desync & Contract Revert!)
   if (
     (err as any)?.code === -32005 ||
     ((err as any)?.code === -32603 && (lowMsg.includes('rate limit') || lowMsg.includes('limit exceeded'))) ||
@@ -752,13 +733,32 @@ export function normalizeAppError(err: unknown, contextChain?: string): ArcisApp
     lowMsg.includes('rate limit') ||
     lowMsg.includes('rate-limited') ||
     lowMsg.includes('too many requests') ||
-      lowMsg.includes('too many errors') ||
-      lowMsg.includes('different rpc endpoint')
+    lowMsg.includes('too many errors') ||
+    lowMsg.includes('different rpc endpoint')
   ) {
     const def = ERROR_DEFINITIONS.RPC_LIMIT_EXCEEDED
     return {
       category: def.category,
       code: 'RPC_LIMIT_EXCEEDED',
+      title: def.title,
+      message: def.message,
+      isCanceled: false,
+      isRetryable: true,
+      rawMessage,
+    }
+  }
+
+  // 7b. Wallet / RPC Desync (-32603)
+  if (
+    lowMsg.includes('internal error was received') ||
+    lowMsg.includes('internalrpcerror') ||
+    lowMsg.includes('-32603') ||
+    (lowMsg.includes('transaction failed') && !lowMsg.includes('execution reverted:'))
+  ) {
+    const def = ERROR_DEFINITIONS.WALLET_RPC_DESYNC
+    return {
+      category: def.category,
+      code: 'WALLET_RPC_DESYNC',
       title: def.title,
       message: def.message,
       isCanceled: false,

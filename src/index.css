@@ -1513,10 +1513,10 @@ wcm-modal.open {
 
 /* ── AI Services Section Cards & Accessible Focus States ── */
 .ai-section-card {
-  border-radius: 20px;
-  border: 1px solid rgba(172, 198, 233, 0.12);
-  background: linear-gradient(160deg, rgba(16, 20, 35, 0.88) 0%, rgba(9, 12, 22, 0.94) 100%);
-  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+  border-radius: 16px;
+  border: 1px solid rgba(152, 150, 255, 0.16);
+  background: #0f111a;
+  box-shadow: 0 10px 28px -12px rgba(0, 0, 0, 0.55);
   overflow: hidden;
 }
 
